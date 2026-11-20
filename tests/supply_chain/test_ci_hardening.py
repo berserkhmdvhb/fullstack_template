@@ -263,3 +263,53 @@ def test_zizmor_runs_online_with_a_read_only_token() -> None:
     assert step["env"] == {"GH_TOKEN": "${{ github.token }}"}
     assert "--offline" not in step["run"]
     assert "--no-online-audits" not in step["run"]
+
+
+def test_hardening_lint_runs_with_a_hashed_pyyaml_venv() -> None:
+    from tests.supply_chain._workflows import workflow  # noqa: PLC0415
+
+    steps = workflow("ci.yml")["jobs"]["workflows"]["steps"]
+    names = [s.get("name") for s in steps]
+    lint = names.index("CI hardening lint")
+    install = next(
+        i for i, s in enumerate(steps) if "tools/requirements/ci-hardening.txt" in s.get("run", "")
+    )
+    assert install < lint
+    run = steps[install]["run"]
+    assert 'python -m venv "$RUNNER_TEMP/ci-hardening"' in run
+    assert "--require-hashes" in run
+    assert "--no-deps" in run
+    assert "GITHUB_PATH" not in run
+    path = steps[lint]["env"]["PATH"]
+    assert path.startswith("${{ runner.temp }}/ci-hardening/bin:")
+    assert "GITHUB_PATH" not in steps[lint].get("run", "")
+
+
+def test_release_plan_runs_with_a_hashed_pyyaml_venv() -> None:
+    from tests.supply_chain._workflows import workflow  # noqa: PLC0415
+
+    steps = workflow("release.yml")["jobs"]["plan"]["steps"]
+    plan = next(i for i, s in enumerate(steps) if s.get("id") == "plan")
+    install = next(
+        i for i, s in enumerate(steps) if "tools/requirements/ci-hardening.txt" in s.get("run", "")
+    )
+    assert install < plan
+    assert "--require-hashes" in steps[install]["run"]
+    assert "GITHUB_PATH" not in steps[install]["run"]
+    assert steps[plan]["env"]["PATH"].startswith("${{ runner.temp }}/ci-hardening/bin:")
+
+
+def test_ci_hardening_lock_pins_the_same_pyyaml_as_yamllint() -> None:
+    def pyyaml_block(name: str) -> tuple[list[str], str]:
+        text = (REPO / "tools/requirements" / name).read_text()
+        pkgs = re.findall(r"^([A-Za-z0-9_.-]+==\S+)", text, re.MULTILINE)
+        block = re.search(r"^pyyaml==.*?(?=^\S|\Z)", text, re.MULTILINE | re.DOTALL)
+        assert block, name
+        return pkgs, block.group(0)
+
+    pkgs, block = pyyaml_block("ci-hardening.txt")
+    _, ref_block = pyyaml_block("yamllint.txt")
+    assert pkgs == ["pyyaml==6.0.3"]
+    hashes = set(re.findall(r"--hash=sha256:[0-9a-f]{64}", block))
+    assert hashes
+    assert hashes == set(re.findall(r"--hash=sha256:[0-9a-f]{64}", ref_block))
