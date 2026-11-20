@@ -1,0 +1,233 @@
+name: Deploy
+
+# Call-only: ci.yml gates pull requests on the chart lint (reusable-chart.yml) and the release workflow
+# calls this one. helm-checks runs on every call. The deploy jobs run only when the release
+# workflow calls this one on a push, with image digests, and vars.DEPLOY_ENABLED is 'true'. A pull
+# request can never reach them. Without a cluster (DEPLOY_ENABLED unset) the run stays green and a
+# notice says the deploys were skipped.
+# Per environment variables (set on the GitHub Environment): DEPLOY_MODE (gke or kubeconfig, default gke),
+# GCP_WIF_PROVIDER, GCP_DEPLOYER_SA, GCP_PROJECT_ID, GKE_CLUSTER, GKE_LOCATION, and the secret KUBECONFIG_B64.
+# Repository variables: DEPLOY_ENABLED, DEPLOY_ENVS (comma list without spaces, e.g. dev,qa,production;
+# unset means all), SERVICE_NAME (the Helm release name, default is the chart name), HELM_TIMEOUT (default 5m).
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The computed version
+        type: string
+        required: false
+        default: ""
+      image_tag:
+        description: The immutable image tag
+        type: string
+        required: false
+        default: ""
+      immutable:
+        description: "'true' on a release tag"
+        type: string
+        required: false
+        default: ""
+      digests:
+        description: JSON object of <ID>_IMAGE_DIGEST keys to sha256 digests, from the release workflow
+        type: string
+        required: false
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: deploy-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SERVICE_NAME: ${{ vars.SERVICE_NAME || 'your-service-name' }}
+  CHART_DIR: charts/your-service-name
+  DEPLOY_IMAGES: backend,frontend,nginx
+  BACKEND_PORT: "8000"
+  FRONTEND_PORT: "3000"
+  API_VERSION: v1
+
+jobs:
+  # The chart lint is a reusable workflow so ci.yml can gate pull requests on it too.
+  helm-checks:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-chart.yml
+
+  deploy-notice:
+    name: Deploy status
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Say whether the deploys run
+        env:
+          DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED }}
+          HAVE_DIGESTS: ${{ inputs.digests != '' }}
+        run: |
+          if [[ "${DEPLOY_ENABLED}" != "true" ]]; then
+            reason="vars.DEPLOY_ENABLED is not 'true' (it is a fresh copy with no cluster configured); set it per wiki/platform-setup.md to deploy"
+          elif [[ "${HAVE_DIGESTS}" != "true" ]]; then
+            reason="this run produced no image digests (only the release workflow on main or a v* tag deploys)"
+          else
+            echo "- Deploys are enabled for this run." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::notice::Deploys skipped: ${reason}"
+          echo "- Deploys skipped: ${reason}" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-dev:
+    name: Deploy dev
+    needs: [helm-checks]
+    if: github.event_name == 'push' && inputs.digests != '' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: dev
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write  # Workload Identity Federation (OIDC token for the cloud login)
+    env:
+      DEPLOY_ENV: dev
+      HELM_TIMEOUT: ${{ vars.HELM_TIMEOUT || '5m' }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      DIGESTS: ${{ inputs.digests }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Helm and kubectl
+        run: |
+          scripts/tools.sh install helm4 kubectl
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cluster-access
+        with:
+          mode: ${{ vars.DEPLOY_MODE || 'gke' }}
+          wif_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_LOCATION }}
+          kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
+      # Digest-pinned upgrade, verify, smoke, and rollback to the recorded revision: all in the script.
+      - name: Deploy, verify and smoke test
+        run: bash scripts/ci/deploy-env.sh
+      - name: Upload the smoke report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: smoke-${{ env.DEPLOY_ENV }}
+          path: ${{ runner.temp }}/smoke-${{ env.DEPLOY_ENV }}.xml
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Remove the kubeconfig
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/kubeconfig"
+
+  deploy-qa:
+    name: Deploy qa
+    needs: [helm-checks, deploy-dev]
+    if: ${{ !cancelled() && github.event_name == 'push' && inputs.digests != '' && vars.DEPLOY_ENABLED == 'true' && needs.deploy-dev.result == 'success' && (vars.DEPLOY_ENVS == '' || contains(format(',{0},', vars.DEPLOY_ENVS), ',qa,')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: qa
+    concurrency:
+      group: deploy-qa
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write  # Workload Identity Federation (OIDC token for the cloud login)
+    env:
+      DEPLOY_ENV: qa
+      HELM_TIMEOUT: ${{ vars.HELM_TIMEOUT || '5m' }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      DIGESTS: ${{ inputs.digests }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Helm and kubectl
+        run: |
+          scripts/tools.sh install helm4 kubectl
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cluster-access
+        with:
+          mode: ${{ vars.DEPLOY_MODE || 'gke' }}
+          wif_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_LOCATION }}
+          kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
+      # Digest-pinned upgrade, verify, smoke, and rollback to the recorded revision: all in the script.
+      - name: Deploy, verify and smoke test
+        run: bash scripts/ci/deploy-env.sh
+      - name: Upload the smoke report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: smoke-${{ env.DEPLOY_ENV }}
+          path: ${{ runner.temp }}/smoke-${{ env.DEPLOY_ENV }}.xml
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Remove the kubeconfig
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/kubeconfig"
+
+  deploy-production:
+    name: Deploy production
+    needs: [helm-checks, deploy-dev, deploy-qa]
+    if: ${{ !cancelled() && github.event_name == 'push' && inputs.digests != '' && vars.DEPLOY_ENABLED == 'true' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v') && inputs.immutable == 'true' && needs.deploy-dev.result == 'success' && (needs.deploy-qa.result == 'success' || needs.deploy-qa.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write  # Workload Identity Federation (OIDC token for the cloud login)
+    env:
+      DEPLOY_ENV: production
+      HELM_TIMEOUT: ${{ vars.HELM_TIMEOUT || '5m' }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      DIGESTS: ${{ inputs.digests }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Helm and kubectl
+        run: |
+          scripts/tools.sh install helm4 kubectl
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cluster-access
+        with:
+          mode: ${{ vars.DEPLOY_MODE || 'gke' }}
+          wif_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_LOCATION }}
+          kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
+      # Digest-pinned upgrade, verify, smoke, and rollback to the recorded revision: all in the script.
+      - name: Deploy, verify and smoke test
+        run: bash scripts/ci/deploy-env.sh
+      - name: Upload the smoke report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: smoke-${{ env.DEPLOY_ENV }}
+          path: ${{ runner.temp }}/smoke-${{ env.DEPLOY_ENV }}.xml
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Remove the kubeconfig
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/kubeconfig"

@@ -1,0 +1,307 @@
+# =============================================================================
+# values.yaml — single source of truth for the your-service-name chart.
+#
+# Every environment overrides only what differs, via `values.<env>.yaml`
+# (`helm upgrade --install -f charts/your-service-name/values.dev.yaml`).
+# The defaults here mirror the Kustomize base (dev-like).
+#
+# NOTE ON COUPLING: resources.{requests,limits} here, hpa.* maxReplicas, and
+# quota.* must be raised TOGETHER for bigger clusters. The defaults are sized so
+# the worst-case HPA surge fits a single developer-laptop node (see quota note).
+# =============================================================================
+
+# Metadata-only label. NEVER enters a selector (selectors are stable identity
+# only — see templates/_helpers.tpl), which is what makes env switches idempotent.
+environment: dev
+
+global:
+  # Optional registry secret, e.g. [registry-credentials]. Empty => no pull secret
+  # (correct for local, where images resolve off the node daemon with a bare tag).
+  imagePullSecrets: []
+
+namespaces:
+  # App namespace is .Release.Namespace; the db and logging namespaces are derived:
+  #   db namespace      = <.Release.Namespace>-<dbSuffix>     (e.g. your-service-name-dev-db)
+  #   logging namespace = <.Release.Namespace>-<loggingSuffix> (e.g. your-service-name-dev-logging)
+  dbSuffix: db
+  loggingSuffix: logging
+
+serviceAccount:
+  name: your-service-name
+  automountServiceAccountToken: false
+
+# ---- Images ---------------------------------------------------------------
+# registry: "" => bare `repository:tag` (the local overlay trick: kubelet finds
+# the node-daemon image with imagePullPolicy: IfNotPresent). Set a registry for
+# dev/qa/production (e.g. registry.your-domain.example).
+#
+# digest: optional immutable pin. When set (production, via CI) the ref renders as
+# `repository@sha256:<digest>` instead of `repository:tag` (see chart.image). Keep
+# "" for dev/qa/local so those track the mutable tag.
+imagePullPolicy: IfNotPresent
+images:
+  backend:
+    repository: your-service-name-backend
+    tag: dev
+    registry: ""
+    digest: ""
+  frontend:
+    repository: your-service-name-frontend
+    tag: dev
+    registry: ""
+    digest: ""
+  nginx:
+    repository: your-service-name-nginx
+    tag: dev
+    registry: ""
+    digest: ""
+
+replicas:
+  backend: 2
+  frontend: 2
+  nginx: 1
+
+# Per-workload resources (kept faithful to the base manifests).
+resources:
+  backend:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  frontend:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  nginx:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+# ---- Config (non-secret) -> ConfigMap ------------------------------------
+# DB_HOST is intentionally absent: it is computed in the template from the db
+# namespace (templates/_helpers.tpl -> chart.dbHost) so it tracks the release.
+config:
+  ENV: dev
+  DEBUG: "false"
+  LOG_LEVEL: INFO
+  API_VERSION: "v1"
+  BACKEND_ENTRY: your_service_name.backend.main:app
+  BACKEND_HOST: "0.0.0.0"
+  BACKEND_PORT: "8000"
+  # Served by Uvicorn (one process per pod); Kubernetes scales PODS (HPA), not
+  # processes. BACKEND_GRACEFUL_TIMEOUT is how long Uvicorn drains in-flight
+  # requests + lifespan shutdown after SIGTERM before force-exiting.
+  BACKEND_GRACEFUL_TIMEOUT: "30"
+  FRONTEND_IMPL: react
+  FRONTEND_HOST: "0.0.0.0"
+  FRONTEND_PORT: "3000"
+  FRONTEND_ROOT: /app/frontend
+  FRONTEND_REACT_SERVER: /app/frontend/.next/standalone/server.js
+  NGINX_HOST: "0.0.0.0"
+  NGINX_PORT: "8081"
+  NGINX_CONF: /app/infra/nginx/nginx.conf
+  DB_PORT: "5432"
+  DB_NAME: service_template
+  LOG_DIR: /app/logs
+  LOG_REQUESTS: "false"
+  RATE_LIMIT_DEFAULT: 100/minute
+
+# ---- Secret (app) -> DB_USER / DB_PASSWORD / STATS_PASS -------------------
+# Dev/local defaults only. Production leaves these empty and supplies them via
+# sealed-secrets / External Secrets Operator / SOPS (see templates/secret.yaml).
+#
+# NO PASSWORDS ARE COMMITTED BELOW. DB_PASSWORD / STATS_PASS (and, for the
+# internal DB, the matching Postgres password) are supplied out-of-band:
+#   * local/manual: copy charts/your-service-name/values.secret.yaml.example to
+#     values.secret.yaml (gitignored) and pass it with an extra -f; or
+#   * CI: inject them as masked/protected variables into a generated values file.
+#
+# secrets.existingSecret: name of an EXTERNALLY-managed Opaque secret holding the
+# same keys (DB_USER / DB_PASSWORD / STATS_PASS). When set, the chart does NOT
+# create its own secret and the backend/migration reference this one instead —
+# so production can deploy without committing credentials. Empty => the chart
+# creates chart.fullname-secret from the values here (dev/local only).
+#
+# SINGLE SOURCE OF TRUTH: the internal Postgres password is sourced from
+# secrets.dbPassword too (templates/db-secret.yaml), so the app and the database
+# always share ONE value to keep in sync — not two.
+secrets:
+  existingSecret: ""
+  dbUser: app            # username (not secret) — safe to keep
+  dbPassword: ""         # <-- supply out-of-band (see note above)
+  statsPass: ""          # <-- supply out-of-band (see note above)
+
+# ---- Ingress --------------------------------------------------------------
+ingress:
+  enabled: true
+  className: nginx
+  issuer: letsencrypt-prod
+  tlsSecretName: your-service-name-tls
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    nginx.ingress.kubernetes.io/limit-rps-burst: "150"
+    nginx.ingress.kubernetes.io/limit-req-status-code: "429"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "5"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/enable-access-log: "true"
+  hosts:
+    api: api.your-domain.example
+    app: app.your-domain.example
+    root: your-service-name.your-domain.example
+
+# ---- Web Application Firewall (WAF) --------------------------------------
+# In-cluster Coraza WAF (Go, CNCF) running as an Envoy wasm plugin with the OWASP
+# Core Rule Set — a reverse proxy that fronts the API surface (/api, /docs,
+# /openapi.json), see templates/waf-proxy.yaml. OFF BY DEFAULT: waf.enabled=false
+# renders nothing extra and the Ingress routes straight to the backend, so there
+# is no side effect until you turn it on. Enable on QA/production to filter
+# SQLi/XSS/etc. at the edge. The UI/static tiers bypass it (not SQLi targets).
+#
+# ⚠ IMAGE PINS: the Envoy base image and the Coraza wasm plugin image below are
+# placeholders you MUST review and pin (+ digest, like images.*.digest) before any
+# real/production deploy. The wasm plugin is published by corazawaf on ghcr.io;
+# confirm the exact path/tag + the wasm-loading mechanism against a real
+# Envoy+Coraza run (see wiki/dast-waf-openshift-local-runbook.md).
+waf:
+  enabled: false
+  provider: coraza          # coraza — the only supported in-cluster engine today
+  owaspCrs: true            # load the OWASP CRS rule set embedded in the wasm
+  # Envoy base image: terminates the WAF listener and loads the Coraza wasm.
+  envoyImage:
+    repository: envoyproxy/envoy
+    tag: v1.31.0
+    digest: ""              # set to sha256:<digest> to pin immutably (production)
+  # Coraza wasm plugin image (the WAF engine itself, loaded by Envoy). ⚠ pin it.
+  wasmImage: "ghcr.io/corazawaf/wasm-plugins/coraza:latest"
+  service:
+    port: 8080
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+# ---- Autoscaling ----------------------------------------------------------
+# backend maxReplicas:6 is coupled to quota.limits.cpu:13 (fits a laptop node).
+hpa:
+  backend:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPU: 70
+    targetMemory: 80
+  frontend:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPU: 70
+    targetMemory: 80
+  # Static-asset tier. Off by default (low-variance load); production turns it on
+  # with minReplicas:2 so nginx is not a single point of failure (C-L12).
+  nginx:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPU: 70
+    targetMemory: 80
+
+# ---- Pod Disruption Budgets ----------------------------------------------
+pdb:
+  backend:
+    minAvailable: 1
+  frontend:
+    minAvailable: 1
+
+# ---- Namespace ResourceQuota + LimitRange --------------------------------
+# Quota caps are chosen to stay consistent with hpa.* maxReplicas AND to fit a
+# single developer-laptop node (14 CPU allocatable). Postgres is excluded — it
+# lives in the separate db namespace. Raise together with hpa maxReplicas.
+quota:
+  enabled: true
+  hard:
+    requests.cpu: "6"
+    requests.memory: 12Gi
+    limits.cpu: "13"
+    limits.memory: 20Gi
+    pods: "20"
+    services: "10"
+    persistentvolumeclaims: "5"
+    configmaps: "10"
+    secrets: "10"
+limitRange:
+  enabled: true
+  container:
+    default: { cpu: 500m, memory: 512Mi }
+    defaultRequest: { cpu: 100m, memory: 128Mi }
+    max: { cpu: "2", memory: 2Gi }
+    min: { cpu: 50m, memory: 64Mi }
+  pod:
+    max: { cpu: "4", memory: 4Gi }
+
+# ---- Database tier --------------------------------------------------------
+# Internal PostgreSQL for local/dev/qa. Production sets enabled=false and uses a
+# managed DB via externalDatabase below.
+postgresql:
+  enabled: true
+  image: postgres:16-alpine                 # the server image (StatefulSet)
+  # clientImage is the slim psql/pg_dump client used by the migration's
+  # wait-for-db init container and the backup/verify CronJobs — parameterized so
+  # the app images are not the only ones pinned (C-L7).
+  clientImage: postgres:16-alpine
+  storage:
+    className: standard
+    size: 10Gi
+  # Credentials the StatefulSet initializes the DB with. POSTGRES_USER /
+  # POSTGRES_DB are config here; the password is NOT set here — it is sourced from
+  # secrets.dbPassword (the app's DB_PASSWORD) so the app and DB always match.
+  # Supply secrets.dbPassword out-of-band (see the secrets block above).
+  auth:
+    user: app
+    database: service_template
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"        # daily 02:00 UTC
+    retentionDays: 30
+    storage:
+      className: standard
+      size: 50Gi
+
+# External managed DB (production). Used only when postgresql.enabled=false.
+externalDatabase:
+  enabled: false
+  host: "your-service-name-db.xxxxx.eu-west-1.rds.amazonaws.com"
+  port: 5432
+  name: service_template
+  user: app
+  # Leave empty in prod and point at a sealed-secrets / ESO / SOPS secret.
+  passwordSecret: ""
+  # Egress allow for the managed DB. Kubernetes NetworkPolicy is IP-based (FQDN
+  # egress needs Cilium or a service mesh), so list the managed DB's subnet here.
+  # The backend + migration :5432 egress allow renders only when this is non-empty
+  # AND the in-cluster Postgres is disabled; empty => default-deny egress stands.
+  egressCIDR: ""
+  # Whether the chart renders the placeholder external-DB connection Secret
+  # (chart.fullname-db-credentials). Default false: nothing consumes it, and it
+  # would occupy the name / ship a placeholder password you supply via
+  # sealed-secrets / ESO / SOPS instead. Set true only to emit the non-secret
+  # host/port/username/database stub.
+  manageSecret: false
+
+# ---- Observability (pluggable; off by default) ---------------------------
+# Prometheus Operator CRDs are required for serviceMonitor / prometheusRule.
+# Logging forwards to an external sink (ES/Loki/CloudWatch) — see the daemonset.
+monitoring:
+  serviceMonitor: false
+  prometheusRule: false
+  logging: false
+  # Must match the Prometheus Operator install's release label for the
+  # ServiceMonitor/PrometheusRule to be discovered.
+  prometheusRelease: prometheus
+  # Fluentd DaemonSet reads container stdout/stderr off the node (off by default).
+  # The node hostPath depends on the container runtime (CRI):
+  #   * containerd / CRI-O : /var/log/pods   (CRI standard; the kubelet also
+  #                          symlinks /var/log/containers/*.log into it, which the
+  #                          shipper's tail source reads)  <- default
+  #   * Docker (dockershim) : /var/lib/docker/containers
+  # Set containerLogHostPath to match your runtime so the shipper actually sees logs.
+  fluentd:
+    containerLogHostPath: /var/log/pods

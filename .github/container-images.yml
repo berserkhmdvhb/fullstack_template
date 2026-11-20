@@ -1,0 +1,40 @@
+# .github/container-images.yml — the image manifest (SSOT for which images build).
+# .github/scripts/container_matrix.py renders it for the workflows, and
+# infra/security/local/devsec.sh (local build) reads the same file. Minimal template ships
+# a backend, a frontend and an nginx image; add ids here to build more.
+# Placeholders: ${OWNER} and ${REPO} (lowercased GitHub owner and repository name) and
+# ${VERSION} (the computed version).
+schema_version: 1
+
+# Metadata only — container_matrix.py implements the policy: the VERSION file is the
+# baseline (0.0.0 when absent); a v* Git tag overrides it (channel prod).
+version:
+  # baseline: the committed VERSION file (0.0.0 when absent) — the human-meaningful
+  # baseline, NOT `git describe`.
+  baseline: version-file
+  # override: a Git tag replaces the baseline for an actual release (CHANNEL=prod).
+  override: git-tag
+  package_name: your_service_name
+
+images:
+  - id: backend
+    repository: "ghcr.io/${OWNER}/${REPO}/backend"
+    dockerfile: Dockerfile.backend
+    context: .
+    dockerfile_context: .
+    build_args:
+      VERSION: "${VERSION}"
+  - id: frontend
+    repository: "ghcr.io/${OWNER}/${REPO}/frontend"
+    dockerfile: Dockerfile.frontend
+    context: .
+    dockerfile_context: .
+    build_args:
+      VERSION: "${VERSION}"
+  - id: nginx
+    repository: "ghcr.io/${OWNER}/${REPO}/nginx"
+    dockerfile: Dockerfile.nginx
+    context: .
+    dockerfile_context: .
+    build_args:
+      VERSION: "${VERSION}"

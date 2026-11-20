@@ -1,0 +1,460 @@
+/* styles/globals.css */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ───────────────────────────────────────────
+   THEME VARIABLES
+   ─────────────────────────────────────────── */
+:root,
+html.light {
+  /* Light mode palette */
+  --color-text-primary: #111827;
+  --color-text-secondary: #374151;
+  --color-text-tertiary: #6b7280;
+  --color-text-muted: #374151;
+
+  --color-surface: #ffffff;
+  --color-surface-alt: #f9fafb;
+  --color-surface-weak: #f3f4f6;
+  --color-surface-strong: #ffffff;
+
+  --color-border-subtle: rgba(0, 0, 0, 0.06);
+  --color-border-weak: rgba(0, 0, 0, 0.1);
+  --color-border-strong: rgba(0, 0, 0, 0.15);
+
+  --color-bg-main: #f0f2f5;
+  --color-bg-card: #ffffff;
+
+  --color-accent-blue: #2563eb;
+  --color-accent-blue-hover: #1d4ed8;
+  --color-accent-purple: #8b5cf6;
+  --color-accent-green: #22c55e;
+  --color-accent-orange: #f97316;
+  --color-accent-pink: #ec4899;
+}
+
+html.dark {
+  /* Dark mode palette (default) — optimized for contrast and readability */
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #e2e8f0;
+  --color-text-tertiary: #cbd5e1;
+  --color-text-muted: #e2e8f0;
+
+  --color-surface: #1e293b;
+  --color-surface-alt: #334155;
+  --color-surface-weak: #475569;
+  --color-surface-strong: #0f172a;
+
+  --color-border-subtle: rgba(255, 255, 255, 0.08);
+  --color-border-weak: rgba(255, 255, 255, 0.14);
+  --color-border-strong: rgba(255, 255, 255, 0.2);
+
+  --color-bg-main: #020617;
+  --color-bg-card: #1e293b;
+
+  --color-accent-blue: #3b82f6;
+  --color-accent-blue-hover: #2563eb;
+  --color-accent-purple: #a78bfa;
+  --color-accent-green: #4ade80;
+  --color-accent-orange: #fb923c;
+  --color-accent-pink: #f472b6;
+}
+
+/* ───────────────────────────────────────────
+   GLOBAL BACKGROUND
+   ─────────────────────────────────────────── */
+html,
+body {
+  min-height: 100%;
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+html.dark body {
+  background: var(--color-bg-main);
+  color: var(--color-text-primary);
+}
+
+html.light body {
+  background: var(--color-bg-main);
+  color: var(--color-text-primary);
+}
+
+/* ───────────────────────────────────────────
+   GRID OVERLAY (dark mode only)
+   ─────────────────────────────────────────── */
+html.dark body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.03;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+  z-index: 0;
+}
+
+/* ───────────────────────────────────────────
+   SHARED UI UTILITIES
+   ─────────────────────────────────────────── */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(8px);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+html.dark .card {
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.3),
+    0 1px 2px rgba(0, 0, 0, 0.2);
+  border-color: var(--color-border-weak);
+}
+
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-weak);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+html.dark .panel {
+  border-color: var(--color-border-weak);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Ensure bg-surface elements inside panels also get dark background */
+html.dark .bg-surface {
+  background-color: var(--color-surface) !important;
+}
+
+html.dark .bg-surfaceWeak {
+  background-color: var(--color-surface-weak) !important;
+}
+
+html.dark .bg-surfaceStrong {
+  background-color: var(--color-surface-strong) !important;
+}
+
+.input-base,
+.input {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-weak);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  color: var(--color-text-primary);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+html.dark .input {
+  border-color: var(--color-border-strong);
+}
+
+.input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+html.dark .input::placeholder {
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}
+
+.input:focus-visible {
+  outline: none;
+  border-color: var(--color-accent-blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+html.dark .input:focus-visible {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
+.section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.link {
+  color: var(--color-accent-blue);
+  text-decoration: none;
+  transition:
+    color 0.15s,
+    text-decoration-color 0.15s;
+}
+
+.link:hover {
+  text-decoration: underline;
+  color: var(--color-accent-blue-hover);
+}
+
+.focus-ring:focus-visible {
+  outline: none;
+  ring: 2px;
+  ring-color: var(--color-accent-blue);
+}
+
+/* Screen-reader only */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* Inline spinner */
+.spinner-xs {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 9999px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: rgba(255, 255, 255, 0.9);
+  animation: spin 0.6s linear infinite;
+}
+
+html.light .spinner-xs {
+  border-color: rgba(0, 0, 0, 0.15);
+  border-top-color: var(--color-accent-blue);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ───────────────────────────────────────────
+   TABLE STYLES
+   ─────────────────────────────────────────── */
+.table-row-hover {
+  transition: background-color 0.15s ease;
+}
+
+.table-row-hover:hover {
+  background: var(--color-surface-weak);
+}
+
+html.dark .table-row-hover:hover {
+  background: var(--color-surface-alt);
+}
+
+.table-cell {
+  padding: 0.75rem 1rem;
+}
+
+/* ───────────────────────────────────────────
+   HEADER
+   ─────────────────────────────────────────── */
+header {
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+/* ───────────────────────────────────────────
+   GLOBAL BUTTON COMPOSITION
+   ─────────────────────────────────────────── */
+@layer components {
+  .btn-base {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    user-select: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    transition: transform 0.15s ease-out;
+  }
+
+  .btn-base:focus-visible {
+    outline: none;
+    ring: 2px;
+    ring-color: var(--color-accent-blue);
+  }
+
+  .btn-press {
+    transition: transform 0.15s ease-out;
+  }
+
+  .btn-press:active {
+    transform: scale(0.97);
+  }
+
+  .btn-primary {
+    background: var(--color-accent-blue);
+    color: #ffffff;
+    transition:
+      background-color 0.15s,
+      transform 0.15s;
+  }
+
+  .btn-primary:hover {
+    background: var(--color-accent-blue-hover);
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .btn-neutral {
+    border: 1px solid var(--color-border-subtle);
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+    transition:
+      background-color 0.15s,
+      border-color 0.15s,
+      transform 0.15s;
+  }
+
+  .btn-neutral:hover {
+    background: var(--color-surface-weak);
+    border-color: var(--color-border-weak);
+  }
+
+  .btn-neutral:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .btn-danger {
+    background: #ef4444;
+    color: #ffffff;
+    transition:
+      background-color 0.15s,
+      transform 0.15s;
+  }
+
+  .btn-danger:hover {
+    background: #dc2626;
+  }
+
+  .btn-danger:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--color-text-secondary);
+    transition:
+      background-color 0.15s,
+      color 0.15s;
+  }
+
+  .btn-ghost:hover {
+    background: var(--color-surface-weak);
+    color: var(--color-text-primary);
+  }
+
+  /* btn-danger overrides btn-ghost color when both classes present */
+  .btn-ghost.btn-danger {
+    color: #ffffff;
+  }
+
+  .btn-ghost.btn-danger:hover {
+    color: #ffffff;
+    background: #dc2626;
+  }
+
+  .btn-sm {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+  }
+
+  .btn-primary[aria-pressed='true'],
+  .btn-neutral[aria-pressed='true'] {
+    transform: scale(0.97);
+  }
+}
+
+/* ───────────────────────────────────────────
+   BADGE / STATUS STYLES
+   ─────────────────────────────────────────── */
+.badge-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.badge-status::before {
+  content: '';
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.badge-status.active::before {
+  background-color: #22c55e;
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
+}
+
+.badge-status.inactive::before {
+  background-color: #ef4444;
+  box-shadow: 0 0 4px rgba(239, 68, 68, 0.4);
+}
+
+/* ───────────────────────────────────────────
+   SKELETON LOADING
+   ─────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-weak) 25%,
+    var(--color-surface-alt) 50%,
+    var(--color-surface-weak) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+  border-radius: 0.375rem;
+}
+
+html.dark .skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-weak) 25%,
+    var(--color-surface) 50%,
+    var(--color-surface-weak) 75%
+  );
+  background-size: 200% 100%;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}

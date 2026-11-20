@@ -1,0 +1,44 @@
+# Local (minikube/kind on a laptop). Bare image tags so the kubelet resolves the
+# images built into the node daemon (imagePullPolicy: IfNotPresent) — no registry.
+environment: local
+
+imagePullPolicy: IfNotPresent
+images:
+  backend:  { repository: your-service-name-backend,  tag: local, registry: "" }
+  frontend: { repository: your-service-name-frontend, tag: local, registry: "" }
+  nginx:    { repository: your-service-name-nginx,    tag: local, registry: "" }
+
+replicas:
+  backend: 1
+  frontend: 1
+
+# Mirror the single-replica intent in the HPA too: minReplicas:1, else the base
+# HPA min (2) would scale the pods back up and re-introduce the replica-drift bug
+# (E2E-FINDINGS #4). qa/production keep minReplicas:2 and are unaffected.
+hpa:
+  backend:  { minReplicas: 1 }
+  frontend: { minReplicas: 1 }
+
+config:
+  ENV: development
+  DEBUG: "true"
+  LOG_LEVEL: DEBUG
+  # Same-origin, versioned: the browser calls /api/v1 and the Next.js server
+  # proxies it to BACKEND_URL (set above in the ConfigMap). Relative => one
+  # bundle for every environment; no build-time API URL to inject per env.
+  NEXT_PUBLIC_API_URL: "/api/v1"
+
+# No passwords committed (C-M1). Supply DB_PASSWORD / STATS_PASS out-of-band:
+# copy charts/your-service-name/values.secret.yaml.example -> values.secret.yaml
+# (gitignored) and pass it with an extra `-f`. This DB password is also the
+# internal Postgres password (single source), so it is the one value to provide.
+
+ingress:
+  hosts:
+    api: local-api.your-service.test
+    app: local-app.your-service.test
+    root: local.your-service.test
+  tlsSecretName: your-service-name-local-tls
+
+postgresql:
+  enabled: true

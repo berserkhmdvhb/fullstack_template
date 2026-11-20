@@ -1,0 +1,298 @@
+name: Security
+
+# Called from ci.yml on every run (no paths gate), weekly on its own, and by hand.
+# Blocking: CodeQL, dependency review (pull requests), gitleaks.
+# Advisory: pip-audit, osv-scanner, guarddog, checkov, kubescape. Findings become a warning and a summary
+# line; only a tool error fails the job. The scanners run through the wrappers in infra/security/local/.
+on:
+  workflow_call:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+# A literal prefix: ${{ github.workflow }} resolves to the caller's name when this runs as a called workflow.
+concurrency:
+  group: security-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+env:
+  SEC_OUTPUT_DIR: output/security
+
+jobs:
+  # Blocking: the job fails on an analysis error; findings are enforced by the code scanning ruleset.
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    if: vars.CODE_SECURITY != 'off'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write  # upload SARIF to code scanning
+      actions: read  # code scanning reads workflow run metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+
+  # Blocking, pull requests only. The licence allowlist is derived from infra/security/grant.yaml (the one
+  # source): its SPDX identifiers only, because the action rejects the free-text names that file also lists.
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request' && vars.CODE_SECURITY != 'off'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install yq
+        run: |
+          scripts/tools.sh install yq
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - name: Read the licence allowlist from grant.yaml
+        id: licences
+        run: |
+          set -o pipefail
+          list="$(yq -r '.allow[] | select(test("^[A-Za-z0-9.+-]+$"))' infra/security/grant.yaml | paste -sd, -)"
+          [[ -n "$list" ]] || { echo "::error::no SPDX licences derived from infra/security/grant.yaml"; exit 1; }
+          echo "allow=${list}" >> "$GITHUB_OUTPUT"
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          allow-licenses: ${{ steps.licences.outputs.allow }}
+          comment-summary-in-pr: never
+
+  # Opt-out for a private copy without GitHub code security: set the repository variable CODE_SECURITY to
+  # `off` and CodeQL and dependency review skip. This job says so; unset (the default) means they run.
+  code-security-off:
+    name: Code security checks skipped
+    if: vars.CODE_SECURITY == 'off'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - run: |
+          echo "::notice::CodeQL and dependency review are skipped because the repository variable CODE_SECURITY is 'off'"
+          echo "- CodeQL and dependency review: skipped (CODE_SECURITY=off; they need GitHub code security, free on public repositories)" >> "$GITHUB_STEP_SUMMARY"
+
+  # Blocking. The pinned CLI, not the gitleaks action (which needs a licence for organisations).
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks
+        run: |
+          scripts/tools.sh install gitleaks
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      # A pull request scans only its own commits; any other event scans the full history.
+      - name: Scan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            gitleaks git --redact --no-banner --log-opts="${BASE_SHA}..${HEAD_SHA}" .
+          else
+            gitleaks git --redact --no-banner .
+          fi
+
+  # Advisory. pip-audit has no SARIF output and no wrapper, so it runs from a hash-pinned requirements file
+  # and its JSON is converted to a minimal SARIF here.
+  pip-audit:
+    name: pip-audit (advisory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write  # upload SARIF to code scanning
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-backend
+      - name: Audit the installed environment
+        run: |
+          mkdir -p "$SEC_OUTPUT_DIR/pip-audit"
+          python -m venv "$RUNNER_TEMP/pip-audit"
+          "$RUNNER_TEMP/pip-audit/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pip-audit.txt
+          site="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          json="$SEC_OUTPUT_DIR/pip-audit/pip-audit.json"
+          rc=0
+          "$RUNNER_TEMP/pip-audit/bin/pip-audit" --path "$site" -f json -o "$json" || rc=$?
+          if ! jq -e '.dependencies' "$json" >/dev/null 2>&1; then
+            echo "::error::pip-audit failed to produce a report (exit ${rc})"
+            echo "- pip-audit: tool error (exit ${rc})" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          jq '{version: "2.1.0", runs: [{
+                tool: {driver: {name: "pip-audit", rules: []}},
+                results: [.dependencies[] | . as $d | .vulns[]? | {
+                  ruleId: .id,
+                  level: "warning",
+                  message: {text: "\($d.name) \($d.version): \(.id) (fixed in: \(.fix_versions | join(", ") | if . == "" then "no fix" else . end))"},
+                  locations: [{physicalLocation: {artifactLocation: {uri: "pyproject.toml"}, region: {startLine: 1}}}]
+                }]
+              }]}' "$json" > "$SEC_OUTPUT_DIR/pip-audit/pip-audit.sarif"
+          count="$(jq '[.runs[].results[]] | length' "$SEC_OUTPUT_DIR/pip-audit/pip-audit.sarif")"
+          if (( count > 0 )); then
+            echo "::warning::pip-audit found ${count} vulnerable package version(s) (advisory)"
+            echo "- pip-audit: ${count} finding(s) (advisory)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- pip-audit: no findings" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload to code scanning
+        id: sarif
+        if: always() && hashFiles('output/security/pip-audit/pip-audit.sarif') != ''
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: ${{ env.SEC_OUTPUT_DIR }}/pip-audit/pip-audit.sarif
+          category: pip-audit
+      - name: Warn when code scanning is unavailable
+        if: always() && steps.sarif.outcome == 'failure'
+        run: |
+          echo "::warning::code scanning is not available; the pip-audit findings are in the pip-audit artifact"
+          echo "- SARIF upload skipped: code scanning not available; see the pip-audit artifact" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: pip-audit
+          path: ${{ env.SEC_OUTPUT_DIR }}/pip-audit/
+          retention-days: 90
+
+  # Advisory: one leg per scanner, each calling its wrapper in infra/security/local/ (pinned tool, writes
+  # <dir>/<name>.sarif). A SKIPPED wrapper verdict is a warning; a non-zero wrapper exit is the tool error.
+  advisory:
+    name: ${{ matrix.id }} (advisory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write  # upload SARIF to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: osv
+            category: osv-scanner
+            script: scan-osv.sh
+            sarif: osv/osv.sarif
+          - id: guarddog
+            category: guarddog
+            script: scan-malware-heuristic.sh
+            sarif: malware-heuristic/malware-heuristic.sarif
+          - id: checkov
+            category: checkov
+            script: scan-iac.sh
+            sarif: iac/iac.sarif
+          - id: kubescape
+            category: kubescape
+            script: scan-k8s.sh
+            sarif: k8s/k8s.sarif
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: matrix.id == 'guarddog' || matrix.id == 'checkov'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Install the pinned tools
+        env:
+          TOOL_ID: ${{ matrix.id }}
+        run: |
+          # Outside the workspace, so the scanners never read the tool archives.
+          export TOOLS_DIR="${RUNNER_TEMP}/tools"
+          scripts/tools.sh install yq
+          mkdir -p "${RUNNER_TEMP}/bin"
+          echo "${TOOLS_DIR}/bin" >> "$GITHUB_PATH"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
+          export PATH="${TOOLS_DIR}/bin:$PATH"
+          case "$TOOL_ID" in
+            osv) bash infra/security/tools-install.sh osv-scanner "$(yq -r '.tools.osv-scanner' infra/security/config.yaml)" "${RUNNER_TEMP}/bin" ;;
+            kubescape) bash infra/security/tools-install.sh kubescape "$(yq -r '.tools.kubescape' infra/security/config.yaml)" "${RUNNER_TEMP}/bin" ;;
+            guarddog) sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends libyara-dev libgit2-dev build-essential ;;
+          esac
+      - name: Scan
+        env:
+          TOOL_ID: ${{ matrix.id }}
+          SCRIPT: ${{ matrix.script }}
+          SARIF: ${{ matrix.sarif }}
+        run: |
+          rc=0
+          bash "infra/security/local/${SCRIPT}" "$SEC_OUTPUT_DIR" "$PWD" || rc=$?
+          if (( rc != 0 )); then
+            echo "::error::${TOOL_ID} failed with a tool error (exit ${rc})"
+            echo "- ${TOOL_ID}: tool error (exit ${rc})" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          report="$(dirname "$SEC_OUTPUT_DIR/$SARIF")/report.json"
+          status="$(jq -r 'if type == "object" then (.status // empty) else empty end' "$report" 2>/dev/null || true)"
+          count="$(jq '[.runs[]?.results[]?] | length' "$SEC_OUTPUT_DIR/$SARIF" 2>/dev/null || echo 0)"
+          if [[ "$status" == "SKIPPED" ]]; then
+            echo "::warning::${TOOL_ID} was skipped (see the report); nothing was scanned"
+            echo "- ${TOOL_ID}: SKIPPED" >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$status" == "RED" ]] || (( count > 0 )); then
+            echo "::warning::${TOOL_ID} reported findings (advisory); see the ${TOOL_ID} artifact"
+            echo "- ${TOOL_ID}: findings (advisory)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- ${TOOL_ID}: no findings" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      # A SKIPPED wrapper leaves {"runs":[]}; uploading that only prints a misleading warning.
+      - name: Check the SARIF has runs
+        id: runs
+        if: always()
+        env:
+          TOOL_ID: ${{ matrix.id }}
+          SARIF: ${{ matrix.sarif }}
+        run: |
+          if [[ -s "$SEC_OUTPUT_DIR/$SARIF" ]] && jq -e '(.runs | length) > 0' "$SEC_OUTPUT_DIR/$SARIF" >/dev/null 2>&1; then
+            echo "has_runs=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_runs=false" >> "$GITHUB_OUTPUT"
+            echo "- ${TOOL_ID}: SKIPPED the SARIF upload (the report has no runs)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload to code scanning
+        id: sarif
+        if: always() && steps.runs.outputs.has_runs == 'true' && hashFiles(format('{0}/{1}', env.SEC_OUTPUT_DIR, matrix.sarif)) != ''
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: ${{ env.SEC_OUTPUT_DIR }}/${{ matrix.sarif }}
+          category: ${{ matrix.category }}
+      - name: Warn when code scanning is unavailable
+        if: always() && steps.sarif.outcome == 'failure'
+        env:
+          TOOL_ID: ${{ matrix.id }}
+        run: |
+          echo "::warning::code scanning is not available for ${TOOL_ID}; the findings are in the ${TOOL_ID} artifact"
+          echo "- SARIF upload skipped: code scanning not available; see the ${TOOL_ID} artifact" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: ${{ matrix.id }}
+          path: ${{ env.SEC_OUTPUT_DIR }}/
+          retention-days: 90

@@ -1,0 +1,126 @@
+name: Deploy operations
+
+# Manual operations on one environment's Helm release: roll back (needs the word ROLLBACK), show the
+# revision history, or report on it. Cleanup only reports; it deletes nothing. Check proves the
+# keyless login and the deployer's rights (read-only; it needs no confirmation).
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: The environment to operate on
+        type: choice
+        options: [dev, qa, production]
+        required: true
+      operation:
+        description: What to do
+        type: choice
+        options: [rollback, history, cleanup, check]
+        required: true
+      revision:
+        description: Rollback target revision (a number); empty means the previous one
+        type: string
+        required: false
+        default: ""
+      confirm:
+        description: Type ROLLBACK to allow a rollback
+        type: string
+        required: false
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: deploy-ops-${{ github.ref }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SERVICE_NAME: ${{ vars.SERVICE_NAME || 'your-service-name' }}
+
+jobs:
+  ops:
+    name: ${{ inputs.operation }} (${{ inputs.environment }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    # The same lock as the deploy jobs of this environment, so an operation never interleaves with a deploy.
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write  # Workload Identity Federation (OIDC token for the cloud login)
+    env:
+      DEPLOY_ENV: ${{ inputs.environment }}
+      HELM_TIMEOUT: ${{ vars.HELM_TIMEOUT || '5m' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the environment
+        run: |
+          case "${DEPLOY_ENV}" in dev|qa|production) ;; *) echo "::error::unknown environment"; exit 1 ;; esac
+      - name: Validate the rollback request
+        if: inputs.operation == 'rollback'
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          REVISION: ${{ inputs.revision }}
+        run: |
+          if [[ "${CONFIRM}" != "ROLLBACK" ]]; then
+            echo "::error::a rollback needs the input confirm set to ROLLBACK"
+            exit 1
+          fi
+          if [[ -n "${REVISION}" && ! "${REVISION}" =~ ^[0-9]+$ ]]; then
+            echo "::error::revision must be a number"
+            exit 1
+          fi
+      - name: Install the pinned Helm and kubectl
+        run: |
+          scripts/tools.sh install helm4 kubectl
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cluster-access
+        with:
+          mode: ${{ vars.DEPLOY_MODE || 'gke' }}
+          wif_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_LOCATION }}
+          kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
+      # Read-only: proves the login, the cluster address and what the deployer may do in the namespace.
+      - name: Check cluster access
+        if: inputs.operation == 'check'
+        run: |
+          kubectl version
+          kubectl auth can-i --list -n "${SERVICE_NAME}-${DEPLOY_ENV}"
+      - name: Show the history
+        if: inputs.operation == 'history'
+        run: helm history "${SERVICE_NAME}" -n "${SERVICE_NAME}-${DEPLOY_ENV}"
+      - name: Roll back
+        if: inputs.operation == 'rollback' && inputs.confirm == 'ROLLBACK'
+        env:
+          REVISION: ${{ inputs.revision }}
+        run: |
+          NAMESPACE="${SERVICE_NAME}-${DEPLOY_ENV}"
+          helm history "${SERVICE_NAME}" -n "${NAMESPACE}" --max 5
+          helm rollback "${SERVICE_NAME}" ${REVISION:+"${REVISION}"} -n "${NAMESPACE}" --wait --timeout "${HELM_TIMEOUT}"
+          helm history "${SERVICE_NAME}" -n "${NAMESPACE}" --max 5
+          echo "- Rolled ${SERVICE_NAME} back in ${DEPLOY_ENV} (revision: ${REVISION:-previous})" >> "$GITHUB_STEP_SUMMARY"
+      # A report only: Helm has no per-revision removal, and this job changes nothing.
+      - name: Cleanup report
+        if: inputs.operation == 'cleanup'
+        env:
+          KEEP: ${{ vars.HISTORY_KEEP || '5' }}
+        run: |
+          NAMESPACE="${SERVICE_NAME}-${DEPLOY_ENV}"
+          count="$(helm history "${SERVICE_NAME}" -n "${NAMESPACE}" -o json | jq length)"
+          echo "- ${SERVICE_NAME} in ${DEPLOY_ENV} has ${count} revisions (threshold ${KEEP})" >> "$GITHUB_STEP_SUMMARY"
+          if (( count > KEEP )); then
+            echo "::warning::${count} revisions exceed ${KEEP}; Helm has no per-revision removal, so this report changes nothing"
+          fi
+      - name: Remove the kubeconfig
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/kubeconfig"

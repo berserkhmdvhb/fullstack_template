@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+
+# Build output (regenerated during build)
+.next/
+out/
+
+# Testing
+test-results/
+playwright-report/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Env
+.env
+.env.*
+.env.local
+.env.production
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Backend (not needed for frontend build)
+src/
+tests/
+pyproject.toml
+alembic.ini
+
+# CI/CD
+.github/
+
+# K8s
+k8s/
+
+# Misc
+*.md
+LICENSE*

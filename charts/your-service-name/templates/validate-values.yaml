@@ -1,0 +1,16 @@
+{{- /*
+  Fail-loud value validation. Renders nothing when values are sane; aborts the
+  render (helm lint / helm template / helm upgrade all fail) when they are not.
+  This is deliberate instead of a silent misconfig that only shows up as a pod
+  that can't reach its database.
+
+  Production selects a managed DB (postgresql.enabled=false + externalDatabase
+  enabled). Kubernetes NetworkPolicy is IP-based (FQDN egress needs Cilium/a
+  mesh), so the backend + migration can only reach the DB if externalDatabase
+  .egressCIDR names the managed DB's subnet. An empty egressCIDR => the default
+  -deny egress stands and the DB is silently unreachable while /health looks
+  green. Fail here so the mistake surfaces at render time, not at 3am.
+*/ -}}
+{{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.enabled (eq (toString .Values.externalDatabase.egressCIDR) "") }}
+{{- fail (printf "%s: externalDatabase is selected (postgresql.enabled=false) but externalDatabase.egressCIDR is empty. Set it to the managed DB's VPC subnet (e.g. your RDS CIDR) in values.production.yaml so the :5432 egress allow renders; empty => default-deny egress strands the DB." (include "chart.fullname" .)) }}
+{{- end }}

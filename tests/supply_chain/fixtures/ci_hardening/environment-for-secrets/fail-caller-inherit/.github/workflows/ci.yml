@@ -1,0 +1,7 @@
+name: T
+on: [push]
+permissions: {}
+jobs:
+  call:
+    uses: ./.github/workflows/other.yml
+    secrets: inherit

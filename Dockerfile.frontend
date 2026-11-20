@@ -1,0 +1,102 @@
+# your-service-name — adaptable service template (see wiki/getting-started.md)
+# Frontend — Next.js (React)
+# ===================================================================
+
+#################################
+# STAGE 1: Build
+#################################
+FROM node:22.23.4-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS builder
+
+WORKDIR /app
+
+# Builder needs the devDeps (typescript for `next build`, openapi-typescript for
+# codegen); `NODE_ENV=production` would make `npm ci` omit them, so include them
+# explicitly. Also skip the one install-time download the build never uses
+# (Playwright browsers) to shrink install surface and speed the build.
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
+# Install dependencies (devDeps included — see note above)
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --include=dev
+
+# Copy source and build
+COPY frontend/ ./
+# Regenerate API types from the committed openapi.json before building (K-M2).
+# `prebuild` normally runs `openapi-gen`, but we invoke `npx next build` directly
+# below, which skips npm lifecycle hooks — so run the generator explicitly to keep
+# the image from shipping stale generated types after an openapi.json change.
+RUN npm run openapi-gen
+RUN npx next build
+
+# Verify standalone output
+RUN test -f .next/standalone/server.js \
+ && test -d .next/static \
+ && test -d .next/server \
+ && test -f .next/BUILD_ID \
+ && test -f .next/required-server-files.json \
+ && test -d public
+
+
+############################
+# STAGE 2: Runtime
+############################
+# Distroless runtime: gcr.io/distroless/nodejs22-debian13 bundles a pinned Node.js
+# (22.23.4, matching the builder) and its shared libs and nothing else — no shell,
+# no package manager, no npm. So npm's bundled deps (brace-expansion, ip-address,
+# pacote, sigstore, …) are never present (zero CVEs from them) and the surface is
+# smaller than even a hand-trimmed slim base. The debian13/trixie variant is used
+# over debian12 because it ships a current Node and patched openssl/libc — the
+# debian12 tag still pins node 22.22.0 + stale libssl3/libc6 and fails the grype
+# gate. The Next.js standalone bundle ships its own prod node_modules; the runtime
+# needs only the bundled `node` to exec server.js.
+#
+# The image's ENTRYPOINT is already `/nodejs/bin/node`, so CMD is just the app file.
+# It has no shell and `/nodejs/bin` is not on PATH, so the fetch healthcheck uses the
+# absolute node path. It defaults to root, so we pin the same non-root UID the
+# backend uses (10001) for a consistent k8s runAsUser — distroless bases run any
+# numeric UID. Node is PID 1 here (no tini); Node 22 terminates on SIGTERM, which is
+# fine for the stateless frontend (add a preStop hook if you need a graceful drain).
+FROM gcr.io/distroless/nodejs22-debian13@sha256:74224b87e0ca49c53adcc9b475d13f4080a10eea5ab2fdd4684e5094accd4041 AS runtime
+
+# ---- Metadata ----
+ARG VERSION=0.0.0
+ARG VCS_REF=unknown
+ARG VCS_BRANCH=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="Your Service Name — Frontend" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.ref.name="${VCS_BRANCH}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.vendor="YourOrg" \
+      org.opencontainers.image.url="https://your-domain.example/" \
+      org.opencontainers.image.authors="YourOrg"
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1
+
+WORKDIR /app
+
+# Next.js standalone bundle + static assets + public files from the builder.
+COPY --from=builder --chown=10001:10001 /app/.next/standalone ./
+COPY --from=builder --chown=10001:10001 /app/.next/static ./.next/static
+COPY --from=builder --chown=10001:10001 /app/public ./public
+
+# Healthcheck — uses HTTPS when HEALTHCHECK_SCHEME=https.
+# The distroless base has no curl and no shell, and /nodejs/bin is not on PATH, so
+# probe with Node's built-in fetch via the absolute node binary.
+ARG HEALTHCHECK_SCHEME=http
+ENV HEALTHCHECK_SCHEME="${HEALTHCHECK_SCHEME:-http}"
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
+  CMD ["/nodejs/bin/node","-e","fetch(`${process.env.HEALTHCHECK_SCHEME||'http'}://localhost:${process.env.PORT||3000}/`).then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"]
+
+USER 10001
+ENV PORT=3000
+
+EXPOSE 3000
+
+# ENTRYPOINT is the bundled node; run the standalone server.
+CMD ["server.js"]

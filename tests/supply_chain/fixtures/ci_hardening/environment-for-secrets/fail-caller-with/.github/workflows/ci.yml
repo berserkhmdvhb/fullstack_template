@@ -1,0 +1,8 @@
+name: T
+on: [push]
+permissions: {}
+jobs:
+  call:
+    uses: ./.github/workflows/other.yml
+    with:
+      token: ${{ secrets.API_TOKEN }}

@@ -1,0 +1,102 @@
+{{/*
+   Daily PostgreSQL backup CronJob (+ PVC). Gated by postgresql.enabled. Runs in the
+   db namespace, so DB_HOST is the short in-namespace Service DNS name.
+*/}}
+{{- if and .Values.postgresql.enabled .Values.postgresql.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "chart.fullname" . }}-pg-backup
+  namespace: {{ include "chart.dbNamespace" . }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.postgresql.backup.schedule | quote }}
+  # revisionHistoryLimit is alpha (CronJobExecutionHistory feature gate) and absent
+  # from clusters without it — use the GA split fields so SSA never rejects the object.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            # RuntimeDefault seccomp is the one restricted-PSS control this pod was
+            # still missing (container caps are already dropped below); without it
+            # the pod is rejected on an enforcing cluster.
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: pg-backup
+              image: {{ .Values.postgresql.clientImage }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  echo "Starting PostgreSQL backup ..."
+                  TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                  BACKUP_FILE="/backup/{{ include "chart.name" . }}-${TIMESTAMP}.sql.gz"
+                  pg_dump -h "${DB_HOST}" -U "${DB_USER}" -d "${DB_NAME}" | gzip > "${BACKUP_FILE}"
+                  echo "Backup created: ${BACKUP_FILE}"
+                  find /backup -name "*.sql.gz" -mtime +{{ .Values.postgresql.backup.retentionDays }} -delete 2>/dev/null || true
+                  echo "Backup and cleanup completed."
+              env:
+                - name: DB_HOST
+                  value: {{ include "chart.fullname" . }}-postgresql
+                - name: DB_PORT
+                  value: "5432"
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "chart.fullname" . }}-db-credentials
+                      key: username
+                - name: DB_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "chart.fullname" . }}-db-credentials
+                      key: database
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "chart.fullname" . }}-db-credentials
+                      key: password
+              volumeMounts:
+                - name: backup-volume
+                  mountPath: /backup
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: backup-volume
+              persistentVolumeClaim:
+                claimName: {{ include "chart.fullname" . }}-pg-backup-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "chart.fullname" . }}-pg-backup-pvc
+  namespace: {{ include "chart.dbNamespace" . }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.postgresql.backup.storage.className }}
+  resources:
+    requests:
+      storage: {{ .Values.postgresql.backup.storage.size | quote }}
+{{- end }}

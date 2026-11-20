@@ -1,0 +1,61 @@
+# Pinned dev toolchain, read by scripts/tools.sh (make tools).
+# Columns (tab-separated): name  version  platform  url  sha256
+#
+# Rule: a pin is the newest stable release published at least 7 days before it was pinned
+# (Renovate minimumReleaseAge). Pinned on 2026-11-20. The sha256 comes from the vendor's checksum
+# file (helm: <asset>.sha256sum; node: SHASUMS256.txt; kind, kubeconform, ct, helm-unittest, actionlint,
+# hadolint, gitleaks, oasdiff, cosign, kyverno: the release checksum file; yq: the sha256 column of
+# the release `checksums`). squawk and shellcheck publish no checksum file: their sha256 is the GitHub
+# release-asset digest, confirmed against the downloaded bytes. bats is the GitHub tag archive (no
+# vendor checksum exists), hashed on download; a changed archive is refused.
+# Rows with url uv:<pkg> are Python tools. Each is installed into its own venv,
+# .tools/uv-tools/<name>, with `uv pip install --require-hashes -r tools/requirements/<name>.txt`
+# (every transitive dependency hash-pinned; regenerate with `uv pip compile --generate-hashes
+# --python-version 3.13 --python-platform x86_64-unknown-linux-gnu`), on the pinned `python` row.
+# Their sha256 column is `-` because the hashes live in the requirements file. yamale and yamllint
+# are what `ct lint` shells out to. `uv:python` runs `uv python install <version>` (uv's own cache);
+# uv verifies that download with its built-in checksums, which is accepted here.
+# Node: the frontend's engines is >=22 <23 until Task 4.1, so Node stays on 22.x (owner ruling);
+# the test reads the major from frontend/package.json.
+#
+# Adding darwin-arm64: copy each linux-amd64 row, set platform to darwin-arm64, point the url at the
+# vendor's darwin/arm64 asset, take its sha256 from the same vendor checksum file, and add the
+# asset's executable path to the case in scripts/tools.sh if its layout differs.
+#
+# kubectl (bare binary from dl.k8s.io, sha256 from <binary>.sha256 beside it): must stay within one
+# minor version of the cluster (the Kubernetes version-skew policy); change the pin when the cluster moves.
+#
+# Helm major (spec section 11 item 15): see the default-helm line. Both majors are installed
+# (helm3, helm4); `helm` links to the default.
+#default-helm: 4
+# Reason: with Helm 4.3.2 and 3.22.1 against charts/your-service-name and no cluster, `helm lint`,
+# `helm template | kubeconform -strict` (33 resources valid) and `helm unittest` pass on both majors,
+# `ct lint` exits 1 on both with byte-identical output, because of yamllint "braces" findings in the
+# chart's values.yaml (a chart issue, not a Helm-major difference). Helm 4 is the current line (and what the owner's
+# machine runs), so the template targets it; helm3 stays installed to prove the chart still renders
+# on 3.x. Details: .superpowers/sdd/2026-11-20-github-production-grade-plan/task-0.2-report.md
+helm3	3.22.1	linux-amd64	https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz	896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea
+helm4	4.3.2	linux-amd64	https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz	d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983
+kubectl	1.37.2	linux-amd64	https://dl.k8s.io/release/v1.37.2/bin/linux/amd64/kubectl	c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4
+kind	0.33.0	linux-amd64	https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64	aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+kubeconform	0.8.0	linux-amd64	https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz	9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+ct	3.15.0	linux-amd64	https://github.com/helm/chart-testing/releases/download/v3.15.0/chart-testing_3.15.0_linux_amd64.tar.gz	467561730f25fe09d5e6cd09a3e1f6aa759871c657a57602947c716d9be2c583
+helm-unittest	1.2.1	linux-amd64	https://github.com/helm-unittest/helm-unittest/releases/download/v1.2.1/helm-unittest-linux-amd64-1.2.1.tgz	48e86ecc1467b009630e5954375e5d8494139f73b466df5fe8c04fa45b634939
+actionlint	1.7.12	linux-amd64	https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz	8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+hadolint	2.15.1	linux-amd64	https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64	c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
+gitleaks	8.30.1	linux-amd64	https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz	551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+squawk	2.72.0	linux-amd64	https://github.com/sbdchd/squawk/releases/download/v2.72.0/squawk-linux-x64	a61661808119a82515565503111099b070c869f73698f61cb1785de5d0c8b11a
+oasdiff	1.37.0	linux-amd64	https://github.com/oasdiff/oasdiff/releases/download/v1.37.0/oasdiff_1.37.0_linux_amd64.tar.gz	eac87307d31d08c36800c58a409c247f1c5db37fbb72e2544402f22a87cbca3c
+cosign	3.1.4	linux-amd64	https://github.com/sigstore/cosign/releases/download/v3.1.4/cosign-linux-amd64	424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa
+kyverno	1.20.0	linux-amd64	https://github.com/kyverno/kyverno/releases/download/v1.20.0/kyverno-cli_v1.20.0_linux_x86_64.tar.gz	06b8f3ca7b5626473be8fb4d343ad54ab84e317142766f72420e7d44b80942e2
+yq	4.54.3	linux-amd64	https://github.com/mikefarah/yq/releases/download/v4.54.3/yq_linux_amd64.tar.gz	09a25baa0e136b8633949e03117fc82cb9e50d10910f988ef17a1305539ebce4
+bats	1.14.0	linux-amd64	https://github.com/bats-core/bats-core/archive/refs/tags/v1.14.0.tar.gz	bb537b70b15b732f6d8827dd6578e3d8ce166636ce1f18ea9a074184fcce9177
+shellcheck	0.11.0	linux-amd64	https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz	b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
+node	22.23.5	linux-amd64	https://nodejs.org/dist/v22.23.5/node-v22.23.5-linux-x64.tar.xz	cdeb8670a0c81f51b4dc4ac61919f9b1ad917b304bf8221eb939570663d240f8
+python	3.13	any	uv:python	-
+zizmor	1.32.0	any	uv:zizmor	-
+schemathesis	4.33.4	any	uv:schemathesis	-
+pre-commit	4.7.0	any	uv:pre-commit	-
+yamale	6.1.0	any	uv:yamale	-
+yamllint	1.38.0	any	uv:yamllint	-
+pip-audit	2.10.1	any	uv:pip-audit	-

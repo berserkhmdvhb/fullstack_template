@@ -1,0 +1,8 @@
+name: T
+on: [push]
+permissions: {}
+jobs:
+  j:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: true

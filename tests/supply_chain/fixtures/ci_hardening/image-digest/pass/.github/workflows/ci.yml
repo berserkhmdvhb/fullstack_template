@@ -1,0 +1,15 @@
+name: T
+on: [push]
+permissions: {}
+env:
+  ZAP_IMAGE: ghcr.io/o/zap@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+jobs:
+  j:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    container: ghcr.io/o/c@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    services:
+      db:
+        image: postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

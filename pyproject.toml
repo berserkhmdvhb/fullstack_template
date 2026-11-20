@@ -1,0 +1,181 @@
+# your-service-name — adaptable service template (see wiki/getting-started.md)
+
+[build-system]
+requires = ["setuptools>=80", "setuptools-scm[simple]>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "your_service_name"
+dynamic = ["version"]
+description = "Description of your_service_name"
+authors = [{ name = "Your Name", email = "you@your-domain.example" }]
+keywords = ["cli", "template", "python", "packaging"]
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+
+dependencies = [
+  "fastapi>=0.115.0",
+  "httpx",
+  "python-dotenv>=1.0.0",
+  "pydantic>=2.7.1",
+  "uvicorn[standard]>=0.30.0",
+  "sqlalchemy[asyncio]>=2.0",
+  "alembic>=1.13",
+  "asyncpg",
+  "aiosqlite",
+  "limits>=3.0",
+  "prometheus-fastapi-instrumentator>=6.1.0",
+]
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+
+[project.optional-dependencies]
+develop = [
+  "asgi-lifespan>=2.1",
+  "mypy>=1.10",
+  "pydantic",
+  "pysonar",
+  "pytest",
+  "pytest-asyncio",
+  "pytest-cov",
+  "pytest-watch",
+  "PyYAML>=6",
+  "ruff",
+  "psycopg2-binary",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["your_service_name*"]
+
+[tool.setuptools.package-data]
+# py.typed marks the package as typed. Interactive docs are served by FastAPI's
+# built-in Swagger page from the jsDelivr CDN, so there are no vendored assets to
+# ship inside the package.
+your_service_name = ["py.typed"]
+
+[tool.setuptools_scm]
+version_file = "src/your_service_name/_version.py"
+
+# ----------------------------
+# Sonar Configuration
+# ----------------------------
+[tool.sonar]
+projectKey = "your-service-key"
+projectName = "your_service_name"
+
+# roots
+sources = "src"
+tests = "tests"
+
+# encoding
+sourceEncoding = "UTF-8"
+
+# Python versions (string; you can also do "3.10,3.11,3.12,3.13")
+python.version = "3.13"
+
+# coverage report path(s) - string; comma-separated if multiple
+python.coverage.reportPaths = "coverage.xml"
+
+# exclusions - string; comma-separated if multiple
+exclusions = "**/__pycache__/**,**/.venv/**"
+
+# ----------------------------
+# Ruff Configuration
+# ----------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+fix = true
+show-fixes = true
+exclude = [
+  "tests/exclude/*",
+  "**/_version.py",
+]
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "D",
+  "TD",
+  "FIX002",
+  "TC003",
+  "COM812",
+  "CPY001",
+  "F821",
+  "ASYNC240",
+]
+per-file-ignores = { "tests/*" = ["S101", "S310", "S603", "SLF001", "T201"], "infra/adapt/*" = ["T201"], "infra/security/*" = ["T201"]}
+
+# ----------------------------
+# Mypy Configuration
+# ----------------------------
+[tool.mypy]
+files = ["src", "tests"]
+exclude = "\\.ipynb$"
+strict = true
+show_error_codes = true
+pretty = true
+mypy_path = "src"
+follow_imports = "normal"
+ignore_missing_imports = true
+
+# ----------------------------
+# Pytest Configuration
+# ----------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# No --maxfail: show the FULL failure surface instead of stopping at the first
+# failure (a suite that fails 10 ways should report all 10, not hide 9).
+addopts = "-v -m 'not integration and not e2e and not live' --ignore=tests/manual"
+pythonpath = ["src"]
+asyncio_mode = "auto"
+markers = [
+  "integration: hermetic tests wiring multiple internal components (no real external IO)",
+  "e2e: end-to-end tests through the public API, with network/LLM edges stubbed",
+  "live: tests that require a running external backend server"
+]
+filterwarnings = [
+  # NOTE: PytestUnhandledThreadExceptionWarning is deliberately NOT ignored — an
+  # unhandled exception in a background thread is a real defect (e.g. a worker
+  # that silently died), and masking it hid failures. Let it surface.
+  "ignore::starlette.exceptions.StarletteDeprecationWarning",
+]
+
+# ----------------------------
+# Coverage Configuration
+# ----------------------------
+[tool.coverage.run]
+# Limit measurement strictly to your backend package
+# (use the path form to avoid ambiguity)
+source = ["src/your_service_name/backend", "src/your_service_name/utils"]
+
+# Optionally belt-and-suspenders: omit frontend explicitly
+omit = ["src/your_service_name/frontend/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError"
+]
+# Optional, but helpful in terminal output
+show_missing = true
+skip_covered = false
+# Coverage GATE (single source of truth for the threshold): the whole suite
+# fails when total coverage drops below this. Sourced here — not restated as
+# --cov-fail-under in CI or the Makefile — so the number lives in one place.
+# pytest-cov reads coverage.py's config, so this fails `pytest --cov` everywhere.
+fail_under = 85
+
+# If you run coverage in different environments and combine reports,
+# you can normalize paths here (safe to keep as-is; optional).
+[tool.coverage.paths]
+source = ["src"]

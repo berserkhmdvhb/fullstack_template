@@ -1,0 +1,134 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "chart.fullname" . }}-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  # Omit replicas when the HPA owns scaling: a static value here would be
+  # three-way-merged back on every `helm upgrade`, clobbering the live count
+  # (C-M4). The HPA's minReplicas is the effective floor when enabled.
+  {{- if not .Values.hpa.backend.enabled }}
+  replicas: {{ .Values.replicas.backend }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0   # Zero-downtime: never drop below current count
+  selector:
+    matchLabels:
+{{- include "chart.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      labels:
+{{- include "chart.labels" . | nindent 8 }}
+        app.kubernetes.io/component: backend
+      annotations:
+        # Rolling update on ConfigMap change (Helm recomputes the hash).
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "chart.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      {{- include "chart.imagePullSecrets" . | indent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: backend
+          image: {{ include "chart.image" (dict "image" .Values.images.backend) }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          # Delegate to the image entrypoint, which serves the ASGI app with Uvicorn.
+          # run_backend.sh reads BACKEND_{BIND,PORT} and BACKEND_GRACEFUL_TIMEOUT from
+          # the ConfigMap.
+          command:
+            - /usr/bin/tini
+            - -s
+            - --
+            - /app/infra/backend/run_backend.sh
+          envFrom:
+            - configMapRef:
+                name: {{ include "chart.fullname" . }}-config
+            - secretRef:
+                name: {{ include "chart.secretName" . }}
+          # Assemble the Postgres URL from ConfigMap (host/port/name) + Secret
+          # (user/pass). Without it engine.py silently falls back to local SQLite
+          # and /health looks green while the DB tier is never exercised.
+          env:
+            - name: DATABASE_URL
+              value: {{ include "chart.databaseURL" . | quote }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          resources:
+{{- toYaml .Values.resources.backend | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/v1/healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]   # let the LB drain before SIGTERM
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /app/logs
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true   # writable paths are emptyDir below (C-L4)
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 128Mi
+        - name: logs
+          emptyDir:
+            sizeLimit: 256Mi
+      terminationGracePeriodSeconds: 60
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: backend
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: backend
+                topologyKey: kubernetes.io/hostname

@@ -1,0 +1,122 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "chart.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+  annotations:
+{{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tlsSecretName }}
+  tls:
+    # All three host rules (api, app, root) share one cert — the issuer must cover
+    # all three names (C-L1: the root host previously had a rule but no TLS entry).
+    # Empty tlsSecretName => no TLS block (plain HTTP): e.g. a Cilium cluster with
+    # no cert-manager, matching the deployed sample. Set it to enable HTTPS.
+    - hosts:
+        - {{ .Values.ingress.hosts.api | quote }}
+        - {{ .Values.ingress.hosts.app | quote }}
+        - {{ .Values.ingress.hosts.root | quote }}
+      secretName: {{ .Values.ingress.tlsSecretName }}
+  {{- end }}
+  rules:
+    # ---- API routes -> Backend ----
+    - host: {{ .Values.ingress.hosts.api | quote }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "chart.apiBackendService" . }}
+                port: { number: 8000 }
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "chart.apiBackendService" . }}
+                port: { number: 8000 }
+          - path: /openapi.json
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "chart.apiBackendService" . }}
+                port: { number: 8000 }
+    # ---- UI routes -> Frontend (default) ----
+    - host: {{ .Values.ingress.hosts.app | quote }}
+      http:
+        paths:
+          - path: /_next/static
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "chart.fullname" . }}-nginx
+                port: { number: 8081 }
+          - path: /logo.png
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "chart.fullname" . }}-nginx
+                port: { number: 8081 }
+          - path: /favicon.ico
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "chart.fullname" . }}-nginx
+                port: { number: 8081 }
+          - path: /robots.txt
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "chart.fullname" . }}-nginx
+                port: { number: 8081 }
+          - path: /sitemap.xml
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "chart.fullname" . }}-nginx
+                port: { number: 8081 }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "chart.fullname" . }}-frontend
+                port: { number: 3000 }
+    # ---- Single-domain fallback ----
+    - host: {{ .Values.ingress.hosts.root | quote }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "chart.apiBackendService" . }}
+                port: { number: 8000 }
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "chart.apiBackendService" . }}
+                port: { number: 8000 }
+          - path: /openapi.json
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "chart.apiBackendService" . }}
+                port: { number: 8000 }
+          - path: /_next/static
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "chart.fullname" . }}-nginx
+                port: { number: 8081 }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "chart.fullname" . }}-frontend
+                port: { number: 3000 }
+{{- end }}

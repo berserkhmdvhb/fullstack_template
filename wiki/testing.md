@@ -1,0 +1,349 @@
+# Testing Strategy
+
+Four-layer testing pyramid for both backend and frontend, with CI integration.
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Backend Testing](#backend-testing)
+- [Frontend Testing](#frontend-testing)
+- [Test Markers & Filtering](#test-markers--filtering)
+- [CI Integration](#ci-integration)
+- [Coverage Targets](#coverage-targets)
+- [Running Tests](#running-tests)
+
+---
+
+## Overview
+
+Both backend and frontend follow a **four-layer testing pyramid**:
+
+```mermaid
+flowchart TB
+    subgraph Backend["Backend Tests"]
+        B4["Live Tests<br/>Against running stack"]
+        B3["E2E Tests<br/>ASGI end-to-end flows"]
+        B2["Integration Tests<br/>In-process ASGI"]
+        B1["Unit Tests<br/>Pure logic"]
+    end
+
+    subgraph Frontend["Frontend Tests"]
+        F4["Live Tests<br/>Playwright + full stack"]
+        F3["E2E Tests<br/>Playwright browser automation"]
+        F2["Integration Tests<br/>RTL + MSW component tests"]
+        F1["Unit Tests<br/>Pure logic (schemas, config, client)"]
+    end
+
+    B1 --> B2 --> B3 --> B4
+    F1 --> F2 --> F3 --> F4
+```
+
+| Layer | Speed | Scope | External Dependencies |
+|-------|-------|-------|---------------------|
+| **Unit** | Fastest | Pure logic, single function/class | None |
+| **Integration** | Fast | Multiple components wired together | In-process only |
+| **E2E** | Medium | Full API flows | ASGI or browser |
+| **Live** | Slowest | Against real running services | Full stack |
+
+---
+
+## Backend Testing
+
+### Unit Tests
+
+**Location**: `tests/backend/`, `tests/utils/`
+
+Pure logic tests with no external dependencies:
+
+| Test File | What It Tests |
+|-----------|--------------|
+| `db/test_engine.py` | Database URL resolution, session lifecycle |
+| `db/test_models.py` | SQLAlchemy model metadata, column types |
+| `entities/test_item.py` | Item dataclass (frozen, slots) |
+| `entities/test_echo_record.py` | EchoRecord dataclass |
+| `schemas/test_echo.py` | Echo Pydantic schemas (validation) |
+| `schemas/test_item.py` | Item Pydantic schemas (create, update, response) |
+| `services/test_echo_service.py` | EchoService business logic |
+| `middleware/test_logging.py` | Request logging middleware |
+| `middleware/test_rate_limiting.py` | Rate limiting middleware |
+| `utils/test_versioning_api.py` | API version resolution |
+
+**Run**:
+```bash
+make test
+# or
+pytest tests/ -v
+```
+
+### Integration Tests
+
+**Location**: `tests/integration/`
+
+In-process ASGI tests that wire multiple components:
+
+| Test File | What It Tests |
+|-----------|--------------|
+| `test_echo_api.py` | POST /echo, GET /echo/history |
+| `test_health_api.py` | GET /health, GET /healthz |
+| `test_db_lifecycle.py` | App start/stop, migration runner |
+
+**Markers**: `@pytest.mark.integration`
+
+**Run**:
+```bash
+make test-integration
+# or
+pytest tests/ -m integration -v
+```
+
+### E2E Tests
+
+**Location**: `tests/e2e/`
+
+End-to-end API tests through the public interface:
+
+| Test File | What It Tests |
+|-----------|--------------|
+| `test_items_workflow.py` | Full CRUD: create → list → get → update → delete |
+| `test_error_handling.py` | 404, 422, error response formats |
+
+**Markers**: `@pytest.mark.e2e`
+
+**Run**:
+```bash
+make test-e2e
+# or
+pytest tests/ -m e2e -v
+```
+
+### Live Tests
+
+**Location**: `tests/live/`
+
+Tests against a **running backend** (and optionally full stack):
+
+| Test File | What It Tests |
+|-----------|--------------|
+| `test_items_live.py` | Full CRUD against running backend |
+| `test_full_stack.py` | Health, docs, OpenAPI, security headers, full workflow |
+
+**Markers**: `@pytest.mark.live`
+
+**Requirements**: Running backend (or full stack via Compose)
+
+**Run**:
+```bash
+make test-live
+# or
+pytest tests/ -m live -v
+```
+
+---
+
+## Frontend Testing
+
+### Unit Tests
+
+**Config**: `vitest.unit.config.ts` (environment: `jsdom`)
+
+Pure logic tests with no DOM or network:
+
+| Test File | What It Tests |
+|-----------|--------------|
+| `lib/config.test.ts` | Environment variable defaults |
+| `lib/api/client.test.ts` | HTTP client (success, error, timeout) |
+| `lib/api/endpoints.test.ts` | Typed API endpoint functions |
+| `lib/api/error-map.test.ts` | API error response mapping |
+| `features/items/lib/schemas.test.ts` | Zod validation schemas |
+
+**Run**:
+```bash
+cd frontend && npm run test:unit
+```
+
+### Integration Tests (Component + MSW)
+
+**Config**: `vitest.integration.config.ts` (environment: `happy-dom`)
+
+Component tests with Mock Service Worker for API mocking:
+
+| Test File | What It Tests |
+|-----------|--------------|
+| `app/(ui)/global-header.test.tsx` | Navigation, theme toggle |
+| `app/(ui)/error-boundary-content.test.tsx` | Error boundary UI |
+| `app/(ui)/global-providers.test.tsx` | Provider composition |
+| `app/(ui)/feedback-provider.test.tsx` | ARIA live region |
+| `app/(ui)/theme-provider.test.tsx` | Dark/light theme toggle |
+| `app/loading.test.tsx` | Loading spinner |
+| `app/error.test.tsx` | Error boundary |
+| `components/ConfirmModal.test.tsx` | Confirmation dialog |
+| `features/items/components/ItemForm.test.tsx` | Create/edit form |
+| `features/items/components/ItemList.test.tsx` | Item list with search/sort |
+| `features/items/page.test.tsx` | Items page composition |
+| `lib/hooks/useItems.test.tsx` | React Query hooks |
+| `lib/query.test.tsx` | QueryClient provider |
+| `lib/toast.test.tsx` | Toast notification system |
+
+**Run**:
+```bash
+cd frontend && npm run test:integration
+```
+
+### E2E Tests (Playwright)
+
+**Config**: `playwright.config.ts`
+
+Browser automation tests:
+
+| Test File | What It Tests |
+|-----------|--------------|
+| `e2e/smoke.spec.ts` | Smoke tests (backend API, frontend load, nginx) |
+| `e2e/items-workflow.spec.ts` | Full items CRUD workflow in browser |
+
+**Run**:
+```bash
+cd frontend && npm run test:e2e
+```
+
+---
+
+## Test Markers & Filtering
+
+### Backend Markers
+
+| Marker | Description | Default in `pytest` |
+|--------|-------------|-------------------|
+| `integration` | Hermetic tests wiring multiple components | **Excluded** |
+| `e2e` | End-to-end tests through public API | **Excluded** |
+| `live` | Tests requiring a running external server | **Excluded** |
+
+Default `pytest` run excludes integration, e2e, and live tests (runs unit only):
+
+```toml
+# pyproject.toml
+addopts = "-v --maxfail=1 -m 'not integration and not e2e and not live'"
+```
+
+### Frontend Configs
+
+| Config | Tests Included |
+|--------|---------------|
+| `vitest.config.ts` | All tests (base) |
+| `vitest.unit.config.ts` | Unit tests only (`.test.ts` not in `features/` or `app/`) |
+| `vitest.integration.config.ts` | Component/integration tests (MSW, RTL) |
+
+---
+
+## CI Integration
+
+### Backend CI
+
+[`reusable-backend.yml`](../.github/workflows/reusable-backend.yml) runs the backend jobs in parallel; [`reusable-live.yml`](../.github/workflows/reusable-live.yml) waits for the backend and frontend gates.
+
+```mermaid
+flowchart LR
+    Lint["lint"] --> Live["live"]
+    Unit["unit (3.12, 3.13, 3.14 advisory)"] --> Live
+    Integration["integration"] --> Live
+    E2E["e2e"] --> Live
+```
+
+| Job | Tests |
+|-----|-------|
+| `lint` | ruff format, ruff lint, mypy |
+| `unit` | Unit (matrix: Python 3.12, 3.13, and the advisory 3.14), with coverage |
+| `integration` | Integration (starts the backend) |
+| `e2e` | E2E (ASGI in-process) |
+| `live` (`reusable-live.yml`) | Live (starts the full stack): the backend suite, then Playwright; advisory on pull requests |
+
+A failed run uploads its JUnit and coverage reports as an artifact (7 days).
+
+### Frontend CI
+
+[`reusable-frontend.yml`](../.github/workflows/reusable-frontend.yml):
+
+| Job | Tests |
+|-----|-------|
+| `build` | Next.js build |
+| `unit` | Vitest unit tests with coverage (`npm run test:unit`, writes `test-results/junit.xml`) |
+| `integration` | Vitest integration tests |
+| `playwright-list` | Playwright config validation |
+| `eslint`, `prettier`, `type-check`, `openapi-drift` | Lint, format, types, API-type drift |
+
+The real-browser Playwright run is part of the `live` job.
+
+### Deployment Tests
+
+| Job | Tests |
+|-----|-------|
+| `chart` (`reusable-chart.yml`) | Lint + render the chart for every values file, with the pinned Helm |
+| `deploy-<env>` (`deploy.yml`) | `helm upgrade --install` by digest, migration hook, verify and smoke test |
+
+---
+
+## Coverage Targets
+
+### Backend
+
+| Metric | Target | Config |
+|--------|--------|--------|
+| **Line coverage** | ≥ 85% | `pyproject.toml` `[tool.coverage]` |
+| **Source** | `src/your_service_name/backend`, `src/your_service_name/utils` | — |
+
+### Frontend
+
+| Metric | Target | Config |
+|--------|--------|--------|
+| **Lines** | ≥ 80% | `vitest.config.ts` coverage thresholds |
+| **Functions** | ≥ 80% | — |
+| **Statements** | ≥ 80% | — |
+| **Branches** | ≥ 70% | — |
+
+---
+
+## Running Tests
+
+### Quick Reference
+
+```bash
+# Backend — all unit tests
+make test
+
+# Backend — specific test file
+make test-file FILE=tests/backend/schemas/test_item.py
+
+# Backend — specific test function
+make test-file-function FILE=tests/backend/schemas/test_item.py FUNC=test_item_create_valid
+
+# Backend — integration tests
+make test-integration
+
+# Backend — E2E tests
+make test-e2e
+
+# Backend — live tests (requires running stack)
+make test-live
+
+# Backend — coverage (terminal)
+make test-coverage
+
+# Backend — coverage (HTML)
+make test-cov-html
+
+# Frontend — all tests
+cd frontend && npm test
+
+# Frontend — unit tests only
+cd frontend && npm run test:unit
+
+# Frontend — integration tests
+cd frontend && npm run test:integration
+
+# Frontend — E2E tests
+cd frontend && npm run test:e2e
+
+# Frontend — coverage
+cd frontend && npm run test:coverage
+```

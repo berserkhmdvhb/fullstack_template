@@ -1,0 +1,22 @@
+{{/*
+   App namespace. Equals .Release.Namespace (created via `helm install --create-namespace`).
+   Carries the stable `tier: app-ns` label that db-network-policy.yaml selects on,
+   plus Pod Security "restricted" (stateless app).
+*/}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "chart.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    environment: {{ .Values.environment }}
+    tier: app-ns
+    team: sds
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.30
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: v1.30
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: v1.30

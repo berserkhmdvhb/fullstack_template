@@ -1,0 +1,28 @@
+{{- $fullname := include "chart.fullname" . -}}
+Your release "{{ .Release.Name }}" (chart {{ .Chart.Name }} {{ .Chart.Version }})
+has been installed into namespace "{{ .Release.Namespace }}".
+
+  environment : {{ .Values.environment }}
+  db namespace: {{ include "chart.dbNamespace" . }}
+  database    : {{ if .Values.postgresql.enabled }}in-cluster PostgreSQL ({{ include "chart.dbHost" . }}){{ else }}external managed DB ({{ .Values.externalDatabase.host }}){{ end }}
+
+Verify the rollout:
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl -n {{ .Release.Namespace }} get job {{ $fullname }}-migration   # post-install,post-upgrade hook
+
+{{- if .Values.ingress.enabled }}
+
+Ingress hosts (TLS via {{ .Values.ingress.issuer }}):
+  API  : http{{ if .Values.ingress.tlsSecretName }}s{{ end }}://{{ .Values.ingress.hosts.api }}
+  APP  : http{{ if .Values.ingress.tlsSecretName }}s{{ end }}://{{ .Values.ingress.hosts.app }}
+{{- end }}
+
+Port-forward the backend API locally:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ $fullname }}-backend 8000:8000
+  curl http://127.0.0.1:8000/api/v1/healthz
+
+{{- if not .Values.postgresql.enabled }}
+
+NOTE: internal PostgreSQL is disabled — ensure externalDatabase.host/credentials
+are supplied (sealed-secrets / ESO / SOPS) before the backend can serve traffic.
+{{- end }}

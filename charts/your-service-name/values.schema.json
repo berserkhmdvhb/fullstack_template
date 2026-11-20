@@ -1,0 +1,314 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "your-service-name chart values",
+  "description": "Single source of truth for the shape of values.yaml (and every values.<env>.yaml, which merge onto it). Helm validates the MERGED values against this on `helm lint`/`helm template`, so a typo key or wrong type fails loudly instead of silently rendering the wrong thing.",
+  "type": "object",
+  "additionalProperties": false,
+
+  "properties": {
+    "environment": {
+      "description": "Deploy environment. Drives ENV, config, and which value-set is in force.",
+      "type": "string",
+      "enum": ["dev", "qa", "production", "local"]
+    },
+
+    "global": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "imagePullSecrets": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "namespaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dbSuffix": { "type": "string" },
+        "loggingSuffix": { "type": "string" }
+      }
+    },
+
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "automountServiceAccountToken": { "type": "boolean" }
+      }
+    },
+
+    "imagePullPolicy": { "type": "string" },
+
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend":  { "$ref": "#/definitions/image" },
+        "frontend": { "$ref": "#/definitions/image" },
+        "nginx":    { "$ref": "#/definitions/image" }
+      }
+    },
+
+    "replicas": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend":  { "type": "integer", "minimum": 1 },
+        "frontend": { "type": "integer", "minimum": 1 },
+        "nginx":    { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend":  { "$ref": "#/definitions/resources" },
+        "frontend": { "$ref": "#/definitions/resources" },
+        "nginx":    { "$ref": "#/definitions/resources" }
+      }
+    },
+
+    "config": {
+      "description": "Non-secret config -> ConfigMap. Every value is a string (a ConfigMap is string-only), so any non-string here fails.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": { "type": "string" },
+        "dbUser":         { "type": "string" },
+        "dbPassword":     { "type": "string" },
+        "statsPass":      { "type": "string" }
+      }
+    },
+
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled":         { "type": "boolean" },
+        "className":       { "type": "string" },
+        "issuer":          { "type": "string" },
+        "tlsSecretName":   { "type": "string" },
+        "annotations":     { "type": "object", "additionalProperties": { "type": "string" } },
+        "hosts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "api":  { "type": "string" },
+            "app":  { "type": "string" },
+            "root": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "waf": {
+      "description": "In-cluster WAF (Coraza on Envoy wasm + OWASP CRS) fronting the API surface. Off by default.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled":    { "type": "boolean" },
+        "provider":   { "type": "string", "enum": ["coraza"] },
+        "owaspCrs":   { "type": "boolean" },
+        "envoyImage": { "$ref": "#/definitions/image" },
+        "wasmImage":  { "type": "string" },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          }
+        },
+        "resources": { "$ref": "#/definitions/resources" }
+      }
+    },
+
+    "hpa": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend":  { "$ref": "#/definitions/hpa" },
+        "frontend": { "$ref": "#/definitions/hpa" },
+        "nginx":    { "$ref": "#/definitions/hpa" }
+      }
+    },
+
+    "pdb": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend":  { "$ref": "#/definitions/minAvailable" },
+        "frontend": { "$ref": "#/definitions/minAvailable" }
+      }
+    },
+
+    "quota": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "hard":    { "type": "object", "additionalProperties": { "type": ["string", "integer"] } }
+      }
+    },
+
+    "limitRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "container": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "default":        { "type": "object", "additionalProperties": { "type": ["string", "integer"] } },
+            "defaultRequest": { "type": "object", "additionalProperties": { "type": ["string", "integer"] } },
+            "max":            { "type": "object", "additionalProperties": { "type": ["string", "integer"] } },
+            "min":            { "type": "object", "additionalProperties": { "type": ["string", "integer"] } }
+          }
+        },
+        "pod": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max": { "type": "object", "additionalProperties": { "type": ["string", "integer"] } }
+          }
+        }
+      }
+    },
+
+    "postgresql": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled":     { "type": "boolean" },
+        "image":       { "type": "string" },
+        "clientImage": { "type": "string" },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "className": { "type": "string" },
+            "size":       { "type": "string" }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "user":     { "type": "string" },
+            "database": { "type": "string" }
+          }
+        },
+        "backup": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled":       { "type": "boolean" },
+            "schedule":      { "type": "string" },
+            "retentionDays": { "type": "integer" },
+            "storage": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "className": { "type": "string" },
+                "size":       { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "externalDatabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled":         { "type": "boolean" },
+        "host":            { "type": "string" },
+        "port":            { "type": "integer" },
+        "name":            { "type": "string" },
+        "user":            { "type": "string" },
+        "passwordSecret":  { "type": "string" },
+        "egressCIDR":      { "type": "string" },
+        "manageSecret":    { "type": "boolean" }
+      }
+    },
+
+    "monitoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serviceMonitor":  { "type": "boolean" },
+        "prometheusRule":  { "type": "boolean" },
+        "logging":         { "type": "boolean" },
+        "prometheusRelease": { "type": "string" },
+        "fluentd":         { "$ref": "#/definitions/fluentd" }
+      }
+    }
+  },
+
+  "required": ["environment"],
+
+  "definitions": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string" },
+        "tag":        { "type": "string" },
+        "registry":   { "type": "string" },
+        "digest":     { "type": "string" }
+      }
+    },
+
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": { "type": "object", "additionalProperties": { "type": ["string", "integer"] } },
+        "limits":   { "type": "object", "additionalProperties": { "type": ["string", "integer"] } }
+      }
+    },
+
+    "hpa": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled":     { "type": "boolean" },
+        "minReplicas": { "type": "integer", "minimum": 1 },
+        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "targetCPU":   { "type": "integer" },
+        "targetMemory": { "type": "integer" }
+      }
+    },
+
+    "minAvailable": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minAvailable": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "fluentd": {
+      "description": "Fluentd log shipper (see templates/logging-daemonset.yaml). containerLogHostPath is the node hostPath holding container stdout/stderr; it depends on the container runtime (CRI).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "containerLogHostPath": {
+          "type": "string",
+          "description": "Node hostPath with container logs. /var/log/pods (CRI standard: containerd, CRI-O; kubelet also symlinks /var/log/containers/*.log into it) or /var/lib/docker/containers (legacy Docker shim)."
+        }
+      }
+    }
+  }
+}

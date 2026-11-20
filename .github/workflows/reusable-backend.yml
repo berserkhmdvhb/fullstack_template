@@ -1,0 +1,120 @@
+name: Backend
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  lint:
+    name: Lint and types
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-backend
+      # The targets are called one by one: check-all-dry also runs dev-tools-outdated, a PyPI call.
+      - name: Ruff format
+        run: make ruff-format-check
+      - name: Ruff lint
+        run: make ruff-lint
+      - name: Mypy
+        run: make mypy-check
+
+  unit:
+    name: Unit (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    continue-on-error: ${{ matrix.python-version == '3.14' }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-backend
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Note the advisory leg
+        if: matrix.python-version == '3.14'
+        run: echo 'Python 3.14 is an advisory leg, so a failure on it does not block the merge.' >> "$GITHUB_STEP_SUMMARY"
+      # The coverage floor (85 percent) is set in pyproject.toml, under [tool.coverage.report].
+      - name: Unit tests with coverage
+        run: make test-unit
+      - name: Upload the test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-unit-py${{ matrix.python-version }}-reports
+          path: |
+            test-results/junit-unit.xml
+            coverage.xml
+          retention-days: 7
+      - name: Warn that the advisory leg failed
+        if: failure() && matrix.python-version == '3.14'
+        run: |
+          echo '::warning title=Python 3.14 (advisory)::The unit tests failed on Python 3.14. This leg is advisory and does not block the merge.'
+          echo 'Python 3.14 advisory leg FAILED (not blocking).' >> "$GITHUB_STEP_SUMMARY"
+
+  integration:
+    name: Integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-backend
+      # The suite is hermetic, but the job also boots uvicorn so it exercises the real startup path.
+      - name: Integration tests
+        run: |
+          port="${BACKEND_PORT:-8000}"
+          uvicorn "${BACKEND_ENTRY:-your_service_name.backend.main:app}" --host 127.0.0.1 --port "$port" &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          python tests/utils/wait_for_service.py "http://127.0.0.1:$port/api/${API_VERSION:-v1}/health" 45 0.5 Backend
+          make test-integration
+      - name: Upload the test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-integration-reports
+          path: |
+            test-results/junit-integration.xml
+          retention-days: 7
+
+  e2e:
+    name: End to end
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-backend
+      - name: End-to-end tests (ASGI, in process)
+        run: make test-e2e
+      - name: Upload the test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-e2e-reports
+          path: |
+            test-results/junit-e2e.xml
+          retention-days: 7

@@ -1,0 +1,26 @@
+{{/*
+   External (managed) DB connection secret — production only, used when the in-cluster
+   Postgres is disabled (postgresql.enabled=false). The app connects via the app Secret
+   (DB_USER/DB_PASSWORD) + ConfigMap (DB_HOST, set to this host) — this object is the
+   canonical place for the managed-DB connection details.
+
+   DO NOT commit real credentials. In production supply the password via sealed-secrets,
+   External Secrets Operator, or SOPS (the committed value is a non-secret placeholder).
+*/}}
+{{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.manageSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "chart.fullname" . }}-db-credentials
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: database
+type: Opaque
+stringData:
+  host: {{ .Values.externalDatabase.host | quote }}
+  port: {{ .Values.externalDatabase.port | quote }}
+  username: {{ .Values.externalDatabase.user | quote }}
+  database: {{ .Values.externalDatabase.name | quote }}
+  password: "REPLACE_WITH_SEALED_SECRET"   # <- sealed-secrets / ESO / SOPS
+{{- end }}

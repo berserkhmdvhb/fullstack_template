@@ -1,0 +1,166 @@
+name: Frontend
+
+on:
+  workflow_call:
+    inputs:
+      frontend-changed:
+        description: Whether frontend paths changed. The OpenAPI drift check runs either way.
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  eslint:
+    name: ESLint
+    if: inputs.frontend-changed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-frontend
+      # The script runs eslint with --max-warnings=0.
+      - name: ESLint
+        working-directory: frontend
+        run: npm run lint
+
+  prettier:
+    name: Prettier
+    if: inputs.frontend-changed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-frontend
+      - name: Prettier
+        working-directory: frontend
+        run: npm run format-check
+
+  type-check:
+    name: Type check
+    if: inputs.frontend-changed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-frontend
+      - name: Type check
+        working-directory: frontend
+        run: npm run typecheck
+
+  # Needs both toolchains: the backend dumps the schema, the frontend regenerates the types.
+  openapi-drift:
+    name: OpenAPI drift
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-backend
+      - uses: ./.github/actions/setup-frontend
+      - name: OpenAPI drift
+        run: make openapi-drift-check
+
+  # Build runs before the unit tests, as in the original pipeline.
+  build:
+    name: Build
+    if: inputs.frontend-changed
+    needs: [eslint, prettier, type-check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-frontend
+      - name: Next.js build
+        working-directory: frontend
+        run: npm run build
+
+  # The coverage gates live in the vitest config, not here.
+  unit:
+    name: Unit tests
+    if: inputs.frontend-changed
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-frontend
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Upload the test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frontend-unit-reports
+          path: |
+            frontend/test-results/junit.xml
+          retention-days: 7
+
+  integration:
+    name: Integration tests
+    if: inputs.frontend-changed
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-frontend
+      - name: Integration tests
+        working-directory: frontend
+        run: npm run test:integration
+      - name: Upload the test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frontend-integration-reports
+          path: |
+            frontend/test-results/junit-integration.xml
+          retention-days: 7
+
+  # Lists the Playwright tests only, which validates the config and discovery with no browser install.
+  # The real browser run belongs to the live job, which arrives in a later task.
+  playwright-list:
+    name: Playwright config
+    if: inputs.frontend-changed
+    needs: integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-frontend
+      - name: Playwright test discovery
+        working-directory: frontend
+        run: npx playwright test --list

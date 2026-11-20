@@ -1,0 +1,146 @@
+name: DAST
+
+# Advisory ZAP baseline against the backend image that Release just pushed (or one given by hand).
+# workflow_run runs with base-repo privileges, so the job only runs when Release succeeded on a push
+# (main or a v* tag) of this same repository. It checks out this repo's default branch only and never
+# runs anything from the triggering run: the digest artifact is parsed as data.
+# The scan itself is infra/security/local/scan-dast.sh, the same script `devsec.sh dast` runs;
+# the ZAP image pin lives in infra/security/config.yaml (dast.zap_image).
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Backend image by digest, ghcr.io/<owner>/<repo>/backend@sha256:<64 hex>"
+        required: true
+        type: string
+
+permissions: {}
+
+# A literal prefix: never ${{ github.workflow }}. One scan per commit, never cancelled mid-scan.
+concurrency:
+  group: dast-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+env:
+  SEC_OUTPUT_DIR: output/security
+
+jobs:
+  dast:
+    name: ZAP baseline (advisory)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read  # code scanning reads workflow run metadata
+      packages: read  # pull the image from ghcr.io
+      security-events: write  # upload SARIF to code scanning
+    steps:
+      # The default branch only (a workflow_run job checks out the default branch), with no token kept.
+      # So the wrapper scripts can be a different version from the commit that built the image, and on tag
+      # releases the SARIF is attributed to the default-branch HEAD, not to the tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate the dispatched image
+        id: dispatched
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          INPUT_IMAGE: ${{ inputs.image }}
+        run: |
+          if [[ ! "${INPUT_IMAGE}" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::image must be a ghcr.io digest ref (ghcr.io/<path>@sha256:<64 hex>)"
+            exit 1
+          fi
+          echo "image=${INPUT_IMAGE}" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: github.event_name == 'workflow_run'
+        with:
+          name: image-digests
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: released
+      # Data only: two lines are read with a strict KEY=value match; nothing from the artifact is sourced or run.
+      - name: Resolve the backend image from the release
+        id: released
+        if: github.event_name == 'workflow_run'
+        run: |
+          repo="$(sed -n -E 's/^BACKEND_IMAGE=([a-z0-9._\/-]+):[A-Za-z0-9._-]+$/\1/p' released/scan.env | head -n 1)"
+          digest="$(sed -n -E 's/^BACKEND_IMAGE_DIGEST=(sha256:[0-9a-f]{64})$/\1/p' released/image-digests.env | head -n 1)"
+          if [[ ! "${repo}" =~ ^ghcr\.io/[a-z0-9._/-]+$ || ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::the release artifact has no valid BACKEND_IMAGE and BACKEND_IMAGE_DIGEST"
+            exit 1
+          fi
+          echo "image=${repo}@${digest}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # TARGET_IMAGE is set by whichever resolve step ran; each validates it before writing the output.
+      - name: Pull the backend image
+        env:
+          TARGET_IMAGE: ${{ steps.dispatched.outputs.image || steps.released.outputs.image }}
+        run: docker pull "${TARGET_IMAGE}"
+      # The wrapper starts the app, health-checks it, runs the pinned ZAP image, tears down, exits 0 on findings and non-zero on a tool error.
+      - name: ZAP baseline
+        env:
+          TARGET_IMAGE: ${{ steps.dispatched.outputs.image || steps.released.outputs.image }}
+        run: |
+          DAST_TARGET_IMAGE="${TARGET_IMAGE}" bash infra/security/local/scan-dast.sh "${SEC_OUTPUT_DIR}" "${GITHUB_WORKSPACE}"
+      - name: Verdict
+        if: always()
+        env:
+          TARGET_IMAGE: ${{ steps.dispatched.outputs.image || steps.released.outputs.image }}
+        run: |
+          report="${SEC_OUTPUT_DIR}/dast/report.json"
+          if [[ ! -s "${report}" ]]; then
+            echo "::error::the DAST wrapper produced no report (tool error)"
+            echo "- ZAP baseline: tool error, no report" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          status="$(jq -r '.status' "${report}")"
+          case "${status}" in
+            ERROR)
+              echo "::error::the ZAP baseline hit a tool error (not a finding); see the dast artifact"
+              echo "- ZAP baseline: tool error" >> "$GITHUB_STEP_SUMMARY"
+              exit 1 ;;
+            GREEN) echo "- ZAP baseline: no findings (\`${TARGET_IMAGE}\`)" >> "$GITHUB_STEP_SUMMARY" ;;
+            SKIPPED)
+              echo "::warning::the ZAP baseline was SKIPPED (the app did not start or become healthy)"
+              echo "- ZAP baseline: SKIPPED (advisory)" >> "$GITHUB_STEP_SUMMARY" ;;
+            *)
+              echo "::warning::the ZAP baseline reported findings (advisory); see the dast artifact"
+              echo "- ZAP baseline: findings (advisory), see the dast artifact" >> "$GITHUB_STEP_SUMMARY" ;;
+          esac
+          # An empty SARIF is not uploaded: drop it so the hashFiles guard below skips the step.
+          if [[ "$(jq '.runs | length' "${SEC_OUTPUT_DIR}/dast/dast.sarif" 2>/dev/null || echo 0)" == "0" ]]; then
+            rm -f "${SEC_OUTPUT_DIR}/dast/dast.sarif"
+          fi
+      # Code scanning may be unavailable (private or fork without it): the upload must not turn the run red.
+      - name: Upload SARIF to code scanning
+        id: sarif
+        if: always() && hashFiles('output/security/dast/dast.sarif') != ''
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: ${{ env.SEC_OUTPUT_DIR }}/dast/dast.sarif
+          category: zap
+      - name: Warn when code scanning is unavailable
+        if: always() && steps.sarif.outcome == 'failure'
+        run: |
+          echo "::warning::code scanning is not available; the ZAP findings are in the dast artifact"
+          echo "- SARIF upload skipped: code scanning not available; see the dast artifact" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: dast
+          path: ${{ env.SEC_OUTPUT_DIR }}/dast/
+          retention-days: 90

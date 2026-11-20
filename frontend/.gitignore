@@ -1,0 +1,11 @@
+node_modules
+.next
+# Secrets / local env — never commit (covers .env, .env.local, .env.production, …)
+.env
+.env.*
+!.env.example
+.scannerwork
+test-results/
+coverage/
+*.tsbuildinfo
+playwright-report

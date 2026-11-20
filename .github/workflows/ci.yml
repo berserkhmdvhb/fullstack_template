@@ -1,0 +1,190 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Everything runs on main, on tags and on a manual run; only pull requests are filtered.
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
+          changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|Makefile|frontend/lib/api/|\.github/|scripts/|tools/)' <<<"$changed"; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend=false" >> "$GITHUB_OUTPUT"
+          fi
+          if grep -Eq '^(frontend/|Makefile|\.github/|scripts/|tools/)' <<<"$changed"; then
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frontend=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-backend.yml
+
+  # The OpenAPI drift check runs when either side changed, because schema changes come from the backend.
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-frontend.yml
+    with:
+      frontend-changed: ${{ needs.changes.outputs.frontend == 'true' }}
+
+  # Always runs (no paths gate): lints and renders the chart for every values file.
+  chart:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-chart.yml
+
+  # The full stack runs when either side changed; it is advisory on pull requests and blocking on main and tags.
+  # It waits for the gates above, but a skipped gate does not stop it.
+  live:
+    needs: [changes, backend, frontend]
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true') }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-live.yml
+
+  # Always runs (no paths gate). The grants are the union of what security.yml's jobs need.
+  security:
+    permissions:
+      contents: read
+      security-events: write  # upload SARIF to code scanning
+      actions: read  # code scanning reads workflow run metadata
+    uses: ./.github/workflows/security.yml
+
+  repo:
+    name: Shell, secrets and security tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The cache is restored everywhere but saved only from a push to main, never from a pull request or a tag.
+      - id: tools-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+      - name: Install the pinned tools
+        run: |
+          scripts/tools.sh install shellcheck bats yq
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.tools-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+      - name: Shellcheck
+        run: bash scripts/ci/shell-lint.sh
+      - name: Secret templates
+        run: bash scripts/ci/check-secrets.sh
+      - name: Security runner tests
+        run: |
+          LIB_TS=0 bats infra/security/local/tests/
+          bats tests/scripts/
+
+  # Blocking, always runs (no paths gate): the hardening lint, actionlint and zizmor over .github/.
+  workflows:
+    name: Workflow hardening
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-backend
+      - name: Install actionlint
+        run: |
+          scripts/tools.sh install actionlint
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - name: Install zizmor
+        run: |
+          python -m venv "$RUNNER_TEMP/zizmor"
+          "$RUNNER_TEMP/zizmor/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/zizmor.txt
+          echo "$RUNNER_TEMP/zizmor/bin" >> "$GITHUB_PATH"
+      - name: CI hardening lint
+        run: infra/security/check-ci-hardening.sh
+      - name: actionlint
+        run: actionlint
+      # The read-only token turns on zizmor's online audits (impostor commits, known-vulnerable actions).
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor .github/
+
+  # The one required status check. Path-filtered jobs that are skipped and the matrix legs of the reusable
+  # workflows have no stable check names, so the branch ruleset requires this job instead (see
+  # wiki/github-repository-settings.md). Only backend, frontend and live may be skipped, and only on a pull
+  # request (their path filter); everything else must succeed, and so must `changes`, or the filter never ran.
+  # `live` is advisory on pull requests, so its result is ignored there instead of relying on how
+  # continue-on-error surfaces through a called workflow.
+  ci-ok:
+    name: CI OK
+    if: always()
+    needs: [changes, chart, backend, frontend, live, security, repo, workflows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Require every blocking job
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          bad="$(jq -r --arg ev "$EVENT_NAME" 'to_entries[] | .key as $k | .value.result as $r
+            | select(
+                if $k == "live" and $ev == "pull_request" then false
+                elif ($k == "backend" or $k == "frontend") and $ev == "pull_request" then ($r != "success" and $r != "skipped")
+                else $r != "success" end)
+            | "\($k)=\($r)"' <<<"$NEEDS")"
+          if [[ -n "$bad" ]]; then
+            echo "::error::Blocking jobs did not pass: ${bad//$'\n'/, }"
+            exit 1
+          fi
+          echo "All blocking jobs passed (path-filtered ones may be skipped on a pull request)."

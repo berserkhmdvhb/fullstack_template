@@ -1,0 +1,90 @@
+name: Cluster access
+description: >-
+  Point kubectl and Helm at the target cluster. Mode gke logs in with Workload Identity Federation
+  and fetches credentials through the DNS-based endpoint; mode kubeconfig decodes an environment
+  secret into a 0600 file. The calling job must declare an environment (and, for gke, id-token: write).
+
+inputs:
+  mode:
+    description: gke or kubeconfig
+    default: gke
+  wif_provider:
+    description: Workload Identity provider resource name (gke mode)
+    default: ""
+  service_account:
+    description: The deployer service account of this environment (gke mode)
+    default: ""
+  project_id:
+    description: Google Cloud project ID (gke mode)
+    default: ""
+  cluster_name:
+    description: GKE cluster name (gke mode)
+    default: ""
+  location:
+    description: GKE cluster region or zone (gke mode)
+    default: ""
+  kubeconfig_b64:
+    description: Base64 kubeconfig, from the environment secret KUBECONFIG_B64 (kubeconfig mode)
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Check the cluster settings
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        WIF_PROVIDER: ${{ inputs.wif_provider }}
+        SERVICE_ACCOUNT: ${{ inputs.service_account }}
+        PROJECT_ID: ${{ inputs.project_id }}
+        CLUSTER_NAME: ${{ inputs.cluster_name }}
+        LOCATION: ${{ inputs.location }}
+        KUBECONFIG_B64: ${{ inputs.kubeconfig_b64 }}
+      run: |
+        missing=()
+        case "${MODE}" in
+          gke)
+            [[ -n "${WIF_PROVIDER}" ]] || missing+=(GCP_WIF_PROVIDER)
+            [[ -n "${SERVICE_ACCOUNT}" ]] || missing+=(GCP_DEPLOYER_SA)
+            [[ -n "${PROJECT_ID}" ]] || missing+=(GCP_PROJECT_ID)
+            [[ -n "${CLUSTER_NAME}" ]] || missing+=(GKE_CLUSTER)
+            [[ -n "${LOCATION}" ]] || missing+=(GKE_LOCATION)
+            ;;
+          kubeconfig)
+            [[ -n "${KUBECONFIG_B64}" ]] || missing+=(KUBECONFIG_B64)
+            ;;
+          *)
+            echo "::error::DEPLOY_MODE must be gke or kubeconfig, got '${MODE}'"
+            exit 1
+            ;;
+        esac
+        if (( ${#missing[@]} > 0 )); then
+          echo "::error::mode ${MODE} needs these set for this environment: ${missing[*]}"
+          exit 1
+        fi
+    - name: Log in to Google Cloud
+      if: inputs.mode == 'gke'
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      with:
+        workload_identity_provider: ${{ inputs.wif_provider }}
+        service_account: ${{ inputs.service_account }}
+    # get-gke-credentials writes a short-lived kubeconfig into the workspace; ephemeral hosted runners discard it.
+    - name: Get the cluster credentials
+      if: inputs.mode == 'gke'
+      uses: google-github-actions/get-gke-credentials@3da1e46a907576cefaa90c484278bb5b259dd395 # v3.0.0
+      with:
+        cluster_name: ${{ inputs.cluster_name }}
+        location: ${{ inputs.location }}
+        project_id: ${{ inputs.project_id }}
+        use_dns_based_endpoint: true
+    - name: Decode the kubeconfig
+      if: inputs.mode == 'kubeconfig'
+      shell: bash
+      env:
+        KUBECONFIG_B64: ${{ inputs.kubeconfig_b64 }}
+      # GITHUB_ENV gets only the fixed kubeconfig path, never input or secret data.
+      run: | # zizmor: ignore[github-env]
+        umask 077
+        base64 -d <<<"${KUBECONFIG_B64}" > "${RUNNER_TEMP}/kubeconfig"
+        chmod 600 "${RUNNER_TEMP}/kubeconfig"
+        echo "KUBECONFIG=${RUNNER_TEMP}/kubeconfig" >> "$GITHUB_ENV"

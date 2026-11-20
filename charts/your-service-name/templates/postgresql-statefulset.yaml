@@ -1,0 +1,114 @@
+{{/*
+   In-cluster PostgreSQL — dev/qa only. Gated by postgresql.enabled (off in prod,
+   which uses an external managed DB). Selector is STABLE identity + component;
+   the immutable volumeClaimTemplates carries only stable labels (no environment),
+   so it never trips "spec: Forbidden" on re-apply.
+*/}}
+{{- if .Values.postgresql.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "chart.fullname" . }}-postgresql
+  namespace: {{ include "chart.dbNamespace" . }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  serviceName: {{ include "chart.fullname" . }}-postgresql
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+{{- include "chart.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgresql
+  template:
+    metadata:
+      labels:
+{{- include "chart.labels" . | nindent 8 }}
+        app.kubernetes.io/component: postgresql
+    spec:
+      # Non-root UID matching fsGroup: the official postgres image starts as root
+      # and drops privileges itself, so a bare runAsNonRoot would fail. PGDATA is a
+      # sub-dir of the mount so initdb can create it fresh on the writable volume.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        # RuntimeDefault seccomp + no privilege escalation / dropped caps (below)
+        # bring this pod onto the restricted PodSecurity Standard — without it the
+        # pod is only audit/warn-tolerant and is REJECTED on an enforcing cluster.
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql
+          image: {{ .Values.postgresql.image }}
+          # 5432 is an unprivileged port, so the server needs no capability and no
+          # privilege escalation — drop ALL to satisfy the restricted profile.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "chart.fullname" . }}-db-credentials
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "chart.fullname" . }}-db-credentials
+                  key: password
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "chart.fullname" . }}-db-credentials
+                  key: database
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgresql-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          livenessProbe:
+            # TCP probe, NOT pg_isready (pg_isready returns PQPING_NO_ATTEMPT even
+            # when the port is open — it crash-looped a healthy server). TCP-open is
+            # an accurate live/ready signal; Postgres binds 5432 within ~25ms.
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+  volumeClaimTemplates:
+    - metadata:
+        name: postgresql-data
+        labels:
+{{- include "chart.selectorLabels" . | nindent 10 }}
+          app.kubernetes.io/component: postgresql
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: {{ .Values.postgresql.storage.className }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.storage.size | quote }}
+{{- end }}

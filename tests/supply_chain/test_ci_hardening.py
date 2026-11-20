@@ -1,0 +1,265 @@
+"""Tests for the CI-hardening lint of the GitHub workflows (static, offline).
+
+infra/security/ci_hardening_lint.py is the program, infra/security/check-ci-hardening.sh the frozen
+entry point. Every check has pass* and fail* fixture dirs under fixtures/ci_hardening/<check>/.
+A fail fixture must report exactly its own check.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from tests.supply_chain._workflows import REPO, unpinned_uses
+
+LINTER = REPO / "infra/security/ci_hardening_lint.py"
+WRAPPER = REPO / "infra/security/check-ci-hardening.sh"
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "ci_hardening"
+BASH: str = shutil.which("bash") or "/usr/bin/bash"
+
+CHECKS = (
+    "pinned-uses",
+    "top-permissions",
+    "no-prt-checkout",
+    "no-inline-secrets",
+    "image-digest",
+    "provenance",
+    "osv-coverage",
+    "environment-for-secrets",
+    "timeouts",
+    "no-dry-run-env",
+    "documented-permissions",
+)
+# provenance is a SKIP until phase 2, so it has its own tests below.
+GATING = tuple(c for c in CHECKS if c != "provenance")
+USAGE_ERROR = 2
+FINDING = re.compile(r"^(?P<file>\S+?):(?P<line>\d+): (?P<check>[a-z-]+) ", re.MULTILINE)
+
+
+def run_lint(root: Path, *extra: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(LINTER), *extra, str(root)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def staged(fixture: Path, tmp_path: Path, *, with_security: bool = True) -> Path:
+    """Copy a fixture and add a clean security.yml, so a fixture is judged on its own check only."""
+    dest = tmp_path / "repo"
+    shutil.copytree(fixture, dest)
+    security = dest / ".github/workflows/security.yml"
+    if with_security and not security.exists() and not security.with_suffix(".yaml").exists():
+        security.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(FIXTURES / "all-good/pass/.github/workflows/security.yml", security)
+    return dest
+
+
+def found(root: Path) -> set[str]:
+    return {m["check"] for m in FINDING.finditer(run_lint(root).stdout)}
+
+
+def variants(prefix: str) -> list[tuple[str, str]]:
+    names = [*GATING, "composite"]
+    return [
+        (c, d.name)
+        for c in names
+        for d in sorted((FIXTURES / c).iterdir())
+        if d.name.startswith(prefix)
+    ]
+
+
+# What each fail fixture must report, and nothing else; the default is the directory's check.
+EXPECTED = {
+    ("composite", "fail"): "pinned-uses",
+    ("composite", "fail-yaml-suffix"): "no-inline-secrets",
+}
+
+
+@pytest.mark.parametrize(("check", "variant"), variants("pass"))
+def test_pass_fixture_is_clean(check: str, variant: str, tmp_path: Path) -> None:
+    root = staged(FIXTURES / check / variant, tmp_path, with_security=check != "osv-coverage")
+    result = run_lint(root)
+    if check == "osv-coverage":
+        assert "osv-coverage" not in found(root)
+    else:
+        assert result.returncode == 0, result.stdout
+        assert found(root) == set()
+
+
+@pytest.mark.parametrize(("check", "variant"), variants("fail"))
+def test_fail_fixture_reports_exactly_its_check(check: str, variant: str, tmp_path: Path) -> None:
+    expected = EXPECTED.get((check, variant), check)
+    root = staged(FIXTURES / check / variant, tmp_path, with_security=check != "osv-coverage")
+    result = run_lint(root)
+    assert found(root) == {expected}, result.stdout
+    assert result.returncode == 1
+
+
+def test_malformed_yaml_is_a_parse_error_not_a_traceback() -> None:
+    result = run_lint(FIXTURES / "parse-error" / "fail")
+    assert result.returncode == USAGE_ERROR
+    assert re.search(r"^\.github/workflows/bad\.yml:\d+: parse-error ", result.stdout, re.MULTILINE)
+    assert "Traceback" not in result.stderr
+    assert (
+        json.loads(run_lint(FIXTURES / "parse-error" / "fail", "--json").stdout)["status"]
+        == "error"
+    )
+
+
+def test_clean_fixture_exits_zero_and_prints_a_summary() -> None:
+    result = run_lint(FIXTURES / "all-good" / "pass")
+    assert result.returncode == 0, result.stdout
+    assert "ci-hardening: 0 finding(s)" in result.stdout
+
+
+def test_findings_print_as_file_line_id_message() -> None:
+    out = run_lint(FIXTURES / "timeouts" / "fail").stdout
+    assert ".github/workflows/ci.yml:" in out
+    assert re.search(
+        r"^\.github/workflows/ci\.yml:\d+: timeouts job j has no timeout-minutes$",
+        out,
+        re.MULTILINE,
+    )
+
+
+def test_provenance_is_a_skip_that_never_fails() -> None:
+    result = run_lint(FIXTURES / "provenance" / "fail")
+    assert "SKIP provenance: phase 2 (Task 2.1)" in result.stdout
+    assert "provenance" not in {m["check"] for m in FINDING.finditer(result.stdout)}
+
+
+def test_provenance_check_can_be_switched_on() -> None:
+    sys.path.insert(0, str(LINTER.parent))
+    try:
+        import ci_hardening_lint as lint  # noqa: PLC0415
+    finally:
+        sys.path.pop(0)
+    good = lint.gather(FIXTURES / "provenance" / "pass")[0]
+    bad = lint.gather(FIXTURES / "provenance" / "fail")[0]
+    assert lint.check_provenance(good, enabled=True) == ([], [])
+    findings, skips = lint.check_provenance(bad, enabled=True)
+    assert [f.check for f in findings] == ["provenance"]
+    assert skips == []
+
+
+def test_docker_reference_needs_a_digest_and_a_local_reference_is_exempt() -> None:
+    out = run_lint(FIXTURES / "pinned-uses" / "fail").stdout
+    assert "docker reference docker://alpine:3.20" in out
+    assert "./.github/actions/local" not in out
+    assert "actions/checkout@v4 is not pinned" in out
+    assert "no '# vX.Y.Z' version comment" in out
+
+
+def test_pull_request_target_is_banned_outright() -> None:
+    assert "pull_request_target is banned" in run_lint(FIXTURES / "no-prt-checkout" / "fail").stdout
+
+
+def test_json_report_is_valid_and_matches_the_exit_code() -> None:
+    bad = run_lint(FIXTURES / "timeouts" / "fail", "--json")
+    assert bad.returncode == 1
+    doc = json.loads(bad.stdout)
+    assert doc["status"] == "red"
+    assert doc["skipped"] == ["SKIP provenance: phase 2 (Task 2.1)"]
+    assert (
+        json.loads(run_lint(FIXTURES / "all-good" / "pass", "--json").stdout)["status"] == "green"
+    )
+
+
+def test_a_repo_without_workflows_is_a_usage_error(tmp_path: Path) -> None:
+    assert run_lint(tmp_path).returncode == USAGE_ERROR
+
+
+def test_the_real_repo_lints_clean() -> None:
+    result = run_lint(REPO)
+    assert result.returncode == 0, result.stdout
+
+
+def test_wrapper_runs_the_lint_and_propagates_a_red_verdict(tmp_path: Path) -> None:
+    env = {
+        "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin",
+        "SEC_OUTPUT_DIR": str(tmp_path / "out"),
+    }
+    good = subprocess.run(
+        [BASH, str(WRAPPER), str(FIXTURES / "all-good" / "pass")],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert good.returncode == 0, good.stdout + good.stderr
+    assert json.loads((tmp_path / "out/ci-hardening/report.json").read_text())["status"] == "green"
+    bad = subprocess.run(
+        [BASH, str(WRAPPER), str(FIXTURES / "timeouts" / "fail")],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert bad.returncode == 1
+    assert json.loads((tmp_path / "out/ci-hardening/report.json").read_text())["status"] == "red"
+
+
+def test_unpinned_uses_helper_treats_docker_and_local_refs_explicitly(tmp_path: Path) -> None:
+    f = tmp_path / "w.yml"
+    digest = "a" * 64
+    f.write_text(
+        "steps:\n"
+        "  - uses: ./.github/actions/x\n"
+        f"  - uses: docker://alpine@sha256:{digest}\n"
+        "  - uses: docker://alpine:3.20\n"
+        "  - uses: o/r@" + "b" * 40 + " # v1.2.3\n"
+    )
+    assert unpinned_uses(f) == ["- uses: docker://alpine:3.20"]
+
+
+def test_ci_has_a_blocking_always_on_workflows_job() -> None:
+    from tests.supply_chain._workflows import workflow  # noqa: PLC0415
+
+    job = workflow("ci.yml")["jobs"]["workflows"]
+    assert job["permissions"] == {"contents": "read"}
+    assert "timeout-minutes" in job
+    assert "if" not in job
+    assert "needs" not in job
+    assert "continue-on-error" not in job
+    steps = job["steps"]
+    assert steps[0]["with"]["persist-credentials"] is False
+    runs = "\n".join(s.get("run", "") for s in steps)
+    for needle in (
+        "infra/security/check-ci-hardening.sh",
+        "scripts/tools.sh install actionlint",
+        "--require-hashes",
+        "tools/requirements/zizmor.txt",
+        "zizmor .github/",
+    ):
+        assert needle in runs, needle
+
+
+def test_security_skips_the_sarif_upload_when_the_report_has_no_runs() -> None:
+    from tests.supply_chain._workflows import workflow  # noqa: PLC0415
+
+    steps = workflow("security.yml")["jobs"]["advisory"]["steps"]
+    check = next(s for s in steps if s.get("id") == "runs")
+    assert "jq -e '(.runs | length) > 0'" in check["run"]
+    assert "SKIPPED" in check["run"]
+    upload = next(s for s in steps if s.get("id") == "sarif")
+    assert "steps.runs.outputs.has_runs == 'true'" in upload["if"]
+    assert "python3-dev" not in (REPO / ".github/workflows/security.yml").read_text()
+
+
+def test_zizmor_runs_online_with_a_read_only_token() -> None:
+    from tests.supply_chain._workflows import workflow  # noqa: PLC0415
+
+    job = workflow("ci.yml")["jobs"]["workflows"]
+    assert job["permissions"] == {"contents": "read"}
+    step = next(s for s in job["steps"] if s.get("run", "").strip().startswith("zizmor "))
+    assert step["env"] == {"GH_TOKEN": "${{ github.token }}"}
+    assert "--offline" not in step["run"]
+    assert "--no-online-audits" not in step["run"]

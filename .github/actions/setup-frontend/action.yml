@@ -1,0 +1,36 @@
+name: Set up the frontend
+description: >-
+  Install Node and the frontend dependencies. The Node version is read from tools/pins.tsv, the single
+  source of tool versions; the npm cache is keyed on frontend/package-lock.json. No inputs. Output
+  node-version is the version installed.
+outputs:
+  node-version:
+    description: The Node version taken from tools/pins.tsv.
+    value: ${{ steps.pin.outputs.node-version }}
+runs:
+  using: composite
+  steps:
+    - id: pin
+      shell: bash
+      run: echo "node-version=$(awk -F'\t' '$1=="node"{print $2}' tools/pins.tsv)" >> "$GITHUB_OUTPUT"
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: ${{ steps.pin.outputs.node-version }}
+    # Restored everywhere, saved only from a push to main (never from a pull request or a tag).
+    - id: npm-cache
+      shell: bash
+      run: echo "dir=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+    - id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.npm-cache.outputs.dir }}
+        key: npm-${{ runner.os }}-${{ steps.pin.outputs.node-version }}-${{ hashFiles('frontend/package-lock.json') }}
+    - name: Install the frontend dependencies
+      shell: bash
+      working-directory: frontend
+      run: npm ci
+    - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.npm-cache.outputs.dir }}
+        key: ${{ steps.restore.outputs.cache-primary-key }}

@@ -1,0 +1,78 @@
+# =============================================================================
+# Rebuild & rollout — service registry
+# =============================================================================
+# Source of truth for scripts/rebuild-and-roll.sh. One entry per deployable
+# component. To bring a new service into the build → verify → roll → health
+# loop, add a row here — the script needs no edits.
+#
+# Global:
+#   namespace  default k8s namespace (override per run with --namespace)
+#
+# Per service:
+#   key          short id; MUST match the app.kubernetes.io/component label so the
+#                script can find the pods to health-check
+#   label        human-readable name shown in the log banner
+#   dockerfile   Dockerfile path, relative to the repo root (the build context)
+#   image        target image reference name:tag (override the tag with --tag)
+#   workload     the Deployment to `kubectl rollout restart`
+#   container    container name for the in-pod health exec
+#   port         in-pod container port the probe talks to
+#   health_path  endpoint hit to confirm the component is serving
+#   probe_tool   how to speak HTTP from *inside* the pod. curl is NOT in every
+#                base image, so pick per service:
+#                  curl  -> python:3.12-slim backend (curl installed)
+#                  wget  -> nginx:alpine (busybox wget)
+#                  node  -> node:*-slim frontend (global fetch, no curl)
+#   scheme       http|https for the LOCAL port-forward URL (used by
+#                scripts/port-forward.sh; default http). The pods serve
+#                plaintext HTTP — TLS terminates at the ingress, never in the
+#                pod — so http is right for nearly every service. Set https only
+#                for a pod that itself serves TLS on its container port.
+#   verify       optional snippet run against the FRESHLY BUILT image
+#                (`docker run --rm --entrypoint <verify_entrypoint> <image> …`) to
+#                confirm the fix is baked in before we roll. Keep it single-line
+#                and free of single quotes. Non-zero exit aborts the rollout for
+#                THIS service (use --no-verify to skip, or --verify-warn to warn
+#                instead of abort). Omit to skip per-image verification.
+#   verify_entrypoint  interpreter the verify snippet runs under (default: sh,
+#                passed via `-c`). Set it when the runtime image has no shell:
+#                the frontend's distroless base uses `/nodejs/bin/node` and its
+#                snippet is then a node `-e` expression (passed via `-e`).
+# =============================================================================
+
+namespace: your-service-name
+
+services:
+  - key: backend
+    label: Backend — FastAPI / Uvicorn
+    dockerfile: Dockerfile.backend
+    image: your-service-name-backend:dev
+    workload: your-service-name-backend
+    container: backend
+    port: 8000
+    health_path: /api/v1/health
+    probe_tool: curl
+    verify: 'test -d "$(dirname "$(python3 -c "import your_service_name.backend.db.run_migrations as m,inspect;print(inspect.getsourcefile(m))")")/migrations" && echo "migrations dir: OK" || { echo "migrations dir: MISSING" >&2; exit 1; }'
+
+  - key: frontend
+    label: Frontend — Next.js standalone
+    dockerfile: Dockerfile.frontend
+    image: your-service-name-frontend:dev
+    workload: your-service-name-frontend
+    container: frontend
+    port: 3000
+    health_path: /
+    probe_tool: node
+    verify_entrypoint: /nodejs/bin/node
+    verify: 'process.exit(require("fs").existsSync("/app/server.js")?0:1)'
+
+  - key: nginx
+    label: Nginx — static assets
+    dockerfile: Dockerfile.nginx
+    image: your-service-name-nginx:dev
+    workload: your-service-name-nginx
+    container: nginx
+    port: 8081
+    health_path: /healthz
+    probe_tool: wget
+    verify: 'test -d /usr/share/nginx/html/.next/static && echo ".next/static: OK" || { echo ".next/static: MISSING" >&2; exit 1; }'

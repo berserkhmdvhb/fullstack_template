@@ -1,0 +1,22 @@
+[
+  {"query": "add Trivy to the your-service-name supply-chain scanning, wired the same way as osv-scanner", "should_trigger": true},
+  {"query": "our docker images aren't scanned for secrets or misconfig before deploy - plug that gap in the security pipeline the usual way, we already scan lockfiles and sboms", "should_trigger": true},
+  {"query": "following the convention in infra/security/local/, scaffold a grype scanner that gates the pipeline on high/critical findings", "should_trigger": true},
+  {"query": "why isn't there a CI job for the npm typosquat scan? can you add one like the other scanners", "should_trigger": true},
+  {"query": "we need malicious-package detection on our pip dependencies before they install - add it to the template the established way", "should_trigger": true},
+  {"query": "add a license-compliance scan to the supply-chain security checks and a devsec.sh command for it", "should_trigger": true},
+  {"query": "set up SBOM generation and signing/provenance verification for the react service template CI", "should_trigger": true},
+  {"query": "pin grype to a specific version in config.yaml and make sure the CI job + script both read it", "should_trigger": true},
+  {"query": "audit our infra/security scripts against the supply-chain scanner pattern - are they doing checksum verification and SKIPPED degradation?", "should_trigger": true},
+  {"query": "the malware heuristic scan works locally via devsec.sh but has no CI job - wire it into .github/workflows/security.yml", "should_trigger": true},
+  {"query": "the shellcheck job is red on .github/workflows/security.yml, fix the SC2086 in the malware_scan run step", "should_trigger": false},
+  {"query": "our docker build is slow, refactor the multi-stage Dockerfile to speed it up", "should_trigger": false},
+  {"query": "add eslint + jest unit tests for the React frontend components", "should_trigger": false},
+  {"query": "set up Renovate or Dependabot to auto-bump our dependencies", "should_trigger": false},
+  {"query": "write a wiki page documenting our SDLC security gates and where each runs", "should_trigger": false},
+  {"query": "there's a CVE in lodash in our package-lock.json, investigate if we're exposed", "should_trigger": false},
+  {"query": "add a generic CI job that runs our pytest suite on every PR", "should_trigger": false},
+  {"query": "the osv-scanner security job started failing this morning, figure out why the pipeline broke", "should_trigger": false},
+  {"query": "create a new service project from your-service-name and point it at our registry", "should_trigger": false},
+  {"query": "add gitleaks as a pre-commit hook so secrets are caught before i push", "should_trigger": false}
+]

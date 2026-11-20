@@ -1,0 +1,145 @@
+{{/*
+   Centralized log forwarding (Fluentd DaemonSet). Pluggable (off by default): it
+   reads container stdout/stderr on every node and forwards to an external sink
+   (Elasticsearch / CloudWatch / Loki). Requires a sink to be useful; the output
+   target is configured in the logging ConfigMap below.
+
+   The container-log hostPath is configurable (monitoring.fluentd.containerLogHostPath)
+   because it depends on the container runtime (CRI): /var/log/pods for containerd /
+   CRI-O (the kubelet symlinks /var/log/containers/*.log into it, which the tail
+   source reads) or /var/lib/docker/containers for the Docker shim. Set it to match
+   your runtime or the shipper sees no logs.
+
+   Runs in the derived logging namespace (baseline PSS), NOT the app namespace: this
+   shipper needs runAsUser:0, hostPath mounts, and DAC_READ_SEARCH, all of which the
+   app namespace's "restricted" policy forbids (C-M2).
+*/}}
+{{- if .Values.monitoring.logging }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "chart.fullname" . }}-logging
+  namespace: {{ include "chart.loggingNamespace" . }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logging
+spec:
+  selector:
+    matchLabels:
+{{- include "chart.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: logging
+  template:
+    metadata:
+      labels:
+{{- include "chart.labels" . | nindent 8 }}
+        app.kubernetes.io/component: logging
+    spec:
+      serviceAccountName: {{ include "chart.serviceAccountName" . }}
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      priorityClassName: system-node-critical
+      containers:
+        - name: fluentd
+          image: fluent/fluentd:v1.17-debian-1
+          envFrom:
+            - configMapRef:
+                name: {{ include "chart.fullname" . }}-logging-config
+          env:
+            - name: FLUENT_UID
+              value: "0"
+          volumeMounts:
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: containers
+              # Mount the node container-log dir at its own path so host and
+              # container paths always agree for whatever CRI is in use. The tail
+              # source reads the kubelet symlink farm at /var/log/containers/*.log
+              # (served by the /var/log mount below); this mount exposes the raw
+              # CRI log dir (containerd/CRI-O: /var/log/pods; Docker: the shim dir).
+              mountPath: {{ .Values.monitoring.fluentd.containerLogHostPath | quote }}
+              readOnly: true
+            - name: config
+              mountPath: /fluentd/etc
+          resources:
+            requests:
+              cpu: 100m
+              memory: 200Mi
+            limits:
+              cpu: 500m
+              memory: 500Mi
+          securityContext:
+            runAsUser: 0   # fluentd needs root to read /var/log
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["DAC_READ_SEARCH"]
+      volumes:
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: containers
+          hostPath:
+            path: {{ .Values.monitoring.fluentd.containerLogHostPath | quote }}
+        - name: config
+          configMap:
+            name: {{ include "chart.fullname" . }}-logging-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "chart.fullname" . }}-logging-config
+  namespace: {{ include "chart.loggingNamespace" . }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logging
+data:
+  LOG_OUTPUT_TYPE: elasticsearch
+  LOG_ELASTICSEARCH_HOST: elasticsearch.logging.svc.cluster.local
+  LOG_ELASTICSEARCH_PORT: "9200"
+  LOG_CLOUDWATCH_REGION: eu-central-1
+  LOG_CLOUDWATCH_LOG_GROUP: /{{ include "chart.name" . }}
+  LOG_LOKI_URL: http://loki.logging.svc.cluster.local:3100
+  fluent.conf: |
+    <source>
+      @type tail
+      path /var/log/containers/*.log
+      pos_file /var/log/fluentd-containers.log.pos
+      tag kubernetes.*
+      read_from_head true
+      <parse>
+        @type json
+        time_key time
+        time_format %Y-%m-%dT%H:%M:%S.%NZ
+      </parse>
+    </source>
+
+    <filter kubernetes.**>
+      @type kubernetes_metadata
+      @id filter_kube_metadata
+    </filter>
+
+    <match **>
+      @type elasticsearch
+      host ${LOG_ELASTICSEARCH_HOST}
+      port ${LOG_ELASTICSEARCH_PORT}
+      logstash_format true
+      logstash_prefix kubernetes
+      include_tag_key true
+      <buffer>
+        @type file
+        path /var/log/fluentd-buffers/kubernetes.system.buffer
+        flush_mode interval
+        retry_type exponential_backoff
+        flush_thread_count 2
+        flush_interval 5s
+        retry_forever true
+        retry_max_interval 30
+        chunk_limit_size 2M
+        queue_limit_length 8
+        overflow_action block
+      </buffer>
+    </match>
+{{- end }}

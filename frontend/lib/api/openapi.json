@@ -1,0 +1,720 @@
+{
+  "components": {
+    "schemas": {
+      "EchoRequest": {
+        "additionalProperties": false,
+        "description": "Request body for the echo endpoint.\n\nAttributes\n----------\ntext : str\n    Arbitrary text to echo back.\nsource_url : HttpUrl | None\n    Optional URL associated with the text; reserved for future use.\n\nExamples\n--------\n>>> EchoRequest(text=\"abc\").model_dump()\n{'text': 'abc', 'source_url': None}",
+        "properties": {
+          "source_url": {
+            "anyOf": [
+              {
+                "format": "uri",
+                "maxLength": 2083,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional source URL.",
+            "title": "Source Url"
+          },
+          "text": {
+            "description": "Text to echo.",
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "EchoRequest",
+        "type": "object"
+      },
+      "EchoResponse": {
+        "additionalProperties": false,
+        "description": "Response payload for the echo endpoint.\n\nAttributes\n----------\ntext : str\n    Echoed text.\nlength : int\n    Length of the provided text.\n\nExamples\n--------\n>>> EchoResponse(text=\"abc\", length=3).model_dump()\n{'text': 'abc', 'length': 3}",
+        "properties": {
+          "length": {
+            "description": "Length of the text (non-negative).",
+            "minimum": 0.0,
+            "title": "Length",
+            "type": "integer"
+          },
+          "text": {
+            "description": "Echoed text.",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "length"
+        ],
+        "title": "EchoResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthStatus": {
+        "additionalProperties": false,
+        "description": "Health probe payload indicating service liveness/readiness state.\n\nAttributes\n----------\nstatus : Literal[\"ok\"]\n    Health status string; \"ok\" on success.\n\nExamples\n--------\n>>> HealthStatus(status=\"ok\").model_dump()\n{'status': 'ok'}",
+        "properties": {
+          "status": {
+            "description": "Health status: \"ok\" or \"degraded\".",
+            "enum": [
+              "ok",
+              "degraded"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "HealthStatus",
+        "type": "object"
+      },
+      "ItemCreate": {
+        "additionalProperties": false,
+        "description": "Request body for creating an item.\n\nAttributes\n----------\nname : str\n    Item name (required, 1-255 chars).\ndescription : str\n    Item description (optional, default \"\").\nis_active : bool\n    Whether the item is active (default True).\n\nExamples\n--------\n>>> ItemCreate(name=\"Test\").model_dump()\n{'name': 'Test', 'description': '', 'is_active': True}",
+        "properties": {
+          "description": {
+            "default": "",
+            "description": "Item description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "is_active": {
+            "default": true,
+            "description": "Whether the item is active.",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Item name.",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ItemCreate",
+        "type": "object"
+      },
+      "ItemListResponse": {
+        "additionalProperties": false,
+        "description": "Response payload for a list of items with pagination.\n\nAttributes\n----------\nitems : list[ItemResponse]\n    List of items on the current page.\ntotal : int\n    Total count of items across all pages.\npage : int\n    Current page number (1-indexed).\npage_size : int\n    Number of items per page.\ntotal_pages : int\n    Total number of pages.",
+        "properties": {
+          "items": {
+            "description": "List of items on the current page.",
+            "items": {
+              "$ref": "#/components/schemas/ItemResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number (1-indexed).",
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "description": "Number of items per page.",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total count of items across all pages.",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "description": "Total number of pages.",
+            "minimum": 0.0,
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "total_pages"
+        ],
+        "title": "ItemListResponse",
+        "type": "object"
+      },
+      "ItemResponse": {
+        "additionalProperties": false,
+        "description": "Response payload for a single item.\n\nAttributes\n----------\nid : uuid.UUID\n    Item ID.\nname : str\n    Item name.\ndescription : str\n    Item description.\nis_active : bool\n    Whether the item is active.\ncreated_at : datetime\n    Creation timestamp.\nupdated_at : datetime\n    Last update timestamp.\ndeleted_at : datetime or None\n    Soft deletion timestamp (None if not deleted).\n\nExamples\n--------\n>>> ItemResponse(id=uuid.uuid4(), name=\"Test\", description=\"\", is_active=True,\n...              created_at=datetime.now(), updated_at=datetime.now()).model_dump()",
+        "properties": {
+          "created_at": {
+            "description": "Creation timestamp.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Soft deletion timestamp.",
+            "title": "Deleted At"
+          },
+          "description": {
+            "description": "Item description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Item ID.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "description": "Whether the item is active.",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Item name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ItemResponse",
+        "type": "object"
+      },
+      "ItemUpdate": {
+        "additionalProperties": false,
+        "description": "Request body for updating an item (all fields optional).\n\nAttributes\n----------\nname : str or None\n    New item name.\ndescription : str or None\n    New description.\nis_active : bool or None\n    New active status.\n\nExamples\n--------\n>>> ItemUpdate(name=\"Updated\").model_dump()\n{'name': 'Updated', 'description': None, 'is_active': None}",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Item description.",
+            "title": "Description"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the item is active.",
+            "title": "Is Active"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Item name.",
+            "title": "Name"
+          }
+        },
+        "title": "ItemUpdate",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Minimal FastAPI backend",
+    "title": "Backend Title",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/echo": {
+      "post": {
+        "description": "Create an echo record and return its representation.\n\nParameters\n----------\npayload : EchoRequest\n    Request body containing the text to echo (and optional `source_url`).\nresponse : fastapi.Response\n    Raw HTTP response used to set headers (e.g., `Location`) for 201 Created.\nservice : EchoService\n    Injected dependency from centralized accessors.\n\nReturns\n-------\nEchoResponse\n    Representation of the echoed text, including its character length.\n\nRaises\n------\nValueError\n    Propagated if the underlying repository rejects invalid data (e.g., negative length).\n\nExamples\n--------\n```python\n>>> from fastapi.testclient import TestClient\n>>> from your_service_name.backend.main import create_app\n>>> client = TestClient(create_app())\n>>> resp = client.post(\"/api/v1/echo\", json={\"text\": \"hello\"})\n>>> resp.status_code\n201\n>>> resp.headers[\"Location\"].endswith(\"/api/v1/echo/history\")\nTrue\n>>> resp.json()\n{'text': 'hello', 'length': 5}\n```\n\nNotes\n-----\n- REST: 201 Created + `Location` header. For now, `Location` points to the collection\n  (`/api/v1/echo/history`). If per-item identifiers are introduced later, update it to\n  `/api/v1/echo/{id}`.",
+        "operationId": "echo_api_v1_echo_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EchoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EchoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Echo",
+        "tags": [
+          "echo"
+        ]
+      }
+    },
+    "/api/v1/echo/history": {
+      "get": {
+        "description": "Return previously stored echo entries.\n\nParameters\n----------\nservice : EchoService\n    Injected dependency; repository accessed via ``service.repo``.\n\nReturns\n-------\nlist[EchoResponse]\n    History of echoed items.\n\nExamples\n--------\n```python\n>>> from fastapi.testclient import TestClient\n>>> from your_service_name.backend.main import create_app\n>>> client = TestClient(create_app())\n>>> _ = client.post(\"/api/v1/echo\", json={\"text\": \"abc\"})\n>>> _ = client.post(\"/api/v1/echo\", json={\"text\": \"xyz\"})\n>>> resp = client.get(\"/api/v1/echo/history\")\n>>> resp.status_code\n200\n>>> resp.json()\n[{'text': 'abc', 'length': 3}, {'text': 'xyz', 'length': 3}]\n```",
+        "operationId": "history_api_v1_echo_history_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EchoResponse"
+                  },
+                  "title": "Response History Api V1 Echo History Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "History",
+        "tags": [
+          "echo"
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "description": "Readiness probe.\n\nReturns HTTP 200 ``{\"status\": \"ok\"}`` only when the database engine is\ninitialized AND a live ``SELECT 1`` succeeds. Returns HTTP 503\n``{\"status\": \"degraded\"}`` otherwise.\n\nThe status code IS the contract: Kubernetes' readinessProbe keys off it, so\na pod whose DB tier is down is removed from the Service endpoints instead of\nsilently serving 5xx to clients \u2014 the failure mode this hardening closes\n(see docs/E2E-FINDINGS.md \u00a75.12). Because the probe also runs a live query,\na transient post-startup DB blip recovers on the next successful check\nwithout a restart. Liveness is separate (/healthz) and must never depend on\nthe DB, so a database outage degrades readiness without restart-looping.",
+        "operationId": "health_check_api_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Check",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/healthz": {
+      "get": {
+        "description": "Return a bare health status for uptime/proxy monitors (e.g., a Kubernetes\nliveness probe or the NGINX Ingress Controller health check).\n\nReturns\n-------\nHealthStatus\n    A payload containing `status=\"ok\"`.\n\nNotes\n-----\n- This endpoint is intentionally minimal for fast checks by load balancers.",
+        "operationId": "healthz_api_v1_healthz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Healthz",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/items": {
+      "get": {
+        "description": "List items with optional search filter and pagination.\n\nParameters\n----------\nsearch : str or None\n    Filter substring (case-insensitive ilike on name/description).\npage : int\n    Page number (1-indexed, default 1).\npage_size : int\n    Number of items per page (1-100, default 50).\nservice : ItemService\n    Injected dependency from centralized accessors.\n\nReturns\n-------\nItemListResponse\n    Paginated list of items with metadata.",
+        "operationId": "list_items_api_v1_items_get",
+        "parameters": [
+          {
+            "description": "Filter by name/description.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by name/description.",
+              "title": "Search"
+            }
+          },
+          {
+            "description": "Page number (1-indexed).",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "Page number (1-indexed).",
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Items",
+        "tags": [
+          "items"
+        ]
+      },
+      "post": {
+        "description": "Create a new item.\n\nParameters\n----------\npayload : ItemCreate\n    Request body.\nresponse : fastapi.Response\n    Raw HTTP response for setting headers.\n_current_user : Principal\n    Authenticated principal (gates writes; see backend.auth). Anonymous when\n    AUTH_MODE=none, so the reference CRUD is open until auth is enabled.\nservice : ItemService\n    Injected dependency from centralized accessors.\n\nReturns\n-------\nItemResponse\n    The created item.",
+        "operationId": "create_item_api_v1_items_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Item",
+        "tags": [
+          "items"
+        ]
+      }
+    },
+    "/api/v1/items/{item_id}": {
+      "delete": {
+        "description": "Delete an item.\n\nThe single canonical soft-delete: sets ``deleted_at`` so the item drops out of\nlist/get. (There is no separate \"archive\" endpoint \u2014 delete *is* the soft-delete.)\n\nParameters\n----------\nitem_id : UUID\n    Item identifier.\n_current_user : Principal\n    Authenticated principal (gates writes; see backend.auth).\nservice : ItemService\n    Injected dependency from centralized accessors.\n\nReturns\n-------\nResponse (204 No Content)\n\nRaises\n------\nHTTPException 404\n    If the item is not found.",
+        "operationId": "delete_item_api_v1_items__item_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Item",
+        "tags": [
+          "items"
+        ]
+      },
+      "get": {
+        "description": "Get a single item by ID.\n\nParameters\n----------\nitem_id : UUID\n    Item identifier.\nservice : ItemService\n    Injected dependency from centralized accessors.\n\nReturns\n-------\nItemResponse\n\nRaises\n------\nHTTPException 404\n    If the item is not found.",
+        "operationId": "get_item_api_v1_items__item_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Item",
+        "tags": [
+          "items"
+        ]
+      },
+      "patch": {
+        "description": "Partially update an item.\n\nParameters\n----------\nitem_id : UUID\n    Item identifier.\npayload : ItemUpdate\n    Fields to update (all optional).\n_current_user : Principal\n    Authenticated principal (gates writes; see backend.auth).\nservice : ItemService\n    Injected dependency from centralized accessors.\n\nReturns\n-------\nItemResponse\n\nRaises\n------\nHTTPException 404\n    If the item is not found.",
+        "operationId": "update_item_api_v1_items__item_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Item",
+        "tags": [
+          "items"
+        ]
+      }
+    },
+    "/metrics": {
+      "get": {
+        "description": "Endpoint that serves Prometheus metrics.",
+        "operationId": "metrics_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Metrics"
+      }
+    }
+  },
+  "tags": [
+    {
+      "description": "Service health checks",
+      "name": "health"
+    },
+    {
+      "description": "Echo demo endpoints",
+      "name": "echo"
+    },
+    {
+      "description": "Item CRUD sample endpoints",
+      "name": "items"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+name: C
+description: d
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+    - shell: bash
+      run: echo hi

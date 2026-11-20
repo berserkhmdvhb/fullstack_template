@@ -1,0 +1,65 @@
+# Root-level paths are anchored with a leading "/" so a rule can never hide a
+# same-named folder deeper in the tree (for example a test fixture called data/).
+
+# --- Secrets and local environment: only the *.example files are committed ---
+.env
+.env.*
+!.env*.example
+/infra/security/local/.env.local
+/charts/*/values.secret.yaml
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+/.venv/
+/venv/
+/build/
+/dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+/coverage.xml
+/report.xml
+/htmlcov/
+# setuptools_scm writes the version file at build time (version comes from Git tags).
+# A wildcard instead of the package name, because infra/adapt renames the package.
+/src/*/_version.py
+
+# --- Local data, logs and runtime output ---
+/data/
+/logs/
+*.db
+*.sqlite3
+
+# --- Template tooling output ---
+/.adapt-backup/
+/output/
+/.osv/
+
+# --- Node and browser tests (frontend/ has its own .gitignore as well) ---
+node_modules/
+test-results/
+playwright-report/
+
+# --- Infrastructure as code (state and variable files never belong in Git) ---
+*.tfvars
+!*.tfvars.example
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# --- Editors and OS ---
+.DS_Store
+.idea/
+*.swp
+
+# --- Agent working files (plans in progress, review packages) ---
+/.superpowers/
+
+# --- Pinned dev toolchain (make tools) ---
+/.tools/

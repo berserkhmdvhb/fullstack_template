@@ -1,0 +1,29 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://openvex.dev/docs/public/vex-${VEX_ID}",
+  "author": "${VEX_AUTHOR}",
+  "version": 1,
+  "timestamp": "${VEX_TIMESTAMP}",
+  "tooling": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/infra/security/generate-vex.sh",
+  "statements": [
+    {
+      "vulnerability": {
+        "@id": "${OSV_REF}",
+        "name": "${CVE_ID}",
+        "description": "${CVE_DESCRIPTION}"
+      },
+      "timestamp": "${VEX_TIMESTAMP}",
+      "products": [
+        {
+          "@id": "pkg:oci/${IMAGE_NAME}@sha256:${IMAGE_DIGEST}?repository_url=${IMAGE_REPOSITORY}&tag=${IMAGE_TAG}",
+          "subcomponents": [
+            { "@id": "${SUBCOMPONENT_PURL}" }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "fixed_version",
+      "impact_statement": "The vulnerable code path is not reachable in this artifact; a fix shipped in ${FIXED_VERSION}."
+    }
+  ]
+}

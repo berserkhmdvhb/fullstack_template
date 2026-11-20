@@ -1,0 +1,38 @@
+{{/*
+   Minimal RBAC: the service account may read ConfigMaps in its own namespace.
+
+   It is deliberately granted NO Secrets. Workloads consume Secrets via envFrom /
+   secretKeyRef, which the kubelet resolves at pod creation — no in-cluster secret
+   read permission is required. Granting get/list/watch on all Secrets in the
+   namespace would let any compromised workload dump every Secret (incl. the DB
+   password), so it is removed here. If you enable an in-namespace controller that
+   genuinely needs to read Secrets (e.g. External Secrets Operator), give it its
+   own narrowly-scoped Role instead of broad access on this SA.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "chart.fullname" . }}-role
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "chart.fullname" . }}-binding
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "chart.fullname" . }}-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "chart.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

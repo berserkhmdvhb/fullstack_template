@@ -1,0 +1,48 @@
+fail-on: high
+only-fixed: true
+add-cpes-if-none: false
+
+ignore:
+  - vulnerability: CVE-2026-21710
+    package:
+      name: node
+      version: "22.22.2"
+    reason: >
+      False positive. CVE-2026-21710 was fixed in Node.js 22.22.2
+      as part of the March 25, 2026 security releases.
+    until: 2026-12-31
+  # --- Python stdlib CVE with no fix in any GA interpreter (<= 3.14) ---
+  # Fixed only in Python 3.15 pre-releases. Bumping the production base to
+  # brand-new 3.15 purely for this Medium is higher-risk than the residual
+  # exposure, so it is accepted until the team validates 3.15.
+  #
+  # Not version-scoped on purpose: the base is the floating python:3.13-slim
+  # tag and grype matches the ignore `version` EXACTLY (verified: "3.13" does
+  # not match the SBOM's full "3.13.x"), so a version pin would silently stop
+  # matching on the next base bump and re-fail the high gate. The `until:` date
+  # is the expiry mechanism; pin the base image to a digest if you want the
+  # ignore to auto-drop when the interpreter is bumped.
+  - vulnerability: CVE-2025-15367
+    package:
+      # No version: matches whatever 3.13.x the slim base currently pins.
+      name: python
+    reason: >
+      poplib command injection (stdlib POP3 client). Not fixable in any GA
+      Python <= 3.14 (fixed only in 3.15 pre-releases). This FastAPI service
+      does not use poplib, so there is no reachable attack surface.
+      Re-evaluate when adopting Python 3.15.
+    until: 2027-04-30
+  # --- Next.js vendored picomatch (no runtime attack surface we control) ---
+  # With the lean frontend runtime (Node binary only — see Dockerfile.frontend),
+  # npm's own bundled deps (brace-expansion, ip-address, pacote, sigstore, …) are
+  # no longer shipped. The one remaining fixable-HIGH is picomatch, vendored by
+  # Next.js under .next/…/compiled and bundled into the standalone output. It is
+  # not a project dependency and cannot be fixed via package.json — it clears only
+  # when Next.js ships a patched vendored copy. Matched by package (not CVE) so the
+  # rule survives DB accrual; the until date forces re-evaluation at the next bump.
+  - package:
+      name: picomatch
+    reason: >
+      Next.js vendored dependency (.next/…/compiled), bundled into the standalone
+      output. Not a project dependency; clears only with a Next.js bump.
+    until: 2027-04-30

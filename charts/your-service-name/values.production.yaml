@@ -1,0 +1,78 @@
+# Production. Managed DB (internal Postgres disabled), secrets via sealed-secrets /
+# ESO / SOPS (the value defaults below are left empty on purpose).
+environment: production
+
+global:
+  # Pull images from the private registry. Create a docker-registry secret of this
+  # name in the production namespace first, e.g.:
+  #   kubectl create secret docker-registry registry-credentials \
+  #     --docker-server=registry.your-domain.example --docker-username=<user> \
+  #     --docker-password=<token> -n your-service-name-production
+  imagePullSecrets:
+    - registry-credentials
+
+# Always re-pull in-cluster (images carry immutable per-commit tags in CI); only
+# `local` keeps IfNotPresent so the node-daemon image resolves off a bare tag.
+imagePullPolicy: Always
+
+images:
+  backend:  { repository: your-service-name-backend,  tag: latest, registry: registry.your-domain.example }
+  frontend: { repository: your-service-name-frontend, tag: latest, registry: registry.your-domain.example }
+  nginx:    { repository: your-service-name-nginx,    tag: latest, registry: registry.your-domain.example }
+
+# nginx has no static replica here on purpose: the nginx HPA (below) owns it and
+# keeps >=2 for high availability, so the static-asset tier is not a SPOF (C-L12).
+hpa:
+  nginx:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+
+config:
+  ENV: production
+  DEBUG: "false"
+  LOG_LEVEL: WARNING
+  # Same-origin, versioned: the browser calls /api/v1 and the Next.js server
+  # proxies it to BACKEND_URL (set in the ConfigMap). Relative => one bundle
+  # for every environment; no build-time API URL to inject per env.
+  NEXT_PUBLIC_API_URL: "/api/v1"
+
+ingress:
+  hosts:
+    api: api.your-domain.example
+    app: app.your-domain.example
+    root: your-service-name.your-domain.example
+  tlsSecretName: your-service-name-tls
+
+# Production uses a managed DB — the in-cluster StatefulSet is disabled and the
+# app points at externalDatabase.host. Raise quota.* too if on a larger cluster.
+postgresql:
+  enabled: false
+
+externalDatabase:
+  enabled: true
+  host: your-service-name-db.xxxxx.eu-west-1.rds.amazonaws.com
+  port: 5432
+  name: service_template
+  user: app
+  passwordSecret: ""   # point at your sealed-secrets / ESO / SOPS secret
+  # REQUIRED for prod to reach the DB: the managed DB's subnet (NetworkPolicy is
+  # IP-based; FQDN egress needs Cilium or a mesh). The backend + migration egress
+  # allow to :5432 renders only when this is non-empty. REPLACE with your RDS VPC
+  # CIDR (e.g. 10.0.0.0/16). The chart FAILS THE RENDER if this is empty while the
+  # external DB is selected (templates/validate-values.yaml) — set it, don't leave
+  # it blank. Empty => default-deny egress stands and the DB is unreachable.
+  egressCIDR: "10.0.0.0/16"
+
+secrets:
+  # Externally-managed Opaque secret holding DB_USER / DB_PASSWORD / STATS_PASS,
+  # created out-of-band via sealed-secrets / ESO / SOPS. The chart does NOT create
+  # its own secret when this is set; the backend + migration reference this name.
+  # Create it in the production namespace with exactly those three keys, e.g.:
+  #   kubectl create secret generic your-service-name-secret \
+  #     --from-literal=DB_USER=app --from-literal=DB_PASSWORD=<...> \
+  #     --from-literal=STATS_PASS=<...> -n your-service-name-production
+  existingSecret: your-service-name-secret
+  dbUser: ""
+  dbPassword: ""
+  statsPass: ""

@@ -1,0 +1,24 @@
+apiVersion: v2
+name: your-service-name
+description: >-
+  Helm chart for the your-service-name 3-tier stack (FastAPI backend + Next.js
+  frontend + nginx static) with a gated in-cluster PostgreSQL tier (external DB
+  for production). Per-environment, per-tier namespaces.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+# Chart uses networking.k8s.io/v1, autoscaling/v2 and policy/v1 (all >=1.22),
+# plus Helm features that assume a recent API surface — bound the supported range
+# so an install on an old cluster fails with a clear message instead of a
+# cryptic one (C-L9).
+kubeVersion: ">=1.23.0-0"
+keywords:
+  - fastapi
+  - nextjs
+  - postgresql
+home: https://your-domain.example
+sources:
+  - https://your-domain.example/your-service-name
+maintainers:
+  - name: YourOrg
+    email: you@your-domain.example

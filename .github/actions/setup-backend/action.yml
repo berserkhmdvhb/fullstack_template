@@ -1,0 +1,33 @@
+name: Set up the backend
+description: >-
+  Install Python and the backend with its develop extras, with the pip cache dir keyed on pyproject.toml
+  (the repository has no lockfile). Input python-version (default 3.13). No outputs.
+inputs:
+  python-version:
+    description: Python version to install.
+    default: "3.13"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: ${{ inputs.python-version }}
+        allow-prereleases: true
+    # Restored everywhere, saved only from a push to main (never from a pull request or a tag).
+    - id: pip-cache
+      shell: bash
+      run: echo "dir=$(pip cache dir)" >> "$GITHUB_OUTPUT"
+    - id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.pip-cache.outputs.dir }}
+        key: pip-${{ runner.os }}-${{ inputs.python-version }}-${{ hashFiles('pyproject.toml') }}
+    - name: Install the backend
+      shell: bash
+      run: |
+        pip install -e '.[develop]'
+    - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.pip-cache.outputs.dir }}
+        key: ${{ steps.restore.outputs.cache-primary-key }}

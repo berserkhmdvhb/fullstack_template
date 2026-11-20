@@ -1,0 +1,38 @@
+name: Chart
+
+# Call-only: ci.yml (pull requests and pushes) and deploy.yml (before any deploy) call this one.
+on:
+  workflow_call:
+
+permissions: {}
+
+env:
+  SERVICE_NAME: ${{ vars.SERVICE_NAME || 'your-service-name' }}
+  CHART_DIR: charts/your-service-name
+
+jobs:
+  chart:
+    name: Helm lint and template
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Helm
+        run: |
+          scripts/tools.sh install helm4
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - name: Lint and render every values file
+        run: |
+          helm version --short
+          helm lint "${CHART_DIR}"
+          for f in "${CHART_DIR}"/values.*.yaml; do
+            name="$(basename "${f}" .yaml)"
+            echo "== ${name}"
+            helm lint "${CHART_DIR}" -f "${f}"
+            helm template "${SERVICE_NAME}" "${CHART_DIR}" -f "${f}" > "${RUNNER_TEMP}/rendered-${name}.yaml"
+            echo "- \`${name}\`: lint and template ok ($(wc -l < "${RUNNER_TEMP}/rendered-${name}.yaml") lines)" >> "$GITHUB_STEP_SUMMARY"
+          done

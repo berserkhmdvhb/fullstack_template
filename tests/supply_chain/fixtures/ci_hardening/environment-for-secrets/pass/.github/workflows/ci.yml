@@ -1,0 +1,18 @@
+name: T
+on: [push]
+permissions: {}
+jobs:
+  j:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: dev
+    permissions:
+      id-token: write # WIF login
+    steps:
+      - run: echo "$S"
+        env:
+          S: ${{ secrets.KUBECONFIG_B64 }}
+  call:
+    permissions:
+      id-token: write # passed to the called workflow
+    uses: ./.github/workflows/other.yml

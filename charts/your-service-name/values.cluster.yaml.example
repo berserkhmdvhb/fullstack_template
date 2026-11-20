@@ -1,0 +1,74 @@
+# =============================================================================
+# values.cluster.yaml.example — EXAMPLE cluster overlay. COPY + FILL, never
+# deploy as-is.
+#
+# A "cluster" is one specific Kubernetes cluster. Its overlay holds the values
+# that depend on WHERE you run — which the service name / domain / registry do
+# NOT determine — namely:
+#   * the ingress controller class      (cilium vs ingress-nginx vs ...)
+#   * the Postgres + backup StorageClass (tripleo vs standard vs gp3 vs ...)
+#   * the TLS mode                       (plain HTTP vs a real cert secret)
+#   * the CI-built SHORT image names      (backend / frontend / nginx)
+#   * the registry pull secret name
+#
+# The identity + coordinates (service name, domain, image registry) are handled
+# by infra/adapt/adopt.sh, NOT here — so this file reuses the same placeholder
+# tokens (`your-domain.example`, `registry.your-domain.example`). That means after you run
+# the adapter, your copied overlay ALREADY has your real domain + registry; you
+# only fill the genuinely per-cluster blanks below.
+#
+# Usage:
+#   cp charts/your-service-name/values.cluster.yaml.example \
+#      charts/your-service-name/values.<your-cluster>.yaml
+#   # edit values.<your-cluster>.yaml (fill the <ALL-CAPS> blanks)
+#   helm upgrade --install your-service-name charts/your-service-name \
+#     -f charts/your-service-name/values.dev.yaml \            # or qa / production
+#     -f charts/your-service-name/values.<your-cluster>.yaml \
+#     -f charts/your-service-name/values.secret.yaml \          # DB password (gitignored)
+#     -n <namespace> --create-namespace
+# =============================================================================
+
+# --- Images (registry-pull) -------------------------------------------------
+# CI builds SHORT names (backend / frontend / nginx) under the project path, but
+# the chart's default `repository:` is the LOCAL bare name (your-service-name-backend,
+# built into the node daemon via scripts/services.yaml). For a registry pull you
+# must override BOTH registry AND repository, else the chart looks for
+# …/your-service-name-backend which CI never built (ImagePullBackOff).
+#   * registry  <- stamped by adopt.sh (your ghcr.io/<owner>/<repo> path)
+#   * repository <- the CI short name (confirm against your pipeline's *_IMAGE vars)
+#   * tag        <- the moving per-commit build (VERSION-CHANNEL-SHA); pin digest
+#                   for an immutable ref, or --set images.backend.tag=<sha> per deploy
+images:
+  backend:  { repository: backend,  registry: registry.your-domain.example, tag: latest }
+  frontend: { repository: frontend, registry: registry.your-domain.example, tag: latest }
+  nginx:    { repository: nginx,    registry: registry.your-domain.example, tag: latest }
+
+global:
+  # The docker-registry secret, created once in the app namespace:
+  #   kubectl create secret docker-registry registry-credentials \
+  #     --docker-server=https://registry.your-domain.example \
+  #     --docker-username=<registry-user> --docker-password=<personal-access-token> \
+  #     -n <namespace>
+  imagePullSecrets:
+    - registry-credentials
+
+# --- Ingress ---------------------------------------------------------------
+ingress:
+  className: <INGRESS-CLASS>     # the ingress controller on YOUR cluster, e.g. cilium or nginx
+  hosts:
+    api:  api.your-domain.example          # adopt.sh stamps your-domain.example -> your base domain
+    app:  app.your-domain.example
+    root: your-service-name.your-domain.example
+  tlsSecretName: <TLS-SECRET>    # "" => plain HTTP (no cert-manager); set a real cert secret for HTTPS
+  annotations: {}                # nginx.ingress.kubernetes.io/* annotations are INERT on non-nginx
+                                 # controllers (e.g. Cilium) — leave this empty unless you run ingress-nginx
+
+# --- Storage (match your cluster's StorageClass) ---------------------------
+# Confirm with `kubectl get storageclass`; the chart default `standard` may not
+# exist on your cluster (the Postgres + backup PVCs would stick Pending).
+postgresql:
+  storage:
+    className: <STORAGE-CLASS>   # e.g. tripleo / standard / gp3
+  backup:
+    storage:
+      className: <STORAGE-CLASS>

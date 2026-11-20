@@ -1,0 +1,11 @@
+rules:
+  # actionlint (1.7.12, the newest release) rejects the `$/...` self-repository syntax, so the
+  # workspace-relative `./` references stay. Revisit once actionlint supports `$/`.
+  self-repository:
+    disable: true
+  # dast.yml runs on workflow_run so it can read the Release run's digest artifact. It is safe here:
+  # Release runs only on push to main and v* tags (never on a pull request), the job requires a
+  # successful, same-repository, push-triggered run, and it checks out no untrusted code.
+  dangerous-triggers:
+    ignore:
+      - dast.yml

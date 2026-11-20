@@ -1,0 +1,10 @@
+# Patterns to ignore when packaging Helm charts.
+.DS_Store
+.git/
+.gitignore
+*.tmpl
+# Keep the Kustomize tree and this chart's own docs out of the package.
+k8s/
+wiki/
+docs/
+*.md

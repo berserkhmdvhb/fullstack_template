@@ -1,0 +1,119 @@
+{{/*
+   Alembic migration Job, run as a Helm hook so it executes on every install and
+   upgrade automatically (no manual delete-recreate). backoffLimit/activeDeadline
+   are the Job's own retry budget; the backend also retries init_db on startup.
+
+   MUST be a POST-install/upgrade hook, not pre-install. Helm runs pre-install
+   hooks BEFORE any regular resources exist ("executes ... before any resources
+   are created"), so a pre-install migration can never see the ServiceAccount or
+   Postgres it depends on — both are regular resources created only afterwards,
+   and a failed pre-install hook aborts the release before they are made. As a
+   post-install hook the SA, Postgres, Secret and ConfigMap all exist first; the
+   backend's readiness probe (/api/v1/health) is DB-connection green independent
+   of the schema, and the backend retries init_db on startup, so starting it just
+   before the schema lands is safe.
+
+   Faithful to the Kustomize Job, incl. the cross-namespace secret detail: DB_USER
+   is pulled from the APP secret (same one the migrate container consumes) and
+   DB_NAME from the ConfigMap — both in the Job's own namespace. Referencing the
+   db-namespace secret here stranded the init container in CreateContainerConfigError.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "chart.fullname" . }}-migration
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    # post-install (not pre-install): see the block comment above — the migration
+    # depends on regular resources (ServiceAccount + Postgres) that only exist
+    # after the release's resources are created.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    "helm.sh/hook-weight": "0"
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+{{- include "chart.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+    spec:
+      serviceAccountName: {{ include "chart.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      {{- include "chart.imagePullSecrets" . | indent 6 }}
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-db
+          image: {{ .Values.postgresql.clientImage }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for PostgreSQL at ${DB_HOST}:${DB_PORT} ..."
+              until pg_isready -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}"; do
+                echo "  PostgreSQL not ready, retrying in 2s ..."
+                sleep 2
+              done
+              echo "PostgreSQL is ready."
+          envFrom:
+            - configMapRef:
+                name: {{ include "chart.fullname" . }}-config
+          env:
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "chart.secretName" . }}
+                  key: DB_USER
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "chart.fullname" . }}-config
+                  key: DB_NAME
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: migrate
+          image: {{ include "chart.image" (dict "image" .Values.images.backend) }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              export DATABASE_URL="postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+              exec /usr/bin/tini -- python -m your_service_name.backend.db.run_migrations
+          envFrom:
+            - configMapRef:
+                name: {{ include "chart.fullname" . }}-config
+            - secretRef:
+                name: {{ include "chart.secretName" . }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

@@ -1,0 +1,23 @@
+{{/*
+   Database namespace. Derived from the release namespace (e.g. your-service-name-dev-db).
+   Carries the stable `tier: db` label and Pod Security "baseline" (StatefulSet volumes).
+*/}}
+{{- if or .Values.postgresql.enabled .Values.externalDatabase.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "chart.dbNamespace" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "chart.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    environment: {{ .Values.environment }}
+    tier: db
+    component: database
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: v1.30
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: v1.30
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: v1.30
+{{- end }}

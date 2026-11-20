@@ -1,0 +1,30 @@
+# QA (pre-production validation gate). Images pulled from the private registry.
+environment: qa
+
+# Always re-pull in-cluster (images carry immutable per-commit tags in CI); only
+# `local` keeps IfNotPresent so the node-daemon image resolves off a bare tag.
+imagePullPolicy: Always
+
+images:
+  backend:  { repository: your-service-name-backend,  tag: latest, registry: registry.your-domain.example }
+  frontend: { repository: your-service-name-frontend, tag: latest, registry: registry.your-domain.example }
+  nginx:    { repository: your-service-name-nginx,    tag: latest, registry: registry.your-domain.example }
+
+config:
+  ENV: qa
+  DEBUG: "false"
+  LOG_LEVEL: INFO
+  # Same-origin, versioned: the browser calls /api/v1 and the Next.js server
+  # proxies it to BACKEND_URL (set in the ConfigMap). Relative => one bundle
+  # for every environment; no build-time API URL to inject per env.
+  NEXT_PUBLIC_API_URL: "/api/v1"
+
+ingress:
+  hosts:
+    api: qa-api.your-domain.example
+    app: qa-app.your-domain.example
+    root: qa.your-domain.example
+  tlsSecretName: your-service-name-qa-tls
+
+postgresql:
+  enabled: true
