@@ -1,4 +1,4 @@
-"""The deploy workflows: helm checks, guarded environment chain, cluster access, ops (Task 1.8).
+"""The deploy workflows: helm checks, guarded environment chain, cluster access, ops.
 
 Static, offline.
 """

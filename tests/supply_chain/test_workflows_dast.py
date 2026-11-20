@@ -1,4 +1,4 @@
-"""The DAST workflow: a ZAP baseline against the released backend image (Task 1.7).
+"""The DAST workflow: a ZAP baseline against the released backend image.
 
 Static, offline.
 """
@@ -10,9 +10,15 @@ from typing import Any, cast
 
 import yaml
 
-from tests.supply_chain._workflows import REPO, WORKFLOWS, load, steps_of, workflow
+from tests.supply_chain._workflows import (
+    ARTIFACT_RETENTION_DAYS,
+    REPO,
+    WORKFLOWS,
+    load,
+    steps_of,
+    workflow,
+)
 
-ARTIFACT_RETENTION_DAYS = 90
 ZAP_PIN = re.compile(r"^[a-z0-9./-]+:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$")
 
 

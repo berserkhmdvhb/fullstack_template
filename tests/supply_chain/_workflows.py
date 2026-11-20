@@ -63,6 +63,7 @@ def every_step() -> list[tuple[str, dict[str, Any]]]:
     ]
 
 
+ARTIFACT_RETENTION_DAYS = 90  # release, scan and report artifacts
 FAILURE_ARTIFACT_RETENTION_DAYS = 7
 
 

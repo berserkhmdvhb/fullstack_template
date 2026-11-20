@@ -1,4 +1,4 @@
-"""The frontend workflow, the OpenAPI drift gate and the path filter (Task 1.2)."""
+"""The frontend workflow, the OpenAPI drift gate and the path filter."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""The security workflow (Task 1.6): blocking vs advisory split, SARIF categories, triggers.
+"""The security workflow: blocking vs advisory split, SARIF categories, triggers.
 
 Static, offline.
 """
@@ -10,13 +10,12 @@ from typing import Any, cast
 
 import yaml
 
-from tests.supply_chain._workflows import REPO, WORKFLOWS, load, workflow
+from tests.supply_chain._workflows import ARTIFACT_RETENTION_DAYS, REPO, WORKFLOWS, load, workflow
 
 IMAGES = REPO / ".github" / "container-images.yml"
 BLOCKING = {"codeql", "dependency-review", "gitleaks"}
 NOTICE = {"code-security-off"}
 ADVISORY = {"pip-audit", "advisory"}
-ARTIFACT_RETENTION_DAYS = 90
 CATEGORIES = {"pip-audit", "osv-scanner", "guarddog", "checkov", "kubescape"}
 
 

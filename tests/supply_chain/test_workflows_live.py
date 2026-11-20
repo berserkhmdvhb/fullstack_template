@@ -1,4 +1,4 @@
-"""The live workflow: full stack on the runner, advisory on PRs, blocking elsewhere (Task 1.3)."""
+"""The live workflow: full stack on the runner, advisory on PRs, blocking elsewhere."""
 
 from __future__ import annotations
 

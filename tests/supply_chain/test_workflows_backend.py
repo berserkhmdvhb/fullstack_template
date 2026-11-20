@@ -1,4 +1,4 @@
-"""The CI orchestrator, the backend workflow and the setup actions (Task 1.1)."""
+"""The CI orchestrator, the backend workflow and the setup actions."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from tests.supply_chain._workflows import (
     workflow,
 )
 
-PYTHON_VERSIONS = 3  # the unit job matrix
+FAILURE_UPLOAD_JOBS = 3  # unit, integration and e2e each upload their own failure report
 ADVISORY_PYTHON = "3.14"
 
 
@@ -215,5 +215,5 @@ def test_test_jobs_upload_their_reports_only_on_failure() -> None:
         names.append(ups[0]["with"]["name"])
         assert "junit-" in ups[0]["with"]["path"]
     assert "${{ matrix.python-version }}" in names[0]
-    assert len(set(names)) == PYTHON_VERSIONS
+    assert len(set(names)) == FAILURE_UPLOAD_JOBS
     assert "coverage.xml" in failure_uploads(jobs["unit"])[0]["with"]["path"]

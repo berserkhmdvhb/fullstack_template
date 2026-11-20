@@ -1,13 +1,12 @@
-"""The release workflow: build, push, verify, SBOM, scan (Task 1.5). Static, offline."""
+"""The release workflow: build, push, verify, SBOM, scan. Static, offline."""
 
 from __future__ import annotations
 
 import re
 from typing import Any
 
-from tests.supply_chain._workflows import steps_of, workflow
+from tests.supply_chain._workflows import ARTIFACT_RETENTION_DAYS, steps_of, workflow
 
-ARTIFACT_RETENTION_DAYS = 90
 MIN_UPLOAD_STEPS = 4  # one per scan job
 
 
