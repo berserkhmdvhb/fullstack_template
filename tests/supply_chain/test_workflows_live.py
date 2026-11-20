@@ -1,9 +1,9 @@
-"""The live workflow: full stack on the runner, advisory on pull requests, blocking elsewhere (Task 1.3)."""
+"""The live workflow: full stack on the runner, advisory on PRs, blocking elsewhere (Task 1.3)."""
 
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, cast
 
 from tests.supply_chain._workflows import WORKFLOWS, all_files, failure_uploads, steps_of, workflow
 
@@ -15,7 +15,7 @@ def _live() -> dict[str, Any]:
 
 
 def _live_job() -> dict[str, Any]:
-    return _live()["jobs"]["live"]
+    return cast("dict[str, Any]", _live()["jobs"]["live"])
 
 
 def _runs(doc: dict[str, Any]) -> str:
@@ -44,7 +44,8 @@ def test_live_is_gated_on_backend_or_frontend_changes() -> None:
     assert "needs.changes.outputs.backend == 'true'" in cond
     assert "needs.changes.outputs.frontend == 'true'" in cond
     assert "||" in cond
-    # A skipped gate (its paths did not change) must not stop the live job, but a failed or cancelled one must.
+    # A skipped gate (its paths did not change) must not stop the live job, but a failed or
+    # cancelled one must.
     assert cond.startswith("${{ !cancelled() && ")
     assert "!contains(needs.*.result, 'failure')" in cond
     assert set(job["needs"]) == {"changes", "backend", "frontend"}
@@ -100,7 +101,9 @@ def test_tool_guard_runs_before_the_stack_starts() -> None:
     guard = names.index("Ensure nginx and envsubst")
     assert guard < names.index("Start the stack")
     run = steps[guard]["run"]
-    assert "nginx" in run and "envsubst" in run and "gettext-base" in run
+    assert "nginx" in run
+    assert "envsubst" in run
+    assert "gettext-base" in run
     assert "command -v" in run
 
 
@@ -111,5 +114,9 @@ def test_playwright_reports_upload_only_on_failure() -> None:
     assert "frontend/test-results" in path
     assert "frontend/playwright-report" in path
     # No other upload may exist: every artifact step of the live job is failure-only.
-    every = [s for s in _live_job()["steps"] if str(s.get("uses", "")).startswith("actions/upload-artifact@")]
+    every = [
+        s
+        for s in _live_job()["steps"]
+        if str(s.get("uses", "")).startswith("actions/upload-artifact@")
+    ]
     assert every == ups

@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+from typing import Any
 
 import pytest
 
@@ -14,18 +15,22 @@ from tests.supply_chain._workflows import REPO, WORKFLOWS, load, workflow
 
 DOC = REPO / "wiki" / "github-repository-settings.md"
 SCRIPT = REPO / "scripts" / "github-settings.sh"
+BASH: str = shutil.which("bash") or "/usr/bin/bash"
+CI_OK_MAX_TIMEOUT_MINUTES = 10
+MIN_TABLE_CELLS = 3  # a variable row: name, "variable", value
 
 
 def _section(heading: str) -> str:
     text = DOC.read_text(encoding="utf-8")
-    match = re.search(rf"^## {re.escape(heading)}\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    pattern = rf"^## {re.escape(heading)}\n(.*?)(?=^## |\Z)"
+    match = re.search(pattern, text, re.DOTALL | re.MULTILINE)
     assert match, f"{DOC.name} has no '## {heading}' section"
     return match.group(1)
 
 
 def _listed(heading: str) -> list[str]:
     """The backticked names in the bullets of a section."""
-    return re.findall(r"^- `([^`]+)`", _section(heading), re.M)
+    return re.findall(r"^- `([^`]+)`", _section(heading), re.MULTILINE)
 
 
 def _job_names() -> set[str]:
@@ -37,12 +42,15 @@ def _job_names() -> set[str]:
     return names
 
 
-def _is_advisory(job: dict) -> bool:
+def _is_advisory(job: dict[str, Any]) -> bool:
     """Advisory only when the name says so or continue-on-error is literally true.
 
     A conditional continue-on-error (one matrix leg, or only on pull requests) is not an exemption.
     """
-    return job.get("name", "").lower().rstrip().endswith("(advisory)") or job.get("continue-on-error") is True
+    return (
+        job.get("name", "").lower().rstrip().endswith("(advisory)")
+        or job.get("continue-on-error") is True
+    )
 
 
 def test_required_checks_are_real_job_names() -> None:
@@ -71,12 +79,12 @@ def test_ci_ok_needs_every_blocking_job() -> None:
     assert set(gate["needs"]) == set(jobs) - {"ci-ok"}
     assert gate["if"].strip() == "always()"
     assert gate["permissions"] == {"contents": "read"}
-    assert gate["timeout-minutes"] <= 10
+    assert gate["timeout-minutes"] <= CI_OK_MAX_TIMEOUT_MINUTES
 
 
 def test_live_pr_failure_cannot_fail_the_gate() -> None:
-    # `ci-ok` ignores `live` on pull requests (TestGateScript), and the job still fails soft inside its own
-    # workflow, so the check list stays clean; on main and tags it is blocking.
+    # `ci-ok` ignores `live` on pull requests (TestGateScript), and the job still fails soft
+    # inside its own workflow, so the check list stays clean; on main and tags it is blocking.
     live = workflow("reusable-live.yml")["jobs"]["live"]
     assert live["continue-on-error"] == "${{ github.event_name == 'pull_request' }}"
 
@@ -85,12 +93,14 @@ def _gate(results: dict[str, str], event: str = "pull_request") -> int:
     script = workflow("ci.yml")["jobs"]["ci-ok"]["steps"][-1]["run"]
     needs = json.dumps({k: {"result": v, "outputs": {}} for k, v in results.items()})
     env = {"NEEDS": needs, "EVENT_NAME": event, "PATH": os.environ["PATH"]}
-    return subprocess.run(["bash", "-c", script], env=env, capture_output=True, check=False).returncode
+    return subprocess.run(
+        [BASH, "-c", script], env=env, capture_output=True, check=False
+    ).returncode
 
 
 def _all(result: str = "success", **override: str) -> dict[str, str]:
     jobs = set(workflow("ci.yml")["jobs"]) - {"ci-ok"}
-    return {j: result for j in jobs} | override
+    return dict.fromkeys(jobs, result) | override
 
 
 def test_every_blocking_pull_request_job_is_gated() -> None:
@@ -103,7 +113,9 @@ def test_every_blocking_pull_request_job_is_gated() -> None:
         for key, job in doc["jobs"].items():
             if _is_advisory(job) or job.get("name") in required:
                 continue
-            assert key in needs, f"{path.name}: job {key} is blocking on pull requests but not behind CI OK"
+            assert key in needs, (
+                f"{path.name}: job {key} is blocking on pull requests but not behind CI OK"
+            )
 
 
 def test_no_workflow_uses_pull_request_target() -> None:
@@ -148,7 +160,7 @@ class TestGateScript:
 
 
 def _script_list(name: str) -> set[str]:
-    match = re.search(rf'^{name}="([^"]*)"', SCRIPT.read_text(encoding="utf-8"), re.M)
+    match = re.search(rf'^{name}="([^"]*)"', SCRIPT.read_text(encoding="utf-8"), re.MULTILINE)
     assert match, name
     return set(match.group(1).split())
 
@@ -158,9 +170,9 @@ def _table() -> dict[str, str]:
     text = (REPO / "wiki" / "platform-setup.md").read_text(encoding="utf-8")
     text = text.split("Not wired up yet")[0]
     out: dict[str, str] = {}
-    for row in re.findall(r"^\|(.+)$", text, re.M):
+    for row in re.findall(r"^\|(.+)$", text, re.MULTILINE):
         cells = [c.strip() for c in row.split("|")]
-        if len(cells) > 2 and cells[1] == "variable":
+        if len(cells) >= MIN_TABLE_CELLS and cells[1] == "variable":
             for name in re.findall(r"`([A-Z][A-Z0-9_]+)`", cells[0]):
                 out[name] = cells[2]
     return out
@@ -178,6 +190,7 @@ def test_script_variable_lists_match_the_platform_setup_table() -> None:
 
 
 def test_script_required_check_equals_the_doc_list() -> None:
-    match = re.search(r'^REQUIRED_CHECK="([^"]*)"', SCRIPT.read_text(encoding="utf-8"), re.M)
+    script = SCRIPT.read_text(encoding="utf-8")
+    match = re.search(r'^REQUIRED_CHECK="([^"]*)"', script, re.MULTILINE)
     assert match
     assert _listed("Required status checks") == [match.group(1)]

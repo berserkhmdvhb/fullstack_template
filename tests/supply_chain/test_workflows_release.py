@@ -7,6 +7,9 @@ from typing import Any
 
 from tests.supply_chain._workflows import steps_of, workflow
 
+ARTIFACT_RETENTION_DAYS = 90
+MIN_UPLOAD_STEPS = 4  # one per scan job
+
 
 def _wf() -> dict[str, Any]:
     return workflow("release.yml")
@@ -42,12 +45,18 @@ def test_top_level_permissions_are_empty() -> None:
 
 
 def test_packages_write_only_on_the_build_job() -> None:
-    wide = {n: j["permissions"] for n, j in _jobs().items() if j["permissions"].get("packages") == "write"}
+    wide = {
+        n: j["permissions"]
+        for n, j in _jobs().items()
+        if j["permissions"].get("packages") == "write"
+    }
     assert wide == {"build": {"contents": "read", "packages": "write"}}
 
 
 def test_security_events_write_only_on_the_grype_job() -> None:
-    wide = {n: j["permissions"] for n, j in _jobs().items() if "security-events" in j["permissions"]}
+    wide = {
+        n: j["permissions"] for n, j in _jobs().items() if "security-events" in j["permissions"]
+    }
     assert wide == {"grype": {"contents": "read", "security-events": "write"}}
 
 
@@ -93,7 +102,11 @@ def test_plan_job_uses_the_matrix_helper_and_exposes_outputs() -> None:
 
 def test_build_uses_buildx_login_and_gha_cache() -> None:
     job = _jobs()["build"]
-    for prefix in ("docker/setup-buildx-action@", "docker/login-action@", "docker/build-push-action@"):
+    for prefix in (
+        "docker/setup-buildx-action@",
+        "docker/login-action@",
+        "docker/build-push-action@",
+    ):
         assert len(_uses(job, prefix)) == 1, prefix
     build = _uses(job, "docker/build-push-action@")[0]["with"]
     assert build["push"] is True
@@ -107,13 +120,17 @@ def test_login_token_goes_through_with_not_run() -> None:
         for step in login:
             assert step["with"]["registry"] == "ghcr.io"
             assert step["with"]["username"] == "${{ github.actor }}"
-            assert step["with"]["password"] == "${{ secrets.GITHUB_TOKEN }}"
+            assert step["with"]["password"] == "${{ secrets.GITHUB_TOKEN }}"  # noqa: S105 — a workflow expression, not a credential
         assert not re.search(r"secrets\.|GITHUB_TOKEN|docker login", _runs(job)), job
 
 
 def test_digest_verify_runs_after_the_push() -> None:
     steps = _jobs()["build"]["steps"]
-    push = next(i for i, s in enumerate(steps) if str(s.get("uses", "")).startswith("docker/build-push-action@"))
+    push = next(
+        i
+        for i, s in enumerate(steps)
+        if str(s.get("uses", "")).startswith("docker/build-push-action@")
+    )
     verify = next(i for i, s in enumerate(steps) if "imagetools inspect" in s.get("run", ""))
     assert verify > push
     run = steps[verify]["run"]
@@ -169,9 +186,9 @@ def test_grype_uploads_sarif_even_when_grype_fails() -> None:
     assert len(warn) == 1
     assert "::warning" in warn[0]["run"]
     assert "GITHUB_STEP_SUMMARY" in warn[0]["run"]
-    artifacts = [s for s in _uses(job, "actions/upload-artifact@")]
+    artifacts = list(_uses(job, "actions/upload-artifact@"))
     assert artifacts[0]["if"] == "always()"
-    assert artifacts[0]["with"]["retention-days"] == 90
+    assert artifacts[0]["with"]["retention-days"] == ARTIFACT_RETENTION_DAYS
 
 
 def test_grant_and_vex_are_advisory() -> None:
@@ -188,9 +205,9 @@ def test_every_upload_keeps_90_days() -> None:
     seen = 0
     for job in _jobs().values():
         for step in _uses(job, "actions/upload-artifact@"):
-            assert step["with"]["retention-days"] == 90
+            assert step["with"]["retention-days"] == ARTIFACT_RETENTION_DAYS
             seen += 1
-    assert seen >= 4
+    assert seen >= MIN_UPLOAD_STEPS
 
 
 def test_every_job_writes_a_step_summary_and_has_a_timeout() -> None:

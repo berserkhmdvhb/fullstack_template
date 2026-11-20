@@ -13,7 +13,7 @@ contract so the gate cannot silently regress.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from tests.supply_chain._workflows import REPO, workflow
 
@@ -29,7 +29,7 @@ def job() -> dict[str, Any]:
 def step() -> dict[str, Any]:
     found = [s for s in job()["steps"] if s.get("name") == "Shellcheck"]
     assert len(found) == 1, "exactly one Shellcheck step"
-    return found[0]
+    return cast("dict[str, Any]", found[0])
 
 
 # --- contract ----------------------------------------------------------------

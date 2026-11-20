@@ -1,14 +1,18 @@
-"""The DAST workflow: a ZAP baseline against the released backend image (Task 1.7). Static, offline."""
+"""The DAST workflow: a ZAP baseline against the released backend image (Task 1.7).
+
+Static, offline.
+"""
 
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
 from tests.supply_chain._workflows import REPO, WORKFLOWS, load, steps_of, workflow
 
+ARTIFACT_RETENTION_DAYS = 90
 ZAP_PIN = re.compile(r"^[a-z0-9./-]+:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}$")
 
 
@@ -17,7 +21,7 @@ def _wf() -> dict[str, Any]:
 
 
 def _job() -> dict[str, Any]:
-    return _wf()["jobs"]["dast"]
+    return cast("dict[str, Any]", _wf()["jobs"]["dast"])
 
 
 def _text() -> str:
@@ -31,7 +35,10 @@ def _runs() -> str:
 def test_triggers_are_release_completed_and_dispatch() -> None:
     on = _wf()["on"]
     assert set(on) == {"workflow_run", "workflow_dispatch"}
-    assert on["workflow_run"] == {"workflows": [workflow("release.yml")["name"]], "types": ["completed"]}
+    assert on["workflow_run"] == {
+        "workflows": [workflow("release.yml")["name"]],
+        "types": ["completed"],
+    }
     assert list(on["workflow_dispatch"]["inputs"]) == ["image"]
     assert on["workflow_dispatch"]["inputs"]["image"]["required"] is True
 
@@ -88,14 +95,18 @@ def test_dispatch_input_is_validated_through_env() -> None:
 
 def test_artifact_is_parsed_as_data_never_sourced() -> None:
     runs = _runs()
-    assert not re.search(r"(^|\s)(source|\.)\s+\S*(image-digests|scan)\.env", runs, re.M)
+    assert not re.search(r"(^|\s)(source|\.)\s+\S*(image-digests|scan)\.env", runs, re.MULTILINE)
     assert "source " not in runs
     assert "BACKEND_IMAGE_DIGEST" in runs
     assert re.search(r"\^sha256:\[0-9a-f\]\{64\}\$", runs)
 
 
 def test_artifact_comes_from_the_triggering_run_by_data_only() -> None:
-    (dl,) = [s for s in _job()["steps"] if str(s.get("uses", "")).startswith("actions/download-artifact@")]
+    (dl,) = [
+        s
+        for s in _job()["steps"]
+        if str(s.get("uses", "")).startswith("actions/download-artifact@")
+    ]
     assert dl["with"]["name"] == "image-digests"
     assert dl["with"]["run-id"] == "${{ github.event.workflow_run.id }}"
     assert dl["with"]["github-token"] == "${{ secrets.GITHUB_TOKEN }}"
@@ -103,10 +114,13 @@ def test_artifact_comes_from_the_triggering_run_by_data_only() -> None:
 
 
 def test_checkout_is_default_branch_without_credentials() -> None:
-    checkouts = [s for s in steps_of(_wf()) if str(s.get("uses", "")).startswith("actions/checkout@")]
+    checkouts = [
+        s for s in steps_of(_wf()) if str(s.get("uses", "")).startswith("actions/checkout@")
+    ]
     assert len(checkouts) == 1
     assert checkouts[0]["with"] == {"persist-credentials": False}
-    assert "head_sha" not in str(checkouts[0]) and "ref" not in checkouts[0]["with"]
+    assert "head_sha" not in str(checkouts[0])
+    assert "ref" not in checkouts[0]["with"]
 
 
 def test_wrapper_is_called_with_the_image_through_env() -> None:
@@ -119,20 +133,29 @@ def test_wrapper_is_called_with_the_image_through_env() -> None:
 def test_advisory_split_and_sarif_upload() -> None:
     job = _job()
     runs = _runs()
-    assert "::warning" in runs and "GITHUB_STEP_SUMMARY" in runs
+    assert "::warning" in runs
+    assert "GITHUB_STEP_SUMMARY" in runs
     assert "SKIPPED" in runs
     # a tool error (status ERROR) fails the job; findings and SKIPPED only warn
     err = runs.split("ERROR)")[1].split(";;")[0]
-    assert "::error" in err and "exit 1" in err
+    assert "::error" in err
+    assert "exit 1" in err
     assert "::warning" not in err
-    (sarif,) = [s for s in job["steps"] if str(s.get("uses", "")).startswith("github/codeql-action/upload-sarif@")]
+    (sarif,) = [
+        s
+        for s in job["steps"]
+        if str(s.get("uses", "")).startswith("github/codeql-action/upload-sarif@")
+    ]
     assert sarif["with"]["category"] == "zap"
     assert sarif["continue-on-error"] is True
     assert "hashFiles(" in sarif["if"]
     warn = [s for s in job["steps"] if "steps.sarif.outcome == 'failure'" in str(s.get("if", ""))]
-    assert len(warn) == 1 and "::warning" in warn[0]["run"]
-    (art,) = [s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/upload-artifact@")]
-    assert art["with"]["retention-days"] == 90
+    assert len(warn) == 1
+    assert "::warning" in warn[0]["run"]
+    (art,) = [
+        s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/upload-artifact@")
+    ]
+    assert art["with"]["retention-days"] == ARTIFACT_RETENTION_DAYS
     assert art["if"] == "always()"
 
 

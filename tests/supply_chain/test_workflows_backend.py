@@ -17,6 +17,7 @@ from tests.supply_chain._workflows import (
     workflow,
 )
 
+PYTHON_VERSIONS = 3  # the unit job matrix
 ADVISORY_PYTHON = "3.14"
 
 
@@ -130,7 +131,8 @@ WRITE_ALLOWLIST = {
     ("security.yml", "advisory", "security-events"),
     ("ci.yml", "security", "security-events"),
     ("dast.yml", "dast", "security-events"),
-    # Workload Identity Federation: only the jobs that log in to the cluster, each behind an environment.
+    # Workload Identity Federation: only the jobs that log in to the cluster, each behind an
+    # environment.
     ("release.yml", "deploy", "id-token"),
     ("deploy.yml", "deploy-dev", "id-token"),
     ("deploy.yml", "deploy-qa", "id-token"),
@@ -213,5 +215,5 @@ def test_test_jobs_upload_their_reports_only_on_failure() -> None:
         names.append(ups[0]["with"]["name"])
         assert "junit-" in ups[0]["with"]["path"]
     assert "${{ matrix.python-version }}" in names[0]
-    assert len(set(names)) == 3
+    assert len(set(names)) == PYTHON_VERSIONS
     assert "coverage.xml" in failure_uploads(jobs["unit"])[0]["with"]["path"]

@@ -63,6 +63,9 @@ def every_step() -> list[tuple[str, dict[str, Any]]]:
     ]
 
 
+FAILURE_ARTIFACT_RETENTION_DAYS = 7
+
+
 def failure_uploads(job: dict[str, Any]) -> list[dict[str, Any]]:
     """The steps of a job that upload an artifact only on failure, kept for 7 days."""
     return [
@@ -70,5 +73,5 @@ def failure_uploads(job: dict[str, Any]) -> list[dict[str, Any]]:
         for s in job["steps"]
         if str(s.get("uses", "")).startswith("actions/upload-artifact@")
         and s.get("if") == "failure()"
-        and s["with"].get("retention-days") == 7
+        and s["with"].get("retention-days") == FAILURE_ARTIFACT_RETENTION_DAYS
     ]

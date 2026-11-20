@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-
-import pytest
+from typing import TYPE_CHECKING
 
 from your_service_name.backend.db._constants import default_sqlite_url, project_root
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_project_root_finds_marker_above_start(tmp_path: Path) -> None:
@@ -18,7 +20,9 @@ def test_project_root_finds_marker_above_start(tmp_path: Path) -> None:
     assert project_root(mod) == tmp_path
 
 
-def test_installed_layout_falls_back_to_cwd_marker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_installed_layout_falls_back_to_cwd_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """site-packages has no marker above it; the container WORKDIR does (/app/alembic.ini)."""
     site = tmp_path / "site-packages" / "pkg"
     site.mkdir(parents=True)

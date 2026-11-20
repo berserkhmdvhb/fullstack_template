@@ -1,4 +1,7 @@
-"""The security workflow (Task 1.6): blocking vs advisory split, SARIF categories, triggers. Static, offline."""
+"""The security workflow (Task 1.6): blocking vs advisory split, SARIF categories, triggers.
+
+Static, offline.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +16,7 @@ IMAGES = REPO / ".github" / "container-images.yml"
 BLOCKING = {"codeql", "dependency-review", "gitleaks"}
 NOTICE = {"code-security-off"}
 ADVISORY = {"pip-audit", "advisory"}
+ARTIFACT_RETENTION_DAYS = 90
 CATEGORIES = {"pip-audit", "osv-scanner", "guarddog", "checkov", "kubescape"}
 
 
@@ -41,7 +45,8 @@ def test_triggers() -> None:
     assert set(on) == {"workflow_call", "schedule", "workflow_dispatch"}
     (entry,) = on["schedule"]
     minute, hour, *_ = entry["cron"].split()
-    assert minute not in ("0", "*") and hour != "*", "an off-hour cron avoids the top-of-hour rush"
+    assert minute not in ("0", "*"), "an off-hour cron avoids the top-of-hour rush"
+    assert hour != "*", "an off-hour cron avoids the top-of-hour rush"
 
 
 def test_concurrency_never_uses_the_workflow_name() -> None:
@@ -89,23 +94,28 @@ def test_advisory_jobs_fail_only_on_tool_errors() -> None:
                 assert step["uses"].startswith("github/codeql-action/upload-sarif@"), (name, step)
                 assert step["continue-on-error"] is True
         runs = _runs(job)
-        assert "::warning" in runs and "GITHUB_STEP_SUMMARY" in runs, name
+        assert "::warning" in runs, name
+        assert "GITHUB_STEP_SUMMARY" in runs, name
         assert "::error" in runs, f"{name} fails on a tool error"
         assert "SKIPPED" in runs or name == "pip-audit", name
-        # The SARIF upload is followed by a failure-only warning, and the artifact is always kept 90 days.
+        # The SARIF upload is followed by a failure-only warning; the artifact is always kept.
         (upload,) = _uploads(job)
-        assert upload["continue-on-error"] is True and upload["id"]
-        assert "hashFiles(" in upload["if"] and "!= ''" in upload["if"]
+        assert upload["continue-on-error"] is True
+        assert upload["id"]
+        assert "hashFiles(" in upload["if"]
+        assert "!= ''" in upload["if"]
         warn = [
             s
             for s in job["steps"]
             if f"steps.{upload['id']}.outcome == 'failure'" in str(s.get("if", ""))
         ]
-        assert len(warn) == 1 and "::warning" in warn[0]["run"], name
+        assert len(warn) == 1, name
+        assert "::warning" in warn[0]["run"], name
         arts = [
             s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/upload-artifact@")
         ]
-        assert len(arts) == 1 and arts[0]["with"]["retention-days"] == 90, name
+        assert len(arts) == 1, name
+        assert arts[0]["with"]["retention-days"] == ARTIFACT_RETENTION_DAYS, name
         assert "always()" in arts[0]["if"]
 
 
@@ -122,7 +132,8 @@ def test_advisory_wrappers_are_the_single_source() -> None:
     assert job["strategy"]["fail-fast"] is False
     assert "infra/security/local/" in _runs(job)
     pip_audit = _runs(_jobs()["pip-audit"])
-    assert "--require-hashes" in pip_audit and "tools/requirements/pip-audit.txt" in pip_audit
+    assert "--require-hashes" in pip_audit
+    assert "tools/requirements/pip-audit.txt" in pip_audit
     assert not re.search(r"pip install (?!.*--require-hashes)\S*audit", pip_audit)
 
 
@@ -200,7 +211,8 @@ def test_dependency_review_is_pr_only_and_has_no_literal_licence_list() -> None:
         False,
     )
     runs = _runs(job)
-    assert "scripts/tools.sh install yq" in runs and "infra/security/grant.yaml" in runs
+    assert "scripts/tools.sh install yq" in runs
+    assert "infra/security/grant.yaml" in runs
 
 
 def test_gitleaks_scans_pr_range_or_full_history() -> None:
@@ -213,7 +225,8 @@ def test_gitleaks_scans_pr_range_or_full_history() -> None:
     runs = _runs(job)
     assert "scripts/tools.sh install gitleaks" in runs
     assert "gitleaks-action" not in (WORKFLOWS / "security.yml").read_text(encoding="utf-8")
-    assert "--redact" in runs and "--log-opts" in runs
+    assert "--redact" in runs
+    assert "--log-opts" in runs
     step = next(s for s in job["steps"] if "--log-opts" in s.get("run", ""))
     assert "${{" not in step["run"], "values come through env:"
     assert {"BASE_SHA", "HEAD_SHA"} <= set(step["env"])
@@ -243,7 +256,8 @@ def test_ci_calls_security_unconditionally_with_the_union_of_grants() -> None:
 
 def test_no_secrets_and_no_pr_write_beyond_sarif() -> None:
     text = (WORKFLOWS / "security.yml").read_text(encoding="utf-8")
-    assert "secrets." not in text and "pull-requests:" not in text
+    assert "secrets." not in text
+    assert "pull-requests:" not in text
     assert "pull_request_target" not in text
 
 

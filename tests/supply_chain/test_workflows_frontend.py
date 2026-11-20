@@ -4,19 +4,29 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from tests.supply_chain._workflows import ACTIONS, WORKFLOWS, failure_uploads, workflow
 
-GATES = {"eslint", "prettier", "type-check", "openapi-drift", "build", "unit", "integration", "playwright-list"}
+GATES = {
+    "eslint",
+    "prettier",
+    "type-check",
+    "openapi-drift",
+    "build",
+    "unit",
+    "integration",
+    "playwright-list",
+}
 
 
 def _jobs() -> dict[str, Any]:
-    return workflow("reusable-frontend.yml")["jobs"]
+    return cast("dict[str, Any]", workflow("reusable-frontend.yml")["jobs"])
 
 
 def _runs(job: dict[str, Any]) -> str:
@@ -31,7 +41,7 @@ def _needs(job: dict[str, Any]) -> list[str]:
 def test_jobs_exist_and_are_blocking() -> None:
     wf = workflow("reusable-frontend.yml")
     assert "workflow_call" in wf["on"]
-    assert GATES <= set(wf["jobs"])
+    assert set(wf["jobs"]) >= GATES
     for name, job in wf["jobs"].items():
         assert "continue-on-error" not in job, name
         for step in job["steps"]:
@@ -97,7 +107,9 @@ def test_coverage_gate_is_not_restated() -> None:
         block = re.search(r"thresholds:\s*\{(.*?)\}", src, re.DOTALL)
         assert block, config
         found = dict(re.findall(r"(\w+):\s*(\d+)", block[1]))
-        assert found == {"lines": "80", "functions": "80", "statements": "80", "branches": "70"}, config
+        assert found == {"lines": "80", "functions": "80", "statements": "80", "branches": "70"}, (
+            config
+        )
 
 
 def test_drift_check_is_the_make_target_and_runs_once() -> None:
@@ -134,8 +146,12 @@ def _filter_script() -> str:
     return str(next(s for s in steps if s.get("id") == "filter")["run"])
 
 
+GIT: str = shutil.which("git") or "/usr/bin/git"
+BASH: str = shutil.which("bash") or "/usr/bin/bash"
+
+
 def _git(cwd: Path, *args: str) -> str:
-    done = subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+    done = subprocess.run([GIT, *args], cwd=cwd, check=True, capture_output=True, text=True)
     return done.stdout.strip()
 
 
@@ -143,7 +159,11 @@ def _run_filter(tmp_path: Path, event: str, changed: list[str]) -> dict[str, str
     origin = tmp_path / "origin"
     origin.mkdir()
     _git(origin, "init", "-q", "-b", "main")
-    for key, value in (("user.email", "t@example.org"), ("user.name", "t"), ("commit.gpgsign", "false")):
+    for key, value in (
+        ("user.email", "t@example.org"),
+        ("user.name", "t"),
+        ("commit.gpgsign", "false"),
+    ):
         _git(origin, "config", key, value)
     (origin / "README.md").write_text("base\n")
     _git(origin, "add", ".")
@@ -167,7 +187,9 @@ def _run_filter(tmp_path: Path, event: str, changed: list[str]) -> dict[str, str
         "HEAD_SHA": head,
         "GITHUB_OUTPUT": str(out),
     }
-    subprocess.run(["bash", "-e", "-c", _filter_script()], cwd=work, env=env, check=True, capture_output=True)
+    subprocess.run(
+        [BASH, "-e", "-c", _filter_script()], cwd=work, env=env, check=True, capture_output=True
+    )
     return dict(line.split("=", 1) for line in out.read_text().splitlines())
 
 
@@ -188,7 +210,9 @@ def _run_filter(tmp_path: Path, event: str, changed: list[str]) -> dict[str, str
         ("ci/old.yml", False, False),
     ],
 )
-def test_pull_request_paths_map_to_outputs(tmp_path: Path, path: str, backend: bool, frontend: bool) -> None:
+def test_pull_request_paths_map_to_outputs(
+    tmp_path: Path, path: str, *, backend: bool, frontend: bool
+) -> None:
     result = _run_filter(tmp_path, "pull_request", [path])
     assert result == {"backend": str(backend).lower(), "frontend": str(frontend).lower()}
 
@@ -196,7 +220,10 @@ def test_pull_request_paths_map_to_outputs(tmp_path: Path, path: str, backend: b
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch"])
 def test_main_tags_and_dispatch_force_every_output(tmp_path: Path, event: str) -> None:
     """A push covers both main and v* tags; neither is filtered."""
-    assert _run_filter(tmp_path, event, ["docs/readme.md"]) == {"backend": "true", "frontend": "true"}
+    assert _run_filter(tmp_path, event, ["docs/readme.md"]) == {
+        "backend": "true",
+        "frontend": "true",
+    }
 
 
 def test_filter_outputs_match_the_declared_outputs() -> None:

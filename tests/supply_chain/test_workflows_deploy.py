@@ -1,13 +1,21 @@
-"""The deploy workflows: helm checks, the guarded environment chain, cluster access, ops (Task 1.8). Static, offline."""
+"""The deploy workflows: helm checks, guarded environment chain, cluster access, ops (Task 1.8).
+
+Static, offline.
+"""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
 from tests.supply_chain._workflows import ACTIONS, REPO, WORKFLOWS, load, steps_of, workflow
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+DEPLOY_ENVIRONMENT_JOBS = 4  # jobs that log in to the cluster
+SHA256_HEX_LENGTH = 64
 COMPOSITE = "./.github/actions/cluster-access"
 DEPLOY_JOBS = ("deploy-dev", "deploy-qa", "deploy-production")
 GUARDS = ("github.event_name == 'push'", "inputs.digests != ''", "vars.DEPLOY_ENABLED == 'true'")
@@ -18,7 +26,7 @@ def _dep() -> dict[str, Any]:
 
 
 def _jobs() -> dict[str, Any]:
-    return _dep()["jobs"]
+    return cast("dict[str, Any]", _dep()["jobs"])
 
 
 def _ops() -> dict[str, Any]:
@@ -43,12 +51,14 @@ def _uses_cluster_access(job: dict[str, Any]) -> bool:
 
 def test_triggers() -> None:
     assert set(_dep()["on"]) == {"workflow_call"}
-    assert {"version", "image_tag", "immutable", "digests"} <= set(_dep()["on"]["workflow_call"]["inputs"])
+    assert {"version", "image_tag", "immutable", "digests"} <= set(
+        _dep()["on"]["workflow_call"]["inputs"]
+    )
     assert set(_ops()["on"]) == {"workflow_dispatch"}
 
 
 @pytest.mark.parametrize("wf", [_dep, _ops])
-def test_top_level_permissions_and_concurrency(wf: Any) -> None:
+def test_top_level_permissions_and_concurrency(wf: Callable[[], dict[str, Any]]) -> None:
     doc = wf()
     assert doc["permissions"] == {}
     assert doc["concurrency"]["cancel-in-progress"] is False
@@ -149,13 +159,14 @@ def test_every_job_that_authenticates_declares_an_environment() -> None:
     for path in sorted(WORKFLOWS.glob("*.yml")):
         for name, job in load(path)["jobs"].items():
             auth = _uses_cluster_access(job) or any(
-                str(s.get("uses", "")).startswith("google-github-actions/auth@") for s in job.get("steps", [])
+                str(s.get("uses", "")).startswith("google-github-actions/auth@")
+                for s in job.get("steps", [])
             )
             if auth:
                 seen += 1
                 assert "environment" in job, (path.name, name)
                 assert job["permissions"].get("id-token") == "write", (path.name, name)
-    assert seen == 4
+    assert seen == DEPLOY_ENVIRONMENT_JOBS
 
 
 def test_only_wif_jobs_hold_id_token() -> None:
@@ -176,8 +187,14 @@ def test_only_wif_jobs_hold_id_token() -> None:
 
 def test_gke_mode_uses_the_per_environment_service_account_and_the_dns_endpoint() -> None:
     steps = _composite()["runs"]["steps"]
-    auth = next(s for s in steps if str(s.get("uses", "")).startswith("google-github-actions/auth@"))
-    gke = next(s for s in steps if str(s.get("uses", "")).startswith("google-github-actions/get-gke-credentials@"))
+    auth = next(
+        s for s in steps if str(s.get("uses", "")).startswith("google-github-actions/auth@")
+    )
+    gke = next(
+        s
+        for s in steps
+        if str(s.get("uses", "")).startswith("google-github-actions/get-gke-credentials@")
+    )
     assert auth["with"]["workload_identity_provider"] == "${{ inputs.wif_provider }}"
     assert auth["with"]["service_account"] == "${{ inputs.service_account }}"
     assert gke["with"]["use_dns_based_endpoint"] is True
@@ -202,7 +219,7 @@ def test_kubeconfig_mode_decodes_from_env_into_a_0600_file_and_never_echoes() ->
     assert "umask 077" in run
     assert "RUNNER_TEMP" in run
     assert "KUBECONFIG=" in run
-    assert "echo \"${KUBECONFIG_B64}\"" not in run
+    assert 'echo "${KUBECONFIG_B64}"' not in run
     assert "set -x" not in run
 
 
@@ -251,9 +268,14 @@ def test_the_script_deploys_by_digest_and_rolls_back_to_the_recorded_revision() 
     assert 'select(.status == "deployed")' in SCRIPT
     assert 'helm rollback "$SERVICE_NAME" "$recorded"' in SCRIPT
     assert "helm rollback" in SCRIPT
-    assert SCRIPT.index('recorded="$(') < SCRIPT.index('helm upgrade --install "$SERVICE_NAME"') < SCRIPT.index("if ! checks") < SCRIPT.index('helm rollback "$SERVICE_NAME"')
+    assert (
+        SCRIPT.index('recorded="$(')
+        < SCRIPT.index('helm upgrade --install "$SERVICE_NAME"')
+        < SCRIPT.index("if ! checks")
+        < SCRIPT.index('helm rollback "$SERVICE_NAME"')
+    )
     assert "no earlier deployed revision" in SCRIPT
-    assert "case \"$DEPLOY_ENV\" in dev|qa|production" in SCRIPT
+    assert 'case "$DEPLOY_ENV" in dev|qa|production' in SCRIPT
 
 
 def test_no_port_or_api_path_is_hard_coded() -> None:
@@ -335,15 +357,24 @@ def test_every_deploy_and_ops_job_installs_helm_and_kubectl_from_the_pins() -> N
     for job in jobs:
         install = next(s for s in job["steps"] if "scripts/tools.sh install" in s.get("run", ""))
         assert "install helm4 kubectl" in install["run"]
-        assert job["steps"].index(install) < next(i for i, s in enumerate(job["steps"]) if s.get("uses") == COMPOSITE)
-    pins = {ln.split("\t")[0]: ln.split("\t") for ln in (REPO / "tools/pins.tsv").read_text().splitlines() if ln and ln[0] != "#"}
+        assert job["steps"].index(install) < next(
+            i for i, s in enumerate(job["steps"]) if s.get("uses") == COMPOSITE
+        )
+    pins = {
+        ln.split("\t")[0]: ln.split("\t")
+        for ln in (REPO / "tools/pins.tsv").read_text().splitlines()
+        if ln and ln[0] != "#"
+    }
     assert pins["kubectl"][3].startswith("https://dl.k8s.io/release/v")
-    assert len(pins["kubectl"][4]) == 64
+    assert len(pins["kubectl"][4]) == SHA256_HEX_LENGTH
 
 
 def test_ops_shares_the_deploy_lock_of_its_environment() -> None:
     job = _ops()["jobs"]["ops"]
-    assert job["concurrency"] == {"group": "deploy-${{ inputs.environment }}", "cancel-in-progress": False}
+    assert job["concurrency"] == {
+        "group": "deploy-${{ inputs.environment }}",
+        "cancel-in-progress": False,
+    }
     assert "github.ref" not in job["concurrency"]["group"]
     for name in DEPLOY_JOBS:
         assert _jobs()[name]["concurrency"]["group"] == f"deploy-{name.removeprefix('deploy-')}"
@@ -373,7 +404,11 @@ def test_check_operation_is_read_only_runs_through_cluster_access_and_needs_no_c
     assert guard < access < steps.index(check)
     assert "if" not in steps[access]
     # the only step that needs the confirmation is the rollback validation
-    needing = [s for s in steps if "inputs.confirm" in str(s.get("if", "")) or "CONFIRM" in s.get("env", {})]
+    needing = [
+        s
+        for s in steps
+        if "inputs.confirm" in str(s.get("if", "")) or "CONFIRM" in s.get("env", {})
+    ]
     assert all("rollback" in str(s.get("if", "")) for s in needing)
     # no step other than the rollback ever calls helm upgrade or rollback
     for s in steps:
