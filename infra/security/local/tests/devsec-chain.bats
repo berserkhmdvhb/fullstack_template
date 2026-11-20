@@ -18,12 +18,16 @@
 setup() {
   # $BATS_TEST_DIRNAME is this file's dir (.../tests); devsec.sh is its parent.
   SCRIPT="$(dirname "$BATS_TEST_DIRNAME")/devsec.sh"
-  CORE_PATH="/usr/bin:/bin"
+  # CI runners carry tools (yq, curl, docker) in /usr/bin that dev machines may not.
+  CORE_PATH="${DEVSEC_TEST_CORE_PATH:-/usr/bin:/bin}"
 }
 
-# _setup_chain — stub the five scanners on PATH (each appends its name to
-# run.log and exits ${<NAME>_EXIT:-0}), point devsec.sh's CI-script vars at the
-# stubs, give it a ready scan.env (so cmd_all skips the Docker build) and an
+# _setup_chain — stub every scanner cmd_all runs. The five gating/report CI scripts
+# (sbom, vuln, license, vex, ci-hardening) append their name to run.log and exit
+# ${<NAME>_EXIT:-0}; the five advisory scanners (osv, malware-heuristic, iac, k8s,
+# dast) write a GREEN report.json and exit 0 without logging. Failing curl, wget,
+# docker, sudo, pip, pip3 and uv stubs make any unstubbed step fail loudly instead of
+# touching the network or the system. It points devsec.sh's *_SH vars at the stubs, give it a ready scan.env (so cmd_all skips the Docker build) and an
 # empty REPO_ROOT (so the report-only audit skips: no tool / no lockfile). The
 # five <NAME>_EXIT vars default to 0, so a case that sets none gets an all-green
 # chain; a case overrides the ones it needs.
@@ -65,6 +69,27 @@ EOF
 printf '%s\n' "ci-hardening" >> "$CHAIN_RUN_LOG"
 exit ${CIH_EXIT:-0}
 EOF
+
+  # Advisory scanners: a GREEN report in <SEC_OUTPUT_DIR>/<name>/, no run.log entry.
+  local name var
+  for name in osv:OSV_SCAN_SH malware-heuristic:MALWARE_HEURISTIC_SH iac:IAC_SCAN_SH \
+              k8s:KUBESCAPE_SCAN_SH dast:DAST_SCAN_SH; do
+    var="${name#*:}"; name="${name%%:*}"
+    cat > "$bindir/scan-$name.sh" <<EOF
+#!/usr/bin/env bash
+mkdir -p "\$SEC_OUTPUT_DIR/$name"
+printf '%s' '{"tool":"$name","status":"GREEN","findings":[]}' > "\$SEC_OUTPUT_DIR/$name/report.json"
+exit 0
+EOF
+    export "$var=$bindir/scan-$name.sh"
+  done
+
+  # Tools no chain test may reach: fail loudly.
+  for name in curl wget docker sudo pip pip3 uv; do
+    printf '#!/usr/bin/env bash\necho "stub %s: network/system access is not allowed in chain tests" >&2\nexit 1\n' \
+      "$name" > "$bindir/$name"
+    chmod +x "$bindir/$name"
+  done
   chmod +x "$bindir"/*.sh
 
   export SBOM_GEN_SH="$bindir/sbom-generate.sh"
@@ -136,4 +161,14 @@ EOF
   [ "$status" -eq 0 ]                          # a skipped advisory layer never fails the gate
   [[ "$output" == *"skipped: osv"* ]]          # the gap is listed, not buried as a green pass
   [[ "$output" != *"ERROR @"* ]]               # no hard-die
+}
+
+@test "every scanner the chain runs is stubbed by _setup_chain" {
+  _setup_chain
+  local vars var
+  vars="$(sed -n '/^cmd_all()/,/^}/p' "$SCRIPT" | grep -o '"\$[A-Z_]*_SH"' | tr -d '"$' | sort -u)"
+  [ -n "$vars" ]
+  for var in $vars; do
+    [[ "${!var}" == "$BATS_TEST_TMPDIR/bin/"* ]] || { echo "$var is not stubbed: ${!var:-unset}"; return 1; }
+  done
 }
