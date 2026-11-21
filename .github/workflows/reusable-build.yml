@@ -375,15 +375,6 @@ jobs:
         with:
           name: digest-${{ matrix.id }}
           path: parts
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: platform-${{ matrix.id }}.*
-          merge-multiple: true
-          path: parts
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: sbom-${{ matrix.id }}.*
-          path: sbom
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
@@ -393,31 +384,16 @@ jobs:
         run: |
           scripts/tools.sh install cosign
           echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
-      # digest is the index digest (signed and attested as the provenance subject); amd64 and arm64 are the
-      # platform manifest digests that the per-platform SBOMs describe (empty when that platform did not build).
-      - name: Read the image digests
+      # The index digest: signed, verified and the provenance subject.
+      - name: Read the index digest
         id: ref
         run: |
-          set -euo pipefail
-          read_digest() {
-            local file="$1" digest=""
-            [[ -f "${file}" ]] && digest="$(sed -n "s/^[A-Z0-9_]*_IMAGE_DIGEST=//p" "${file}")"
-            if [[ -n "${digest}" && ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-              echo "::error::bad digest in ${file}: ${digest}"
-              exit 1
-            fi
-            printf '%s' "${digest}"
-          }
-          index="$(read_digest "parts/${IMAGE_ID}.digest.env")"
-          if [[ -z "${index}" ]]; then
-            echo "::error::no valid index digest for ${IMAGE_ID}"
+          digest="$(sed -n "s/^[A-Z0-9_]*_IMAGE_DIGEST=//p" "parts/${IMAGE_ID}.digest.env" 2>/dev/null || true)"
+          if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::no valid index digest for ${IMAGE_ID}: ${digest}" >&2
             exit 1
           fi
-          {
-            echo "digest=${index}"
-            echo "amd64=$(read_digest "parts/${IMAGE_ID}.linux-amd64.digest.env")"
-            echo "arm64=$(read_digest "parts/${IMAGE_ID}.linux-arm64.digest.env")"
-          } >> "$GITHUB_OUTPUT"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
       - name: Sign the image digest (keyless)
         env:
           DIGEST: ${{ steps.ref.outputs.digest }}
@@ -448,20 +424,61 @@ jobs:
           subject-name: ${{ matrix.repository }}
           subject-digest: ${{ steps.ref.outputs.digest }}
           push-to-registry: true
-      # An SBOM describes one platform's image, so each is attested against that platform's manifest digest.
-      - name: Attest the SBOM (linux/amd64)
+
+  # One leg per (image, platform), from the same matrix as the SBOM and the scans: attests that platform's SBOM
+  # against its manifest digest. Runs only after the whole gate (every platform's scan and check), and the
+  # attestations follow the same guard as the provenance. No platform is named here: the matrix decides.
+  attest-sbom:
+    name: Attest the SBOM (${{ matrix.id }}, ${{ matrix.platform }})
+    needs: [build, sbom, grype, image-checks]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write  # attach the SBOM attestation to the image in ghcr.io
+      id-token: write  # the GitHub OIDC token that Sigstore turns into a signing certificate
+      attestations: write  # record the SBOM attestation
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.platform_matrix) }}
+    env:
+      IMAGE_ID: ${{ matrix.id }}
+      SLUG: ${{ matrix.slug }}
+      REPOSITORY: ${{ matrix.repository }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: platform-${{ matrix.id }}.${{ matrix.slug }}
+          path: parts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sbom-${{ matrix.id }}.${{ matrix.slug }}
+          path: sbom
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # The SBOM describes this platform's image, so it is attested against this platform's manifest digest.
+      - name: Read the platform digest
+        id: ref
+        run: |
+          digest="$(sed -n "s/^[A-Z0-9_]*_IMAGE_DIGEST=//p" "parts/${IMAGE_ID}.${SLUG}.digest.env" 2>/dev/null || true)"
+          if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::no valid digest for ${IMAGE_ID} (${SLUG}): ${digest}" >&2
+            exit 1
+          fi
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+      - name: Attest the SBOM
         if: ${{ github.event.repository.visibility == 'public' || vars.ATTESTATIONS_ENABLED == 'true' }}
         uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
         with:
-          sbom-path: sbom/sbom-${{ matrix.id }}.linux-amd64/${{ matrix.id }}.image.sbom.cdx.json
+          sbom-path: sbom/${{ matrix.id }}.image.sbom.cdx.json
           subject-name: ${{ matrix.repository }}
-          subject-digest: ${{ steps.ref.outputs.amd64 }}
+          subject-digest: ${{ steps.ref.outputs.digest }}
           push-to-registry: true
-      - name: Attest the SBOM (linux/arm64)
-        if: ${{ (github.event.repository.visibility == 'public' || vars.ATTESTATIONS_ENABLED == 'true') && hashFiles(format('sbom/sbom-{0}.linux-arm64/*.cdx.json', matrix.id)) != '' }}
-        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
-        with:
-          sbom-path: sbom/sbom-${{ matrix.id }}.linux-arm64/${{ matrix.id }}.image.sbom.cdx.json
-          subject-name: ${{ matrix.repository }}
-          subject-digest: ${{ steps.ref.outputs.arm64 }}
-          push-to-registry: true
+      - name: Summarise
+        env:
+          DIGEST: ${{ steps.ref.outputs.digest }}
+        run: echo "- SBOM of \`${REPOSITORY}@${DIGEST}\` (${SLUG}) attested, or skipped when attestations are off (see sign-attest)" >> "$GITHUB_STEP_SUMMARY"

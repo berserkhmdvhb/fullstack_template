@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
-from typing import Any, cast
+import shutil
+import subprocess
+import sys
+from typing import TYPE_CHECKING, Any, cast
 
+import pytest
 import yaml
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from tests.supply_chain._workflows import (
     ARTIFACT_RETENTION_DAYS,
@@ -16,6 +25,7 @@ from tests.supply_chain._workflows import (
     workflow,
 )
 
+BASH: str = shutil.which("bash") or "/usr/bin/bash"
 IDENTITY = (
     '--certificate-identity "https://github.com/${GITHUB_REPOSITORY}'
     '/.github/workflows/reusable-build.yml@${GITHUB_REF}"'
@@ -67,18 +77,28 @@ def test_it_is_a_reusable_workflow_with_empty_top_permissions() -> None:
 
 def test_job_order_is_build_merge_sbom_gate_sign() -> None:
     jobs = _jobs()
-    assert list(jobs) == ["build", "merge", "sbom", "grype", "image-checks", "sign-attest"]
+    assert list(jobs) == [
+        "build",
+        "merge",
+        "sbom",
+        "grype",
+        "image-checks",
+        "sign-attest",
+        "attest-sbom",
+    ]
     assert "needs" not in jobs["build"]
     assert jobs["merge"]["needs"] == "build"
     assert jobs["sbom"]["needs"] == "build"
     assert jobs["grype"]["needs"] == "sbom"
     assert jobs["image-checks"]["needs"] == "build"
     assert set(jobs["sign-attest"]["needs"]) == {"build", "merge", "sbom", "grype", "image-checks"}
+    # The SBOM attestation waits for the same gate: every platform's scan and check.
+    assert set(jobs["attest-sbom"]["needs"]) == {"build", "sbom", "grype", "image-checks"}
 
 
 def test_per_platform_jobs_use_the_platform_matrix_and_per_image_jobs_the_image_matrix() -> None:
     jobs = _jobs()
-    for name in ("build", "sbom", "grype", "image-checks"):
+    for name in ("build", "sbom", "grype", "image-checks", "attest-sbom"):
         assert jobs[name]["strategy"]["matrix"] == "${{ fromJSON(inputs.platform_matrix) }}", name
     for name in ("merge", "sign-attest"):
         assert jobs[name]["strategy"]["matrix"] == "${{ fromJSON(inputs.matrix) }}", name
@@ -88,7 +108,7 @@ def test_builds_and_checks_run_on_the_native_runner_of_their_platform() -> None:
     jobs = _jobs()
     for name in ("build", "image-checks"):
         assert jobs[name]["runs-on"] == "${{ matrix.runner }}", name
-    for name in ("merge", "sbom", "grype", "sign-attest"):
+    for name in ("merge", "sbom", "grype", "sign-attest", "attest-sbom"):
         assert "matrix." not in str(jobs[name]["runs-on"]), name
 
 
@@ -176,13 +196,14 @@ def test_only_the_signing_job_holds_packages_write_with_id_token_write() -> None
         if j["permissions"].get("packages") == "write"
         and j["permissions"].get("id-token") == "write"
     }
-    assert both == {"sign-attest"}
-    assert _jobs()["sign-attest"]["permissions"] == {
-        "contents": "read",
-        "packages": "write",
-        "id-token": "write",
-        "attestations": "write",
-    }
+    assert both == {"sign-attest", "attest-sbom"}
+    for name in both:
+        assert _jobs()[name]["permissions"] == {
+            "contents": "read",
+            "packages": "write",
+            "id-token": "write",
+            "attestations": "write",
+        }
     assert _jobs()["build"]["permissions"] == {"contents": "read", "packages": "write"}
     assert _jobs()["sbom"]["permissions"] == {"contents": "read", "packages": "read"}
     assert _jobs()["grype"]["permissions"] == {"contents": "read", "security-events": "write"}
@@ -248,14 +269,14 @@ def test_cosign_comes_from_the_pinned_tools_script_not_an_action() -> None:
     assert not re.search(r"secrets\.|docker login", _runs(job))
 
 
-def test_verify_runs_after_sign_and_both_attestations_after_verify() -> None:
+def test_verify_runs_after_sign_and_the_provenance_after_verify() -> None:
     job = _jobs()["sign-attest"]
     sign = _index(job, "cosign sign")
     verify = _index(job, "cosign verify")
     provenance = _index(job, "actions/attest-build-provenance@")
-    sbom = _index(job, "actions/attest-sbom@")
-    assert _index(job, "scripts/tools.sh install cosign") < sign < verify < min(provenance, sbom)
+    assert _index(job, "scripts/tools.sh install cosign") < sign < verify < provenance
     assert _index(job, "docker/login-action@") < sign
+    assert not _uses(job, "actions/attest-sbom@")
 
 
 def test_verify_pins_the_workflow_identity_issuer_and_commit() -> None:
@@ -272,22 +293,107 @@ def test_verify_pins_the_workflow_identity_issuer_and_commit() -> None:
 
 
 def test_attestations_push_to_the_registry_by_digest() -> None:
-    job = _jobs()["sign-attest"]
-    for prefix in ATTESTATIONS:
-        for step in _uses(job, prefix):
-            assert step["with"]["push-to-registry"] is True
-            assert step["with"]["subject-name"] == "${{ matrix.repository }}"
-    (provenance,) = _uses(job, "actions/attest-build-provenance@")
+    (provenance,) = _uses(_jobs()["sign-attest"], "actions/attest-build-provenance@")
     assert provenance["with"]["subject-digest"] == "${{ steps.ref.outputs.digest }}"  # the index
-    sboms = _uses(job, "actions/attest-sbom@")
-    assert [s["with"]["subject-digest"] for s in sboms] == [
-        "${{ steps.ref.outputs.amd64 }}",
-        "${{ steps.ref.outputs.arm64 }}",
+    job = _jobs()["attest-sbom"]
+    (sbom,) = _uses(job, "actions/attest-sbom@")
+    for step in (provenance, sbom):
+        assert step["with"]["push-to-registry"] is True
+        assert step["with"]["subject-name"] == "${{ matrix.repository }}"
+    # One SBOM per (image, platform), attested on that platform's manifest digest.
+    assert sbom["with"]["subject-digest"] == "${{ steps.ref.outputs.digest }}"
+    assert sbom["with"]["sbom-path"] == "sbom/${{ matrix.id }}.image.sbom.cdx.json"
+
+
+def test_the_sbom_attestation_job_reads_its_own_platforms_artifacts() -> None:
+    job = _jobs()["attest-sbom"]
+    downloads = [s["with"]["name"] for s in _uses(job, "actions/download-artifact@")]
+    assert downloads == [
+        "platform-${{ matrix.id }}.${{ matrix.slug }}",
+        "sbom-${{ matrix.id }}.${{ matrix.slug }}",
     ]
-    assert [s["with"]["sbom-path"] for s in sboms] == [
-        "sbom/sbom-${{ matrix.id }}.linux-amd64/${{ matrix.id }}.image.sbom.cdx.json",
-        "sbom/sbom-${{ matrix.id }}.linux-arm64/${{ matrix.id }}.image.sbom.cdx.json",
-    ]
+    ref = next(s for s in job["steps"] if s.get("id") == "ref")
+    assert "${IMAGE_ID}.${SLUG}.digest.env" in ref["run"]
+    assert job["env"]["SLUG"] == "${{ matrix.slug }}"
+
+
+def test_the_workflow_names_no_platform_outside_matrix_expressions() -> None:
+    text = (WORKFLOWS / "reusable-build.yml").read_text(encoding="utf-8")
+    outside = re.sub(r"\$\{\{.*?\}\}", "", text, flags=re.DOTALL)
+    for name in ("linux/amd64", "linux/arm64", "amd64", "arm64"):
+        assert name not in outside, name
+
+
+def test_the_sbom_attestation_job_covers_exactly_the_platforms_the_helper_renders() -> None:
+    job = _jobs()["attest-sbom"]
+    assert job["strategy"]["matrix"] == "${{ fromJSON(inputs.platform_matrix) }}"
+    env = {
+        **os.environ,
+        "GITHUB_REPOSITORY_OWNER": "o",
+        "GITHUB_REPOSITORY": "o/r",
+        "GITHUB_REF_NAME": "main",
+        "GITHUB_REF_TYPE": "branch",
+        "GITHUB_SHA": "0123456789abcdef0123456789abcdef01234567",
+        "BUILD_ARM64": "true",
+        "GITHUB_OUTPUT": "",
+    }
+    env.pop("GITHUB_OUTPUT")
+    out = subprocess.run(
+        [sys.executable, str(REPO / ".github/scripts/container_matrix.py"), "--matrix"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    legs = json.loads(next(ln for ln in out.splitlines() if ln.startswith("platform_matrix="))[16:])
+    manifest = yaml.safe_load((REPO / ".github/container-images.yml").read_text(encoding="utf-8"))
+    wanted = {(i["id"], p) for i in manifest["images"] for p in i["platforms"]}
+    assert {(e["id"], e["platform"]) for e in legs["include"]} == wanted
+    assert len(legs["include"]) == len(wanted)  # one attestation leg per (image, platform)
+
+
+def _run_ref_step(
+    job: str, tmp_path: Path, env_file: str | None
+) -> subprocess.CompletedProcess[str]:
+    step = next(s for s in _jobs()[job]["steps"] if s.get("id") == "ref")
+    (tmp_path / "parts").mkdir()
+    if env_file is not None:
+        (tmp_path / "parts" / "app.linux-amd64.digest.env").write_text(env_file)
+        (tmp_path / "parts" / "app.digest.env").write_text(env_file)
+    out = tmp_path / "out"
+    return subprocess.run(
+        [BASH, "-c", step["run"]],
+        cwd=tmp_path,
+        env={
+            "PATH": os.environ["PATH"],
+            "IMAGE_ID": "app",
+            "SLUG": "linux-amd64",
+            "GITHUB_OUTPUT": str(out),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize("job", ["sign-attest", "attest-sbom"])
+def test_a_bad_digest_fails_the_step_with_the_error_on_stderr(job: str, tmp_path: Path) -> None:
+    for content in ("APP_IMAGE_DIGEST=sha256:short\n", "APP_IMAGE_DIGEST=\n", None):
+        sub = tmp_path / str(abs(hash(content)))
+        sub.mkdir()
+        res = _run_ref_step(job, sub, content)
+        assert res.returncode != 0, content
+        assert "::error::" in res.stderr
+        assert "::error::" not in res.stdout
+        assert not (sub / "out").exists() or "::error" not in (sub / "out").read_text()
+
+
+@pytest.mark.parametrize("job", ["sign-attest", "attest-sbom"])
+def test_a_good_digest_is_written_to_the_output(job: str, tmp_path: Path) -> None:
+    digest = "sha256:" + "a" * 64
+    res = _run_ref_step(job, tmp_path, f"APP_IMAGE_DIGEST={digest}\n")
+    assert res.returncode == 0, res.stderr
+    assert (tmp_path / "out").read_text() == f"digest={digest}\n"
 
 
 def test_signing_reads_the_digest_the_build_verified() -> None:
@@ -295,15 +401,8 @@ def test_signing_reads_the_digest_the_build_verified() -> None:
     ref = next(s for s in job["steps"] if s.get("id") == "ref")
     assert "digest.env" in ref["run"]
     assert "sha256:[0-9a-f]{64}" in ref["run"]
-    downloads = [
-        s["with"].get("name") or s["with"]["pattern"]
-        for s in _uses(job, "actions/download-artifact@")
-    ]
-    assert downloads == [
-        "digest-${{ matrix.id }}",
-        "platform-${{ matrix.id }}.*",
-        "sbom-${{ matrix.id }}.*",
-    ]
+    downloads = [s["with"]["name"] for s in _uses(job, "actions/download-artifact@")]
+    assert downloads == ["digest-${{ matrix.id }}"]
 
 
 # --- assertions carried over from the release workflow tests when the jobs moved here -------------
@@ -331,7 +430,7 @@ def test_login_token_goes_through_with_not_run() -> None:
             assert step["with"]["username"] == "${{ github.actor }}"
             assert step["with"]["password"] == "${{ secrets.GITHUB_TOKEN }}"  # noqa: S105 — a workflow expression, not a credential
         assert not re.search(r"secrets\.|GITHUB_TOKEN|docker login", _runs(job)), name
-    assert seen == 5  # noqa: PLR2004 — build, merge, sbom, image-checks and sign-attest
+    assert seen == 6  # noqa: PLR2004 — build, merge, sbom, image-checks, sign-attest, attest-sbom
 
 
 def test_digest_verify_stops_the_job_on_a_mismatch() -> None:
@@ -379,11 +478,9 @@ def test_no_pull_request_or_manual_trigger_and_no_hard_coded_owner() -> None:
 def test_attestations_run_only_on_public_repos_or_when_enabled_and_signing_always_runs() -> None:
     job = _jobs()["sign-attest"]
     (provenance,) = _uses(job, "actions/attest-build-provenance@")
-    amd64, arm64 = _uses(job, "actions/attest-sbom@")
-    for step in (provenance, amd64):
+    (sbom,) = _uses(_jobs()["attest-sbom"], "actions/attest-sbom@")
+    for step in (provenance, sbom):
         assert _expr(step) == ATTEST_GUARD
-    # The arm64 SBOM exists only when the arm64 leg ran.
-    assert _expr(arm64).startswith(f"({ATTEST_GUARD}) && hashFiles(")
     for needle in ("cosign sign", "cosign verify"):
         assert "if" not in job["steps"][_index(job, needle)]
 

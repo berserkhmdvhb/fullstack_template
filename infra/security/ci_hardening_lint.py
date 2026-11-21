@@ -35,6 +35,8 @@ import yaml
 USAGE_ERROR = 2
 REUSABLE_BUILD = ".github/workflows/reusable-build.yml"
 SIGNING_JOB = "sign-attest"
+# The per-platform SBOM attestation runs in its own matrix job, so it holds the same keyless grants.
+ATTESTING_JOBS = (SIGNING_JOB, "attest-sbom")
 # Publishing Scorecard results needs id-token: write (OIDC) and no cloud credential; the action's
 # workflow restrictions allow no environment-free job but this one.
 SCORECARD_WORKFLOW = ".github/workflows/scorecard.yml"
@@ -414,8 +416,9 @@ def check_image_push_isolation(doc: Doc) -> list[Finding]:
     for job_id, job in doc.jobs():
         perms = _effective_permissions(doc, job)
         if doc.name.endswith(REUSABLE_BUILD):
-            if job_id != SIGNING_JOB and _grants(perms, "attestations"):
-                msg = f"job {job_id} holds attestations: write; only {SIGNING_JOB} may"
+            if job_id not in ATTESTING_JOBS and _grants(perms, "attestations"):
+                who = " and ".join(ATTESTING_JOBS)
+                msg = f"job {job_id} holds attestations: write; only {who} may"
                 found.append(_isolation(doc, job.line, msg))
         elif "uses" in job:
             found += _caller_isolation(doc, job_id, job, perms)
@@ -451,6 +454,15 @@ def _attest_pushes(step: LDict, action: str) -> bool:
     )
 
 
+def _sbom_attested(doc: Doc) -> bool:
+    """Some job of the file attests the SBOM with push-to-registry and the exact guard."""
+    return any(
+        _step_index(list(j.get("steps", [])), lambda s: _attest_pushes(s, "attest-sbom"))
+        is not None
+        for _, j in doc.jobs()
+    )
+
+
 def _signing_gaps(doc: Doc, job_id: str, job: LDict) -> list[Finding]:
     steps = list(job.get("steps", []))
     sign = _step_index(steps, lambda s: bool(_COSIGN_SIGN.search(str(s.get("run", "")))))
@@ -464,9 +476,13 @@ def _signing_gaps(doc: Doc, job_id: str, job: LDict) -> list[Finding]:
         gaps.append("a cosign verify step after the cosign sign step")
     gaps += [
         f"actions/{action} with push-to-registry: true and the guard `if: {ATTEST_GUARD}`"
-        for action in ("attest-build-provenance", "attest-sbom")
+        for action in ("attest-build-provenance",)
         if _step_index(steps, lambda s, a=action: _attest_pushes(s, a)) is None  # type: ignore[misc]
     ]
+    if not _sbom_attested(doc):
+        gaps.append(
+            f"actions/attest-sbom with push-to-registry: true and the guard `if: {ATTEST_GUARD}`"
+        )
     perms = job.get("permissions")
     gaps += [
         f"{scope}: write" for scope in ("id-token", "attestations") if not _grants(perms, scope)
@@ -571,7 +587,7 @@ def check_environment_for_secrets(doc: Doc) -> list[Finding]:
             continue
         reasons = _job_secret_reasons(job, top_idtoken=top_idtoken)
         # Keyless signing needs no cloud credential; only this one job is exempt.
-        if doc.name.endswith(REUSABLE_BUILD) and job_id == SIGNING_JOB:
+        if doc.name.endswith(REUSABLE_BUILD) and job_id in ATTESTING_JOBS:
             reasons = [r for r in reasons if r != "id-token: write"]
         # Publishing Scorecard results (OIDC, no cloud credential): only this one job is exempt.
         if doc.name.endswith(SCORECARD_WORKFLOW) and job_id == SCORECARD_JOB:
