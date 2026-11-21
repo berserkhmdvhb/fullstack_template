@@ -221,7 +221,7 @@ section no longer restates them — read those pages for the detail.
 
 ### Vulnerabilities after release
 
-[`rescan.yml`](../.github/workflows/rescan.yml) re-scans the images that run in each environment and the latest release every week and opens a `vuln` issue for each new critical (7 days) or high (30 days) finding. The SLA, the VEX workflow and the artifact-expiry caveat are in [Vulnerability management](./vulnerability-management.md).
+[`rescan.yml`](../.github/workflows/rescan.yml) re-scans the images that run in each environment and the latest release every week and opens a `vuln` issue for each new critical (7 days) or high (30 days) finding. The SLA, how a risk is accepted, why the release VEX is not applied and the artifact-expiry caveat are in [Vulnerability management](./vulnerability-management.md).
 
 ### Dependency updates and pinned checksums
 
