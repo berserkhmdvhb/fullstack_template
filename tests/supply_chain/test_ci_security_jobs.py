@@ -61,7 +61,7 @@ def test_security_yml_is_wired_into_the_pipeline() -> None:
 
 def test_blocking_jobs_cannot_be_softened() -> None:
     for name in BLOCKING | {"grype"}:
-        job = jobs().get(name) or workflow("release.yml")["jobs"][name]
+        job = jobs().get(name) or workflow("reusable-build.yml")["jobs"][name]
         assert "continue-on-error" not in job, name
         assert all(
             "continue-on-error" not in s
@@ -118,8 +118,9 @@ def test_source_level_scans_have_no_ref_gate() -> None:
 
 
 def test_image_operations_never_run_on_pull_requests() -> None:
-    # Build and push exist only in release.yml, which triggers on main and v* only; the one other
-    # registry login (dast.yml) is reached by workflow_run/dispatch, never by a pull request.
+    # Build, push and signing exist only in reusable-build.yml, called by release.yml, which
+    # triggers on main and v* only; the one other registry login (dast.yml) is reached by
+    # workflow_run/dispatch, never by a pull request.
     release = workflow("release.yml")
     assert set(release["on"]) == {"push"}
     assert release["on"]["push"] == {"branches": ["main"], "tags": ["v*"]}
@@ -127,6 +128,6 @@ def test_image_operations_never_run_on_pull_requests() -> None:
     for name, step in every_step():
         uses = str(step.get("uses", ""))
         if uses.startswith("docker/build-push-action@"):
-            assert name == "release.yml", (name, uses)
+            assert name == "reusable-build.yml", (name, uses)
         if uses.startswith("docker/login-action@"):
-            assert name in {"release.yml", "dast.yml"}, (name, uses)
+            assert name in {"reusable-build.yml", "dast.yml"}, (name, uses)

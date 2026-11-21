@@ -169,7 +169,7 @@ def test_every_job_that_authenticates_declares_an_environment() -> None:
     assert seen == DEPLOY_ENVIRONMENT_JOBS
 
 
-def test_only_wif_jobs_hold_id_token() -> None:
+def test_only_wif_and_signing_jobs_hold_id_token() -> None:
     holders = {
         (p.name, n)
         for p in sorted(WORKFLOWS.glob("*.yml"))
@@ -178,6 +178,8 @@ def test_only_wif_jobs_hold_id_token() -> None:
     }
     assert holders == {
         ("release.yml", "deploy"),
+        ("release.yml", "images"),  # the union grant for reusable-build.yml
+        ("reusable-build.yml", "sign-attest"),  # keyless signing, no cloud login
         ("deploy.yml", "deploy-dev"),
         ("deploy.yml", "deploy-qa"),
         ("deploy.yml", "deploy-production"),
@@ -300,7 +302,7 @@ def test_a_smoke_report_upload_cannot_trigger_a_rollback() -> None:
 def test_the_release_workflow_calls_deploy_with_the_plan_and_digests() -> None:
     job = workflow("release.yml")["jobs"]["deploy"]
     assert job["uses"] == "./.github/workflows/deploy.yml"
-    assert {"plan", "digests", "grype"} <= set(job["needs"])
+    assert {"plan", "digests", "images"} <= set(job["needs"])
     assert not {"grant", "vex"} & set(job["needs"])
     assert job["permissions"] == {"contents": "read", "id-token": "write"}
     assert job["with"]["version"] == "${{ needs.plan.outputs.version }}"

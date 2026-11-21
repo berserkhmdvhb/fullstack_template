@@ -1,0 +1,282 @@
+name: Build, scan, sign
+
+# The only workflow that pushes, signs or attests images. release.yml calls it on a push to main
+# or a v* tag, never on a pull request. Order: build and push by digest, SBOM, the blocking
+# vulnerability gate, then keyless signing and attestations, only for what passed the gate.
+on:
+  workflow_call:
+    inputs:
+      matrix:
+        description: The image matrix (JSON) rendered by the plan job
+        type: string
+        required: true
+      image_tag:
+        description: The immutable image tag
+        type: string
+        required: true
+      immutable:
+        description: "'true' on a release tag, which also moves the latest tag"
+        type: string
+        required: true
+
+permissions: {}
+
+env:
+  SEC_OUTPUT_DIR: output/security
+
+jobs:
+  # One leg per image: build and push, then verify the pushed digest.
+  build:
+    name: Build and push (${{ matrix.id }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write  # push the image to ghcr.io
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.matrix) }}
+    env:
+      IMAGE_ID: ${{ matrix.id }}
+      IMAGE_REF: ${{ matrix.repository }}:${{ inputs.image_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Read the build arguments
+        id: args
+        env:
+          ENTRY: ${{ toJSON(matrix) }}
+        run: |
+          {
+            echo "build_args<<BUILD_ARGS_EOF"
+            jq -r '(.build_args // {}) | to_entries[] | "\(.key)=\(.value)"' <<<"${ENTRY}"
+            echo "BUILD_ARGS_EOF"
+          } >> "$GITHUB_OUTPUT"
+      # Tags follow the old pipeline: the immutable <version>-<channel>-<sha> tag, plus the mutable :latest on a release tag.
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          build-args: ${{ steps.args.outputs.build_args }}
+          push: true
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ env.IMAGE_REF }}
+            ${{ inputs.immutable == 'true' && format('{0}:latest', matrix.repository) || '' }}
+          cache-from: type=gha,scope=${{ matrix.id }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.id }}
+      - name: Verify the pushed digest
+        env:
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          resolved="$(docker buildx imagetools inspect "${IMAGE_REF}" --format '{{.Manifest.Digest}}')"
+          if [[ ! "${BUILD_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ || "${resolved}" != "${BUILD_DIGEST}" ]]; then
+            echo "::error::digest mismatch for ${IMAGE_REF}: build=${BUILD_DIGEST} registry=${resolved}"
+            exit 1
+          fi
+          key="$(printf '%s' "${IMAGE_ID}" | tr '[:lower:]' '[:upper:]' | sed -E 's/[^A-Z0-9_]+/_/g')"
+          mkdir -p parts
+          echo "${key}_IMAGE_DIGEST=${resolved}" > "parts/${IMAGE_ID}.digest.env"
+          echo "${key}_IMAGE=${IMAGE_REF}" > "parts/${IMAGE_ID}.scan.env"
+          echo "- \`${IMAGE_REF}\` pushed, digest \`${resolved}\` verified" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.id }}
+          path: parts/
+          retention-days: 90
+
+  # Read-only: logs in with packages: read and scans the pushed image by its verified digest.
+  sbom:
+    name: SBOM (${{ matrix.id }})
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read  # pull the image from ghcr.io
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.matrix) }}
+    env:
+      IMAGE_ID: ${{ matrix.id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: digest-${{ matrix.id }}
+          path: parts
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install syft
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bin"
+          bash infra/security/tools-install.sh syft "$(yq -r '.tools.syft' infra/security/config.yaml)" "${RUNNER_TEMP}/bin"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
+      - name: Generate the CycloneDX SBOM by digest
+        run: |
+          bash infra/security/sbom-generate.sh -q -O "${SEC_OUTPUT_DIR}" \
+            -s "parts/${IMAGE_ID}.scan.env" -d "parts/${IMAGE_ID}.digest.env"
+          test -s "${SEC_OUTPUT_DIR}/sbom/${IMAGE_ID}.image.sbom.cdx.json"
+          echo "- SBOM: \`${IMAGE_ID}.image.sbom.cdx.json\` (CycloneDX)" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-${{ matrix.id }}
+          path: ${{ env.SEC_OUTPUT_DIR }}/sbom/
+          retention-days: 90
+
+  # Blocking: the threshold is infra/security/config.yaml policy.fail_level, read by the script.
+  grype:
+    name: Grype (${{ matrix.id }})
+    needs: sbom
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write  # upload SARIF to code scanning
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.matrix) }}
+    env:
+      IMAGE_ID: ${{ matrix.id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sbom-${{ matrix.id }}
+          path: ${{ env.SEC_OUTPUT_DIR }}/sbom
+      - name: Install grype
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bin"
+          bash infra/security/tools-install.sh grype "$(yq -r '.tools.grype' infra/security/config.yaml)" "${RUNNER_TEMP}/bin"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
+      - name: Scan the SBOM (blocking gate)
+        run: |
+          bash infra/security/scan-vulnerabilities.sh -q -c infra/security/grype.yaml \
+            -s "${SEC_OUTPUT_DIR}/sbom" -O "${SEC_OUTPUT_DIR}"
+      - name: Findings summary
+        if: always()
+        run: |
+          report="${SEC_OUTPUT_DIR}/grype/${IMAGE_ID}.image.vuln.grype.json"
+          {
+            echo "### Grype: ${IMAGE_ID}"
+            if [[ -f "${report}" ]]; then
+              jq -r '[.matches[].vulnerability.severity] | group_by(.) | map("- \(.[0]): \(length)") | .[]' "${report}"
+              echo "- total: $(jq '.matches | length' "${report}")"
+            else
+              echo "- no report produced"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      # Code scanning may be unavailable (private or fork without it): the upload must not turn the run red.
+      - name: Upload SARIF to code scanning
+        id: sarif
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: ${{ env.SEC_OUTPUT_DIR }}/grype/${{ matrix.id }}.image.vuln.sarif.json
+          category: grype-${{ matrix.id }}
+      - name: Warn when code scanning is unavailable
+        if: always() && steps.sarif.outcome == 'failure'
+        run: |
+          echo "::warning::code scanning is not available for ${IMAGE_ID}; the findings are in the grype-${IMAGE_ID} artifact"
+          echo "- SARIF upload skipped: code scanning not available; see the grype-${IMAGE_ID} artifact" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the grype reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: grype-${{ matrix.id }}
+          path: ${{ env.SEC_OUTPUT_DIR }}/grype/
+          retention-days: 90
+
+  # Signs only what passed the gate: needs the blocking grype scan of every image. The certificate
+  # identity is this workflow, because a keyless certificate issued in a called workflow names it
+  # (job_workflow_ref); wiki/security.md has the verify commands.
+  sign-attest:
+    name: Sign and attest (${{ matrix.id }})
+    needs: [build, sbom, grype]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write  # attach the signature and the attestations to the image in ghcr.io
+      id-token: write  # the GitHub OIDC token that Sigstore turns into a signing certificate
+      attestations: write  # record the build provenance and SBOM attestations
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.matrix) }}
+    env:
+      IMAGE_ID: ${{ matrix.id }}
+      REPOSITORY: ${{ matrix.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: digest-${{ matrix.id }}
+          path: parts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sbom-${{ matrix.id }}
+          path: ${{ env.SEC_OUTPUT_DIR }}/sbom
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install the pinned cosign
+        run: |
+          scripts/tools.sh install cosign
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - name: Read the image digest
+        id: ref
+        run: |
+          digest="$(sed -n "s/^[A-Z0-9_]*_IMAGE_DIGEST=//p" "parts/${IMAGE_ID}.digest.env")"
+          if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::no valid digest for ${IMAGE_ID}: ${digest}"
+            exit 1
+          fi
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+      - name: Sign the image digest (keyless)
+        env:
+          DIGEST: ${{ steps.ref.outputs.digest }}
+        run: cosign sign --yes "${REPOSITORY}@${DIGEST}"
+      - name: Verify the signature
+        env:
+          DIGEST: ${{ steps.ref.outputs.digest }}
+        run: |
+          cosign verify "${REPOSITORY}@${DIGEST}" \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/reusable-build.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-github-workflow-sha "${GITHUB_SHA}" > /dev/null
+          echo "- \`${REPOSITORY}@${DIGEST}\` signed and verified" >> "$GITHUB_STEP_SUMMARY"
+      - name: Attest the build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ matrix.repository }}
+          subject-digest: ${{ steps.ref.outputs.digest }}
+          push-to-registry: true
+      - name: Attest the SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          sbom-path: ${{ env.SEC_OUTPUT_DIR }}/sbom/${{ matrix.id }}.image.sbom.cdx.json
+          subject-name: ${{ matrix.repository }}
+          subject-digest: ${{ steps.ref.outputs.digest }}
+          push-to-registry: true

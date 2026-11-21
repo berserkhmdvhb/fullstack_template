@@ -1,13 +1,13 @@
-"""The release workflow: build, push, verify, SBOM, scan. Static, offline."""
+"""The release workflow: plan, images, licences, VEX, release assets, deploy. Static, offline."""
 
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, cast
 
 from tests.supply_chain._workflows import ARTIFACT_RETENTION_DAYS, steps_of, workflow
 
-MIN_UPLOAD_STEPS = 4  # one per scan job
+MIN_UPLOAD_STEPS = 3  # digests, grant and vex
 
 
 def _wf() -> dict[str, Any]:
@@ -43,151 +43,50 @@ def test_top_level_permissions_are_empty() -> None:
     assert _wf()["permissions"] == {}
 
 
-def test_packages_write_only_on_the_build_job() -> None:
-    wide = {
-        n: j["permissions"]
-        for n, j in _jobs().items()
-        if j["permissions"].get("packages") == "write"
+def test_images_job_calls_the_reusable_build_with_the_union_of_its_permissions() -> None:
+    job = _wf()["jobs"]["images"]
+    assert job["uses"] == "./.github/workflows/reusable-build.yml"
+    assert job["needs"] == "plan"
+    assert job["permissions"] == {
+        "contents": "read",
+        "packages": "write",
+        "security-events": "write",
+        "id-token": "write",
+        "attestations": "write",
     }
-    assert wide == {"build": {"contents": "read", "packages": "write"}}
+    assert set(job["with"]) == {"matrix", "image_tag", "immutable"}
 
 
-def test_security_events_write_only_on_the_grype_job() -> None:
-    wide = {
-        n: j["permissions"] for n, j in _jobs().items() if "security-events" in j["permissions"]
-    }
-    assert wide == {"grype": {"contents": "read", "security-events": "write"}}
-
-
-def test_packages_read_only_on_the_sbom_job() -> None:
-    reads = {n for n, j in _jobs().items() if j["permissions"].get("packages") == "read"}
-    assert reads == {"sbom"}
-    assert _jobs()["sbom"]["permissions"] == {"contents": "read", "packages": "read"}
-
-
-def test_no_other_permission_is_widened() -> None:
-    for name, job in _jobs().items():
-        extra = set(job["permissions"]) - {"contents", "packages", "security-events"}
-        assert not extra, name
-        assert job["permissions"]["contents"] == "read", name
-
-
-def test_sbom_is_its_own_job_scanning_by_digest_and_grype_needs_no_registry() -> None:
-    jobs = _jobs()
-    assert jobs["sbom"]["needs"] == ["plan", "build"]
-    assert "infra/security/sbom-generate.sh" in _runs(jobs["sbom"])
-    assert "infra/security/sbom-generate.sh" not in _runs(jobs["build"])
-    assert not _uses(jobs["build"], "actions/upload-artifact@")[1:]  # only the digest upload
-    assert not _uses(jobs["grype"], "docker/login-action@")
-    assert "sbom" in jobs["grype"]["needs"]
+def test_step_running_jobs_hold_no_registry_or_signing_grant() -> None:
+    perms = {n: j["permissions"] for n, j in _jobs().items()}
+    assert perms.pop("release-assets") == {"contents": "write"}
+    assert all(p == {"contents": "read"} for p in perms.values()), perms
+    for job in _jobs().values():
+        assert not _uses(job, "docker/build-push-action@")
+        assert not _uses(job, "actions/attest")
+        assert "cosign sign" not in _runs(job)
 
 
 def test_jobs_run_in_order() -> None:
-    jobs = _jobs()
-    assert "plan" in jobs
-    assert jobs["build"]["needs"] == "plan"
-    assert "build" in jobs["digests"]["needs"]
-    assert "sbom" in jobs["grype"]["needs"]
-    assert "sbom" in jobs["grant"]["needs"]
-    assert "grype" in jobs["vex"]["needs"]
+    jobs = _wf()["jobs"]
+    assert jobs["images"]["needs"] == "plan"
+    assert jobs["digests"]["needs"] == ["plan", "images"]
+    assert jobs["grant"]["needs"] == "images"
+    assert jobs["vex"]["needs"] == ["digests", "images"]
+    assert jobs["deploy"]["needs"] == ["plan", "digests", "images"]
 
 
 def test_plan_job_uses_the_matrix_helper_and_exposes_outputs() -> None:
     job = _jobs()["plan"]
     assert ".github/scripts/container_matrix.py --matrix" in _runs(job)
     assert {"matrix", "version", "channel", "image_tag", "immutable"} <= set(job["outputs"])
-    assert "fromJSON(needs.plan.outputs.matrix)" in str(_jobs()["build"]["strategy"]["matrix"])
-
-
-def test_build_uses_buildx_login_and_gha_cache() -> None:
-    job = _jobs()["build"]
-    for prefix in (
-        "docker/setup-buildx-action@",
-        "docker/login-action@",
-        "docker/build-push-action@",
-    ):
-        assert len(_uses(job, prefix)) == 1, prefix
-    build = _uses(job, "docker/build-push-action@")[0]["with"]
-    assert build["push"] is True
-    assert build["cache-from"] == "type=gha,scope=${{ matrix.id }}"
-    assert build["cache-to"] == "type=gha,mode=max,scope=${{ matrix.id }}"
-
-
-def test_login_token_goes_through_with_not_run() -> None:
-    for job in _jobs().values():
-        login = _uses(job, "docker/login-action@")
-        for step in login:
-            assert step["with"]["registry"] == "ghcr.io"
-            assert step["with"]["username"] == "${{ github.actor }}"
-            assert step["with"]["password"] == "${{ secrets.GITHUB_TOKEN }}"  # noqa: S105 — a workflow expression, not a credential
-        assert not re.search(r"secrets\.|GITHUB_TOKEN|docker login", _runs(job)), job
-
-
-def test_digest_verify_runs_after_the_push() -> None:
-    steps = _jobs()["build"]["steps"]
-    push = next(
-        i
-        for i, s in enumerate(steps)
-        if str(s.get("uses", "")).startswith("docker/build-push-action@")
-    )
-    verify = next(i for i, s in enumerate(steps) if "imagetools inspect" in s.get("run", ""))
-    assert verify > push
-    run = steps[verify]["run"]
-    assert "steps." not in run  # the build digest comes in through env, never inlined
-    assert "exit 1" in run
-    assert steps[verify]["env"] == {"BUILD_DIGEST": "${{ steps.build.outputs.digest }}"}
-    # The registry's digest (imagetools) is compared with the build's, and a mismatch stops the job.
-    assert "docker buildx imagetools inspect" in run
-    assert "{{.Manifest.Digest}}" in run
-    assert '"${resolved}" != "${BUILD_DIGEST}"' in run
-
-
-def test_latest_only_on_immutable_releases_and_the_versioned_tag_always() -> None:
-    job = _jobs()["build"]
-    assert job["env"]["IMAGE_REF"] == "${{ matrix.repository }}:${{ needs.plan.outputs.image_tag }}"
-    build = _uses(job, "docker/build-push-action@")[0]["with"]
-    tags = build["tags"].split("\n")
-    tags = [t.strip() for t in tags if t.strip()]
-    assert tags[0] == "${{ env.IMAGE_REF }}", "the image_tag tag is unconditional"
-    (latest,) = tags[1:]
-    assert latest.count(":latest") == 1
-    assert latest.startswith("${{ needs.plan.outputs.immutable == 'true' && ")
-    assert latest.endswith("|| '' }}")
+    assert _wf()["jobs"]["images"]["with"]["matrix"] == "${{ needs.plan.outputs.matrix }}"
 
 
 def test_digests_job_writes_and_uploads_image_digests_env() -> None:
     job = _jobs()["digests"]
     assert "image-digests.env" in _runs(job)
     assert any(s["with"]["name"] == "image-digests" for s in _uses(job, "actions/upload-artifact@"))
-
-
-def test_grype_is_blocking_and_does_not_restate_fail_level() -> None:
-    job = _jobs()["grype"]
-    assert "continue-on-error" not in job
-    gate = [s for s in job["steps"] if "scan-vulnerabilities.sh" in s.get("run", "")]
-    assert len(gate) == 1
-    assert "continue-on-error" not in gate[0]
-    text = _runs(job)
-    assert "infra/security/scan-vulnerabilities.sh" in text
-    assert "infra/security/tools-install.sh grype" in text
-    assert not re.search(r"fail[-_]level|FAIL_LEVEL|--fail-on|\s-l\s", text)
-    raw = str(job)
-    assert not re.search(r"\b(high|critical)\b", raw.lower().replace("security-events", ""))
-
-
-def test_grype_uploads_sarif_even_when_grype_fails() -> None:
-    job = _jobs()["grype"]
-    (sarif,) = _uses(job, "github/codeql-action/upload-sarif@")
-    assert sarif["if"] == "always()"
-    assert sarif["with"]["category"] == "grype-${{ matrix.id }}"
-    assert sarif["continue-on-error"] is True
-    warn = [s for s in job["steps"] if "steps.sarif.outcome == 'failure'" in str(s.get("if", ""))]
-    assert len(warn) == 1
-    assert "::warning" in warn[0]["run"]
-    assert "GITHUB_STEP_SUMMARY" in warn[0]["run"]
-    artifacts = list(_uses(job, "actions/upload-artifact@"))
-    assert artifacts[0]["if"] == "always()"
-    assert artifacts[0]["with"]["retention-days"] == ARTIFACT_RETENTION_DAYS
 
 
 def test_grant_and_vex_are_advisory() -> None:
@@ -224,3 +123,45 @@ def test_no_pull_request_trigger_anywhere_in_the_workflow() -> None:
 
 def test_nothing_hard_codes_an_owner() -> None:
     assert "ghcr.io/" not in str(_wf()).replace("ghcr.io/${{", "")
+
+
+TAG_ONLY = "startsWith(github.ref, 'refs/tags/v')"
+
+
+def _assets() -> dict[str, Any]:
+    return cast("dict[str, Any]", _jobs()["release-assets"])
+
+
+def test_release_assets_run_only_on_v_tags_after_the_images_job() -> None:
+    job = _assets()
+    assert TAG_ONLY in job["if"]
+    assert {"images", "grant", "vex"} <= set(job["needs"])
+    assert "needs.images.result == 'success'" in job["if"]
+    assert job["permissions"] == {"contents": "write"}
+    assert "id-token" not in str(job["permissions"])
+
+
+def test_release_assets_only_ever_create_or_extend_a_draft() -> None:
+    job = _assets()
+    text = _runs(job)
+    assert "gh release create" in text
+    assert "--draft" in text
+    assert "--verify-tag" in text
+    assert "gh release upload" in text
+    assert "gh release edit" not in text
+    assert "--draft=false" not in text
+    assert "--latest" not in text
+    assert "::error::" in text  # a published release is refused with a message
+    assert not re.search(r"\$\{\{", text)
+
+
+def test_release_assets_upload_the_sbom_vex_and_licence_report() -> None:
+    job = _assets()
+    names = {
+        s["with"].get("name") or s["with"].get("pattern")
+        for s in _uses(job, "actions/download-artifact@")
+    }
+    assert names == {"sbom-*", "vex", "grant-report"}
+    text = _runs(job)
+    for needle in ("cdx.json", "openvex.json", "license.grant.json", "licence-summary.json"):
+        assert needle in text, needle

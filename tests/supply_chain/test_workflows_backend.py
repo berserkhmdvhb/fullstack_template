@@ -124,8 +124,16 @@ def test_every_workflow_has_permissions_and_concurrency() -> None:
 
 # The only write grants any workflow job may hold: (workflow, job, permission).
 WRITE_ALLOWLIST = {
-    ("release.yml", "build", "packages"),
-    ("release.yml", "grype", "security-events"),
+    ("reusable-build.yml", "build", "packages"),
+    ("reusable-build.yml", "grype", "security-events"),
+    # Keyless signing and attestations: the reusable build workflow and its caller (the union).
+    ("reusable-build.yml", "sign-attest", "packages"),
+    ("reusable-build.yml", "sign-attest", "id-token"),
+    ("reusable-build.yml", "sign-attest", "attestations"),
+    ("release.yml", "images", "packages"),
+    ("release.yml", "images", "security-events"),
+    ("release.yml", "images", "id-token"),
+    ("release.yml", "images", "attestations"),
     ("security.yml", "codeql", "security-events"),
     ("security.yml", "pip-audit", "security-events"),
     ("security.yml", "advisory", "security-events"),
@@ -143,7 +151,7 @@ WRITE_ALLOWLIST = {
 
 # The only non-contents read grants: (workflow, job, permission, level).
 READ_ALLOWLIST = {
-    ("release.yml", "sbom", "packages", "read"),
+    ("reusable-build.yml", "sbom", "packages", "read"),
     ("security.yml", "codeql", "actions", "read"),
     ("ci.yml", "security", "actions", "read"),
     ("dast.yml", "dast", "actions", "read"),
@@ -151,11 +159,16 @@ READ_ALLOWLIST = {
 }
 
 
+# The one job that holds contents: write: it creates the draft release and uploads its assets.
+CONTENTS_WRITE = ("release.yml", "release-assets")
+
+
 def test_no_job_grants_write() -> None:
     for path in sorted(WORKFLOWS.glob("*.yml")):
         for name, job in load(path)["jobs"].items():
             perms = dict(job["permissions"])
-            assert perms.pop("contents") == "read", (path.name, name)
+            contents = "write" if (path.name, name) == CONTENTS_WRITE else "read"
+            assert perms.pop("contents") == contents, (path.name, name)
             for perm, level in perms.items():
                 if (path.name, name, perm, level) in READ_ALLOWLIST:
                     continue
