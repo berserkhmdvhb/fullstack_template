@@ -6,6 +6,11 @@ Git tag overrides it (channel ``prod``). On ``main`` the channel is ``main``; on
 (or a pull request or dispatch ref) it is the sanitised ref name, at most 20 characters. The image
 tag is ``{version}-{channel}-{short_sha}``. ``immutable`` is ``true`` exactly for ``v*`` tags.
 
+Platforms: each image lists the platforms it supports and the manifest's ``runners`` map names the
+native runner of each platform. ``BUILD_ARM64=true`` builds every listed platform; anything else
+builds ``linux/amd64`` only. ``--matrix`` also writes ``platform_matrix``, one entry per
+(image, platform) with its ``platform``, ``runner`` and ``slug``, and ``arm64``.
+
 Ref name, ref type and SHA come from ``GITHUB_REF_NAME``, ``GITHUB_REF_TYPE`` and ``GITHUB_SHA``;
 repositories are ``ghcr.io/<owner>/<repo>/<id>`` from ``GITHUB_REPOSITORY_OWNER`` and
 ``GITHUB_REPOSITORY``, lowercased. Bad input exits 2 with a message, never a traceback.
@@ -23,7 +28,9 @@ from typing import Any, NoReturn
 
 import yaml
 
-TOP_KEYS = {"schema_version", "version", "images"}
+TOP_KEYS = {"schema_version", "version", "runners", "images"}
+DEFAULT_PLATFORM = "linux/amd64"
+PLATFORM_RE = re.compile(r"[a-z0-9]+/[a-z0-9]+(?:/v[0-9]+)?")
 IMAGE_KEYS = {
     "id",
     "repository",
@@ -31,6 +38,7 @@ IMAGE_KEYS = {
     "context",
     "dockerfile_context",
     "build_args",
+    "platforms",
     # Read by scripts/ci/image-checks.sh, not rendered into the matrix.
     "distroless",
     "run_env",
@@ -182,11 +190,41 @@ def check_image(image: Any, seen: set[str]) -> None:  # noqa: ANN401
     ):
         msg = f"manifest: build_args of {image['id']!r} must map strings to strings"
         raise InputError(msg)
+    check_platforms(image)
     check_image_checks_settings(image)
 
 
-def load_manifest(path: Path) -> list[dict[str, Any]]:
-    """Load and validate the manifest, returning its image entries."""
+def check_platforms(image: dict[str, Any]) -> None:
+    """Validate the optional platforms list of an image (default: linux/amd64 only)."""
+    platforms = image.get("platforms", [DEFAULT_PLATFORM])
+    if (
+        not isinstance(platforms, list)
+        or not platforms
+        or not all(isinstance(p, str) and PLATFORM_RE.fullmatch(p) for p in platforms)
+        or len(set(platforms)) != len(platforms)
+    ):
+        msg = f"manifest: platforms of {image['id']!r} must be a list of unique os/arch strings"
+        raise InputError(msg)
+
+
+def load_runners(data: dict[str, Any], images: list[dict[str, Any]]) -> dict[str, str]:
+    """Return the platform-to-runner map; every platform an image lists needs a runner."""
+    runners = data.get("runners")
+    if not isinstance(runners, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) and v for k, v in runners.items()
+    ):
+        msg = "manifest: runners must map each platform to its native runner"
+        raise InputError(msg)
+    for image in images:
+        for platform in image.get("platforms", [DEFAULT_PLATFORM]):
+            if platform not in runners:
+                msg = f"manifest: no runner for {platform!r} (image {image['id']!r}); add a runner"
+                raise InputError(msg)
+    return runners
+
+
+def load_manifest(path: Path) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Load and validate the manifest, returning its image entries and the runners map."""
     if not path.is_file():
         msg = f"manifest {path} not found (container-images.yml)"
         raise InputError(msg)
@@ -208,7 +246,7 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
     seen: set[str] = set()
     for image in images:
         check_image(image, seen)
-    return images
+    return images, load_runners(data, images)
 
 
 def repo_parts() -> tuple[str, str]:
@@ -235,7 +273,19 @@ def expand(value: str, ctx: dict[str, str]) -> str:
     return PLACEHOLDER_RE.sub(sub, value)
 
 
-def render(images: list[dict[str, Any]], ctx: dict[str, str]) -> list[dict[str, Any]]:
+def selected_platforms(image: dict[str, Any], *, arm64: bool) -> list[str]:
+    """The image's platforms to build: all of them with arm64 on, else linux/amd64 only."""
+    listed = image.get("platforms", [DEFAULT_PLATFORM])
+    chosen = listed if arm64 else [p for p in listed if p == DEFAULT_PLATFORM]
+    if not chosen:
+        msg = f"image {image['id']!r} lists no {DEFAULT_PLATFORM}, so BUILD_ARM64 must be true"
+        raise InputError(msg)
+    return chosen
+
+
+def render(
+    images: list[dict[str, Any]], ctx: dict[str, str], *, arm64: bool = False
+) -> list[dict[str, Any]]:
     """Return the matrix entries with placeholders expanded."""
     return [
         {
@@ -244,8 +294,23 @@ def render(images: list[dict[str, Any]], ctx: dict[str, str]) -> list[dict[str, 
             "dockerfile": i["dockerfile"],
             "context": i.get("context", "."),
             "build_args": {k: expand(v, ctx) for k, v in (i.get("build_args") or {}).items()},
+            "platforms": selected_platforms(i, arm64=arm64),
         }
         for i in images
+    ]
+
+
+def per_platform(entries: list[dict[str, Any]], runners: dict[str, str]) -> list[dict[str, Any]]:
+    """One entry per (image, platform) with its native runner and a name-safe slug."""
+    return [
+        {
+            **{k: v for k, v in e.items() if k != "platforms"},
+            "platform": p,
+            "runner": runners[p],
+            "slug": p.replace("/", "-"),
+        }
+        for e in entries
+        for p in e["platforms"]
     ]
 
 
@@ -265,15 +330,23 @@ def select(entries: list[dict[str, Any]], raw: str) -> list[dict[str, Any]]:
 def run(args: argparse.Namespace) -> None:
     """Execute the requested mode."""
     root = Path(args.root)
-    images = load_manifest(root / args.config)
+    images, runners = load_manifest(root / args.config)
     owner, repo = repo_parts()
     values = compute_version(root)
-    entries = render(images, {"OWNER": owner, "REPO": repo, "VERSION": values["version"]})
+    arm64 = os.environ.get("BUILD_ARM64", "") == "true"
+    entries = render(
+        images, {"OWNER": owner, "REPO": repo, "VERSION": values["version"]}, arm64=arm64
+    )
     if args.deploy_matrix:
         entries = select(entries, args.select)
     text = json.dumps({"include": entries}, separators=(",", ":")) + "\n"
     if args.matrix:
-        out = format_outputs(values)
+        platform_matrix = json.dumps(
+            {"include": per_platform(entries, runners)}, separators=(",", ":")
+        )
+        out = format_outputs(
+            {**values, "platform_matrix": platform_matrix, "arm64": str(arm64).lower()}
+        )
         target = os.environ.get("GITHUB_OUTPUT")
         if target:
             with Path(target).open("a", encoding="utf-8") as fh:

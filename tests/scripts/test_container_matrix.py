@@ -13,7 +13,14 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / ".github" / "scripts" / "container_matrix.py"
 SHA = "0123456789abcdef0123456789abcdef01234567"
-MANIFEST = """\
+RUNNERS = """\
+runners:
+  linux/amd64: ubuntu-24.04
+  linux/arm64: ubuntu-24.04-arm
+"""
+MANIFEST = (
+    RUNNERS
+    + """\
 schema_version: 1
 version:
   baseline: version-file
@@ -22,6 +29,7 @@ images:
     repository: "ghcr.io/${OWNER}/${REPO}/backend"
     dockerfile: Dockerfile.backend
     context: .
+    platforms: [linux/amd64, linux/arm64]
     build_args:
       VERSION: "${VERSION}"
   - id: nginx
@@ -30,6 +38,7 @@ images:
     context: .
     build_args: {}
 """
+)
 BASE_ENV = {
     "GITHUB_REPOSITORY_OWNER": "Acme-Org",
     "GITHUB_REPOSITORY": "Acme-Org/My-Service",
@@ -66,12 +75,14 @@ def run(tmp_path: Path) -> Runner:
         env: dict[str, str | None] | None = None,
         version_file: str | None = None,
         manifest: str | None = None,
+        with_runners: bool = True,
         use_output_file: bool = True,
     ) -> Result:
         if version_file is not None:
             (tmp_path / "VERSION").write_text(version_file)
         if manifest is not None:
-            (tmp_path / ".github" / "container-images.yml").write_text(manifest)
+            head = RUNNERS if with_runners and "runners:" not in manifest else ""
+            (tmp_path / ".github" / "container-images.yml").write_text(head + manifest)
         full: dict[str, str] = {**BASE_ENV, "PATH": "/usr/bin:/bin"}
         if use_output_file:
             full["GITHUB_OUTPUT"] = str(out_file)
@@ -101,11 +112,12 @@ def refused(res: Result, needle: str) -> None:
 def test_main_branch_policy(run: Runner) -> None:
     res = run("--matrix", version_file="1.2.3\n")
     assert res.code == 0, res.stderr
-    assert res.outputs == {
+    assert {k: v for k, v in res.outputs.items() if k != "platform_matrix"} == {
         "version": "1.2.3",
         "channel": "main",
         "image_tag": "1.2.3-main-0123456",
         "immutable": "false",
+        "arm64": "false",
     }
 
 
@@ -116,11 +128,12 @@ def test_missing_version_file_defaults_to_zero(run: Runner) -> None:
 def test_tag_overrides_baseline(run: Runner) -> None:
     env = {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "v2.0.1"}
     res = run("--matrix", env=env, version_file="1.2.3")
-    assert res.outputs == {
+    assert {k: v for k, v in res.outputs.items() if k != "platform_matrix"} == {
         "version": "2.0.1",
         "channel": "prod",
         "image_tag": "2.0.1-prod-0123456",
         "immutable": "true",
+        "arm64": "false",
     }
 
 
@@ -170,13 +183,14 @@ def test_matrix_shape_and_repository_lowercased(run: Runner) -> None:
     matrix = json.loads(res.stdout.splitlines()[0])
     assert list(matrix) == ["include"]
     first = matrix["include"][0]
-    assert list(first) == ["id", "repository", "dockerfile", "context", "build_args"]
+    assert list(first) == ["id", "repository", "dockerfile", "context", "build_args", "platforms"]
     assert first == {
         "id": "backend",
         "repository": "ghcr.io/acme-org/my-service/backend",
         "dockerfile": "Dockerfile.backend",
         "context": ".",
         "build_args": {"VERSION": "1.2.3"},
+        "platforms": ["linux/amd64"],
     }
     assert [i["id"] for i in matrix["include"]] == ["backend", "nginx"]
 
@@ -242,6 +256,13 @@ def test_deploy_matrix_requires_select(run: Runner) -> None:
     ("manifest", "needle"),
     [
         ("images: [", "manifest"),
+        ("images:\n  - {id: a, repository: r, dockerfile: d, platforms: []}\n", "platforms"),
+        ("images:\n  - {id: a, repository: r, dockerfile: d, platforms: [arm64]}\n", "platforms"),
+        ("images:\n  - {id: a, repository: r, dockerfile: d, platforms: x}\n", "platforms"),
+        (
+            "images:\n  - {id: a, repository: r, dockerfile: d, platforms: [linux/s390x]}\n",
+            "no runner for 'linux/s390x'",
+        ),
         ("- just\n- a list\n", "manifest"),
         ("schema_version: 1\n", "images"),
         ("images: []\n", "images"),
@@ -279,7 +300,7 @@ def test_image_check_settings_are_accepted_and_not_rendered(run: Runner) -> None
     res = run("--matrix", manifest=manifest)
     assert res.code == 0, res.stderr
     entry = json.loads(res.stdout.splitlines()[0])["include"][0]
-    assert set(entry) == {"id", "repository", "dockerfile", "context", "build_args"}
+    assert set(entry) == {"id", "repository", "dockerfile", "context", "build_args", "platforms"}
 
 
 def test_missing_manifest_refused(run: Runner, tmp_path: Path) -> None:
@@ -319,19 +340,15 @@ FORBIDDEN_RUN_ARGS = [
 ]
 
 
-@pytest.mark.parametrize("flag", FORBIDDEN_RUN_ARGS)
-@pytest.mark.parametrize("form", ["separate", "equals", "attached"])
+def _forbidden_pairs() -> list[tuple[str, str]]:
+    """Each flag with the forms it can take (long: separate or `=`; short: separate or attached)."""
+    forms = {True: ("separate", "equals"), False: ("separate", "attached")}
+    return [(f, form) for f in FORBIDDEN_RUN_ARGS for form in forms[f.startswith("--")]]
+
+
+@pytest.mark.parametrize(("flag", "form"), _forbidden_pairs())
 def test_run_args_that_widen_the_container_are_refused(run: Runner, flag: str, form: str) -> None:
-    if form == "separate":
-        args = [flag, "x"]
-    elif form == "equals":
-        if not flag.startswith("--"):
-            pytest.skip("short flags have no = form")
-        args = [f"{flag}=x"]
-    else:
-        if flag.startswith("--"):
-            pytest.skip("long flags have no attached form")
-        args = [f"{flag}x"]
+    args = {"separate": [flag, "x"], "equals": [f"{flag}=x"], "attached": [f"{flag}x"]}[form]
     manifest = (
         f"images:\n  - {{id: a, repository: r, dockerfile: d, run_args: {json.dumps(args)}}}\n"
     )
@@ -344,3 +361,72 @@ def test_harmless_run_args_are_accepted(run: Runner) -> None:
         " run_args: ['--read-only', '--tmpfs', '/tmp']}\n"
     )
     assert run("--matrix", manifest=manifest).code == 0
+
+
+def _platform_matrix(res: Result) -> list[dict[str, object]]:
+    assert res.code == 0, res.stderr
+    return json.loads(res.outputs["platform_matrix"])["include"]
+
+
+def test_unset_switch_builds_amd64_only_on_its_native_runner(run: Runner) -> None:
+    res = run("--matrix", version_file="1.2.3")
+    assert res.outputs["arm64"] == "false"
+    legs = _platform_matrix(res)
+    assert [(e["id"], e["platform"], e["runner"], e["slug"]) for e in legs] == [
+        ("backend", "linux/amd64", "ubuntu-24.04", "linux-amd64"),
+        ("nginx", "linux/amd64", "ubuntu-24.04", "linux-amd64"),
+    ]
+    assert "arm64" not in json.dumps(json.loads(res.stdout.splitlines()[0]))
+
+
+@pytest.mark.parametrize("value", ["", "false", "TRUE", "1", "yes"])
+def test_anything_but_true_keeps_arm64_off(run: Runner, value: str) -> None:
+    res = run("--matrix", env={"BUILD_ARM64": value})
+    assert res.outputs["arm64"] == "false"
+    assert {e["platform"] for e in _platform_matrix(res)} == {"linux/amd64"}
+
+
+def test_the_switch_adds_arm64_on_its_native_runner(run: Runner) -> None:
+    res = run("--matrix", env={"BUILD_ARM64": "true"}, version_file="1.2.3")
+    assert res.outputs["arm64"] == "true"
+    legs = _platform_matrix(res)
+    assert [(e["id"], e["platform"], e["runner"], e["slug"]) for e in legs] == [
+        ("backend", "linux/amd64", "ubuntu-24.04", "linux-amd64"),
+        ("backend", "linux/arm64", "ubuntu-24.04-arm", "linux-arm64"),
+        ("nginx", "linux/amd64", "ubuntu-24.04", "linux-amd64"),
+    ]
+    first = json.loads(res.stdout.splitlines()[0])["include"][0]
+    assert first["platforms"] == ["linux/amd64", "linux/arm64"]
+    assert legs[1]["repository"] == "ghcr.io/acme-org/my-service/backend"
+    assert legs[1]["build_args"] == {"VERSION": "1.2.3"}
+    assert "platforms" not in legs[1]
+
+
+def test_a_missing_runners_map_is_refused(run: Runner) -> None:
+    manifest = "images:\n  - {id: a, repository: r, dockerfile: d}\n"
+    refused(run("--matrix", manifest=manifest, with_runners=False), "runners")
+
+
+def test_an_image_without_amd64_cannot_build_with_the_switch_unset(run: Runner) -> None:
+    manifest = "images:\n  - {id: a, repository: r, dockerfile: d, platforms: [linux/arm64]}\n"
+    refused(run("--matrix", manifest=manifest), "linux/amd64")
+    assert run("--matrix", manifest=manifest, env={"BUILD_ARM64": "true"}).code == 0
+
+
+def test_the_repo_manifest_lists_both_platforms_and_its_runner_map() -> None:
+    env = {**BASE_ENV, "PATH": "/usr/bin:/bin", "BUILD_ARM64": "true"}
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(REPO_ROOT), "--matrix"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = dict(line.split("=", 1) for line in proc.stdout.splitlines()[1:])
+    legs = json.loads(out["platform_matrix"])["include"]
+    assert {(e["id"], e["platform"], e["runner"]) for e in legs} == {
+        (i, p, r)
+        for i in ("backend", "frontend", "nginx")
+        for p, r in (("linux/amd64", "ubuntu-24.04"), ("linux/arm64", "ubuntu-24.04-arm"))
+    }

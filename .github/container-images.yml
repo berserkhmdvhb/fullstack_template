@@ -4,6 +4,8 @@
 # a backend, a frontend and an nginx image; add ids here to build more.
 # Per image, scripts/ci/image-checks.sh also reads:
 #   distroless: true  the image has no shell, package manager or fetcher (the check fails if one is found)
+#   platforms         the platforms the image supports (default: linux/amd64 only); the repository
+#                     variable BUILD_ARM64=true builds all of them, anything else builds linux/amd64 only
 #   run_env, run_args optional: environment variables and extra `docker run` arguments the throwaway
 #                     health-check container needs to start alone (none of the shipped images do)
 # Placeholders: ${OWNER} and ${REPO} (lowercased GitHub owner and repository name) and
@@ -20,11 +22,18 @@ version:
   override: git-tag
   package_name: your_service_name
 
+# The native runner of each platform. Every platform is built on its own runner, never under
+# emulation, and nothing else in the workflows names a runner for a platform.
+runners:
+  linux/amd64: ubuntu-24.04
+  linux/arm64: ubuntu-24.04-arm
+
 images:
   - id: backend
     repository: "ghcr.io/${OWNER}/${REPO}/backend"
     dockerfile: Dockerfile.backend
     distroless: true
+    platforms: [linux/amd64, linux/arm64]
     context: .
     dockerfile_context: .
     build_args:
@@ -33,6 +42,7 @@ images:
     repository: "ghcr.io/${OWNER}/${REPO}/frontend"
     dockerfile: Dockerfile.frontend
     distroless: true
+    platforms: [linux/amd64, linux/arm64]
     context: .
     dockerfile_context: .
     build_args:
@@ -41,6 +51,7 @@ images:
     repository: "ghcr.io/${OWNER}/${REPO}/nginx"
     dockerfile: Dockerfile.nginx
     distroless: false
+    platforms: [linux/amd64, linux/arm64]
     context: .
     dockerfile_context: .
     build_args:
