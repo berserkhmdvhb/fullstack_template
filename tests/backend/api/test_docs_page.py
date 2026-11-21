@@ -81,3 +81,17 @@ async def test_the_routes_are_absent_when_docs_are_off(path: str) -> None:
 async def test_the_pages_are_not_in_the_openapi_document() -> None:
     paths = (await _get("/openapi.json")).json()["paths"]
     assert not [p for p in paths if p.startswith("/docs")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/docs", "/docs/init.js"])
+async def test_the_docs_send_their_own_strict_csp_once(path: str) -> None:
+    res = await _get(path)
+    assert res.headers.get_list("content-security-policy") == [docs_page.CSP]
+    directives = dict(d.split(" ", 1) for d in docs_page.CSP.split("; "))
+    assert "unsafe-" not in docs_page.CSP
+    assert directives["script-src"] == "'self' https://cdn.jsdelivr.net"
+    assert directives["style-src"] == "'self' https://cdn.jsdelivr.net"
+    assert directives["frame-ancestors"] == "'none'"
+    assert directives["base-uri"] == "'self'"
+    assert directives["connect-src"] == "'self'"

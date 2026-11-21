@@ -4,8 +4,8 @@ import { NextResponse } from 'next/server';
 // Runtime backend proxy.
 //
 // The browser calls same-origin `/api/v1/...`, `/docs` and `/openapi.json`;
-// this proxy rewrites them to the backend at `BACKEND_URL`. `/docs` is
-// FastAPI's built-in Swagger page (its bundle loads from the jsDelivr CDN).
+// this proxy rewrites them to the backend at `BACKEND_URL`. `/docs` is the
+// backend's own Swagger UI page (its pinned bundle loads from the jsDelivr CDN).
 //
 // WHY A PROXY AND NOT `rewrites()` IN next.config.ts
 //   Next.js evaluates `rewrites()` during `next build` and freezes the concrete
@@ -26,7 +26,8 @@ const resolveBackend = () =>
 // Same-origin paths rewritten onto the backend. `/api/healthz` is deliberately
 // NOT here (it is the frontend's own liveness probe and must stay served by the
 // frontend), so it falls through to `NextResponse.next()` below.
-const BACKEND_PATHS = ['/api/v1', '/docs', '/openapi.json'];
+const DOCS_PATH = '/docs';
+const BACKEND_PATHS = ['/api/v1', DOCS_PATH, '/openapi.json'];
 const proxiesToBackend = (pathname: string) =>
   BACKEND_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
@@ -62,10 +63,6 @@ export function proxy(request: NextRequest) {
   requestHeaders.set('x-nonce', nonce);
 
   const { nextUrl } = request;
-  // The interactive /docs page is the ONLY page allowed to load a third-party
-  // script/style origin (Swagger UI's jsDelivr CDN, pinned by SRI in the backend's page);
-  // it has no inline script, so it needs no 'unsafe-inline' for scripts.
-  const isDocsPage = nextUrl.pathname === '/docs';
   const response = proxiesToBackend(nextUrl.pathname)
     ? NextResponse.rewrite(
         new URL(`${resolveBackend()}${nextUrl.pathname}${nextUrl.search}`, nextUrl),
@@ -73,22 +70,24 @@ export function proxy(request: NextRequest) {
       )
     : NextResponse.next({ request: { headers: requestHeaders } });
 
+  // The docs page and its init script are the backend's, and so is their CSP (the one page that
+  // admits a third-party origin, jsDelivr, for SRI-pinned assets). Pass it through: a second CSP here
+  // would make two policies, and the browser would enforce both.
+  if (nextUrl.pathname === DOCS_PATH || nextUrl.pathname.startsWith(`${DOCS_PATH}/`)) {
+    return response;
+  }
+
   const reporting = cspReportingEnabled();
   response.headers.set(
     'Content-Security-Policy',
     [
       "default-src 'self'",
-      // CDN only on /docs: Swagger UI loads its bundle/CSS from jsDelivr there.
-      // Every other page stays CDN-free — no third-party script/style origin.
+      // No third-party script/style origin on any page this proxy serves a CSP for.
       "img-src 'self' blob: data:",
-      isDocsPage ? "style-src 'self' https://cdn.jsdelivr.net" : "style-src 'self'",
+      "style-src 'self'",
       // The nonce admits Next.js's own inline bootstrap scripts without a blanket
-      // 'unsafe-inline'/'unsafe-eval'. /docs additionally admits the jsDelivr CDN for
-      // Swagger UI's bundle (its init script is the backend's own /docs/init.js, same origin),
-      // scoped to that one page.
-      isDocsPage
-        ? `script-src 'self' 'nonce-${nonce}' https://cdn.jsdelivr.net`
-        : `script-src 'self' 'nonce-${nonce}'`,
+      // 'unsafe-inline'/'unsafe-eval'.
+      `script-src 'self' 'nonce-${nonce}'`,
       // The frontend calls the API same-origin (/api/v1, rewritten above), so
       // 'self' is the only connect origin — no broad `https:` that would permit
       // exfiltration to any endpoint.

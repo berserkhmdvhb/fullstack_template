@@ -58,35 +58,27 @@ describe('CSP reporting', () => {
   });
 });
 
-describe('CSP on the docs page', () => {
-  const docs = () => csp('/docs');
-  const directive = (name: string) =>
-    docs()
-      .split('; ')
-      .find((d) => d.startsWith(`${name} `)) ?? '';
-
-  it('admits the CDN for scripts and styles, but no inline script and no eval', () => {
-    expect(directive('script-src')).toMatch(
-      /^script-src 'self' 'nonce-[^']+' https:\/\/cdn\.jsdelivr\.net$/,
-    );
-    expect(directive('style-src')).toBe("style-src 'self' https://cdn.jsdelivr.net");
-    expect(docs()).not.toContain('unsafe-');
+describe('the docs page', () => {
+  it.each(['/docs', '/docs/init.js'])('%s is proxied and the backend owns its CSP', (path) => {
+    const response = run(path);
+    expect(response.headers.get('x-middleware-rewrite')).toContain(path);
+    expect(response.headers.get('Content-Security-Policy')).toBeNull();
   });
 
-  it('keeps images and connections same-origin', () => {
-    expect(directive('img-src')).toBe("img-src 'self' blob: data:");
-    expect(directive('connect-src')).toBe("connect-src 'self'");
+  it.each(['/docs', '/docs/init.js'])('%s gets no reporting header either', (path) => {
+    vi.stubEnv('CSP_REPORTING_ENABLED', 'true');
+    expect(run(path).headers.get('Reporting-Endpoints')).toBeNull();
+    vi.unstubAllEnvs();
   });
 
-  it('is proxied to the backend, with its init script, under the strict policy', () => {
-    const init = run('/docs/init.js');
-    expect(init.headers.get('x-middleware-rewrite')).toContain('/docs/init.js');
-    expect(csp('/docs/init.js')).not.toContain('cdn.jsdelivr.net');
-  });
-
-  it('does not extend the CDN to any other page', () => {
-    for (const path of ['/', '/items', '/docsx']) {
-      expect(csp(path)).not.toContain('cdn.jsdelivr.net');
-    }
-  });
+  it.each(['/', '/items', '/docsx', '/api/v1/items', '/openapi.json'])(
+    'keeps the strict nonce policy, with no CDN, on %s',
+    (path) => {
+      const policy = csp(path);
+      expect(policy).toMatch(/script-src 'self' 'nonce-[^']+';/);
+      expect(policy).toContain("style-src 'self';");
+      expect(policy).not.toContain('cdn.jsdelivr.net');
+      expect(policy).not.toContain('unsafe-');
+    },
+  );
 });

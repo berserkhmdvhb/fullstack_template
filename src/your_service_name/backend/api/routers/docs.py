@@ -17,15 +17,18 @@ from your_service_name.backend.api import docs_page
 def build_docs_router(*, title: str, docs_url: str, openapi_url: str) -> APIRouter:
     """Routes for ``docs_url`` (HTML) and ``<docs_url>/init.js``; not in the OpenAPI document."""
     init_url = f"{docs_url.rstrip('/')}/init.js"
-    page = HTMLResponse(docs_page.render_html(title=f"{title} - Swagger UI", init_url=init_url))
+    page = docs_page.render_html(title=f"{title} - Swagger UI", init_url=init_url)
+    csp = {"Content-Security-Policy": docs_page.CSP}
     router = APIRouter(include_in_schema=False)
 
     @router.get(docs_url)
     async def swagger_ui() -> Response:
-        return page
+        return HTMLResponse(page, headers=csp)
 
     @router.get(init_url)
     async def swagger_ui_init() -> Response:
-        return Response(docs_page.render_init_js(openapi_url), media_type="text/javascript")
+        return Response(
+            docs_page.render_init_js(openapi_url), media_type="text/javascript", headers=csp
+        )
 
     return router

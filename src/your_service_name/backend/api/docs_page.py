@@ -29,6 +29,21 @@ _CDN: Final[str] = f"https://cdn.jsdelivr.net/npm/swagger-ui-dist@{SWAGGER_UI_VE
 SWAGGER_UI_CSS_URL: Final[str] = f"{_CDN}/swagger-ui.css"
 SWAGGER_UI_JS_URL: Final[str] = f"{_CDN}/swagger-ui-bundle.js"
 
+# The docs page's own Content-Security-Policy, sent with the page and its init script. Whoever serves
+# the backend's /docs (the frontend proxy, the gateway or an ingress straight to the backend) passes it
+# through, so this is the one source. No ``unsafe-`` source; jsDelivr only for the two pinned assets.
+CSP: Final[str] = "; ".join(
+    (
+        "default-src 'self'",
+        "img-src 'self' blob: data:",
+        "style-src 'self' https://cdn.jsdelivr.net",
+        "script-src 'self' https://cdn.jsdelivr.net",
+        "connect-src 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+    )
+)
+
 _PAGE: Final[str] = """<!DOCTYPE html>
 <html lang="en">
 <head>
