@@ -42,7 +42,6 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -103,10 +102,7 @@ def _configure_logging(settings: Settings) -> None:
     root.setLevel(log_level)
 
 
-# ``load_dotenv`` runs here — not in create_app() — so the .env is read once per process
-# rather than re-loaded (and re-shadowing monkeypatched test env) on every create_app()
-# call. It must precede ``Settings()``, which create_app() builds from the environment.
-load_dotenv()
+# ``.env`` is read by ``Settings`` itself (env_file), relative to the working directory.
 logger = logging.getLogger(__name__)
 
 

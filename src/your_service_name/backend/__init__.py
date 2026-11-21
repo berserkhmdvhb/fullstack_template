@@ -3,12 +3,13 @@
 Backend package wiring the FastAPI application and feature modules.
 
 Responsibilities:
-- Expose app factory and ASGI app for servers.
 - Group subpackages (api, schemas, services, repositories, middleware).
+- Import nothing eagerly: importing any submodule (settings, migrations, ...) must not build the
+  app or validate the environment. The app lives in `backend.main`.
 
-Public API:
+Public API (import from `backend.main`):
 - `create_app`: Factory to construct the FastAPI application.
-- `app`: ASGI application instance (for Uvicorn/Gunicorn).
+- `app`: ASGI application instance (for Uvicorn/Gunicorn), `your_service_name.backend.main:app`.
 
 Operational:
 - Concurrency: Async endpoints; lifespan handles startup/shutdown.
@@ -16,13 +17,7 @@ Operational:
 
 Usage
 -----
-    from your_service_name.backend import create_app
+    from your_service_name.backend.main import create_app
 
     app = create_app()
 """
-
-from __future__ import annotations
-
-from .main import app, create_app
-
-__all__ = ["app", "create_app"]

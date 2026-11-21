@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     """Every environment variable the backend reads, validated once at startup."""
 
     model_config = SettingsConfigDict(
+        # .env in the working directory is a source too; real environment variables win over it.
+        # Shell/compose-only names in the same file are ignored (extra="ignore").
+        env_file=".env",
+        env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
         hide_input_in_errors=True,
