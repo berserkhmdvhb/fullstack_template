@@ -32,10 +32,11 @@ describe('next.config headers()', () => {
     const [everyRoute] = await headersFor();
     expect(everyRoute).toEqual({
       source: '/:path*',
-      count: 5,
+      count: 6,
       headers: {
         'Referrer-Policy': 'no-referrer',
         'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY',
         'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Resource-Policy': 'same-origin',
@@ -43,28 +44,24 @@ describe('next.config headers()', () => {
     });
   });
 
-  it('sets the cache policy per file, with a frame ban on the proxied ones', async () => {
+  it('sets the cache policy per file', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     const cacheRules = (await headersFor()).slice(5);
-    const deny = { 'X-Frame-Options': 'DENY' };
     expect(cacheRules).toEqual([
       { source: '/logo.png', count: 1, headers: { 'Cache-Control': 'public, max-age=604800' } },
       { source: '/favicon.ico', count: 1, headers: { 'Cache-Control': 'public, max-age=604800' } },
-      { source: '/robots.txt', count: 2, headers: { 'Cache-Control': 'no-cache', ...deny } },
-      { source: '/sitemap.xml', count: 2, headers: { 'Cache-Control': 'no-cache', ...deny } },
-      { source: '/health.txt', count: 2, headers: { 'Cache-Control': 'no-cache', ...deny } },
+      { source: '/robots.txt', count: 1, headers: { 'Cache-Control': 'no-cache' } },
+      { source: '/sitemap.xml', count: 1, headers: { 'Cache-Control': 'no-cache' } },
+      { source: '/health.txt', count: 1, headers: { 'Cache-Control': 'no-cache' } },
     ]);
   });
 
-  it('locks down every file the proxy skips: no framing, no content policy to run anything', async () => {
+  it('gives every file the proxy skips a policy that lets nothing run (the proxy sets the page one)', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     const rules = await headersFor();
     expect(rules.slice(1, 5).map((r) => r.source)).toEqual(STATIC_HEADER_SOURCES);
     for (const rule of rules.slice(1, 5)) {
-      expect(rule.headers).toEqual({
-        'X-Frame-Options': 'DENY',
-        'Content-Security-Policy': "default-src 'none'",
-      });
+      expect(rule.headers).toEqual({ 'Content-Security-Policy': "default-src 'none'" });
     }
   });
 

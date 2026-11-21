@@ -63,11 +63,11 @@ _FRONTEND_LAYER: Final[dict[str, str]] = {
     "permissions-policy": "geolocation=(), microphone=(), camera=()",
     "cross-origin-opener-policy": "same-origin",
     "cross-origin-resource-policy": "same-origin",
+    "x-frame-options": "DENY",
 }
 # Files the proxy skips (build output, images, the favicon): nothing may frame them or run there.
 _STATIC_LAYER: Final[dict[str, str]] = {
     **_FRONTEND_LAYER,
-    "x-frame-options": "DENY",
     "content-security-policy": "default-src 'none'",
 }
 

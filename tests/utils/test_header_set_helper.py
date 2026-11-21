@@ -18,6 +18,7 @@ _WIRE = [
     ("Content-Type", "text/plain"),
     ("Referrer-Policy", "no-referrer"),
     ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
     ("Permissions-Policy", "geolocation=(), microphone=(), camera=()"),
     ("Cross-Origin-Opener-Policy", "same-origin"),
     ("Cross-Origin-Resource-Policy", "same-origin"),

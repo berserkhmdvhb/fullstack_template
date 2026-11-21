@@ -107,9 +107,11 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Run on every route except the static asset / image / icon files, which are
-  // served straight from disk and must not carry the per-request CSP/nonce work.
-  // Next.js needs this as a literal; static-paths.ts is the list it must equal (a test checks it),
-  // and next.config.ts gives those same paths their own locked-down headers.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  // Run on every route except the static paths (build output, the favicon, image files), which are
+  // served straight from disk and carry the static policy that next.config.ts sets instead. Every
+  // other path, look-alikes such as /favicon.icox included, gets the page policy here. Next.js needs
+  // this as a literal; static-paths.ts is the list it is built from, and a test checks they are equal.
+  matcher: [
+    '/((?!(?:_next/static|_next/image)(?:/|$)|(?:favicon\\.ico)$|.*\\.(?:[sS][vV][gG]|[pP][nN][gG]|[jJ][pP][gG]|[jJ][pP][eE][gG]|[gG][iI][fF]|[wW][eE][bB][pP])$).*)',
+  ],
 };
