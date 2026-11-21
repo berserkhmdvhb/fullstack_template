@@ -31,8 +31,13 @@ COPY frontend/ ./
 # `prebuild` normally runs `openapi-gen`, but we invoke `npx next build` directly
 # below, which skips npm lifecycle hooks — so run the generator explicitly to keep
 # the image from shipping stale generated types after an openapi.json change.
+#
+# The image's version becomes Next's deploymentId (version-skew protection during a rollout). Next
+# accepts letters, digits, - and _ only, so anything else in the version (dots, +) becomes _. With no
+# VERSION it is empty and the deployment id stays unset.
+ARG VERSION
 RUN npm run openapi-gen \
- && npx next build
+ && NEXT_DEPLOYMENT_ID="$(printf '%s' "${VERSION}" | tr -c 'A-Za-z0-9_-' '_')" npx next build
 
 # Verify standalone output
 RUN test -f .next/standalone/server.js \

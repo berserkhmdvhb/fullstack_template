@@ -26,13 +26,15 @@ def test_the_builder_node_is_the_pinned_node_version() -> None:
     assert match.group(1) == _pinned_node_version()
 
 
-def test_the_nginx_frontend_builder_is_the_pinned_node_version() -> None:
-    nginx = (ROOT / "Dockerfile.nginx").read_text(encoding="utf-8")
-    match = re.search(r"^FROM (\S+) AS frontend-builder$", nginx, re.MULTILINE)
-    assert match
-    tag = re.fullmatch(r"node:([\d.]+)-trixie-slim@sha256:[0-9a-f]{64}", match[1])
-    assert tag, "the nginx frontend-builder must be node:<version>-trixie-slim pinned by digest"
-    assert tag[1] == _pinned_node_version()
+def test_the_build_passes_the_image_version_to_next_as_the_deployment_id() -> None:
+    """Next.js accepts letters, digits, - and _ only, so the version is sanitised on the way in."""
+    builder = DOCKERFILE.split("AS runtime")[0]
+    assert re.search(r"^ARG VERSION$", builder, re.MULTILINE), "the builder needs the VERSION arg"
+    assert re.search(
+        r"NEXT_DEPLOYMENT_ID=\"\$\(.*VERSION.*tr -c 'A-Za-z0-9_-' '_'.*\)\" npx next build$",
+        builder,
+        re.MULTILINE,
+    )
 
 
 def test_the_version_files_and_engines_follow_the_pin() -> None:
@@ -66,7 +68,7 @@ def test_every_npm_runner_checks_the_package_manager_version() -> None:
     action = (ROOT / ".github/actions/setup-frontend/action.yml").read_text(encoding="utf-8")
     assert "node scripts/check-npm-version.mjs" in action
     assert action.index("node scripts/check-npm-version.mjs") < action.index("npm ci")
-    for name in ("Dockerfile.frontend", "Dockerfile.nginx"):
+    for name in ("Dockerfile.frontend",):
         text = (ROOT / name).read_text(encoding="utf-8")
         assert "COPY frontend/scripts/check-npm-version.mjs" in text, name
         assert text.index("node scripts/check-npm-version.mjs") < text.index("&& npm ci"), name
@@ -78,7 +80,7 @@ def test_every_npm_runner_ignores_dependency_install_scripts() -> None:
     """The install is `npm ci --ignore-scripts` everywhere; `allowScripts` records the policy."""
     action = (ROOT / ".github/actions/setup-frontend/action.yml").read_text(encoding="utf-8")
     assert re.search(r"^\s+run: npm ci --ignore-scripts$", action, re.MULTILINE)
-    for name in ("Dockerfile.frontend", "Dockerfile.nginx"):
+    for name in ("Dockerfile.frontend",):
         text = (ROOT / name).read_text(encoding="utf-8")
         assert "&& npm ci --include=dev --ignore-scripts\n" in text, name
 

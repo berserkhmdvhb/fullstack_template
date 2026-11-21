@@ -28,18 +28,29 @@ describe('next.config headers()', () => {
 
   it('adds exactly this set to every route in production', async () => {
     vi.stubEnv('NODE_ENV', 'production');
-    expect(await headersFor()).toEqual([
-      {
-        source: '/:path*',
-        count: 5,
-        headers: {
-          'Referrer-Policy': 'no-referrer',
-          'X-Content-Type-Options': 'nosniff',
-          'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
-          'Cross-Origin-Opener-Policy': 'same-origin',
-          'Cross-Origin-Resource-Policy': 'same-origin',
-        },
+    const [everyRoute] = await headersFor();
+    expect(everyRoute).toEqual({
+      source: '/:path*',
+      count: 5,
+      headers: {
+        'Referrer-Policy': 'no-referrer',
+        'X-Content-Type-Options': 'nosniff',
+        'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Resource-Policy': 'same-origin',
       },
+    });
+  });
+
+  it('sets the cache policy per file, from this one table', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const [, ...cacheRules] = await headersFor();
+    expect(cacheRules).toEqual([
+      { source: '/logo.png', count: 1, headers: { 'Cache-Control': 'public, max-age=604800' } },
+      { source: '/favicon.ico', count: 1, headers: { 'Cache-Control': 'public, max-age=604800' } },
+      { source: '/robots.txt', count: 1, headers: { 'Cache-Control': 'no-cache' } },
+      { source: '/sitemap.xml', count: 1, headers: { 'Cache-Control': 'no-cache' } },
+      { source: '/health.txt', count: 1, headers: { 'Cache-Control': 'no-cache' } },
     ]);
   });
 
@@ -53,6 +64,15 @@ describe('next.config headers()', () => {
   it('adds nothing outside production', async () => {
     vi.stubEnv('NODE_ENV', 'development');
     expect(await headersFor()).toEqual([]);
+  });
+
+  it('sets the deployment id from NEXT_DEPLOYMENT_ID, and leaves it unset without one', async () => {
+    vi.stubEnv('NEXT_DEPLOYMENT_ID', '1.2.3');
+    vi.resetModules();
+    expect((await import('./next.config')).default.deploymentId).toBe('1.2.3');
+    vi.stubEnv('NEXT_DEPLOYMENT_ID', '');
+    vi.resetModules();
+    expect((await import('./next.config')).default.deploymentId).toBeUndefined();
   });
 
   it('does not advertise the framework', () => {

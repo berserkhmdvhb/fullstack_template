@@ -1,6 +1,23 @@
 import type { NextConfig } from 'next';
 
+// Cache policy of the files in `public/`, the one place it lives (the nginx tier that used to set it is
+// retired). `/_next/static/*` is not listed: Next.js already sends `public, max-age=31536000, immutable`
+// for the content-hashed build output, and the live test asserts it on a real response.
+const CACHE_LONG = 'public, max-age=604800';
+const CACHE_REVALIDATE = 'no-cache';
+const publicFileCache: ReadonlyArray<readonly [string, string]> = [
+  ['/logo.png', CACHE_LONG],
+  ['/favicon.ico', CACHE_LONG],
+  ['/robots.txt', CACHE_REVALIDATE],
+  ['/sitemap.xml', CACHE_REVALIDATE],
+  ['/health.txt', CACHE_REVALIDATE],
+];
+
 const nextConfig: NextConfig = {
+  // The image's version, passed at build time (Dockerfile.frontend); unset in local dev. Next.js stamps it
+  // on asset URLs (?dpl=) and navigation responses, so a client from another version reloads instead of
+  // mixing assets during a rollout.
+  ...(process.env['NEXT_DEPLOYMENT_ID'] ? { deploymentId: process.env['NEXT_DEPLOYMENT_ID'] } : {}),
   reactStrictMode: true,
   poweredByHeader: false,
   output: 'standalone',
@@ -33,6 +50,10 @@ const nextConfig: NextConfig = {
           // lives next to the header in `proxy.ts`.
         ],
       },
+      ...publicFileCache.map(([source, value]) => ({
+        source,
+        headers: [{ key: 'Cache-Control', value }],
+      })),
     ];
   },
 };

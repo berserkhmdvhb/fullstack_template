@@ -2,8 +2,8 @@
 """
 Live tests: the final response headers per layer, on the wire.
 
-Targets the frontend port (FRONTEND_PORT, the app and the proxied API) and the nginx port
-(NGINX_PORT, static files) of the hermetic stack that ``entrypoint.sh --mode all`` starts.
+Targets the frontend port (FRONTEND_PORT: the app, its own static files and the proxied API) of the
+hermetic stack that ``entrypoint.sh --mode all`` starts.
 
 Every header of a response must be an expected security header (exact value, exactly once) or a
 non-security transport header from the allowlist below. A new header from any layer therefore
@@ -25,8 +25,7 @@ from your_service_name.backend.api import docs_page
 pytestmark = pytest.mark.live
 
 # Non-security headers real responses carry: HTTP transport, caching, the request id, Next.js's own
-# routing headers (x-nextjs-*). `server` is not here: it is pinned per layer (nginx: exactly
-# "nginx", no version; the backend and the frontend: absent).
+# routing headers (x-nextjs-*). `server` is not here: the backend and the frontend send none.
 _TRANSPORT: Final[frozenset[str]] = frozenset(
     {
         "accept-ranges",
@@ -47,9 +46,9 @@ _TRANSPORT: Final[frozenset[str]] = frozenset(
     }
 )
 # Headers Next.js itself adds to the responses it proxies to the backend, so they appear only on the
-# frontend-direct port (dev, `next start`), only on proxied paths, and never through the gateway
-# (nginx hides them). Next 16.4.6 always sets x-middleware-rewrite to the rewrite destination, the
-# internal backend URL: node_modules/next/dist/server/lib/router-utils/resolve-routes.js:468-471 and
+# frontend port and only on proxied paths. Next 16.4.6 always sets x-middleware-rewrite to the
+# rewrite destination, the internal backend URL:
+# node_modules/next/dist/server/lib/router-utils/resolve-routes.js:468-471 and
 # router-server.js:448-450. Deleting it in proxy.ts cancels the rewrite: not removable there.
 KNOWN_NEXT_EXPOSURES: Final[frozenset[str]] = frozenset({"x-middleware-rewrite"})
 _TRANSPORT_PREFIXES: Final[tuple[str, ...]] = ("x-nextjs-",)
@@ -65,13 +64,6 @@ _FRONTEND_LAYER: Final[dict[str, str]] = {
     "cross-origin-opener-policy": "same-origin",
     "cross-origin-resource-policy": "same-origin",
 }
-_NGINX_LAYER: Final[dict[str, str]] = {
-    # `server_tokens off`: nginx still names itself, with no version.
-    "server": "nginx",
-    "x-content-type-options": "nosniff",
-    "x-frame-options": "DENY",
-    "content-security-policy": "default-src 'none'",
-}
 
 
 def _client(port_var: str, default_port: str, host_var: str) -> httpx.Client:
@@ -82,10 +74,6 @@ def _client(port_var: str, default_port: str, host_var: str) -> httpx.Client:
 
 def _frontend() -> httpx.Client:
     return _client("FRONTEND_PORT", "3000", "FRONTEND_HOST")
-
-
-def _nginx() -> httpx.Client:
-    return _client("NGINX_PORT", "8081", "NGINX_HOST")
 
 
 def _final_headers(res: httpx.Response) -> dict[str, str]:
@@ -202,31 +190,37 @@ def test_a_backend_response_has_no_server_header() -> None:
     assert "server" not in res.headers
 
 
+_IMMUTABLE = "public, max-age=31536000, immutable"
+
+
 def test_a_static_asset_through_the_frontend() -> None:
     with _frontend() as client:
         res = client.get(_chunk_path())
     assert res.status_code == status.HTTP_200_OK
-    _assert_final_set(res, _FRONTEND_LAYER)
+    # One Cache-Control (a repeat fails in _final_headers), immutable for a year, the same security
+    # headers as every other response, and compressed (the Next.js default; there may be no CDN).
+    _assert_final_set(res, _FRONTEND_LAYER, exact_transport={"cache-control": _IMMUTABLE})
+    assert res.headers["content-encoding"] == "gzip"
 
 
-_IMMUTABLE = "public, max-age=31536000, immutable"
+def test_a_public_file_through_the_frontend_is_always_revalidated() -> None:
+    with _frontend() as client:
+        res = client.get("/health.txt")
+    assert res.status_code == status.HTTP_200_OK
+    # The proxy matches a .txt path, so the page's per-request CSP rides along.
+    _assert_final_set(
+        res,
+        {**_FRONTEND_LAYER, "content-security-policy": _NEXT_CSP},
+        exact_transport={"cache-control": "no-cache"},
+    )
 
 
-@pytest.mark.parametrize(
-    ("path", "cache_control"),
-    [
-        ("/health.txt", "no-cache"),
-        ("/healthz", None),
-        ("/no-such-file-4f9a", None),
-        ("chunk", _IMMUTABLE),
-    ],
-)
-def test_nginx_files_and_404(path: str, cache_control: str | None) -> None:
-    expected = status.HTTP_404_NOT_FOUND if "no-such" in path else status.HTTP_200_OK
-    with _nginx() as client:
-        res = client.get(_chunk_path() if path == "chunk" else path)
-    assert res.status_code == expected
-    # One Cache-Control (a repeat fails in _final_headers), the intended value, a bare nginx.
-    pinned = {"cache-control": cache_control} if cache_control else {}
-    _assert_final_set(res, _NGINX_LAYER, exact_transport=pinned)
-    assert ("cache-control" in res.headers) == (cache_control is not None)
+def test_the_build_version_is_on_the_page_and_its_asset_urls() -> None:
+    expected = os.getenv("NEXT_DEPLOYMENT_ID")
+    with _frontend() as client:
+        html = client.get("/").text
+    if expected is None:
+        assert "data-dpl-id" not in html
+        return
+    assert f'data-dpl-id="{expected}"' in html
+    assert f".js?dpl={expected}" in html
