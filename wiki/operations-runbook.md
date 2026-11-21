@@ -124,6 +124,16 @@ helm get manifest <release> -n your-service-name-<environment> --revision <revis
 
 
 
+**First install failed?** Helm uninstalls a failed first install, so the retry is revision 1 again and renders
+the same Job name; Helm would adopt the kept, Failed Job and the retry would fail at once. `deploy-env.sh` deletes
+this release's Failed migration Jobs before a first install. By hand:
+
+```bash
+kubectl -n your-service-name-<environment> get jobs \
+  -l app.kubernetes.io/component=migration,app.kubernetes.io/instance=<release>
+kubectl -n your-service-name-<environment> delete job <failed-migration-job-name>
+```
+
 A Pod that stays unready with `reason: schema_behind` or `schema_missing` is waiting for that Job.
 
 ---
@@ -463,9 +473,9 @@ kubectl -n your-service-name-db exec <postgres-pod> -- \
 # 3. Restart the application
 kubectl -n your-service-name-<environment> scale deployment/your-service-name-backend --replicas=2
 
-# 4. Run migrations (if needed)
-kubectl -n your-service-name-<environment> create job ... # see Database Migrations above: re-deploy, or re-apply the rendered Job
 ```
+
+4. Run migrations (if needed): see [Database Migrations](#database-migrations) for the valid re-run recipe (redeploy).
 
 ### Velero Cluster Backup
 

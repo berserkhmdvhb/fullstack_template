@@ -12,7 +12,7 @@
 
    The name carries .Release.Revision because a Job's spec is immutable: each upgrade renders a new
    Job. ttlSecondsAfterFinished cleans old ones up. The runner never downgrades and treats a newer
-   database as success, so `helm rollback` (which re-runs an older Job) is safe.
+   database as success, so `helm rollback` is safe: within the TTL the older revision's kept Job already exists and is updated in place without re-running; after the TTL the Job is recreated and re-runs, finds the database ahead and exits 0.
    backoffLimit/activeDeadlineSeconds are the Job's own retry budget; the runner also retries the
    database connection itself.
 

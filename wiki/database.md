@@ -229,8 +229,8 @@ release and the existing rollback runs. Operating it: [operations runbook](./ope
 A migration must stay compatible with the **previous release's code**: add before you use (a new nullable
 column or table first, the code that uses it in the next release) and remove one release after the code
 stopped using it. This is what makes two behaviours safe: a database *ahead* of the code counts as
-ready (a newer release migrated first), and `helm rollback` re-runs an older Job against a newer schema
-and succeeds. Do not rename or drop a column in the same release that stops using it.
+ready (a newer release migrated first), and `helm rollback` is safe: within the Job TTL the older revision's kept Job already exists and is updated in
+place without re-running; after it the Job is recreated, finds the database ahead and exits 0. Do not rename or drop a column in the same release that stops using it.
 
 ### Readiness and liveness
 
