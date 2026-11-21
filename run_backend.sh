@@ -6,6 +6,7 @@
 # Behavior:
 # - Creates/uses a local venv (.venv)
 # - Loads .env if present
+# - Runs the database migrations before serving (the app never migrates itself)
 # - Developer launcher: Uvicorn with --reload (autoreload on code changes)
 # - The image uses infra/backend/run_backend.sh instead (no reload, production flags)
 # ---------------------------------------------
@@ -54,6 +55,10 @@ export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-}"
 echo "Activating virtual environment..."
 # shellcheck disable=SC1091
 source .venv/bin/activate
+
+# The app does not migrate at startup: bring the database to head first (a no-op when current).
+echo "Applying database migrations..."
+python -m your_service_name.backend.db.run_migrations
 
 echo "Host: ${BACKEND_HOST} | Port: ${BACKEND_PORT} | Reload=on"
 

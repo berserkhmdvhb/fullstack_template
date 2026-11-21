@@ -20,6 +20,22 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # One-shot migration, the compose counterpart of the chart's migration Job: the backend starts
+  # only after it exits 0 (the app never migrates at startup).
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: ["python", "-m", "your_service_name.backend.db.run_migrations"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-app}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-service_template}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   backend:
     build:
       context: .
@@ -33,8 +49,8 @@ services:
       DB_USER: app
       DB_NAME: service_template
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:${BACKEND_PORT:-8000}/api/${API_VERSION:-v1}/healthz"]
       interval: 10s

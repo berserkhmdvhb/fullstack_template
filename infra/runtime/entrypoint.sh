@@ -373,13 +373,8 @@ trap 'echo "Stopping..."; for p in "${pids[@]:-}"; do kill "$p" 2>/dev/null || t
 
 run_migrations() {
   echo "🚀 Running database migrations ..."
-  python -c "
-from your_service_name.backend.db.run_migrations import run_migrations
-from your_service_name.backend.settings import Settings
-import asyncio
-asyncio.run(run_migrations(Settings()))
-" || {
-    echo "[entrypoint] WARNING: Migration failed; see the error above. It may already be applied, or the configuration may be invalid (the error names the variable)." >&2
+  python -m your_service_name.backend.db.run_migrations || {
+    echo "[entrypoint] WARNING: Migration failed; see the error above. The backend starts anyway and answers 503 on /health until the schema matches (the error names an invalid variable)." >&2
   }
 }
 

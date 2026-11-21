@@ -11,7 +11,7 @@ Covers:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -150,32 +150,19 @@ class TestDatabaseLifecycle:
     """Test database initialization and cleanup."""
 
     @pytest.mark.asyncio
-    async def test_init_db_calls_migrations(self) -> None:
-        """init_db should call run_migrations."""
-        with patch(
-            "your_service_name.backend.db.engine.run_migrations", new_callable=AsyncMock
-        ) as mock_migrations:
-            mock_app = _app_with_settings()
-            await init_db(mock_app)
-
-            mock_migrations.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_init_db_sets_initialized_flag(self) -> None:
-        """init_db should set _db_initialized to True."""
-        with patch("your_service_name.backend.db.engine.run_migrations", new_callable=AsyncMock):
-            mock_app = _app_with_settings()
-            await init_db(mock_app)
+        """init_db creates the engine and sets _db_initialized; it does not migrate."""
+        await init_db(_app_with_settings())
 
-            assert engine_module._db_initialized is True
+        assert engine_module._db_initialized is True
+        assert engine_module._engine is not None
 
     @pytest.mark.asyncio
     async def test_close_db_disposes_engine(self) -> None:
         """close_db should dispose the engine and reset state."""
         # First initialize
-        with patch("your_service_name.backend.db.engine.run_migrations", new_callable=AsyncMock):
-            mock_app = _app_with_settings()
-            await init_db(mock_app)
+        mock_app = _app_with_settings()
+        await init_db(mock_app)
 
         # Then close
         mock_engine = AsyncMock()

@@ -5,12 +5,12 @@ SAMPLE/REFERENCE: Async engine factory, session dependency, and lifespan hooks.
 Responsibilities:
 - Create the async SQLAlchemy engine (PostgreSQL or SQLite fallback).
 - Provide a per-request AsyncSession via FastAPI Depends.
-- Run Alembic migrations at startup; dispose engine at shutdown.
+- Create the engine at startup (it never migrates); dispose it at shutdown.
 
 Public API:
 - `DbSession`: Annotated[AsyncSession, Depends(get_session)] for endpoint injection.
 - `get_session`: Async generator yielding a session per request.
-- `init_db`: Lifespan startup — runs migrations.
+- `init_db`: Lifespan startup — creates the engine.
 - `close_db`: Lifespan shutdown — disposes engine.
 
 Operational:
@@ -24,11 +24,10 @@ from your_service_name.backend.db.engine import DbSession, init_db, close_db
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Final
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import (
@@ -40,7 +39,6 @@ from sqlalchemy.ext.asyncio import (
 
 from your_service_name.backend.db._constants import default_sqlite_path, project_root
 from your_service_name.backend.db.connect import app_connect_args
-from your_service_name.backend.db.run_migrations import run_migrations
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -154,89 +152,27 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 DbSession = Annotated[AsyncSession, Depends(get_session)]
 
 
-# Database initialization is retried with capped exponential backoff so a
-# transient "Postgres not accepting connections yet" race at pod start does not
-# permanently degrade the pod. The worst-case total wait (~71s: 1+2+4*17) is
-# sized to fit inside the backend startupProbe budget (30 * 5s = 150s); if the
-# database is still unreachable after that, the startupProbe recycles the pod.
-_DB_INIT_MAX_ATTEMPTS: Final[int] = 20
-_DB_INIT_BACKOFF_BASE_S: Final[float] = 1.0
-_DB_INIT_BACKOFF_MAX_S: Final[float] = 4.0
-
-
-async def _run_migrations_with_retry(settings: Settings) -> None:
-    """
-    Run Alembic migrations, retrying transient database-connection failures.
-
-    Raises
-    ------
-    Exception
-        The last error encountered if migrations do not succeed within
-        ``_DB_INIT_MAX_ATTEMPTS`` attempts.
-    """
-    last_exc: Exception | None = None
-    for attempt in range(1, _DB_INIT_MAX_ATTEMPTS + 1):
-        try:
-            await run_migrations(settings)
-        except Exception as exc:  # noqa: BLE001 — retry any DB connectivity/auth error.
-            last_exc = exc
-            if attempt >= _DB_INIT_MAX_ATTEMPTS:
-                break
-            delay = min(
-                _DB_INIT_BACKOFF_BASE_S * 2 ** (attempt - 1),
-                _DB_INIT_BACKOFF_MAX_S,
-            )
-            logger.warning(
-                "Migration attempt %d/%d failed: %s; retrying in %.1fs",
-                attempt,
-                _DB_INIT_MAX_ATTEMPTS,
-                exc,
-                delay,
-            )
-            await asyncio.sleep(delay)
-        else:
-            return  # Success — migrations applied.
-    if last_exc is not None:
-        raise last_exc
-
-
 async def init_db(app: FastAPI) -> None:
     """
-    Lifespan startup hook: run Alembic migrations (with retry) and initialize the engine.
+    Lifespan startup hook: create the engine and session factory. It does not migrate.
 
     Parameters
     ----------
     app : FastAPI
-        The application; its ``app.state.settings`` configures the engine and migrations.
-
-    Raises
-    ------
-    Exception
-        If migrations cannot be applied within the retry budget, so the caller
-        can decide how to degrade. The lifespan keeps the process up and the
-        readiness probe (/health → 503) keeps the pod out of rotation until the
-        database is reachable — it must never fail silent behind a green health.
+        The application; its ``app.state.settings`` configures the engine.
 
     Notes
     -----
-    - Runs `alembic upgrade head` programmatically, then lazily creates the
-      module-level engine/session factory.
-    - Sets ``_db_initialized`` only on success; the readiness probe keys off it.
-    - In production migrations normally run in the migration Job / init container
-      before the server starts; this is the belt-and-suspenders in-process path
-      (also used by tests via LifespanManager).
+    - Migrations run before the app starts: the chart's per-revision migration Job, or
+      ``python -m your_service_name.backend.db.run_migrations`` locally. The readiness probe
+      (/health) answers 503 until the schema matches this release.
+    - No connection is made here; an unreachable database shows up as a 503 readiness.
     """
     global _db_initialized
     settings: Settings = app.state.settings
-    logger.info(
-        "Running database migrations (up to %d attempts)...",
-        _DB_INIT_MAX_ATTEMPTS,
-    )
-    await _run_migrations_with_retry(settings)
-    # Initialize the module-level engine and session factory for request handling.
     _get_engine(settings)
     _db_initialized = True
-    logger.info("Database migrations complete; engine ready.")
+    logger.info("Database engine ready.")
 
 
 async def close_db(_app: FastAPI) -> None:

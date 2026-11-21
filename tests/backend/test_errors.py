@@ -133,8 +133,9 @@ def test_404_unknown_route_hides_the_query(client: TestClient) -> None:
     assert "abc" not in res.text
 
 
+@pytest.mark.usefixtures("migrated_db")
 def test_404_from_a_route() -> None:
-    with TestClient(_build()) as client:  # lifespan on: the items route needs the database
+    with TestClient(_build()) as client:  # lifespan on; the items route needs a migrated database
         res = client.get("/api/v1/items/00000000-0000-0000-0000-000000000000")
     body = _assert_problem(res, 404, "/api/v1/items/00000000-0000-0000-0000-000000000000")
     assert "not found" in body["detail"].lower()

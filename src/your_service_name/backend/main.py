@@ -122,7 +122,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     Enter/Exit Semantics
     --------------------
-    - On enter: Initialize dependency injection objects (EchoService, repository, DB).
+    - On enter: Initialize dependency injection objects (EchoService, repository) and the DB engine.
     - On exit : Dispose/close resources (DB engine).
 
     Cancellation
@@ -138,14 +138,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Initialize DI BEFORE serving any request to avoid missing state in dependencies.
     app.state.echo_service = EchoService(repo=InMemoryEchoRepository())
 
-    # Initialize the database engine and run migrations. init_db() retries with
-    # bounded backoff and RAISES if the database stays unreachable. We do NOT let
-    # that crash the process: the pod stays up (liveness stays green) but the
-    # readiness probe (/health → 503) keeps it out of the Service rotation until
-    # the DB is healthy — so a broken DB tier can never hide behind a green
-    # /health or serve 5xx to clients (seen in an end-to-end run). In production
-    # migrations normally run in the migration Job / init container before
-    # Uvicorn starts; this is the in-process safety net (also used by tests).
+    # Create the database engine. The app never migrates (the migration Job, or the local entry
+    # point, does that before it starts). A failure here must not crash the process: the pod stays
+    # up (liveness stays green) and readiness (/health -> 503) keeps it out of the Service.
     try:
         from your_service_name.backend.db.engine import (  # noqa: PLC0415 — scoped import to isolate DB init failure
             init_db,

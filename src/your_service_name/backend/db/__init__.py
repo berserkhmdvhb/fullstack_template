@@ -9,7 +9,7 @@ Responsibilities:
 Public API:
 - `DbSession`: Annotated AsyncSession dependency for endpoint injection.
 - `get_session`: Generator yielding a session per request.
-- `init_db`: Lifespan startup hook (runs migrations).
+- `init_db`: Lifespan startup hook (creates the engine; never migrates).
 - `close_db`: Lifespan shutdown hook (disposes engine).
 
 Operational:
