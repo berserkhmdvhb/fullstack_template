@@ -1,4 +1,4 @@
-"""CI wiring that must stay consistent across files: the path filter, tools caches and uv-less runners."""
+"""CI wiring that must stay consistent: the path filter, the tools caches, runners without uv."""
 
 from __future__ import annotations
 

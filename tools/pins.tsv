@@ -30,8 +30,8 @@
 #default-helm: 4
 # Reason: with Helm 4.3.2 and 3.22.1 against the chart and no cluster, `helm lint`,
 # `helm template | kubeconform -strict` (33 resources valid) and `helm unittest` pass on both majors,
-# `ct lint` exits 1 on both with byte-identical output, because of yamllint "braces" findings in the
-# chart's values.yaml (a chart issue, not a Helm-major difference). Helm 4 is the current line (and what the owner's
+# `ct lint` (before the values files were reformatted) exited 1 on both with byte-identical output, because of
+# yamllint "braces" findings in the chart's values.yaml (a chart issue, not a Helm-major difference); it passes now. Helm 4 is the current line (and what the owner's
 # machine runs), so the template targets it; helm3 stays installed to prove the chart still renders
 # on 3.x. The helm3 pin only has to render the chart.
 helm3	3.22.1	linux-amd64	https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz	896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea
