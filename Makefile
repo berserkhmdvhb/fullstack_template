@@ -5,7 +5,7 @@
     openapi-gen openapi-drift-check env-docs env-docs-check \
     shellcheck tools tools-dry-run pins-refresh \
     check-all check-all-dry precommit \
-    test test-unit test-integration test-e2e test-live test-file test-file-function test-fast \
+    test test-unit test-integration test-e2e test-contract test-live test-file test-file-function test-fast \
     test-coverage test-coverage-xml test-cov-html test-coverage-rep test-coverage-file \
     check-updates check-toml \
     clean clean-build clean-logs clean-cache clean-coverage clean-pyc clean-all \
@@ -82,6 +82,7 @@ help::
 	@echo "  test-unit                Run only unit tests using Pytest"
 	@echo "  test-integration         Run integration tests using Pytest"
 	@echo "  test-e2e                 Run end-to-end tests using Pytest (-m e2e)"
+	@echo "  test-contract            Run the Schemathesis contract tests (-m contract)"
 	@echo "  test-live                Run live backend smoke tests (-m live)"
 	@echo "  test-file                Run a single test file or keyword with FILE=..."
 	@echo "  test-file-function       Run a specific test function with FILE=... FUNC=..."
@@ -326,6 +327,11 @@ test-integration:
 
 test-e2e:
 	$(PYTHON) -m pytest tests/ -m e2e -o addopts="" -v --junitxml=test-results/junit-e2e.xml
+
+# Schemathesis property tests from the OpenAPI document, in process. Not part of `test`: they use the
+# database selected by TEST_DATABASE_URL (PostgreSQL in CI; see wiki/testing.md).
+test-contract:
+	$(PYTHON) -m pytest tests/contract -m contract -o addopts="" -v --junitxml=test-results/junit-contract.xml
 
 test-live:
 	$(PYTHON) -m pytest tests/ -m live -o addopts="" -v

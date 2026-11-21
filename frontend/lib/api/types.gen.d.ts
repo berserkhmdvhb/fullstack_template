@@ -1496,6 +1496,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                    "text/plain": string;
                 };
             };
             /** @description Bad Request */

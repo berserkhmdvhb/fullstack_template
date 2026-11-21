@@ -66,3 +66,8 @@ def test_main_dump_writes_to_the_requested_output(tmp_path: Path) -> None:
     # The CLI writes the same key-sorted snapshot dump() does.
     schema = build_openapi_schema()
     assert json.loads(out.read_text(encoding="utf-8")) == schema
+
+
+def test_the_metrics_endpoint_documents_the_prometheus_text_format() -> None:
+    content = build_openapi_schema()["paths"]["/metrics"]["get"]["responses"]["200"]["content"]
+    assert "text/plain" in content

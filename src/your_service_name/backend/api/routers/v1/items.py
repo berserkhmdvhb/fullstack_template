@@ -34,6 +34,7 @@ from your_service_name.backend.schemas.item import (
     ItemListResponse,
     ItemResponse,
     ItemUpdate,
+    NoNulStr,
 )
 
 # ruff: noqa: TC001 — FastAPI needs ItemService at runtime to resolve Depends() annotations.
@@ -41,6 +42,9 @@ from your_service_name.backend.services.item_service import ItemService
 
 if TYPE_CHECKING:
     from your_service_name.backend.entities.item import ItemEntity
+
+# The largest offset PostgreSQL takes (bigint); a page beyond it is empty, not a database error.
+MAX_OFFSET = 2**63 - 1
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -52,7 +56,7 @@ router = APIRouter(prefix="/items", tags=["items"])
 )
 async def list_items(
     service: Annotated[ItemService, Depends(get_item_service)],
-    search: Annotated[str | None, Query(description="Filter by name/description.")] = None,
+    search: Annotated[NoNulStr | None, Query(description="Filter by name/description.")] = None,
     page: Annotated[int, Query(ge=1, description="Page number (1-indexed).")] = 1,
     page_size: Annotated[int, Query(ge=1, le=100, description="Items per page.")] = 50,
 ) -> ItemListResponse:
@@ -75,7 +79,7 @@ async def list_items(
     ItemListResponse
         Paginated list of items with metadata.
     """
-    offset = (page - 1) * page_size
+    offset = min((page - 1) * page_size, MAX_OFFSET)
     items, total = await service.list_items(search=search, offset=offset, limit=page_size)
     total_pages = (total + page_size - 1) // page_size if total > 0 else 0
     return ItemListResponse(

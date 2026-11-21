@@ -46,6 +46,7 @@ dev = [
   "pytest-asyncio",
   "pytest-cov",
   "pytest-watch",
+  "schemathesis>=4.33",
   "PyYAML>=6",
   "ruff",
   "psycopg2-binary",

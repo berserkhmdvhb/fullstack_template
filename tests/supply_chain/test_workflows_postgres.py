@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -16,7 +16,7 @@ POSTGRES_JOBS = ("integration", "e2e")
 
 
 def _jobs() -> dict[str, Any]:
-    return workflow("reusable-backend.yml")["jobs"]
+    return cast("dict[str, Any]", workflow("reusable-backend.yml")["jobs"])
 
 
 def _chart_image() -> str:
@@ -57,6 +57,11 @@ def test_tests_get_the_database_url_from_the_job_env() -> None:
         url = _jobs()[name]["env"]["TEST_DATABASE_URL"]
         assert url.startswith("postgresql+asyncpg://"), name
         assert "secrets." not in url, "the password is a CI-only literal"
+
+
+def test_the_contract_tests_run_in_the_integration_job() -> None:
+    runs = "\n".join(str(s.get("run", "")) for s in _jobs()["integration"]["steps"])
+    assert "make test-contract" in runs
 
 
 def test_no_expression_in_a_run_script() -> None:

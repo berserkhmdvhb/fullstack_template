@@ -355,3 +355,20 @@ async def test_item_timestamps_carry_an_explicit_utc_offset(
     for key in ("created_at", "updated_at"):
         stamp = datetime.fromisoformat(res.json()[key])
         assert stamp.utcoffset() == timedelta(0), key
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_list_items_with_a_nul_character_is_a_422(client: httpx.AsyncClient) -> None:
+    """PostgreSQL cannot hold NUL; the search is refused up front (found by the contract tests)."""
+    res = await client.get(f"{ITEMS_PATH}?search=a%00b")
+    assert res.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_list_items_far_past_the_last_page_is_empty(client: httpx.AsyncClient) -> None:
+    """An offset beyond bigint is an empty page, not a database error."""
+    res = await client.get(f"{ITEMS_PATH}?page=99999999999999999999")
+    assert res.status_code == status.HTTP_200_OK
+    assert res.json()["items"] == []

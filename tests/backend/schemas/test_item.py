@@ -12,6 +12,7 @@ Covers:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import pytest
@@ -277,3 +278,18 @@ class TestItemListResponse:
                 total_pages=0,
                 extra_field="value",
             )
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: ItemCreate(name="a\x00b"),
+        lambda: ItemCreate(name="ok", description="a\x00"),
+        lambda: ItemUpdate(name="\x00"),
+        lambda: ItemUpdate(description="\x00"),
+    ],
+)
+def test_item_text_with_a_nul_character_is_refused(build: Callable[[], object]) -> None:
+    """PostgreSQL cannot store NUL; the schema refuses it (a 422), the database never sees it."""
+    with pytest.raises(ValidationError):
+        build()

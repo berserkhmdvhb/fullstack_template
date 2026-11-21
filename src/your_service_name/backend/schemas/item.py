@@ -25,8 +25,23 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+
+def reject_nul(value: str) -> str:
+    """Refuse a NUL character: PostgreSQL text cannot hold one, so it would be a 500, not a 422.
+
+    A validator rather than a ``pattern``: the published OpenAPI document does not change.
+    """
+    if "\x00" in value:
+        msg = "must not contain a NUL character"
+        raise ValueError(msg)
+    return value
+
+
+NoNulStr = Annotated[str, AfterValidator(reject_nul)]
 
 
 class ItemCreate(BaseModel):
@@ -48,8 +63,8 @@ class ItemCreate(BaseModel):
     {'name': 'Test', 'description': '', 'is_active': True}
     """
 
-    name: str = Field(..., min_length=1, max_length=255, description="Item name.")
-    description: str = Field(default="", description="Item description.")
+    name: NoNulStr = Field(..., min_length=1, max_length=255, description="Item name.")
+    description: NoNulStr = Field(default="", description="Item description.")
     is_active: bool = Field(default=True, description="Whether the item is active.")
 
     model_config = {
@@ -76,8 +91,10 @@ class ItemUpdate(BaseModel):
     {'name': 'Updated', 'description': None, 'is_active': None}
     """
 
-    name: str | None = Field(default=None, min_length=1, max_length=255, description="Item name.")
-    description: str | None = Field(default=None, description="Item description.")
+    name: NoNulStr | None = Field(
+        default=None, min_length=1, max_length=255, description="Item name."
+    )
+    description: NoNulStr | None = Field(default=None, description="Item description.")
     is_active: bool | None = Field(default=None, description="Whether the item is active.")
 
     model_config = {
