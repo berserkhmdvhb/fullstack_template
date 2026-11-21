@@ -96,7 +96,7 @@ kubectl -n your-service-name-<environment> rollout status deployment/your-servic
 ### Database Migrations
 
 Migrations run automatically as a Kubernetes Job on each deployment: one Job per release revision,
-named `<release>-your-service-name-migrate-r<revision>`, kept 24 hours. Design and rules (never a hook,
+named by the chart's `chart.migrationJobName` helper (`<fullname>-migrate-r<revision>`), kept for 24 hours, including after a failed deploy's automatic rollback (`helm.sh/resource-policy: keep`), so its logs survive. Design and rules (never a hook,
 expand/contract, a database ahead of the code is ready): [Database operations](./database.md#database-operations).
 
 ```bash
@@ -106,10 +106,23 @@ kubectl -n your-service-name-<environment> get jobs -l app.kubernetes.io/compone
 # View migration logs
 kubectl -n your-service-name-<environment> logs job/<migration-job-name>
 
-# Re-run the migration if needed (a new Job from the newest one)
-kubectl -n your-service-name-<environment> create job your-service-name-migrate-manual \
-  --from=job/<migration-job-name>
+# See why the newest one failed (a failed Job and its Pods are kept)
+kubectl -n your-service-name-<environment> describe job <migration-job-name>
 ```
+
+To re-run a failed migration, **deploy again**: each `helm upgrade` creates a new revision and so a new Job
+(`kubectl create job --from=` accepts only a CronJob, see the
+[kubectl reference](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_create/kubectl_create_job/)).
+Or, for the same revision, delete the failed Job and re-apply that revision's stored Job
+(`<revision>` is the number in the Job's name; `-l` keeps only the migration Job from the manifest):
+
+```bash
+kubectl -n your-service-name-<environment> delete job <migration-job-name>
+helm get manifest <release> -n your-service-name-<environment> --revision <revision> \
+  | kubectl -n your-service-name-<environment> apply -l app.kubernetes.io/component=migration -f -
+```
+
+
 
 A Pod that stays unready with `reason: schema_behind` or `schema_missing` is waiting for that Job.
 
@@ -451,8 +464,7 @@ kubectl -n your-service-name-db exec <postgres-pod> -- \
 kubectl -n your-service-name-<environment> scale deployment/your-service-name-backend --replicas=2
 
 # 4. Run migrations (if needed)
-kubectl -n your-service-name-<environment> create job your-service-name-migrate-restore \
-  --from=job/<migration-job-name>
+kubectl -n your-service-name-<environment> create job ... # see Database Migrations above: re-deploy, or re-apply the rendered Job
 ```
 
 ### Velero Cluster Backup

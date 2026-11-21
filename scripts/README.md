@@ -120,7 +120,7 @@ chart's values file (`values.<env>.yaml`). Explicit `--namespace` / `--tag` stil
 Lifecycle for a whole environment — one command instead of a runbook's worth of
 `kubectl`. `apply` runs `helm upgrade --install` against `charts/your-service-name`
 with `values.<env>.yaml`, creates both namespaces (`--create-namespace`), lets the
-`post-install` migration hook run, then waits for every service to be Ready.
+a per-revision migration Job (not a hook) start, then waits for every service to be Ready.
 `delete` uninstalls the release; `status` / `wait` inspect or block on readiness.
 
 ```bash
@@ -133,8 +133,8 @@ with `values.<env>.yaml`, creates both namespaces (`--create-namespace`), lets t
 ```
 
 > Secrets and the migration are **owned by the chart** — `apply` injects nothing by hand.
-> App + db-credentials secrets render from `values.<env>.yaml`; the migration runs as a
-> `post-install,post-upgrade` hook that re-runs on every upgrade and auto-deletes on success.
+> App + db-credentials secrets render from `values.<env>.yaml`; every release
+> revision creates its own migration Job (`<fullname>-migrate-r<revision>`, kept 24 hours, not a Helm hook).
 
 ### `e2e.sh`
 The **"did the whole thing actually come up correctly?"** gate — one command that
@@ -143,7 +143,7 @@ a dozen `kubectl` diagnostics. It answers what `k8s-env.sh apply` (only waits fo
 Ready) and `smoke-test.sh` (only checks the HTTP surface) leave open:
 
 - Is Postgres actually **Running** (not crash-looping)?
-- Did the migration **complete** (release `deployed` — the post-install hook succeeded)?
+- Did the migration **complete** (the newest migration Job of the release reaches `Complete`; `Failed` fails the gate)?
 - Is the backend on **real Postgres**, not the SQLite fallback?
 - Are replicas / HPA / ResourceQuota consistent (no stuck rollout)?
 - Do the live objects still match what the **chart** renders?
@@ -166,7 +166,7 @@ command exits non-zero if anything FAILs, so it doubles as a CI gate.
 2. **Secrets render from the values file** — the app Secret and the `…-db-credentials` secret come from
    `values.<env>.yaml` (dev/local defaults match the bundled Postgres init creds; `qa`/`production` leave
    them empty for a managed DB + sealed/ESO/SOPS). Nothing is injected by hand, nothing committed.
-3. The migration runs as a `post-install,post-upgrade` hook (re-runs every upgrade, auto-deletes on success).
+3. Every release revision creates its own migration Job (not a Helm hook); `verify` waits for the newest one.
 4. Runs the `verify` sweep and prints a verdict summary.
 
 `render` is client-side (no cluster needed) — it asserts the **rendered chart** contains the StatefulSet,

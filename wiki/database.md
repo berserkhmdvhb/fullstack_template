@@ -234,7 +234,7 @@ and succeeds. Do not rename or drop a column in the same release that stops usin
 
 ### Readiness and liveness
 
-`GET /api/v1/health` (readiness, and the startup probe) is read-only and answers:
+`GET /api/v1/health` (the **readiness** probe) is read-only and answers:
 
 | Outcome | Status | Body |
 |---------|--------|------|
@@ -244,8 +244,9 @@ and succeeds. Do not rename or drop a column in the same release that stops usin
 | revision is a known older one | 503 | `{"status": "degraded", "reason": "schema_behind"}` |
 
 The code's expected head is read once at startup from the bundled scripts. The body never names a revision,
-URL or error. `GET /api/v1/healthz` (liveness) is process-only: no database, no schema check, so Pods are
-not restarted while a migration runs.
+URL or error. `GET /api/v1/healthz` is process-only: no database, no schema check. The chart uses it for the **liveness
+and startup** probes, so a Pod is never restarted while it waits for a migration (the Job may outlast any
+startup budget); only readiness gates on the schema.
 
 ### Timeouts and pool sizing
 
@@ -271,16 +272,53 @@ Size the pool from that budget, not from one Pod.
 | `verify-full` | verifies the chain and the hostname |
 
 The verify modes trust the file in `DB_SSLROOTCERT` alone when it is set, and the image's system trust
-store otherwise. **Production refuses `disable` and `require` unless the database host is loopback.**
-The chart's production values set `verify-full`.
+store otherwise. `ssl` or `sslmode` in the `DATABASE_URL` query is refused (it would conflict with
+`DB_SSLMODE`). **Production refuses `disable` and `require` unless every host the URL names is loopback or a
+unix socket**: a URL with no host at all (or only `PGHOST` to fall back on) is refused too, because
+Settings cannot see what would be used. The chart's production values set `verify-full`.
 
-**Cloud SQL with the Auth Proxy** (text only; placeholders): run the Cloud SQL Auth Proxy as a sidecar
-listening on `127.0.0.1:<port>` for `<project>:<region>:<instance>`, set the database host to `127.0.0.1`
-and `DB_SSLMODE=disable` (the proxy encrypts the hop itself and a loopback host is allowed in production). With
-IAM database authentication, start the proxy with automatic IAM authentication, run the Pod under a
-Kubernetes service account bound to a Google service account that has the Cloud SQL Instance User role, and
-use the database user `<service-account>@<project>.iam` with no password. Without the proxy, connect to the
-instance's private address with `verify-full` and the instance CA in `DB_SSLROOTCERT`.
+**A managed database's CA.** Its CA is usually not in the image's trust store and the chart's root
+filesystem is read-only. Name an existing Secret holding the CA certificate:
+
+```yaml
+database:
+  tls:
+    caSecret: {name: <ca-secret>, key: <key-in-the-secret>}
+```
+
+The chart mounts it read-only at `/etc/db-ca/ca.pem` in the backend Deployment **and** the migration Job and
+sets `DB_SSLROOTCERT` to that path. It is empty in the production values on purpose: a missing CA fails
+loudly at the first connection.
+
+**Cloud SQL, direct connection.** With a per-instance server CA, verifying the CA verifies the server's
+identity, and the certificate does not carry a private IP, so use `verify-ca` with the instance CA in
+`database.tls.caSecret` (`verify-full` fits a shared CA or a DNS name in the certificate); see Google's
+[SSL/TLS certificates page](https://cloud.google.com/sql/docs/postgres/configure-ssl-instance).
+
+**Cloud SQL with the Auth Proxy** (text only; placeholders). The proxy encrypts the hop itself, so set the
+database host to `127.0.0.1` and `DB_SSLMODE=disable` (a loopback host is allowed in production). The proxy
+must be running before the migration's `wait-for-db` init container checks the database, and it must not stop
+the Job from completing, so run it as a **native sidecar**: an init container with `restartPolicy: Always`
+(on by default since Kubernetes 1.29, stable in 1.33; see the Kubernetes
+[sidecar containers](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/) page, which also
+covers Jobs). `backend.extraInitContainers` renders such containers first, before `wait-for-db`, in both the
+backend Deployment and the migration Job:
+
+```yaml
+backend:
+  extraInitContainers:
+    - name: cloud-sql-proxy
+      image: gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:<digest>   # pin by digest; current images: Google's Auth Proxy page
+      args: ["--port=5432", "<project>:<region>:<instance>"]
+      restartPolicy: Always
+      securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: ["ALL"]}}
+```
+
+The chart does not ship the proxy image; take a current one from Google's
+[Cloud SQL Auth Proxy page](https://cloud.google.com/sql/docs/postgres/connect-auth-proxy). With IAM database
+authentication, add `--auto-iam-authn`, run the Pod under a Kubernetes service account bound to a Google
+service account with the Cloud SQL Instance User role, and use the database user `<service-account>@<project>.iam`
+with no password.
 
 ---
 

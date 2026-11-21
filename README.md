@@ -117,7 +117,7 @@ minikube start
 make compose-build-backend compose-build-frontend compose-build-nginx
 
 # Deploy + verify the whole stack in one command
-# (reads charts/your-service-name/values.local.yaml; migration runs as a post-install hook)
+# (reads charts/your-service-name/values.local.yaml; a per-revision migration Job runs the migration)
 ./scripts/e2e.sh --env local
 
 # Access the service (self-cleaning port-forwards to backend/frontend/nginx)
@@ -209,7 +209,7 @@ Defined in `.github/workflows/`; the full map is in [`wiki/ci-cd.md`](wiki/ci-cd
 
 *   **ci** → backend (`ruff`, `mypy`, unit on Python 3.12 and 3.13, integration, e2e), frontend (`eslint`, `prettier`, `tsc`, build, Vitest, Playwright config), chart lint, live suites, security scans, workflow hardening; the required check is **`CI OK`**
 *   **release** (`main` and `v*` tags only) → **buildx** build & push, immutable digest check, SBOM, Grype (blocking), licence check, OpenVEX; then keyless signing and SLSA provenance attestations, by digest
-*   **deploy** → Helm `upgrade --install` by digest + migration hook + verify + smoke test, with a rollback to the recorded revision; `deploy-ops` rolls back by hand
+*   **deploy** → Helm `upgrade --install` by digest (`--wait-for-jobs`, so a failed migration Job fails the release) + verify + smoke test, with a rollback to the recorded revision; `deploy-ops` rolls back by hand
 *   **security** → CodeQL, gitleaks, dependency review, `pip-audit`, OSV-Scanner, GuardDog, Checkov, Kubescape, and a ZAP baseline (`dast`)
 
 > **Build method**: CI builds with `docker/build-push-action` (buildx) on GitHub-hosted runners, with no Docker-in-Docker and a GitHub Actions layer cache.
