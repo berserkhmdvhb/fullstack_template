@@ -3,7 +3,7 @@
     export-requirements check-requirements-sync \
     ruff-format ruff-format-check ruff-lint ruff-lint-fix mypy-check \
     openapi-gen openapi-drift-check env-docs env-docs-check \
-    shellcheck image-checks tools tools-dry-run pins-refresh \
+    shellcheck image-checks frontend-deployment-id tools tools-dry-run pins-refresh \
     check-all check-all-dry precommit \
     test test-unit test-integration test-e2e test-contract test-live test-file test-file-function test-fast \
     test-coverage test-coverage-xml test-cov-html test-coverage-rep test-coverage-file \
@@ -66,6 +66,7 @@ help::
 	@echo "  mypy-check               Run MyPy static type checker"
 	@echo "  shellcheck               Lint all tracked shell scripts (*.sh + *.bats) with ShellCheck"
 	@echo "  image-checks             Build the images (throwaway tags) and run the CI structure checks (IDS=...)"
+	@echo "  frontend-deployment-id   Build the frontend image and check the page carries the deployment id"
 	@echo "  check-all                Run dev tool drift check + format + lint + mypy"
 	@echo "  check-all-dry            Same as above but without auto-format (format-check)"
 	@echo "  precommit                Run every pre-commit hook on all files (pinned pre-commit, no network)"
@@ -239,6 +240,11 @@ SHELLCHECK ?= shellcheck
 # then remove them. IDS="backend frontend" limits it. Needs docker, jq and the project venv.
 image-checks:
 	bash scripts/ci/image-checks-local.sh $(IDS)
+
+# Build the frontend image with a dotted VERSION and a commit, run it, and check the page carries the sanitised
+# deployment id. Throwaway tag and container, removed by exact name. Needs docker and curl.
+frontend-deployment-id:
+	bash scripts/ci/frontend-deployment-id-check.sh
 
 shellcheck:
 	@command -v "$(SHELLCHECK)" >/dev/null 2>&1 || { echo "shellcheck not found on PATH — install it (e.g. 'apk add shellcheck', 'brew install shellcheck', or the VS Code extension) to run this gate locally." >&2; exit 1; }

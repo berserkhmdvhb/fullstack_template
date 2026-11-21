@@ -32,13 +32,13 @@ COPY frontend/ ./
 # below, which skips npm lifecycle hooks — so run the generator explicitly to keep
 # the image from shipping stale generated types after an openapi.json change.
 #
-# The image's version becomes Next's deploymentId (version-skew protection during a rollout). Next
-# accepts letters, digits, - and _ only, so anything else in the version (dots, +) becomes _. With no
-# VERSION it is empty and the deployment id stays unset.
+# The deploymentId (Next.js version-skew protection during a rollout) is the image's version plus the
+# first 12 characters of its commit, sanitised to what Next.js accepts (scripts/deployment-id.mjs): the
+# version alone repeats on every main build. With neither it is empty and the id stays unset.
 ARG VERSION
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ARG VCS_REF
 RUN npm run openapi-gen \
- && NEXT_DEPLOYMENT_ID="$(printf '%s' "${VERSION}" | tr -c 'A-Za-z0-9_-' '_')" npx next build
+ && NEXT_DEPLOYMENT_ID="$(node scripts/deployment-id.mjs "${VERSION}" "${VCS_REF}")" npx next build
 
 # Verify standalone output
 RUN test -f .next/standalone/server.js \

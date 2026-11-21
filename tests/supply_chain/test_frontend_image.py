@@ -26,12 +26,14 @@ def test_the_builder_node_is_the_pinned_node_version() -> None:
     assert match.group(1) == _pinned_node_version()
 
 
-def test_the_build_passes_the_image_version_to_next_as_the_deployment_id() -> None:
-    """Next.js accepts letters, digits, - and _ only, so the version is sanitised on the way in."""
+def test_the_build_derives_the_deployment_id_from_the_version_and_the_commit() -> None:
+    """One id per build: the version alone repeats on every main build (scripts/deployment-id.mjs)."""
     builder = DOCKERFILE.split("AS runtime")[0]
-    assert re.search(r"^ARG VERSION$", builder, re.MULTILINE), "the builder needs the VERSION arg"
+    assert re.search(r"^ARG VERSION$", builder, re.MULTILINE)
+    assert re.search(r"^ARG VCS_REF$", builder, re.MULTILINE)
     assert re.search(
-        r"NEXT_DEPLOYMENT_ID=\"\$\(.*VERSION.*tr -c 'A-Za-z0-9_-' '_'.*\)\" npx next build$",
+        r"NEXT_DEPLOYMENT_ID=\"\$\(node scripts/deployment-id\.mjs \"\$\{VERSION\}\" \"\$\{VCS_REF\}\"\)\""
+        r" npx next build$",
         builder,
         re.MULTILINE,
     )
