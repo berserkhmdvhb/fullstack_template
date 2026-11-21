@@ -122,6 +122,9 @@ html.light {
 
   --color-accent-blue: #2563eb;
   --color-accent-blue-hover: #1d4ed8;
+  /* White label on this fill: 5.2:1 (4.5:1 needed). The dark accent is lighter, so the button keeps this one. */
+  --color-button-primary: #2563eb;
+  --color-button-primary-hover: #1d4ed8;
   --color-accent-purple: #8b5cf6;
   --color-accent-green: #22c55e;
   --color-accent-orange: #f97316;
@@ -384,7 +387,7 @@ html.dark .table-row-hover:hover {
   }
 
   .btn-primary {
-    background: var(--color-accent-blue);
+    background: var(--color-button-primary);
     color: #ffffff;
     transition:
       background-color 0.15s,
@@ -392,7 +395,7 @@ html.dark .table-row-hover:hover {
   }
 
   .btn-primary:hover {
-    background: var(--color-accent-blue-hover);
+    background: var(--color-button-primary-hover);
   }
 
   .btn-primary:disabled {

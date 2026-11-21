@@ -48,57 +48,64 @@ export function GlobalHeader(): JSX.Element {
 
   return (
     <header className="border-b border-borderStrong bg-surfaceStrong/90 backdrop-blur-md">
-      <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
+      {/* Phone: the name and the theme toggle share the first row; the links take the second. */}
+      <nav
+        aria-label="Main"
+        className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-1 gap-y-1 px-4 py-2 sm:px-6 sm:py-3"
+      >
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2.5">
+        <Link
+          href="/"
+          className="mr-auto flex min-h-9 items-center gap-2.5 whitespace-nowrap rounded-md"
+        >
           <span className="text-base font-semibold text-textPrimary tracking-tight">
             Your Service Name
           </span>
         </Link>
 
-        {/* Nav + Theme */}
-        <div className="flex items-center gap-1">
-          {/* Nav links */}
-          <div className="flex items-center gap-1">
-            {NAV_LINKS.map((link) => {
-              const isActive =
-                link.href === '/' ? pathname === '/' : pathname.startsWith(link.href);
-              const Icon = link.icon;
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`group flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-surfaceWeak text-textPrimary'
-                      : 'text-textSecondary hover:bg-surfaceWeak hover:text-textPrimary'
-                  }`}
-                  aria-current={isActive ? 'page' : undefined}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{link.label}</span>
-                  {isActive && (
-                    <span className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full bg-accentBlue" />
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-
-          {/* Separator */}
-          <div className="mx-2 h-5 w-px bg-borderStrong" />
-
-          {/* Theme toggle */}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="rounded-md p-2 text-textSecondary hover:bg-surfaceWeak hover:text-textPrimary transition-colors"
-            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-          >
-            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </button>
+        {/* Nav links */}
+        <div className="order-last flex w-full items-center gap-1 sm:order-none sm:w-auto">
+          {NAV_LINKS.map((link) => {
+            const isActive = link.href === '/' ? pathname === '/' : pathname.startsWith(link.href);
+            const Icon = link.icon;
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`group flex min-h-9 items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'bg-surfaceWeak text-textPrimary'
+                    : 'text-textSecondary hover:bg-surfaceWeak hover:text-textPrimary'
+                }`}
+                aria-current={isActive ? 'page' : undefined}
+              >
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                <span>{link.label}</span>
+                {isActive && (
+                  <span className="absolute -bottom-px left-0 right-0 h-0.5 rounded-full bg-accentBlue" />
+                )}
+              </Link>
+            );
+          })}
         </div>
+
+        {/* Separator (desktop only) */}
+        <div className="mx-2 hidden h-5 w-px bg-borderStrong sm:block" aria-hidden="true" />
+
+        {/* Theme toggle */}
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="flex h-9 w-9 items-center justify-center rounded-md text-textSecondary hover:bg-surfaceWeak hover:text-textPrimary transition-colors"
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+        >
+          {theme === 'dark' ? (
+            <Sun className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <Moon className="h-4 w-4" aria-hidden="true" />
+          )}
+        </button>
       </nav>
     </header>
   );
