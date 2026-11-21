@@ -28,6 +28,7 @@ jobs:
   # One leg per image: build and push, then verify the pushed digest.
   build:
     name: Build and push (${{ matrix.id }})
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -99,6 +100,7 @@ jobs:
   sbom:
     name: SBOM (${{ matrix.id }})
     needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -143,6 +145,7 @@ jobs:
   grype:
     name: Grype (${{ matrix.id }})
     needs: sbom
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -211,6 +214,7 @@ jobs:
   sign-attest:
     name: Sign and attest (${{ matrix.id }})
     needs: [build, sbom, grype]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

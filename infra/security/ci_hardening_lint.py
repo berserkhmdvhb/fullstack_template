@@ -352,10 +352,19 @@ def _isolation(doc: Doc, line: int, message: str) -> Finding:
     return Finding(doc.name, line, "image-push-isolation", message)
 
 
+def _triggers(doc: Doc) -> list[str]:
+    on = doc.data.get("on")
+    return [str(n) for n in on] if isinstance(on, (LDict, LList)) else [str(on)]
+
+
 def _caller_isolation(doc: Doc, job_id: str, job: LDict, perms: Any) -> list[Finding]:
     """A job that calls a workflow: what it may grant to that callee."""
     callee = str(job.get("uses", "")).strip()
     found: list[Finding] = []
+    pr = [n for n in _triggers(doc) if n.startswith("pull_request")]
+    if callee == _REUSABLE_REF and pr:
+        msg = f"job {job_id} calls reusable-build.yml from a {pr[0]} workflow; push only"
+        found.append(_isolation(doc, job.line, msg))
     if callee != _REUSABLE_REF:
         found += [
             _isolation(doc, job.line, f"job {job_id} grants {scope}: write to {callee}")

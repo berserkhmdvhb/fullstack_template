@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import re
-from typing import Any, cast
+import shutil
+import subprocess
+from typing import TYPE_CHECKING, Any, cast
+
+import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from tests.supply_chain._workflows import ARTIFACT_RETENTION_DAYS, steps_of, workflow
 
+BASH: str = shutil.which("bash") or "/usr/bin/bash"
 MIN_UPLOAD_STEPS = 3  # digests, grant and vex
 
 
@@ -165,3 +174,83 @@ def test_release_assets_upload_the_sbom_vex_and_licence_report() -> None:
     text = _runs(job)
     for needle in ("cdx.json", "openvex.json", "license.grant.json", "licence-summary.json"):
         assert needle in text, needle
+
+
+def test_vex_waits_for_the_gate_through_success_not_a_status_override() -> None:
+    assert "if" not in _jobs()["vex"]  # needs digests and images, both of which must succeed
+
+
+GH_STUB = """#!/usr/bin/env bash
+if [[ "$1" == api ]]; then cat "$RELEASES_JSON"; exit 0; fi
+echo "gh $*" >> "$CALLS"
+"""
+
+
+def _run_upload(tmp_path: Path, releases: list[dict[str, Any]]) -> tuple[int, str, str]:
+    step = next(s for s in _assets()["steps"] if s.get("name") == "Upload to the draft release")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    gh = bin_dir / "gh"
+    gh.write_text(GH_STUB)
+    gh.chmod(0o755)
+    (tmp_path / "release-assets").mkdir()
+    (tmp_path / "release-assets" / "a.json").write_text("{}")
+    (tmp_path / "releases.json").write_text(json.dumps(releases))
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "RELEASES_JSON": str(tmp_path / "releases.json"),
+        "CALLS": str(tmp_path / "calls"),
+        "GH_REPO": "o/r",
+        "TAG": "v1.0.0",
+        "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
+    }
+    done = subprocess.run(
+        [BASH, "-e", "-c", step["run"]],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    calls = (tmp_path / "calls").read_text() if (tmp_path / "calls").exists() else ""
+    return done.returncode, done.stdout, calls
+
+
+def _rel(tag: str, *, draft: bool) -> dict[str, Any]:
+    return {"tag_name": tag, "draft": draft}
+
+
+def test_upload_creates_a_draft_when_there_is_no_release_for_the_tag(tmp_path: Path) -> None:
+    code, _, calls = _run_upload(tmp_path, [_rel("v0.9.0", draft=False)])
+    assert code == 0
+    assert "gh release create v1.0.0 --draft --verify-tag" in calls
+    assert "gh release upload v1.0.0" in calls
+
+
+def test_upload_extends_the_single_draft_without_creating_another(tmp_path: Path) -> None:
+    code, _, calls = _run_upload(tmp_path, [_rel("v1.0.0", draft=True)])
+    assert code == 0
+    assert "gh release create" not in calls
+    assert "gh release upload v1.0.0" in calls
+
+
+@pytest.mark.parametrize(
+    "releases",
+    [
+        [_rel("v1.0.0", draft=False)],
+        [
+            _rel("v1.0.0", draft=True),
+            _rel("v1.0.0", draft=False),
+        ],  # a draft next to a published one
+        [_rel("v1.0.0", draft=False), _rel("v1.0.0", draft=True)],
+        [_rel("v1.0.0", draft=True), _rel("v1.0.0", draft=True)],  # two drafts: ambiguous
+    ],
+)
+def test_upload_refuses_a_published_or_ambiguous_release(
+    tmp_path: Path, releases: list[dict[str, Any]]
+) -> None:
+    code, out, calls = _run_upload(tmp_path, releases)
+    assert code != 0
+    assert "::error::" in out
+    assert "gh release upload" not in calls
+    assert "gh release create" not in calls

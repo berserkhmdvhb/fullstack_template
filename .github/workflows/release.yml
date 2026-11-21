@@ -157,7 +157,6 @@ jobs:
   vex:
     name: VEX (advisory)
     needs: [digests, images]
-    if: ${{ !cancelled() && needs.digests.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -237,12 +236,19 @@ jobs:
           cp assets/grant/summary.json release-assets/licence-summary.json
       - name: Upload to the draft release
         run: |
-          state="$(gh api "repos/${GH_REPO}/releases" --paginate | jq -r --arg tag "${TAG}" '.[] | select(.tag_name == $tag) | .draft')"
-          if [[ "${state}" == "false" ]]; then
+          # Several releases can share a tag (drafts can), so select them all and decide on the set.
+          releases="$(gh api "repos/${GH_REPO}/releases" --paginate | jq -s -c --arg tag "${TAG}" '[.[][] | select(.tag_name == $tag)]')"
+          published="$(jq '[.[] | select(.draft | not)] | length' <<<"${releases}")"
+          drafts="$(jq '[.[] | select(.draft)] | length' <<<"${releases}")"
+          if (( published > 0 )); then
             echo "::error::release ${TAG} is already published; assets can no longer be added to it"
             exit 1
           fi
-          if [[ -z "${state}" ]]; then
+          if (( drafts > 1 )); then
+            echo "::error::${drafts} draft releases share the tag ${TAG}; delete the extra ones and re-run"
+            exit 1
+          fi
+          if (( drafts == 0 )); then
             gh release create "${TAG}" --draft --verify-tag --title "${TAG}" --notes "Draft: assets attached by the release workflow."
           fi
           gh release upload "${TAG}" release-assets/* --clobber

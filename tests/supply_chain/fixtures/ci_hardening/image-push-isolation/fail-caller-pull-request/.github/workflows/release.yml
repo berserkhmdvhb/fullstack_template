@@ -1,0 +1,11 @@
+name: T
+on: [push, pull_request]
+permissions: {}
+jobs:
+  images:
+    permissions:
+      contents: read
+      packages: write  # push the images
+      id-token: write  # keyless signing
+      attestations: write  # store the attestations
+    uses: ./.github/workflows/reusable-build.yml

@@ -290,3 +290,14 @@ def test_skipped_attestations_warn_and_say_how_to_enable_them() -> None:
     assert "::warning::" in note["run"]
     assert "GITHUB_STEP_SUMMARY" in note["run"]
     assert "${{" not in note["run"]
+
+
+PUSH_GUARD = (
+    "github.event_name == 'push' && "
+    "(github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))"
+)
+
+
+def test_every_job_refuses_to_run_outside_a_push_to_main_or_a_v_tag() -> None:
+    for name, job in _jobs().items():
+        assert _expr({"if": job["if"]}) == PUSH_GUARD, name
