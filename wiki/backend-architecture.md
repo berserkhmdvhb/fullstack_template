@@ -439,3 +439,19 @@ sequenceDiagram
     S-->>R: Paginated JSON
     R-->>C: 200 OK
 ```
+
+---
+
+## Interactive docs (Swagger UI)
+
+`GET <API_DOCS_URL>` (default `/docs`; off in production unless `ALLOW_PRODUCTION_DOCS=true`) is the
+backend's own page, not FastAPI's built-in one: the built-in page inlines its init script, which a
+strict `script-src` blocks. The page (`api/docs_page.py`, routes in `api/routers/docs.py`) loads
+Swagger UI's CSS and bundle from jsDelivr at one exact `swagger-ui-dist` version, each with an
+`integrity="sha384-..."` hash and `crossorigin="anonymous"`, and its init script from
+`<API_DOCS_URL>/init.js`. The favicon is the app's `/favicon.ico`. There is no OAuth2 redirect route.
+
+**Updating Swagger UI.** Run `scripts/swagger-ui-sri.sh <new version>` and paste the version and the two
+hashes into `api/docs_page.py`. A version bump without new hashes makes the browser refuse the files, and
+the `/docs` Playwright test (`frontend/e2e/csp.spec.ts`) fails. There is deliberately no Renovate rule
+for it.

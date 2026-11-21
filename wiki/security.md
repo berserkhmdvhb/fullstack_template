@@ -119,13 +119,14 @@ server-side by `proxy.ts`) — no broad `https:` that would permit
 exfiltration to any endpoint. The frontend also serves a per-request nonce on
 `script-src` (see `proxy.ts`), so any *inline* script would be blocked.
 
-Interactive docs (`/docs`) are the one deliberate, tightly-scoped exception.
-FastAPI's built-in Swagger page loads Swagger UI from the jsDelivr CDN and inlines
-its init script, so `/docs` alone gets a relaxed CSP that admits that CDN origin and
-inline scripts/styles — **scoped to that single path**, so every other page keeps the
-strict nonce-only policy. `/docs` can be disabled with `API_DOCS_URL=` (empty). The
-machine-readable schema at `/openapi.json` is unaffected by that and stays available for
-non-browser consumers regardless of the interactive page. With `ENV=production` both are
+Interactive docs (`/docs`) are the one page that loads a third-party origin, and it is still strict:
+the backend serves its own Swagger UI page with **no inline script**. Swagger UI's CSS and bundle come
+from jsDelivr at one exact version, each pinned by a Subresource Integrity hash, and the init script is
+the backend's own `/docs/init.js`. So `/docs` alone adds only `https://cdn.jsdelivr.net` to `script-src`
+and `style-src`, with no `'unsafe-inline'` anywhere; every other page keeps the nonce-only policy.
+`/docs` can be disabled with `API_DOCS_URL=` (empty). The machine-readable schema at `/openapi.json` is
+unaffected by that and stays available for non-browser consumers regardless of the interactive page.
+With `ENV=production` both are
 off unless `ALLOW_PRODUCTION_DOCS=true` (see
 [Environment Variables](./environment-variables.md#backend-settings)).
 
