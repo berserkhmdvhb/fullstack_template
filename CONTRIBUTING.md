@@ -115,7 +115,7 @@ that owns it, don't reach past it ([`CONVENTIONS.md`](./CONVENTIONS.md#2-one-con
 
 Match the existing `frontend/` structure (components, `lib/api`, generated types).
 
-- `prettier` + `eslint` (`--max-warnings=0`) + `tsc --noEmit` all clean.
+- `prettier` + `eslint` (`--max-warnings=0`) + `npm run typecheck` (app and tests) all clean.
 - Regenerate API types after a backend change (`npm run openapi-gen`) so the client stays in sync.
 - Unit (Vitest) for logic; RTL+MSW for component behavior; Playwright for full-stack E2E.
 - Depth: [`wiki/frontend-architecture.md`](wiki/frontend-architecture.md).
