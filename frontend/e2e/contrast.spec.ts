@@ -31,6 +31,24 @@ test('flags text faded by CSS opacity on an ancestor', async ({ page: p }) => {
   expect((await lowContrastText(p)).map((i) => i.text)).toEqual(['faded']);
 });
 
+test('composites a faded ancestor with its own background', async ({ page: p }) => {
+  // The card fades to mid grey over the white page while its white text stays white: about 3.5:1. A check
+  // that faded only the text (leaving the card dark) would call this legible.
+  await p.setContent(
+    page('<div style="opacity:0.5;background:#111827"><p style="color:#fff">faded card</p></div>'),
+  );
+  expect((await lowContrastText(p)).map((i) => i.text)).toEqual(['faded card']);
+});
+
+test('passes white text on a half-faded dark card', async ({ page: p }) => {
+  await p.setContent(
+    page(
+      '<div style="opacity:0.9;background:#111827"><p style="color:#fff">still legible</p></div>',
+    ),
+  );
+  expect(await lowContrastText(p)).toEqual([]);
+});
+
 test('reports a background image as unresolved, not as a pass', async ({ page: p }) => {
   await p.setContent(
     page(
