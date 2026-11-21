@@ -13,7 +13,7 @@
 import { Home, List, BookOpen, Moon, Sun } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import React from 'react';
+import React, { type JSX } from 'react';
 
 import { API_BASE } from '@/lib/config';
 import { useTheme } from './theme-provider';

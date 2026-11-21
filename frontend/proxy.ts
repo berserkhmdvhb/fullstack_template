@@ -56,7 +56,7 @@ const cspReportingEnabled = () =>
  * own inline scripts — no `'unsafe-inline'`/`'unsafe-eval'` needed. The same
  * nonce is exposed to the root layout via `x-nonce` for `<html nonce>`.
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID());
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-nonce', nonce);

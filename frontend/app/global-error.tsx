@@ -8,9 +8,10 @@
  * @packageDocumentation
  */
 
-'use client';
-
+'use client';;
 import { ErrorBoundaryContent } from '@/app/(ui)/error-boundary-content';
+
+import type { JSX } from "react";
 
 type Props = {
   error: unknown;

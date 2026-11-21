@@ -11,7 +11,7 @@
 
 import { ClipboardList, BookOpen, HeartPulse, Code2, Zap, Database } from 'lucide-react';
 import Link from 'next/link';
-import React from 'react';
+import React, { type JSX } from 'react';
 
 import { useHealth } from '@/lib/hooks/useHealth';
 

@@ -29,7 +29,7 @@ import { GlobalProviders } from '@/app/(ui)/global-providers';
  * @public
  */
 export function renderWithProviders(
-  ui: ReactElement,
+  ui: ReactElement<any>,
   options?: Omit<RenderOptions, 'wrapper'>,
 ): ReturnType<typeof render> {
   /**

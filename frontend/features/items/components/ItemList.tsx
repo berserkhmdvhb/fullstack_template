@@ -11,7 +11,7 @@
 'use client';
 
 import { Trash2, Pencil, Search, ClipboardList } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, type JSX } from 'react';
 
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { mapApiError } from '@/lib/api/error-map';

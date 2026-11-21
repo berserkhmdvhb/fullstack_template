@@ -7,7 +7,7 @@
  * @packageDocumentation
  */
 
-import React from 'react';
+import React, { type JSX } from 'react';
 
 /**
  * Loading screen shown while initial page segments are being fetched.

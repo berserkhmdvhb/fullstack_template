@@ -10,6 +10,8 @@
 
 import Link from 'next/link';
 
+import type { JSX } from "react";
+
 /**
  * Custom 404 page (server component).
  *

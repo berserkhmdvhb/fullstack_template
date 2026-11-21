@@ -12,7 +12,7 @@
 
 'use client';
 
-import React from 'react';
+import React, { type JSX } from 'react';
 import { ErrorBoundaryContent } from '@/app/(ui)/error-boundary-content';
 
 type Props = {

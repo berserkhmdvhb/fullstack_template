@@ -14,7 +14,7 @@
 'use client';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import React, { useState, type PropsWithChildren } from 'react';
+import React, { useState, type PropsWithChildren, type JSX } from 'react';
 
 /**
  * Read an integer env var with a fallback default.

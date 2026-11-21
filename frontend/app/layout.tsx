@@ -12,7 +12,7 @@
  */
 
 import { headers } from 'next/headers';
-import type { ReactNode } from 'react';
+import type { ReactNode, JSX } from 'react';
 import '@/styles/globals.css';
 
 import { GlobalHeader } from './(ui)/global-header';

@@ -12,7 +12,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Pencil, Plus, X } from 'lucide-react';
-import React, { useEffect } from 'react';
+import React, { useEffect, type JSX } from 'react';
 import { useForm } from 'react-hook-form';
 
 import {

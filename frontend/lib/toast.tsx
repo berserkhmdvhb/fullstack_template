@@ -19,6 +19,7 @@ import React, {
   useRef,
   useState,
   type PropsWithChildren,
+  type JSX,
 } from 'react';
 
 type ToastType = 'success' | 'error' | 'info';

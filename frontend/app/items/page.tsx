@@ -10,7 +10,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, type JSX } from 'react';
 
 import { ItemForm } from '@/features/items/components/ItemForm';
 import { ItemList } from '@/features/items/components/ItemList';

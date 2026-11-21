@@ -11,7 +11,7 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useEffect } from 'react';
+import React, { useEffect, type JSX } from 'react';
 
 type Props = {
   error: unknown;
