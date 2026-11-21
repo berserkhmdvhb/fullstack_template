@@ -26,7 +26,7 @@ Complete guide to setting up, configuring, and running the service template loca
 |------|----------------|---------|
 | **Git** | 2.x | Version control |
 | **Python** | 3.12 | Backend runtime |
-| **Node.js** | 22 | Frontend runtime |
+| **Node.js** | 26 | Frontend runtime |
 | **npm** | 11 | Frontend package manager |
 | **Docker** or **Podman** | Latest | Container runtime |
 | **kubectl** | 1.28+ | Kubernetes CLI |

@@ -158,12 +158,13 @@
       "allowedVersions": "<4"
     },
     {
-      // The frontend's engines field is >=22 <23 until the frontend upgrade.
-      "description": "node stays on 22.x",
+      // The frontend's engines field is >=26 <27: a new Node major is a deliberate change (move the row, engines,
+      // the version files, the Dockerfile images and this cap together).
+      "description": "node stays on 26.x",
       "matchDepNames": ["node"],
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["tools/pins.tsv"],
-      "allowedVersions": "<23"
+      "allowedVersions": "<27"
     },
     {
       "description": "The python row names an interpreter, not a PyPI package (the backend base image is a Dockerfile, not this row)",

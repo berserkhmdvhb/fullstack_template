@@ -29,7 +29,7 @@ The project uses **three dedicated Dockerfiles**, one per service. Each image co
 flowchart TB
     subgraph Build["Build (CI/CD)"]
         BackendBuild["Dockerfile.backend<br/>Python 3.12"]
-        FrontendBuild["Dockerfile.frontend<br/>Node 22"]
+        FrontendBuild["Dockerfile.frontend<br/>Node 26"]
         NginxBuild["Dockerfile.nginx<br/>nginx-light"]
     end
 
@@ -51,7 +51,7 @@ flowchart TB
 | Dockerfile | Service | Base Image | Port |
 |------------|---------|-----------|------|
 | `Dockerfile.backend` | FastAPI + Uvicorn | `python:3.12-slim` | 8000 |
-| `Dockerfile.frontend` | Next.js standalone | `node:22-slim` | 3000 |
+| `Dockerfile.frontend` | Next.js standalone | `node:26-trixie-slim` (build), distroless `nodejs26-debian13` (runtime) | 3000 |
 | `Dockerfile.nginx` | Static assets | `nginx:alpine` | 8081 |
 
 ---
@@ -103,39 +103,33 @@ CMD ["/app/infra/backend/run_backend.sh"]
 ## Dockerfile.frontend
 
 ```dockerfile
-FROM node:22-slim AS builder
-WORKDIR /app/frontend
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
-COPY frontend/ ./
-RUN npm run openapi-gen
-RUN npm run build
-
-FROM node:22-slim AS runtime
-LABEL org.opencontainers.image.title="Your Service Name Frontend"
-LABEL org.opencontainers.image.version="${VERSION}"
-
-RUN useradd -m -u 10001 appuser
-COPY --from=builder /app/frontend/.next/standalone /app
-COPY --from=builder /app/frontend/.next/static /app/.next/static
-COPY --from=builder /app/frontend/public /app/public
-
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
+# Both base images are pinned by digest in the real file (shortened here).
+FROM node:26-trixie-slim@sha256:... AS builder
 WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --include=dev
+COPY frontend/ ./
+RUN npm run openapi-gen && npx next build
 
-HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
-  CMD curl -fsS "http://localhost:3000/" || exit 1
+FROM gcr.io/distroless/nodejs26-debian13@sha256:... AS runtime
+LABEL org.opencontainers.image.title="Your Service Name — Frontend"
+WORKDIR /app
+COPY --from=builder --chown=10001:10001 /app/.next/standalone ./
+COPY --from=builder --chown=10001:10001 /app/.next/static ./.next/static
+COPY --from=builder --chown=10001:10001 /app/public ./public
 
-USER appuser
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000
+HEALTHCHECK CMD ["/nodejs/bin/node","-e","fetch(...)"]  # no shell, no curl
+USER 10001
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["server.js"]   # the image's ENTRYPOINT is /nodejs/bin/node
 ```
 
 **Key features**:
 - **Multi-stage build** — builder stage installs deps and builds; runtime is minimal
 - **Standalone output** — Next.js `output: 'standalone'` for minimal production bundle
-- **Non-root user** — runs as `appuser` (UID 10001)
-- **Health check** — curls frontend root `/`
+- **Non-root user** — numeric UID 10001 (distroless has no `appuser`)
+- **Health check** — fetches the frontend root `/` with the bundled Node (no shell or curl)
 
 ---
 

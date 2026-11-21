@@ -19,8 +19,9 @@
 # Their sha256 column is `-` because the hashes live in the requirements file. yamale and yamllint
 # are what `ct lint` shells out to. `uv:python` runs `uv python install <version>` (uv's own cache);
 # uv verifies that download with its built-in checksums, which is accepted here.
-# Node: the frontend's engines is >=22 <23 until the frontend upgrade, so Node stays on 22.x (owner ruling);
-# the test reads the major from frontend/package.json.
+# Node: the Active LTS (26.x). This row is the one source: frontend/.nvmrc, frontend/.node-version, the builder
+# images in Dockerfile.frontend and Dockerfile.nginx, the runtime image major, engines.node and packageManager
+# (the npm bundled with this Node) are each locked to it by tests/supply_chain/test_frontend_image.py.
 #
 # Adding darwin-arm64: copy each linux-amd64 row, set platform to darwin-arm64, point the url at the
 # vendor's darwin/arm64 asset, take its sha256 from the same vendor checksum file, and add the
@@ -57,7 +58,7 @@ kyverno	1.20.0	linux-amd64	https://github.com/kyverno/kyverno/releases/download/
 yq	4.54.3	linux-amd64	https://github.com/mikefarah/yq/releases/download/v4.54.3/yq_linux_amd64.tar.gz	09a25baa0e136b8633949e03117fc82cb9e50d10910f988ef17a1305539ebce4
 bats	1.14.0	linux-amd64	https://github.com/bats-core/bats-core/archive/refs/tags/v1.14.0.tar.gz	bb537b70b15b732f6d8827dd6578e3d8ce166636ce1f18ea9a074184fcce9177
 shellcheck	0.11.0	linux-amd64	https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz	b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
-node	22.23.5	linux-amd64	https://nodejs.org/dist/v22.23.5/node-v22.23.5-linux-x64.tar.xz	cdeb8670a0c81f51b4dc4ac61919f9b1ad917b304bf8221eb939570663d240f8
+node	26.13.1	linux-amd64	https://nodejs.org/dist/v26.13.1/node-v26.13.1-linux-x64.tar.xz	5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864
 python	3.13	any	uv:python	-
 zizmor	1.32.0	any	uv:zizmor	-
 schemathesis	4.33.4	any	uv:schemathesis	-

@@ -73,7 +73,7 @@ Why it is deferred:
 Migrate the backend runtime base from `python:3.12-slim` (Debian, `apt`, a package manager and a
 shell present at runtime) to a **distroless / Chainguard** base, so the production image has no
 package manager, no shell, and a materially smaller CVE surface. The frontend is already distroless
-(Next.js standalone on `node:22-slim` / static); the backend is the remaining large base.
+(Next.js standalone on `node:26-trixie-slim` / static); the backend is the remaining large base.
 
 Why it is deferred:
 

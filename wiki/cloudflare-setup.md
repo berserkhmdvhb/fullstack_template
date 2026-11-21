@@ -86,7 +86,7 @@ The template will support both. This guide sets up the Tunnel, because it's chea
 | curl, openssl | your package manager | `curl --version; openssl version` |
 | dig | `sudo apt install dnsutils` (Debian/Ubuntu), `bind-utils` (Fedora) | `dig -v` |
 | kubectl, with the GKE kubeconfig | from the GKE guide | `source ~/gke-setup.env && kubectl get nodes` |
-| Node.js 22+, only for section 10 | <https://nodejs.org> or your version manager | `node --version` |
+| Node.js 26+, only for section 10 | <https://nodejs.org> or your version manager | `node --version` |
 | AWS CLI v2, only for section 12 | <https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html> | `aws --version` |
 
 ### 2.2 The hostname plan

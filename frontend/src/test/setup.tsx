@@ -13,9 +13,16 @@
  */
 
 import '@testing-library/jest-dom';
+import { Window } from 'happy-dom';
 import { vi } from 'vitest';
 
 import { server } from './mocks/server';
+
+// Node 25+ defines its own global `localStorage`, which is undefined without --localstorage-file and
+// shadows the DOM environment's. Use happy-dom's own storage instead.
+if (typeof localStorage === 'undefined') {
+  vi.stubGlobal('localStorage', new Window().localStorage);
+}
 
 // Mock next/image
 vi.mock('next/image', () => ({

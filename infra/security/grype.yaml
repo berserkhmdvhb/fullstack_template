@@ -3,14 +3,6 @@ only-fixed: true
 add-cpes-if-none: false
 
 ignore:
-  - vulnerability: CVE-2026-21710
-    package:
-      name: node
-      version: "22.22.2"
-    reason: >
-      False positive. CVE-2026-21710 was fixed in Node.js 22.22.2
-      as part of the March 25, 2026 security releases.
-    until: 2026-12-31
   # --- Python stdlib CVE with no fix in any GA interpreter (<= 3.14) ---
   # Fixed only in Python 3.15 pre-releases. Bumping the production base to
   # brand-new 3.15 purely for this Medium is higher-risk than the residual

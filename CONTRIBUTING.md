@@ -85,7 +85,7 @@ cd frontend && npm ci && npm run dev # frontend at :3000
 
 Install the git hook once with `scripts/tools.sh install pre-commit` and then `.tools/bin/pre-commit install`; `make precommit` runs every hook on all files. The hooks call the same tools CI does (see `.pre-commit-config.yaml`) and name the install command for any that is missing.
 
-Python ≥ 3.12, Node ≥ 22. Without a `DATABASE_URL` the backend falls back to SQLite, so it comes up
+Python ≥ 3.12, Node ≥ 26. Without a `DATABASE_URL` the backend falls back to SQLite, so it comes up
 green with zero infra.
 
 ## The workflow: TDD → gates → PR
