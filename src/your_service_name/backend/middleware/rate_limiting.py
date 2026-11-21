@@ -35,7 +35,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from your_service_name.backend import paths
 from your_service_name.backend.errors import problem_response
-from your_service_name.backend.rate_limiter import RateLimiter, build_storage
+from your_service_name.backend.rate_limiter import RateLimiter, build_storage, client_key
 from your_service_name.backend.settings import (
     DEFAULT_RATE_LIMIT,
     DEFAULT_SERVICE_NAME,
@@ -87,11 +87,7 @@ def _parse_limit(raw: str) -> RateLimitItem:
         raise ValueError(msg) from exc
 
 
-def _client_ip(request: Request) -> str:
-    """Best-effort client IP used as the rate-limit key (falls back to loopback)."""
-    if request.client and request.client.host:
-        return request.client.host
-    return "127.0.0.1"
+_client_ip = client_key  # the key lives in rate_limiter.py, shared with the CSP report limit
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):

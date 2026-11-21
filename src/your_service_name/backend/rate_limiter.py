@@ -32,11 +32,20 @@ from limits.aio.strategies import FixedWindowRateLimiter
 if TYPE_CHECKING:
     from limits import RateLimitItem
     from limits.aio.storage import Storage
+    from starlette.requests import Request
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_WARN_INTERVAL_SECONDS: Final[float] = 60.0
 _REDIS_SCHEMES: Final[frozenset[str]] = frozenset({"redis", "rediss", "redis+unix"})
+
+
+def client_key(request: Request) -> str:
+    """The rate-limit key of a request: the client IP ``ClientIpMiddleware`` resolved (loopback
+    when the server gave none)."""
+    if request.client and request.client.host:
+        return request.client.host
+    return "127.0.0.1"
 
 
 def build_storage(url: str, timeout: float) -> Storage:

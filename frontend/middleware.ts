@@ -30,6 +30,14 @@ const BACKEND_PATHS = ['/api/v1', '/docs', '/openapi.json'];
 const proxiesToBackend = (pathname: string) =>
   BACKEND_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
+// CSP violation reports go to the backend's opt-in endpoint (same-origin, so `'self'` already allows
+// it). The backend serves it only when its CSP_REPORT_ENABLED is on; this flag, read per request,
+// is the frontend half (the chart sets both from one value).
+const CSP_REPORT_PATH = '/api/v1/csp-report';
+const CSP_REPORT_GROUP = 'csp-endpoint';
+const cspReportingEnabled = () =>
+  (process.env['CSP_REPORTING_ENABLED'] ?? '').trim().toLowerCase() === 'true';
+
 /**
  * Per request this middleware does two things.
  *
@@ -65,6 +73,7 @@ export function middleware(request: NextRequest) {
       )
     : NextResponse.next({ request: { headers: requestHeaders } });
 
+  const reporting = cspReportingEnabled();
   response.headers.set(
     'Content-Security-Policy',
     [
@@ -86,8 +95,14 @@ export function middleware(request: NextRequest) {
       "connect-src 'self'",
       "frame-ancestors 'none'",
       "base-uri 'self'",
+      // `report-uri` for browsers that only know it, `report-to` (with the
+      // Reporting-Endpoints header below) for the rest.
+      ...(reporting ? [`report-uri ${CSP_REPORT_PATH}`, `report-to ${CSP_REPORT_GROUP}`] : []),
     ].join('; '),
   );
+  if (reporting) {
+    response.headers.set('Reporting-Endpoints', `${CSP_REPORT_GROUP}="${CSP_REPORT_PATH}"`);
+  }
 
   return response;
 }

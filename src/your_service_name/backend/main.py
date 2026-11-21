@@ -279,6 +279,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # --- Router assembly under a canonical prefix --------------------------------
     app.include_router(build_api_router(prefix=API_PREFIX, version=settings.API_VERSION))
 
+    # --- Opt-in CSP report endpoint (a browser format, not API: not in the OpenAPI document) ---
+    if settings.CSP_REPORT_ENABLED:
+        from your_service_name.backend.api.routers import csp_report  # noqa: PLC0415
+
+        app.include_router(csp_report.router, prefix=f"{API_PREFIX}/{settings.API_VERSION}")
+
     # --- Prometheus metrics instrumentation ------------------------------------
     # Exposes /metrics endpoint for Prometheus scraping
     # An operational scrape endpoint (Prometheus text format), not part of the API contract:

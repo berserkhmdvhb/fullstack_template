@@ -46,6 +46,8 @@ logger = logging.getLogger(__name__)
 # the migration runner and the seed script (via db/_constants.py). Overridable via SQLITE_PATH.
 DEFAULT_SQLITE_REL_PATH: Final[str] = "data/items.db"
 DEFAULT_RATE_LIMIT: Final[str] = "100/minute"
+DEFAULT_CSP_REPORT_RATE_LIMIT: Final[str] = "20/minute"
+DEFAULT_CSP_REPORT_MAX_BYTES: Final[int] = 16 * 1024
 # The package's own name: the default tracing service name (the adapt script renames the package).
 DEFAULT_SERVICE_NAME: Final[str] = __name__.split(".", maxsplit=1)[0]
 # The chart's ingress `proxy-body-size` (10m, which nginx reads as MiB); a test keeps them equal.
@@ -140,6 +142,9 @@ _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
     "TRACING_SAMPLE_RATIO",
     "RATE_LIMIT_STORAGE",
     "RATE_LIMIT_STORAGE_TIMEOUT_SECONDS",
+    "CSP_REPORT_ENABLED",
+    "CSP_REPORT_MAX_BYTES",
+    "CSP_REPORT_RATE_LIMIT",
 )
 
 
@@ -333,6 +338,27 @@ class Settings(BaseSettings):
         le=10,
         description="Redis connect and socket timeout (and the cap on one limiter call), in "
         "seconds. Short on purpose: it is added to a request while Redis is unreachable.",
+    )
+
+    # --- CSP reports (opt-in) -------------------------------------------------
+    CSP_REPORT_ENABLED: bool = Field(
+        default=False,
+        description="Serve `POST /api/v1/csp-report`, which logs the browser's Content "
+        "Security Policy violation reports (a sanitised warning each). Off, the path is a 404. "
+        "The chart's `cspReporting.enabled` also adds the reporting directives to the "
+        "frontend's CSP.",
+    )
+    CSP_REPORT_MAX_BYTES: int = Field(
+        default=DEFAULT_CSP_REPORT_MAX_BYTES,
+        gt=0,
+        le=1024 * 1024,
+        description="Largest accepted CSP report body in bytes (checked while reading); more "
+        "is a 413.",
+    )
+    CSP_REPORT_RATE_LIMIT: str = Field(
+        default=DEFAULT_CSP_REPORT_RATE_LIMIT,
+        description="Per-client limit for the CSP report endpoint, in `limits` format. It has "
+        "its own counter, apart from RATE_LIMIT_DEFAULT.",
     )
 
     # --- Tracing (opt-in) -----------------------------------------------------
@@ -717,13 +743,13 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return version
 
-    @field_validator("RATE_LIMIT_DEFAULT")
+    @field_validator("RATE_LIMIT_DEFAULT", "CSP_REPORT_RATE_LIMIT")
     @classmethod
-    def _valid_rate_limit(cls, value: str) -> str:
+    def _valid_rate_limit(cls, value: str, info: ValidationInfo) -> str:
         try:
             parse_rate_limit(value)
         except ValueError as exc:
-            msg = "RATE_LIMIT_DEFAULT must be a `limits` spec such as 100/minute"
+            msg = f"{info.field_name} must be a `limits` spec such as 100/minute"
             raise ValueError(msg) from exc
         return value
 

@@ -8,6 +8,8 @@ API_PREFIX: Final[str] = "/api"
 HEALTH_ROUTE: Final[str] = "/health"
 LIVENESS_ROUTE: Final[str] = "/healthz"
 METRICS_PATH: Final[str] = "/metrics"
+#: The opt-in CSP report endpoint, under the versioned prefix (see ``api/routers/csp_report.py``).
+CSP_REPORT_ROUTE: Final[str] = "/csp-report"
 
 
 def exempt_paths(version: str) -> frozenset[str]:
