@@ -1,0 +1,33 @@
+# Build context for every image (Dockerfile.backend, .frontend and .nginx build from the repo root).
+# Keep host-only files out of the context: a host `node_modules` (native binaries built for the host
+# Node) must not overwrite the clean `npm ci`, and no env file may reach a build stage, where Next.js
+# reads `.env*` at build time. CI builds from a clean checkout; local and kind builds do not.
+# tests/supply_chain/test_dockerignore.py checks this file against every COPY source.
+
+# VCS, tools and virtualenvs
+.git
+.venv
+.tools
+
+# Dependencies and build output
+**/node_modules
+frontend/.next
+output/
+**/__pycache__
+**/*.pyc
+.mypy_cache
+.ruff_cache
+.pytest_cache
+
+# Test and coverage output
+.coverage
+coverage.xml
+test-results/
+playwright-report/
+frontend/test-results/
+frontend/playwright-report/
+
+# Every env file (secrets stay out of the build context; no Dockerfile copies `.env.example`)
+.env
+**/.env
+**/.env.*
