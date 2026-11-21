@@ -86,6 +86,9 @@ class NotAuthenticatedError(HTTPException):
 class AuthUnavailableError(HTTPException):
     """503 raised when the signing keys cannot be obtained (never "allow", never a 500)."""
 
+    #: Read by the problem handler: this detail is ours and safe to show.
+    expose_detail: bool = True
+
     def __init__(self) -> None:
         super().__init__(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

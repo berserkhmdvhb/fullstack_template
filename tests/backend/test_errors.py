@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from starlette.middleware import Middleware
 
-from your_service_name.backend.auth.dependencies import NotAuthenticatedError
+from your_service_name.backend.auth.dependencies import AuthUnavailableError, NotAuthenticatedError
 from your_service_name.backend.logging.correlation import RequestIdFilter
 from your_service_name.backend.main import create_app
 from your_service_name.backend.middleware.correlation import CorrelationIdMiddleware
@@ -70,6 +70,14 @@ def _build(settings: Settings | None = None) -> FastAPI:
     @app.get("/t/five")
     def five() -> None:
         raise HTTPException(status_code=500, detail=f"leaky {SECRET}")
+
+    @app.get("/t/unavailable")
+    def unavailable() -> None:
+        raise HTTPException(status_code=503, detail=f"upstream says {SECRET}")
+
+    @app.get("/t/auth-unavailable")
+    def auth_unavailable() -> None:
+        raise AuthUnavailableError
 
     @app.post("/t/body")
     def body(payload: _Body) -> None:
@@ -164,6 +172,16 @@ def test_500_from_a_route_is_generic(client: TestClient) -> None:
 
 def test_500_http_exception_detail_is_not_echoed(client: TestClient) -> None:
     _assert_problem(client.get("/t/five"), 500, "/t/five")
+
+
+def test_a_plain_503_http_exception_keeps_the_generic_detail(client: TestClient) -> None:
+    body = _assert_problem(client.get("/t/unavailable"), 503, "/t/unavailable")
+    assert body["detail"] == "Service Unavailable"
+
+
+def test_the_auth_unavailable_503_keeps_its_detail(client: TestClient) -> None:
+    body = _assert_problem(client.get("/t/auth-unavailable"), 503, "/t/auth-unavailable")
+    assert body["detail"] == "authentication temporarily unavailable"
 
 
 def test_500_from_inside_a_middleware_carries_the_request_id(client: TestClient) -> None:

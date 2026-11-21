@@ -95,6 +95,8 @@ class FakeIdP:
     requests: list[httpx.Request] = field(default_factory=list)
     raw_body: bytes | None = None
     status: int = 200
+    redirect_to: str | None = None
+    stall: bool = False
 
     @property
     def jwks_url(self) -> str:
@@ -110,6 +112,10 @@ class FakeIdP:
         self.requests.append(request)
         if self.delay:
             await asyncio.sleep(self.delay)
+        if self.stall:
+            await asyncio.sleep(3600)
+        if self.redirect_to is not None:
+            return httpx.Response(302, headers={"Location": self.redirect_to})
         if self.fail:
             return httpx.Response(500, text="boom")
         if self.raw_body is not None:

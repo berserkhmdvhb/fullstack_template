@@ -39,6 +39,9 @@ logger = logging.getLogger(__name__)
 
 #: Largest JWKS or discovery body accepted.
 MAX_RESPONSE_BYTES: Final[int] = 1024 * 1024
+#: Overall bound on one refresh (discovery and keys), so waiters on the lock cannot queue behind a
+#: provider that drips bytes.
+FETCH_DEADLINE_SECONDS: Final[float] = 10.0
 _TIMEOUT: Final[httpx.Timeout] = httpx.Timeout(5.0)
 _OK: Final[int] = 200
 _USES: Final[frozenset[str | None]] = frozenset({None, "sig"})
@@ -135,8 +138,9 @@ class JwksCache:
     async def _refresh(self, now: float) -> None:
         self._attempted_at = now
         try:
-            keys = await self._fetch()
-        except (httpx.HTTPError, ValueError, JwksUnavailableError) as exc:
+            async with asyncio.timeout(FETCH_DEADLINE_SECONDS):
+                keys = await self._fetch()
+        except Exception as exc:  # noqa: BLE001 — any failure (even RecursionError) is a failed refresh, never a 500
             # Type only: an httpx message can carry the request URL (and its query).
             logger.warning(
                 "JWKS refresh failed (%s); keeping cached keys if any", type(exc).__name__
@@ -199,7 +203,7 @@ class JwksCache:
                 continue
             try:
                 keys[kid] = PyJWK(item)
-            except PyJWTError:
+            except (PyJWTError, ValueError, TypeError):
                 logger.warning("Skipping an unusable JWKS key")
         if not keys:
             msg = "JWKS holds no usable keys"

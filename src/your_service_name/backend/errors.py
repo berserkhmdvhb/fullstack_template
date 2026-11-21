@@ -44,7 +44,6 @@ logger = logging.getLogger(__name__)
 PROBLEM_MEDIA_TYPE = "application/problem+json"
 _SERVER_ERROR = 500
 _TOO_LARGE = 413
-_UNAVAILABLE = 503
 _GENERIC_500 = "The server could not process the request."
 _VALIDATION_DETAIL = "The request did not pass validation."
 #: Statuses described on every operation in the OpenAPI document (422 is added where it can occur).
@@ -122,9 +121,9 @@ def problem_response(
 
 def _http_exception(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, StarletteHTTPException)  # noqa: S101 — the registered type
-    # A 5xx detail is hidden (it may come from anywhere) except the 503 the auth layer writes.
+    # A 5xx detail is hidden (it may come from anywhere) unless the exception marks it as ours.
     safe = isinstance(exc.detail, str) and (
-        exc.status_code < _SERVER_ERROR or exc.status_code == _UNAVAILABLE
+        exc.status_code < _SERVER_ERROR or getattr(exc, "expose_detail", False) is True
     )
     return problem_response(
         request.scope,

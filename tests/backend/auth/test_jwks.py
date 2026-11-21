@@ -9,6 +9,7 @@ import pytest
 from jwt import PyJWK
 
 from tests.backend.auth.conftest import FakeClock, FakeIdP, KeyPair
+from your_service_name.backend.auth import jwks
 from your_service_name.backend.auth.jwks import (
     MAX_RESPONSE_BYTES,
     JwksCache,
@@ -161,10 +162,58 @@ async def test_oversized_response_is_refused(
 
 
 async def test_redirect_is_not_followed(idp: FakeIdP, clock: FakeClock, rsa_key: KeyPair) -> None:
-    idp.status = 302
-    idp.raw_body = b""
+    target = "https://idp.example.com/elsewhere/jwks.json"  # would serve a valid JWKS if followed
+    idp.redirect_to = target
     with pytest.raises(JwksUnavailableError):
         await _cache(idp, clock).get_key(rsa_key.kid)
+    assert [str(r.url) for r in idp.requests] == [idp.jwks_url]  # the Location was never fetched
+
+
+async def test_one_bad_key_does_not_discard_the_others(
+    idp: FakeIdP, clock: FakeClock, rsa_key: KeyPair
+) -> None:
+    bad_n = {**rsa_key.jwk, "kid": "bad-n", "n": 12345}  # not a string
+    bad_e = {**rsa_key.jwk, "kid": "bad-e", "e": "!!!"}
+    bad_xy = {"kty": "EC", "crv": "P-256", "kid": "bad-xy", "x": 1, "y": None}
+    idp.keys = [
+        KeyPair("bad-n", None, bad_n),
+        KeyPair("bad-e", None, bad_e),
+        KeyPair("bad-xy", None, bad_xy),
+        rsa_key,
+    ]
+    cache = _cache(idp, clock)
+    assert await cache.get_key(rsa_key.kid) is not None
+    for kid in ("bad-n", "bad-e", "bad-xy"):
+        assert await cache.get_key(kid) is None
+
+
+async def test_a_deeply_nested_body_is_a_failed_refresh(
+    idp: FakeIdP, clock: FakeClock, rsa_key: KeyPair
+) -> None:
+    idp.raw_body = b"[" * 100_000 + b"]" * 100_000
+    with pytest.raises(JwksUnavailableError):
+        await _cache(idp, clock).get_key(rsa_key.kid)
+
+
+async def test_a_deeply_nested_body_keeps_stale_keys(
+    idp: FakeIdP, clock: FakeClock, rsa_key: KeyPair
+) -> None:
+    cache = _cache(idp, clock)
+    await cache.get_key(rsa_key.kid)
+    idp.raw_body = b"[" * 100_000 + b"]" * 100_000
+    clock.advance(TTL + 1)
+    assert await cache.get_key(rsa_key.kid) is not None
+
+
+async def test_a_stalled_provider_is_cut_off_by_the_overall_deadline(
+    idp: FakeIdP, clock: FakeClock, rsa_key: KeyPair, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(jwks, "FETCH_DEADLINE_SECONDS", 0.2)
+    idp.stall = True
+    cache = _cache(idp, clock)
+    waiters = [asyncio.create_task(cache.get_key(rsa_key.kid)) for _ in range(5)]
+    results = await asyncio.wait_for(asyncio.gather(*waiters, return_exceptions=True), timeout=5)
+    assert all(isinstance(r, JwksUnavailableError) for r in results)
     assert idp.jwks_requests == 1
 
 
