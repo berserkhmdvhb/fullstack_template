@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from your_service_name.backend import serve
+from your_service_name.utils.versioning_api import SUPPORTED_VERSIONS
 
 ENTRY = "your_service_name.backend.main:app"
 
@@ -104,16 +106,37 @@ def test_main_does_not_validate_the_app_settings_a_second_time(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # The app builds its Settings when uvicorn imports it; the launcher only needs the API version.
+    def refuse(*_: object, **__: object) -> None:
+        pytest.fail("the launcher built Settings")
+
     monkeypatch.setattr("uvicorn.run", lambda **_: None)
-    monkeypatch.delitem(sys.modules, "your_service_name.backend.settings", raising=False)
+    monkeypatch.setattr("your_service_name.backend.settings.Settings.__init__", refuse)
     assert serve.main() == 0
-    assert "your_service_name.backend.settings" not in sys.modules
 
 
-def test_the_banner_shows_the_api_version_from_the_environment(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.fixture
+def _v7_supported(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(SUPPORTED_VERSIONS, "v7", ())
+
+
+@pytest.mark.usefixtures("_v7_supported")
+@pytest.mark.parametrize("raw", ["v7", " v7 "])
+def test_the_banner_shows_the_api_version_the_app_will_serve_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], raw: str
 ) -> None:
     monkeypatch.setattr("uvicorn.run", lambda **_: None)
-    monkeypatch.setenv("API_VERSION", "v7")
+    monkeypatch.setenv("API_VERSION", raw)
+    assert serve.main() == 0
+    assert "/api/v7/health" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("_v7_supported")
+def test_the_banner_reads_the_api_version_from_dot_env_like_the_app(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setattr("uvicorn.run", lambda **_: None)
+    monkeypatch.delenv("API_VERSION", raising=False)
+    (tmp_path / ".env").write_text("API_VERSION=v7\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
     assert serve.main() == 0
     assert "/api/v7/health" in capsys.readouterr().out

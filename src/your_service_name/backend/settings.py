@@ -249,6 +249,17 @@ def _tls_in_url(url: str) -> bool:
     return "ssl" in query or "sslmode" in query
 
 
+def normalize_api_version(value: object) -> object:
+    """Strip ``API_VERSION`` (empty means the default) and check it is a supported version."""
+    if not isinstance(value, str):
+        return value
+    version = value.strip() or DEFAULT_API_VERSION
+    if version not in SUPPORTED_VERSIONS:
+        msg = "API_VERSION: " + MSG_ERROR_UNSUPPORTED_VERSION.format(version=version)
+        raise ValueError(msg)
+    return version
+
+
 class Settings(BaseSettings):
     """Every environment variable the backend reads, validated once at startup."""
 
@@ -765,13 +776,7 @@ class Settings(BaseSettings):
     @field_validator("API_VERSION", mode="before")
     @classmethod
     def _supported_api_version(cls, value: object) -> object:
-        if not isinstance(value, str):
-            return value
-        version = value.strip() or DEFAULT_API_VERSION
-        if version not in SUPPORTED_VERSIONS:
-            msg = "API_VERSION: " + MSG_ERROR_UNSUPPORTED_VERSION.format(version=version)
-            raise ValueError(msg)
-        return version
+        return normalize_api_version(value)
 
     @field_validator("RATE_LIMIT_DEFAULT", "CSP_REPORT_RATE_LIMIT")
     @classmethod
@@ -1023,3 +1028,17 @@ class Settings(BaseSettings):
                 if value
             ]
         return problems
+
+
+class ApiVersionSetting(BaseSettings):
+    """Only ``API_VERSION``, read exactly as ``Settings`` reads it (environment over ``.env``).
+
+    For the launcher's banner: it must show the version the app will serve, without building
+    (and validating) the whole of ``Settings`` a second time.
+    """
+
+    model_config = Settings.model_config
+
+    API_VERSION: str = DEFAULT_API_VERSION
+
+    _supported = field_validator("API_VERSION", mode="before")(staticmethod(normalize_api_version))

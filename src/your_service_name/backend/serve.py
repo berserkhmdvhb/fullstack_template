@@ -11,8 +11,9 @@ Configuration (environment; defaults are the safe baseline):
 - ``BACKEND_KEEPALIVE_TIMEOUT``: seconds an idle connection stays open (``75``). Keep it above the
   gateway's upstream idle timeout (``waf.upstreamIdleTimeoutSeconds`` in the chart), or the proxy
   can reuse a connection Uvicorn just closed and return a 502.
-- ``API_VERSION``: only for the banner's URLs (default ``v1``). The app validates it, with the
-  rest of its settings, when Uvicorn imports it; the launcher does not build ``Settings`` twice.
+- ``API_VERSION``: only for the banner's URLs, read like the app reads it (environment over
+  ``.env``, stripped). The app validates all its settings when Uvicorn imports it; the launcher
+  does not build ``Settings`` twice.
 
 Fixed options, each on purpose:
 - No proxy headers: the app resolves the client IP itself (``TRUSTED_PROXY_CIDRS``), and two
@@ -32,8 +33,6 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 import uvicorn
-
-from your_service_name.utils.versioning_api import DEFAULT_API_VERSION
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -89,7 +88,9 @@ def main() -> int:
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)  # noqa: T201
         return 1
-    print(_banner(options, os.environ.get("API_VERSION") or DEFAULT_API_VERSION), flush=True)  # noqa: T201
+    from your_service_name.backend.settings import ApiVersionSetting  # noqa: PLC0415 - after validation
+
+    print(_banner(options, ApiVersionSetting().API_VERSION), flush=True)  # noqa: T201
     uvicorn.run(**options)
     return 0
 
