@@ -139,6 +139,9 @@ WRITE_ALLOWLIST = {
     ("security.yml", "advisory", "security-events"),
     ("ci.yml", "security", "security-events"),
     ("dast.yml", "dast", "security-events"),
+    # OpenSSF Scorecard: SARIF upload and the OIDC token that authenticates published results.
+    ("scorecard.yml", "analysis", "security-events"),
+    ("scorecard.yml", "analysis", "id-token"),
     # Workload Identity Federation: only the jobs that log in to the cluster, each behind an
     # environment.
     ("release.yml", "deploy", "id-token"),
@@ -156,6 +159,7 @@ READ_ALLOWLIST = {
     ("ci.yml", "security", "actions", "read"),
     ("dast.yml", "dast", "actions", "read"),
     ("dast.yml", "dast", "packages", "read"),
+    ("scorecard.yml", "analysis", "actions", "read"),
 }
 
 

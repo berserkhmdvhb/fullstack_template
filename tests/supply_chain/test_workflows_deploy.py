@@ -184,6 +184,7 @@ def test_only_wif_and_signing_jobs_hold_id_token() -> None:
         ("deploy.yml", "deploy-qa"),
         ("deploy.yml", "deploy-production"),
         ("deploy-ops.yml", "ops"),
+        ("scorecard.yml", "analysis"),  # OIDC token for the published Scorecard results
     }
 
 
