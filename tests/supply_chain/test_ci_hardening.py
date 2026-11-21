@@ -397,3 +397,24 @@ def test_a_pull_request_caller_of_the_reusable_build_is_flagged() -> None:
 def test_a_nested_composite_action_is_linted() -> None:
     out = run_lint(FIXTURES / "image-push-isolation" / "fail-composite-nested").stdout
     assert ".github/actions/docker/publish/action.yml:" in out
+
+
+RELEASE_CLOSURE = {
+    ".github/workflows/release.yml",
+    ".github/workflows/reusable-build.yml",
+    ".github/workflows/deploy.yml",
+    ".github/workflows/reusable-chart.yml",
+    ".github/actions/cluster-access/action.yml",
+}
+
+
+def test_the_release_path_is_derived_from_the_call_graph() -> None:
+    sys.path.insert(0, str(LINTER.parent))
+    try:
+        import ci_hardening_lint  # noqa: PLC0415
+
+        docs, _ = ci_hardening_lint.gather(REPO)
+        reached = {d.name for d in ci_hardening_lint._release_docs(docs)}
+    finally:
+        sys.path.remove(str(LINTER.parent))
+    assert reached == RELEASE_CLOSURE

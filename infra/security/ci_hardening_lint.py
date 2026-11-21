@@ -605,54 +605,118 @@ def check_environment_for_secrets(doc: Doc) -> list[Finding]:
     return found
 
 
-# The workflows that build, push, sign or attest an image, and the ones they call. Their output is
-# signed, so they must start cold: a cache that another job on main can write could inject a layer
-# that the signature and provenance then vouch for.
-RELEASE_PATH = tuple(
-    f".github/workflows/{n}"
-    for n in ("release.yml", "reusable-build.yml", "deploy.yml", "reusable-chart.yml")
-)
-_CACHE_WORDS = re.compile(r"--cache-(?:from|to)\b|\btype=(?:gha|registry|local|s3|azblob)\b")
+# The release path is everything reachable from release.yml: the reusable workflows its jobs call
+# and the local composite actions their steps use, transitively. It builds, signs, attests and
+# deploys, so it must start cold: a cache that another job on main can write could inject a layer,
+# a tool or a dependency that the signature and provenance then vouch for.
+RELEASE_ROOT = ".github/workflows/release.yml"
 NO_CACHE_REASON = (
     "the release path must use no cache (SLSA Build L3 isolation: one build must not be able to "
     "inject into a cache another build reads, and the output must not depend on one)"
 )
+_CACHE_WORDS = re.compile(r"--cache-(?:from|to)\b|\btype=(?:gha|registry|local|s3|azblob)\b")
+
+# Fail closed: an action may appear on the release path only if it is listed here. Each entry is
+# (inputs that must be the literal `false`, inputs that must be absent); an empty entry means the
+# action has no cache. To add an action, read its action.yml at the pinned SHA, find every cache
+# input and its default, and record both in the comment. Matching is case-insensitive (owner and
+# repo names are). Not seen by this check: cache configuration read from a bake file, or from
+# environment variables such as BUILDX_* or BUILDKIT_* set inside run: scripts or env: blocks.
+_FREE: tuple[tuple[str, ...], tuple[str, ...]] = ((), ())
+RELEASE_ACTIONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    # No cache input at the pinned SHA (action.yml read):
+    # actions/checkout 3d3c42e5aac5ba805825da76410c181273ba90b1
+    "actions/checkout": _FREE,
+    # actions/download-artifact 9000827ccba6bdab643e8b6fd33ac0654aef8333 (the artifact store)
+    "actions/download-artifact": _FREE,
+    # actions/upload-artifact cf430e030ddbb5b0abf93d22962f4752f3646cd9 (the artifact store)
+    "actions/upload-artifact": _FREE,
+    # docker/login-action 8aa5831fb8d48d8f76594c7ddde61ae58019f550
+    "docker/login-action": _FREE,
+    # actions/attest-sbom c604332985a26aa8cf1bdc465b92731239ec6b9e
+    "actions/attest-sbom": _FREE,
+    # actions/attest-build-provenance 4d101475d8b20a2381f78447822ac1eab6504dd8
+    "actions/attest-build-provenance": _FREE,
+    # github/codeql-action/upload-sarif 33d7b85da1a04171e211befe2c739303b9a4c066
+    "github/codeql-action/upload-sarif": _FREE,
+    # google-github-actions/auth 7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+    "google-github-actions/auth": _FREE,
+    # google-github-actions/get-gke-credentials 3da1e46a907576cefaa90c484278bb5b259dd395
+    "google-github-actions/get-gke-credentials": _FREE,
+    # docker/setup-buildx-action f87e5991a6d7451dcb8d9637bfbc97413f497069: the input cache-binary
+    # (default 'true') caches the buildx binary in the GitHub Actions cache, so it must be false.
+    "docker/setup-buildx-action": (("cache-binary",), ()),
+    # docker/build-push-action c3c9e263c25d99ce0380d002d59b67737d91b0dc: cache-from and cache-to
+    # are the build cache inputs (no default); they must not be set.
+    "docker/build-push-action": ((), ("cache-from", "cache-to")),
+}
 
 
-def _with_cache(ref: str, with_: LDict) -> str | None:
-    """The cache a step's `with:` block turns on, or None."""
-    action = ref.split("@", maxsplit=1)[0]
-    for key in ("cache-from", "cache-to"):
-        if key in with_:
-            return f"{key} on {action or 'a step'}"
-    if action.startswith("actions/setup-") and str(with_.get("cache", "false")).lower() != "false":
-        return f"cache: {with_.get('cache')} on {action}"
-    if any(_CACHE_WORDS.search(v) for v in _scalars(with_)):
-        return "a build cache type"
+def _release_docs(docs: list[Doc]) -> list[Doc]:
+    """The docs reachable from release.yml through called workflows and local composite actions."""
+    by_name = {d.name: d for d in docs}
+    root = next((d for d in docs if d.name.endswith(RELEASE_ROOT)), None)
+    if root is None:
+        return []
+    prefix = root.name[: -len(RELEASE_ROOT)]
+    reached: dict[str, Doc] = {}
+    todo = [root]
+    while todo:
+        doc = todo.pop()
+        if doc.name in reached:
+            continue
+        reached[doc.name] = doc
+        refs = [str(j.get("uses", "")) for _, j in doc.jobs()]
+        refs += [str(st.get("uses", "")) for st in doc.steps()]
+        for ref in refs:
+            ref = ref.strip().removeprefix("./").rstrip("/")  # noqa: PLW2901
+            if ref.startswith(".github/workflows/"):
+                names = [prefix + ref]
+            elif ref.startswith(".github/actions/"):
+                names = [f"{prefix}{ref}/action.yml", f"{prefix}{ref}/action.yaml"]
+            else:
+                continue
+            todo += [by_name[n] for n in names if n in by_name]
+    return list(reached.values())
+
+
+def _action_problem(ref: str, with_: Any) -> str | None:
+    """Why an external action may not run on the release path, or None."""
+    name = ref.split("@", maxsplit=1)[0].strip().lower()
+    if name.startswith("actions/cache"):
+        return f"{name} is a cache"
+    if name not in RELEASE_ACTIONS:
+        return (
+            f"{name} is not in RELEASE_ACTIONS: check whether it caches (an input, or by default) "
+            "and add it to the table in ci_hardening_lint.py"
+        )
+    must_be_false, must_be_absent = RELEASE_ACTIONS[name]
+    values = with_ if isinstance(with_, LDict) else LDict(0)
+    for key in must_be_false:
+        if str(values.get(key, "")).strip().lower() != "false":
+            return f"{name} caches by default: set `{key}: false`"
+    for key in must_be_absent:
+        if key in values:
+            return f"{name} sets `{key}`"
     return None
 
 
 def _step_cache(step: LDict) -> str | None:
     """What cache this step reads or writes, or None."""
-    ref = str(step.get("uses", ""))
+    ref = str(step.get("uses", "")).strip()
     with_ = step.get("with")
-    found = None
-    if ref.startswith("actions/cache"):
-        found = ref.split("@", maxsplit=1)[0]
-    elif ref.startswith("./.github/actions/setup-"):
-        found = f"{ref} (it caches its tool downloads)"
-    elif isinstance(with_, LDict):
-        found = _with_cache(ref, with_)
-    if found is None and _CACHE_WORDS.search(str(step.get("run", ""))):
-        found = "a build cache flag in a run script"
-    return found
+    if ref and not ref.startswith(("./", "docker://")):
+        return _action_problem(ref, with_)
+    texts = [str(step.get("run", ""))]
+    if isinstance(with_, LDict):
+        texts += list(_scalars(with_))
+    return "a build cache type or flag" if any(_CACHE_WORDS.search(t) for t in texts) else None
 
 
-def check_no_release_cache(doc: Doc) -> list[Finding]:
-    if not doc.name.endswith(RELEASE_PATH):
-        return []
+def check_no_release_cache(docs: list[Doc]) -> list[Finding]:
     return [
         Finding(doc.name, step.line, "no-release-cache", f"{what}: {NO_CACHE_REASON}")
+        for doc in _release_docs(docs)
         for step in doc.steps()
         if (what := _step_cache(step))
     ]
@@ -729,7 +793,6 @@ PER_DOC_CHECKS: tuple[Check, ...] = (
     check_timeouts,
     check_no_dry_run_env,
     check_documented_permissions,
-    check_no_release_cache,
 )
 
 
@@ -770,7 +833,7 @@ def lint(docs: list[Doc]) -> list[Finding]:
     for doc in docs:
         for check in PER_DOC_CHECKS:
             findings += check(doc)
-    findings += check_provenance(docs) + check_osv_coverage(docs)
+    findings += check_provenance(docs) + check_osv_coverage(docs) + check_no_release_cache(docs)
     return sorted(findings, key=lambda f: (f.file, f.line, f.check))
 
 

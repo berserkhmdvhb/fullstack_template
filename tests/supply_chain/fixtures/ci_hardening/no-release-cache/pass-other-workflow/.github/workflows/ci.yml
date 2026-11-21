@@ -1,4 +1,4 @@
-name: T
+name: C
 on: [push]
 permissions: {}
 jobs:
@@ -15,6 +15,4 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           cache: npm
-      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          cache-from: type=gha
+      - uses: ./.github/actions/tools

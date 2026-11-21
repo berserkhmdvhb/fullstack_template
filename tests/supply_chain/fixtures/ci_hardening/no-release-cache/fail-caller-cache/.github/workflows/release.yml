@@ -2,7 +2,14 @@ name: T
 on: [push]
 permissions: {}
 jobs:
-  j:
+  images:
+    permissions:
+      contents: read
+      packages: write  # push the images
+      id-token: write  # keyless signing
+      attestations: write  # store the attestations
+    uses: ./.github/workflows/reusable-build.yml
+  extra:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

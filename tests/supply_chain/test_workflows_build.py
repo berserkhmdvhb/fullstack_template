@@ -161,16 +161,35 @@ def test_build_pushes_by_digest_only_without_a_tag() -> None:
 CACHE_WORDS = ("cache-from", "cache-to", "type=gha", "type=registry", "actions/cache")
 
 
+def _without_comments(name: str) -> str:
+    """The workflow as parsed data (comments are not data), for substring checks."""
+    return json.dumps(workflow(name))
+
+
+def test_comments_do_not_count_as_cache_use(tmp_path: Path) -> None:
+    path = tmp_path / "w.yml"
+    path.write_text("# actions/cache is not used here\non: push\njobs: {}\n", encoding="utf-8")
+    assert "actions/cache" not in json.dumps(yaml.safe_load(path.read_text(encoding="utf-8")))
+    assert "actions/cache" in path.read_text(encoding="utf-8")
+
+
 def test_release_builds_use_no_cache() -> None:
     (step,) = _uses(_jobs()["build"], "docker/build-push-action@")
     assert not {"cache-from", "cache-to"} & set(step["with"])
     for name in ("reusable-build.yml", "release.yml"):
-        text = (WORKFLOWS / name).read_text(encoding="utf-8")
+        text = _without_comments(name)
         for word in CACHE_WORDS:
             assert word not in text, (name, word)
         for job_step in steps_of(workflow(name)):
             assert "cache" not in (job_step.get("with") or {}), (name, job_step)
             assert not str(job_step.get("uses", "")).startswith("./.github/actions/setup-"), name
+
+
+def test_setup_buildx_does_not_cache_its_binary() -> None:
+    steps = [s for j in _jobs().values() for s in _uses(j, "docker/setup-buildx-action@")]
+    assert len(steps) == 2  # noqa: PLR2004 — build and merge
+    for step in steps:
+        assert step["with"]["cache-binary"] is False  # the action's default is true
 
 
 def test_the_merge_job_builds_the_index_from_the_per_platform_digests() -> None:
