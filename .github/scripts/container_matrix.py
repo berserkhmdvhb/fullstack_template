@@ -9,7 +9,8 @@ tag is ``{version}-{channel}-{short_sha}``. ``immutable`` is ``true`` exactly fo
 Platforms: each image lists the platforms it supports and the manifest's ``runners`` map names the
 native runner of each platform. ``BUILD_ARM64=true`` builds every listed platform; anything else
 builds ``linux/amd64`` only. ``--matrix`` also writes ``platform_matrix``, one entry per
-(image, platform) with its ``platform``, ``runner`` and ``slug``, and ``arm64``.
+(image, platform) with its ``platform``, ``runner`` and ``slug``, and ``arm64``
+(``true`` only when an arm64 leg is rendered).
 
 Ref name, ref type and SHA come from ``GITHUB_REF_NAME``, ``GITHUB_REF_TYPE`` and ``GITHUB_SHA``;
 repositories are ``ghcr.io/<owner>/<repo>/<id>`` from ``GITHUB_REPOSITORY_OWNER`` and
@@ -345,7 +346,13 @@ def run(args: argparse.Namespace) -> None:
             {"include": per_platform(entries, runners)}, separators=(",", ":")
         )
         out = format_outputs(
-            {**values, "platform_matrix": platform_matrix, "arm64": str(arm64).lower()}
+            {
+                **values,
+                "platform_matrix": platform_matrix,
+                "arm64": str(
+                    any(p.endswith("/arm64") for e in entries for p in e["platforms"])
+                ).lower(),
+            }
         )
         target = os.environ.get("GITHUB_OUTPUT")
         if target:

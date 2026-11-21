@@ -403,6 +403,13 @@ def test_the_switch_adds_arm64_on_its_native_runner(run: Runner) -> None:
     assert "platforms" not in legs[1]
 
 
+def test_arm64_output_is_true_only_when_an_arm64_leg_is_rendered(run: Runner) -> None:
+    manifest = "images:\n  - {id: a, repository: r, dockerfile: d}\n"
+    res = run("--matrix", manifest=manifest, env={"BUILD_ARM64": "true"})
+    assert res.outputs["arm64"] == "false"  # the switch is on, but no image lists linux/arm64
+    assert {e["platform"] for e in _platform_matrix(res)} == {"linux/amd64"}
+
+
 def test_a_missing_runners_map_is_refused(run: Runner) -> None:
     manifest = "images:\n  - {id: a, repository: r, dockerfile: d}\n"
     refused(run("--matrix", manifest=manifest, with_runners=False), "runners")

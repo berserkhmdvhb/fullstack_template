@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
+import sys
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -15,6 +17,7 @@ if TYPE_CHECKING:
 
 from tests.supply_chain._workflows import (
     ARTIFACT_RETENTION_DAYS,
+    REPO,
     WORKFLOWS,
     steps_of,
     workflow,
@@ -291,28 +294,124 @@ def test_no_comment_sits_at_column_zero_inside_the_jobs_mapping() -> None:
     assert not [ln for ln in lines[start:] if ln.startswith("#")]
 
 
-def test_the_plan_takes_the_arm64_switch_from_the_repository_variable_and_says_when_it_skips() -> (
-    None
-):
+def _fake_python(tmp_path: Path) -> None:
+    """The plan step runs $RUNNER_TEMP/pyyaml/bin/python; a wrapper keeps the venv's PyYAML."""
+    python = tmp_path / "pyyaml" / "bin" / "python"
+    python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    python.chmod(0o755)
+
+
+def _plan_summary(tmp_path: Path, switch: str) -> str:
+    """Run the plan step for real (the helper is the repo's) and return its step summary."""
+    step = next(s for s in _jobs()["plan"]["steps"] if s.get("id") == "plan")
+    (tmp_path / "pyyaml" / "bin").mkdir(parents=True)
+    _fake_python(tmp_path)
+    summary, out = tmp_path / "summary.md", tmp_path / "out"
+    subprocess.run(
+        [BASH, "-c", step["run"]],
+        cwd=REPO,
+        env={
+            "PATH": os.environ["PATH"],
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(out),
+            "GITHUB_STEP_SUMMARY": str(summary),
+            "GITHUB_REF_NAME": "main",
+            "GITHUB_REF_TYPE": "branch",
+            "GITHUB_SHA": "0123456789abcdef0123456789abcdef01234567",
+            "GITHUB_REPOSITORY_OWNER": "o",
+            "GITHUB_REPOSITORY": "o/r",
+            "BUILD_ARM64": switch,
+        },
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return summary.read_text()
+
+
+def test_the_plan_takes_the_arm64_switch_from_the_repository_variable() -> None:
     job = _jobs()["plan"]
     step = next(s for s in job["steps"] if s.get("id") == "plan")
     assert step["env"] == {"BUILD_ARM64": "${{ vars.BUILD_ARM64 }}"}
     assert {"platform_matrix", "arm64"} <= set(job["outputs"])
-    assert "arm64 skipped" in step["run"]
-    assert "BUILD_ARM64" in step["run"]
     assert "${{" not in step["run"]
 
 
-def test_per_platform_sboms_are_gathered_under_unique_names_for_grant_and_the_release() -> None:
-    for name in ("grant", "release-assets"):
-        job = _jobs()[name]
-        (down,) = [
-            s
-            for s in _uses(job, "actions/download-artifact@")
-            if s["with"].get("pattern") == "sbom-*"
-        ]
-        assert "merge-multiple" not in down["with"], name  # per-platform files share a name
-        assert "${name#sbom-}" in _runs(job), name
+def test_the_plan_summary_follows_the_helpers_arm64_output(tmp_path: Path) -> None:
+    assert "arm64 skipped" in _plan_summary(tmp_path / "unset", "")
+    assert "arm64 skipped" not in _plan_summary(tmp_path / "set", "true")
+    assert "built natively" in _plan_summary(tmp_path / "set2", "true")
+
+
+def test_the_plan_says_why_arm64_is_skipped_when_the_switch_is_on_but_no_image_lists_it(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    shutil.copytree(
+        REPO / ".github", root / ".github", ignore=shutil.ignore_patterns("__pycache__")
+    )
+    manifest = root / ".github" / "container-images.yml"
+    text = manifest.read_text(encoding="utf-8").replace(
+        "platforms: [linux/amd64, linux/arm64]\n", ""
+    )
+    manifest.write_text(text, encoding="utf-8")
+    step = next(s for s in _jobs()["plan"]["steps"] if s.get("id") == "plan")
+    (tmp_path / "pyyaml" / "bin").mkdir(parents=True)
+    _fake_python(tmp_path)
+    summary = tmp_path / "summary.md"
+    env = {
+        "PATH": os.environ["PATH"],
+        "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_OUTPUT": str(tmp_path / "out"),
+        "GITHUB_STEP_SUMMARY": str(summary),
+        "GITHUB_REF_NAME": "main",
+        "GITHUB_REF_TYPE": "branch",
+        "GITHUB_SHA": "0123456789abcdef0123456789abcdef01234567",
+        "GITHUB_REPOSITORY_OWNER": "o",
+        "GITHUB_REPOSITORY": "o/r",
+        "BUILD_ARM64": "true",
+    }
+    subprocess.run([BASH, "-c", step["run"]], cwd=root, env=env, check=True, capture_output=True)
+    text = summary.read_text()
+    assert "arm64 skipped" in text
+    assert "no image lists" in text
+
+
+def _gather(job: str, tmp_path: Path) -> list[str]:
+    """Run the SBOM gather step on artifacts that also hold a second SBOM; return the file names."""
+    step = next(s for s in _jobs()[job]["steps"] if "cdx.json" in s.get("run", ""))
+    arts = tmp_path / ("sbom-artifacts" if job == "grant" else "assets/sbom")
+    for art in ("sbom-app.linux-amd64", "sbom-app.linux-arm64"):
+        (arts / art).mkdir(parents=True)
+        (arts / art / "app.image.sbom.cdx.json").write_text(art)
+        (arts / art / "other.image.sbom.cdx.json").write_text("other")
+        (arts / art / "project.sbom.cdx.json").write_text("project")
+    for rel in (
+        "assets/vex/openvex.json",
+        "assets/grant/a.license.grant.json",
+        "assets/grant/summary.json",
+        "assets/digests/image-digests.env",
+        "assets/digests/scan.env",
+    ):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("x")
+    run = step["run"].replace("${SEC_OUTPUT_DIR}", "out/security")
+    subprocess.run([BASH, "-c", run], cwd=tmp_path, check=True, capture_output=True)
+    where = tmp_path / ("out/security/sbom" if job == "grant" else "release-assets")
+    names = sorted(p.name for p in where.glob("*.cdx.json"))
+    for name in names:  # each file is the image SBOM of its own platform, never overwritten
+        assert (where / name).read_text() == "sbom-" + name.removesuffix(".image.sbom.cdx.json")
+    return names
+
+
+@pytest.mark.parametrize("job", ["grant", "release-assets"])
+def test_sbom_gathering_keeps_one_distinct_file_per_image_and_platform(
+    job: str, tmp_path: Path
+) -> None:
+    assert _gather(job, tmp_path) == [
+        "app.linux-amd64.image.sbom.cdx.json",
+        "app.linux-arm64.image.sbom.cdx.json",
+    ]
 
 
 def test_vex_merges_the_per_platform_grype_reports_per_image() -> None:

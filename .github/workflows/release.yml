@@ -56,8 +56,11 @@ jobs:
             echo
             echo "- ref: \`${GITHUB_REF_NAME}\` (${GITHUB_REF_TYPE}), commit \`${GITHUB_SHA::7}\`"
             echo "- images: $(jq -r '[.include[].id] | join(", ")' <<<"${matrix}")"
-            if [[ "${BUILD_ARM64}" == "true" ]]; then
+            # The helper's arm64 output is true only when an arm64 leg is in the platform matrix.
+            if [[ "$(sed -n 's/^arm64=//p' "$GITHUB_OUTPUT")" == "true" ]]; then
               echo "- arm64: built natively on arm64 runners and merged into one index per image"
+            elif [[ "${BUILD_ARM64}" == "true" ]]; then
+              echo "- arm64 skipped: BUILD_ARM64 is 'true' but no image lists linux/arm64 in the manifest (linux/amd64 only)"
             else
               echo "- arm64 skipped: the repository variable BUILD_ARM64 is not 'true' (linux/amd64 only)"
             fi
@@ -137,14 +140,15 @@ jobs:
         with:
           pattern: sbom-*
           path: sbom-artifacts
-      # One SBOM per image and platform, each named like its artifact: <id>.<platform>.image.sbom.cdx.json.
+      # Only each artifact's image SBOM, by its exact name, saved as <id>.<platform>.image.sbom.cdx.json.
       - name: Gather the SBOMs
         run: |
           set -euo pipefail
           mkdir -p "${SEC_OUTPUT_DIR}/sbom"
-          for file in sbom-artifacts/*/*.cdx.json; do
-            name="$(basename "$(dirname "${file}")")"
-            cp "${file}" "${SEC_OUTPUT_DIR}/sbom/${name#sbom-}.image.sbom.cdx.json"
+          for dir in sbom-artifacts/*/; do
+            name="$(basename "${dir}")"
+            name="${name#sbom-}"
+            cp "${dir}${name%%.*}.image.sbom.cdx.json" "${SEC_OUTPUT_DIR}/sbom/${name}.image.sbom.cdx.json"
           done
       - name: Install grant
         run: |
@@ -266,10 +270,11 @@ jobs:
       - name: Collect the assets
         run: |
           mkdir release-assets
-          # One SBOM per image and platform, named after its artifact (the per-platform files share a name).
-          for file in assets/sbom/*/*.cdx.json; do
-            name="$(basename "$(dirname "${file}")")"
-            cp "${file}" "release-assets/${name#sbom-}.image.sbom.cdx.json"
+          # Only each artifact's image SBOM, by its exact name (image ids hold no dot), named after the artifact, so no two files collide.
+          for dir in assets/sbom/*/; do
+            name="$(basename "${dir}")"
+            name="${name#sbom-}"
+            cp "${dir}${name%%.*}.image.sbom.cdx.json" "release-assets/${name}.image.sbom.cdx.json"
           done
           cp assets/vex/openvex.json assets/grant/*.license.grant.json release-assets/
           cp assets/grant/summary.json release-assets/licence-summary.json
