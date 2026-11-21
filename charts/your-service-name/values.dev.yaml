@@ -6,9 +6,9 @@ environment: dev
 imagePullPolicy: Always
 
 images:
-  backend:  { repository: your-service-name-backend,  tag: dev, registry: registry.your-domain.example }
-  frontend: { repository: your-service-name-frontend, tag: dev, registry: registry.your-domain.example }
-  nginx:    { repository: your-service-name-nginx,    tag: dev, registry: registry.your-domain.example }
+  backend: {repository: your-service-name-backend, tag: dev, registry: registry.your-domain.example}
+  frontend: {repository: your-service-name-frontend, tag: dev, registry: registry.your-domain.example}
+  nginx: {repository: your-service-name-nginx, tag: dev, registry: registry.your-domain.example}
 
 # Kustomize dev overlay ran a single replica; mirror that here and drop the HPA
 # min to 1 so it can't scale back up (E2E-FINDINGS #4). qa/production stay at 2.
@@ -17,15 +17,15 @@ replicas:
   frontend: 1
 
 hpa:
-  backend:  { minReplicas: 1 }
-  frontend: { minReplicas: 1 }
+  backend: {minReplicas: 1}
+  frontend: {minReplicas: 1}
 
 # Dev runs ONE replica (HPA minReplicas:1). A PDB of minAvailable:1 would block
 # EVERY voluntary disruption — a node drain could never evict the sole pod. 0
 # lets the drain proceed while the HPA reschedules (C-L10).
 pdb:
-  backend:  { minAvailable: 0 }
-  frontend: { minAvailable: 0 }
+  backend: {minAvailable: 0}
+  frontend: {minAvailable: 0}
 
 config:
   ENV: development

@@ -64,14 +64,14 @@ replicas:
 # Per-workload resources (kept faithful to the base manifests).
 resources:
   backend:
-    requests: { cpu: 200m, memory: 256Mi }
-    limits: { cpu: "1", memory: 1Gi }
+    requests: {cpu: 200m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
   frontend:
-    requests: { cpu: 100m, memory: 256Mi }
-    limits: { cpu: "1", memory: 1Gi }
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
   nginx:
-    requests: { cpu: 50m, memory: 64Mi }
-    limits: { cpu: 200m, memory: 128Mi }
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 128Mi}
 
 # ---- Config (non-secret) -> ConfigMap ------------------------------------
 # DB_HOST is intentionally absent: it is computed in the template from the db
@@ -177,8 +177,8 @@ waf:
   service:
     port: 8080
   resources:
-    requests: { cpu: 100m, memory: 128Mi }
-    limits: { cpu: 500m, memory: 512Mi }
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
 
 # ---- Autoscaling ----------------------------------------------------------
 # backend maxReplicas:6 is coupled to quota.limits.cpu:13 (fits a laptop node).
@@ -230,12 +230,12 @@ quota:
 limitRange:
   enabled: true
   container:
-    default: { cpu: 500m, memory: 512Mi }
-    defaultRequest: { cpu: 100m, memory: 128Mi }
-    max: { cpu: "2", memory: 2Gi }
-    min: { cpu: 50m, memory: 64Mi }
+    default: {cpu: 500m, memory: 512Mi}
+    defaultRequest: {cpu: 100m, memory: 128Mi}
+    max: {cpu: "2", memory: 2Gi}
+    min: {cpu: 50m, memory: 64Mi}
   pod:
-    max: { cpu: "4", memory: 4Gi }
+    max: {cpu: "4", memory: 4Gi}
 
 # ---- Database tier --------------------------------------------------------
 # Internal PostgreSQL for local/dev/qa. Production sets enabled=false and uses a

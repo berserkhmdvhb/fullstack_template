@@ -4,9 +4,9 @@ environment: local
 
 imagePullPolicy: IfNotPresent
 images:
-  backend:  { repository: your-service-name-backend,  tag: local, registry: "" }
-  frontend: { repository: your-service-name-frontend, tag: local, registry: "" }
-  nginx:    { repository: your-service-name-nginx,    tag: local, registry: "" }
+  backend: {repository: your-service-name-backend, tag: local, registry: ""}
+  frontend: {repository: your-service-name-frontend, tag: local, registry: ""}
+  nginx: {repository: your-service-name-nginx, tag: local, registry: ""}
 
 replicas:
   backend: 1
@@ -16,8 +16,8 @@ replicas:
 # HPA min (2) would scale the pods back up and re-introduce the replica-drift bug
 # (E2E-FINDINGS #4). qa/production keep minReplicas:2 and are unaffected.
 hpa:
-  backend:  { minReplicas: 1 }
-  frontend: { minReplicas: 1 }
+  backend: {minReplicas: 1}
+  frontend: {minReplicas: 1}
 
 config:
   ENV: development
