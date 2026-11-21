@@ -54,10 +54,20 @@ jobs:
         id: args
         env:
           ENTRY: ${{ toJSON(matrix) }}
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+          VCS_REF: ${{ github.sha }}
+          VCS_BRANCH: ${{ github.ref_name }}
         run: |
+          # The image's created label is the commit's committer time (UTC, RFC 3339), so a rebuild of
+          # the same commit carries the same label.
+          created="$(TZ=UTC git show -s --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ "${VCS_REF}")"
           {
             echo "build_args<<BUILD_ARGS_EOF"
             jq -r '(.build_args // {}) | to_entries[] | "\(.key)=\(.value)"' <<<"${ENTRY}"
+            echo "SOURCE_URL=${SOURCE_URL}"
+            echo "VCS_REF=${VCS_REF}"
+            echo "VCS_BRANCH=${VCS_BRANCH}"
+            echo "BUILD_DATE=${created}"
             echo "BUILD_ARGS_EOF"
           } >> "$GITHUB_OUTPUT"
       # Tags follow the old pipeline: the immutable <version>-<channel>-<sha> tag, plus the mutable :latest on a release tag.
