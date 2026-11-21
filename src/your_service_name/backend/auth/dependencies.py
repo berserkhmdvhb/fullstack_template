@@ -23,6 +23,9 @@ Modes (``AUTH_MODE`` setting; see ``backend/settings.py``, validated at startup)
 - ``oidc``    — production mode: ``Authorization: Bearer <jwt>`` from an OpenID Connect
               provider, verified (RS*/PS*/ES*) against its cached JWKS. Missing/invalid → 401;
               keys unobtainable → 503.
+- ``cloudflare-access`` — production mode behind Cloudflare Access: the application token in the
+              ``Cf-Access-Jwt-Assertion`` header (never the ``CF_Authorization`` cookie), verified
+              (RS256) against the team's certs endpoint and the application's AUD tag.
 
 ``gateway`` and ``bearer`` are *reference* modes (a trusted header; a shared-secret scheme for
 internal or test use, not for end-user identity); ``oidc`` is for production.
@@ -125,6 +128,8 @@ async def get_current_user(request: Request) -> Principal:
         return _principal_from_bearer(request, settings)
     if settings.AUTH_MODE == "oidc":
         return await _principal_from_oidc(request, settings)
+    if settings.AUTH_MODE == "cloudflare-access":
+        return await _principal_from_cloudflare_access(request, settings)
     return Principal(user_id="anonymous", identity_source="none")
 
 
@@ -269,6 +274,9 @@ def _principal_from_bearer(request: Request, settings: Settings) -> Principal:
 # --- oidc mode ----------------------------------------------------------------
 
 _INVALID_TOKEN_SCHEME: str = 'Bearer error="invalid_token"'  # noqa: S105 — RFC 6750 section 3.1
+_CF_CERTS_PATH: str = "/cdn-cgi/access/certs"
+_CF_HEADER: str = "Cf-Access-Jwt-Assertion"
+_CF_LEEWAY_SECONDS: int = 60
 _INVALID_TOKEN_DETAIL: str = "invalid or expired token"  # noqa: S105 — a message, not a secret
 
 
@@ -276,9 +284,14 @@ def _jwks_cache(app: FastAPI, settings: Settings) -> JwksCache:
     """The app's one JWKS cache, built on first use (closed by the lifespan)."""
     cache: JwksCache | None = getattr(app.state, "jwks_cache", None)
     if cache is None:
+        cloudflare = settings.AUTH_MODE == "cloudflare-access"
         cache = JwksCache(
-            jwks_url=settings.OIDC_JWKS_URL,
-            issuer=settings.OIDC_ISSUER,
+            jwks_url=(
+                f"https://{settings.CF_ACCESS_TEAM_DOMAIN}{_CF_CERTS_PATH}"
+                if cloudflare
+                else settings.OIDC_JWKS_URL
+            ),
+            issuer=None if cloudflare else settings.OIDC_ISSUER,
             production=settings.is_production,
             ttl=settings.JWKS_CACHE_TTL_SECONDS,
             min_refetch=settings.JWKS_MIN_REFETCH_SECONDS,
@@ -361,5 +374,35 @@ async def _principal_from_oidc(request: Request, settings: Settings) -> Principa
         user_id=_user_id(claims, settings.OIDC_USER_ID_CLAIM),
         identity_source="oidc",
         roles=_roles(claims, settings.OIDC_ROLES_CLAIM),
+        claims=claims,
+    )
+
+
+# --- cloudflare-access mode -----------------------------------------------------
+
+
+async def _principal_from_cloudflare_access(request: Request, settings: Settings) -> Principal:
+    """Resolve identity from the Cloudflare Access application token.
+
+    Only the ``Cf-Access-Jwt-Assertion`` header is read. The ``CF_Authorization`` cookie is
+    ignored on purpose: the header is what Cloudflare adds behind the tunnel, and trusting a
+    cookie would bring cross-site request forgery questions the header does not have.
+    """
+    token = request.headers.get(_CF_HEADER, "").strip()
+    if not token:
+        msg = "authentication required"
+        raise NotAuthenticatedError(msg)
+    claims = await _verified_claims(
+        request,
+        token,
+        issuer=f"https://{settings.CF_ACCESS_TEAM_DOMAIN}",
+        audiences=[settings.CF_ACCESS_AUD or ""],
+        algorithms=["RS256"],
+        leeway=_CF_LEEWAY_SECONDS,
+        settings=settings,
+    )
+    return Principal(
+        user_id=_user_id(claims, "sub"),
+        identity_source="cloudflare-access",
         claims=claims,
     )

@@ -79,7 +79,7 @@ def jwks_url_problem(url: str, *, production: bool) -> str | None:
     return "must be an https URL (http is allowed only for localhost outside production)"
 
 
-AuthMode = Literal["none", "gateway", "bearer", "oidc"]
+AuthMode = Literal["none", "gateway", "bearer", "oidc", "cloudflare-access"]
 
 # Asymmetric JWT algorithms an OIDC allowlist may name. `none` and every HS* are deliberately
 # absent: a symmetric alg against a public JWKS is the classic algorithm-confusion attack.
@@ -87,6 +87,11 @@ OIDC_ALLOWED_ALGS: Final[frozenset[str]] = frozenset(
     {"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"}
 )
 MAX_CLOCK_SKEW_SECONDS: Final[int] = 300
+
+# A DNS hostname of two or more labels, nothing else (no scheme, port, path or userinfo).
+_HOSTNAME: Final[re.Pattern[str]] = re.compile(
+    r"^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+)
 
 _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
     "ENV",
@@ -100,6 +105,8 @@ _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
     "OIDC_CLOCK_SKEW_SECONDS",
     "OIDC_USER_ID_CLAIM",
     "OIDC_ROLES_CLAIM",
+    "CF_ACCESS_TEAM_DOMAIN",
+    "CF_ACCESS_AUD",
     "JWKS_CACHE_TTL_SECONDS",
     "JWKS_MIN_REFETCH_SECONDS",
     "JWKS_MAX_STALE_SECONDS",
@@ -246,8 +253,9 @@ class Settings(BaseSettings):
     # --- Auth -----------------------------------------------------------------
     AUTH_MODE: AuthMode = Field(
         default="none",
-        description="`oidc` (JWT from an OpenID Connect provider, checked against its JWKS) is the "
-        "production mode. `gateway` (trusted identity header) and `bearer` (HMAC-signed JWT, "
+        description="`oidc` (JWT from an OpenID Connect provider, checked against its JWKS) and "
+        "`cloudflare-access` (the Cloudflare Access application token) are the production "
+        "modes. `gateway` (trusted identity header) and `bearer` (HMAC-signed JWT, "
         "shared secret) are reference modes; `none` is anonymous.",
         json_schema_extra={"production": "`none` is refused unless ALLOW_ANONYMOUS=true."},
     )
@@ -311,6 +319,18 @@ class Settings(BaseSettings):
         default=None,
         description="OIDC mode: token claim holding the roles (a list of strings or a "
         "space-separated string). Unset means no roles.",
+    )
+    CF_ACCESS_TEAM_DOMAIN: str | None = Field(
+        default=None,
+        description="Cloudflare Access mode: the team domain, a bare hostname such as "
+        "`<team>.cloudflareaccess.com` (no scheme, port or path). The issuer and the keys "
+        "(`/cdn-cgi/access/certs`) are derived from it. Required when "
+        "AUTH_MODE=cloudflare-access.",
+    )
+    CF_ACCESS_AUD: str | None = Field(
+        default=None,
+        description="Cloudflare Access mode: the application's Audience (AUD) tag; the token's "
+        "`aud` must contain it. Required when AUTH_MODE=cloudflare-access.",
     )
     JWKS_CACHE_TTL_SECONDS: int = Field(
         default=3600, gt=0, description="OIDC mode: how long fetched signing keys are used."
@@ -474,6 +494,11 @@ class Settings(BaseSettings):
             items = [item.upper() for item in items]
         return items or cls._default_of(info.field_name)
 
+    @field_validator("CF_ACCESS_TEAM_DOMAIN", mode="before")
+    @classmethod
+    def _lower_team_domain(cls, value: object) -> object:
+        return value.strip().lower() if isinstance(value, str) else value
+
     @field_validator("AUTH_JWT_ALGORITHM", mode="before")
     @classmethod
     def _normalise_algorithm(cls, value: object) -> object:
@@ -530,6 +555,21 @@ class Settings(BaseSettings):
                 )
         if self.AUTH_MODE == "oidc":
             problems += self._oidc_problems()
+        if self.AUTH_MODE == "cloudflare-access":
+            problems += self._cloudflare_access_problems()
+        return problems
+
+    def _cloudflare_access_problems(self) -> list[str]:
+        problems: list[str] = []
+        if not self.CF_ACCESS_TEAM_DOMAIN:
+            problems.append("CF_ACCESS_TEAM_DOMAIN is required when AUTH_MODE=cloudflare-access")
+        elif not _HOSTNAME.match(self.CF_ACCESS_TEAM_DOMAIN):
+            problems.append(
+                "CF_ACCESS_TEAM_DOMAIN must be a bare hostname such as <team>.cloudflareaccess.com "
+                "(no scheme, port or path)"
+            )
+        if not self.CF_ACCESS_AUD:
+            problems.append("CF_ACCESS_AUD is required when AUTH_MODE=cloudflare-access; set it")
         return problems
 
     def _oidc_problems(self) -> list[str]:

@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from tests.backend.auth.conftest import FakeClock, FakeIdP, KeyPair, sign
 from your_service_name.backend.auth import Principal, get_current_user
+from your_service_name.backend.auth.dependencies import _jwks_cache
 from your_service_name.backend.auth.jwks import JwksCache
 from your_service_name.backend.errors import install_error_handling
 from your_service_name.backend.settings import Settings
@@ -65,7 +66,22 @@ OIDC = ModeSpec(
     },
     headers=lambda token: {"Authorization": f"Bearer {token}"},
 )
-MODES = [OIDC]
+CF_TEAM = "team.example.com"
+CF_AUD = "0123456789abcdef"
+CF_HEADER = "Cf-Access-Jwt-Assertion"
+CF = ModeSpec(
+    name="cloudflare-access",
+    issuer=f"https://{CF_TEAM}",
+    audience=CF_AUD,
+    source="cloudflare-access",
+    settings=lambda _idp: {
+        "AUTH_MODE": "cloudflare-access",
+        "CF_ACCESS_TEAM_DOMAIN": CF_TEAM,
+        "CF_ACCESS_AUD": CF_AUD,
+    },
+    headers=lambda token: {CF_HEADER: token},
+)
+MODES = [OIDC, CF]
 
 
 @pytest.fixture(params=MODES, ids=lambda m: m.name)
@@ -110,6 +126,17 @@ def call(mode: ModeSpec, idp: FakeIdP, clock: FakeClock) -> Callable[..., Any]:
     def _call(token: str | None, **extra: Any) -> Any:  # noqa: ANN401
         with TestClient(_app(mode, idp, clock, **extra)) as client:
             return client.get(ME, headers=mode.headers(token) if token else {})
+
+    return _call
+
+
+@pytest.fixture
+def oidc_call(idp: FakeIdP, clock: FakeClock) -> Callable[..., Any]:
+    """Like ``call`` but always in the oidc mode (for the tests of oidc-only settings)."""
+
+    def _call(token: str | None, **extra: Any) -> Any:  # noqa: ANN401
+        with TestClient(_app(OIDC, idp, clock, **extra)) as client:
+            return client.get(ME, headers=OIDC.headers(token) if token else {})
 
     return _call
 
@@ -313,42 +340,94 @@ def test_reason_is_logged_but_not_the_token(
     assert token.split(".")[1] not in caplog.text
 
 
+# --- cloudflare-access only ---------------------------------------------------
+
+
+def test_cf_the_authorization_header_is_not_a_token_source(
+    idp: FakeIdP, clock: FakeClock, rsa_key: KeyPair
+) -> None:
+    token = sign(rsa_key, _claims(CF), alg="RS256")
+    with TestClient(_app(CF, idp, clock)) as client:
+        res = client.get(ME, headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == HTTP_UNAUTHORIZED
+    assert res.headers["www-authenticate"] == "Bearer"
+
+
+def test_cf_the_cookie_is_ignored(idp: FakeIdP, clock: FakeClock, rsa_key: KeyPair) -> None:
+    token = sign(rsa_key, _claims(CF), alg="RS256")
+    with TestClient(_app(CF, idp, clock)) as client:
+        client.cookies.set("CF_Authorization", token)
+        res = client.get(ME)
+    assert res.status_code == HTTP_UNAUTHORIZED
+    assert res.headers["www-authenticate"] == "Bearer"
+
+
+def test_cf_only_rs256_is_accepted(idp: FakeIdP, clock: FakeClock, ec_key: KeyPair) -> None:
+    with TestClient(_app(CF, idp, clock)) as client:
+        res = client.get(ME, headers=CF.headers(sign(ec_key, _claims(CF), alg="ES256")))
+    _rejected(res)
+
+
+def test_cf_email_is_carried_in_the_claims(
+    idp: FakeIdP, clock: FakeClock, rsa_key: KeyPair
+) -> None:
+    app = _app(CF, idp, clock)
+
+    @app.get("/claims")
+    def claims(user: Annotated[Principal, Depends(get_current_user)]) -> dict[str, Any]:
+        return {"email": user.claims.get("email")}
+
+    token = sign(rsa_key, _claims(CF, email="a@example.com"), alg="RS256")
+    with TestClient(app) as client:
+        assert client.get("/claims", headers=CF.headers(token)).json() == {"email": "a@example.com"}
+
+
+def test_cf_keys_come_from_the_team_certs_endpoint() -> None:
+    app = FastAPI()
+    settings = Settings(**CF.settings(FakeIdP(keys=[])))
+    cache = _jwks_cache(app, settings)
+    assert cache._url == f"https://{CF_TEAM}/cdn-cgi/access/certs"
+    assert cache._production is False
+
+
 # --- oidc only ----------------------------------------------------------------
 
 
-def test_es256(call: Callable[..., Any], ec_key: KeyPair) -> None:
-    res = call(sign(ec_key, _claims(OIDC), alg="ES256"))
+def test_es256(oidc_call: Callable[..., Any], ec_key: KeyPair) -> None:
+    res = oidc_call(sign(ec_key, _claims(OIDC), alg="ES256"))
     assert res.status_code == HTTP_OK
 
 
 def test_es256_header_with_an_rsa_key_kid(
-    call: Callable[..., Any], rsa_key: KeyPair, ec_key: KeyPair
+    oidc_call: Callable[..., Any], rsa_key: KeyPair, ec_key: KeyPair
 ) -> None:
-    _rejected(call(sign(ec_key, _claims(OIDC), alg="ES256", headers={"kid": rsa_key.kid})))
+    _rejected(oidc_call(sign(ec_key, _claims(OIDC), alg="ES256", headers={"kid": rsa_key.kid})))
 
 
-def test_algorithm_outside_the_allowlist(call: Callable[..., Any], ec_key: KeyPair) -> None:
-    _rejected(call(sign(ec_key, _claims(OIDC), alg="ES256"), OIDC_ALGORITHMS="RS256"))
+def test_algorithm_outside_the_allowlist(oidc_call: Callable[..., Any], ec_key: KeyPair) -> None:
+    _rejected(oidc_call(sign(ec_key, _claims(OIDC), alg="ES256"), OIDC_ALGORITHMS="RS256"))
 
 
-def test_roles_from_a_list_claim(call: Callable[..., Any], rsa_key: KeyPair) -> None:
+def test_roles_from_a_list_claim(oidc_call: Callable[..., Any], rsa_key: KeyPair) -> None:
     token = sign(rsa_key, _claims(OIDC, groups=["a", "b"]), alg="RS256")
-    assert call(token, OIDC_ROLES_CLAIM="groups").json()["roles"] == ["a", "b"]
+    assert oidc_call(token, OIDC_ROLES_CLAIM="groups").json()["roles"] == ["a", "b"]
 
 
-def test_roles_from_a_space_separated_claim(call: Callable[..., Any], rsa_key: KeyPair) -> None:
+def test_roles_from_a_space_separated_claim(
+    oidc_call: Callable[..., Any], rsa_key: KeyPair
+) -> None:
     token = sign(rsa_key, _claims(OIDC, scope="read write"), alg="RS256")
-    assert call(token, OIDC_ROLES_CLAIM="scope").json()["roles"] == ["read", "write"]
+    assert oidc_call(token, OIDC_ROLES_CLAIM="scope").json()["roles"] == ["read", "write"]
 
 
-def test_custom_user_claim(call: Callable[..., Any], rsa_key: KeyPair) -> None:
+def test_custom_user_claim(oidc_call: Callable[..., Any], rsa_key: KeyPair) -> None:
     token = sign(rsa_key, _claims(OIDC, uid="u-9"), alg="RS256")
-    assert call(token, OIDC_USER_ID_CLAIM="uid").json()["id"] == "u-9"
+    assert oidc_call(token, OIDC_USER_ID_CLAIM="uid").json()["id"] == "u-9"
 
 
-def test_multiple_configured_audiences(call: Callable[..., Any], rsa_key: KeyPair) -> None:
+def test_multiple_configured_audiences(oidc_call: Callable[..., Any], rsa_key: KeyPair) -> None:
     token = sign(rsa_key, _claims(OIDC, aud="second"), alg="RS256")
-    assert call(token, OIDC_AUDIENCE="first, second").status_code == HTTP_OK
+    assert oidc_call(token, OIDC_AUDIENCE="first, second").status_code == HTTP_OK
 
 
 def test_discovery_without_a_jwks_url(idp: FakeIdP, clock: FakeClock, rsa_key: KeyPair) -> None:

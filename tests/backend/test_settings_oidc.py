@@ -100,3 +100,39 @@ def test_the_error_does_not_echo_the_url() -> None:
     with pytest.raises(ValidationError) as excinfo:
         _oidc(OIDC_JWKS_URL="http://idp.example.com/jwks?token=hunter2")
     assert "hunter2" not in str(excinfo.value)
+
+
+# --- cloudflare-access --------------------------------------------------------
+
+
+def _cf(**over: Any) -> Settings:  # noqa: ANN401
+    base: dict[str, Any] = {
+        "AUTH_MODE": "cloudflare-access",
+        "CF_ACCESS_TEAM_DOMAIN": "team.example.com",
+        "CF_ACCESS_AUD": "abc123",
+    }
+    return Settings(**{**base, **over})
+
+
+@pytest.mark.parametrize("missing", ["CF_ACCESS_TEAM_DOMAIN", "CF_ACCESS_AUD"])
+def test_cf_required_fields(missing: str) -> None:
+    with pytest.raises(ValidationError, match=missing):
+        _cf(**{missing: ""})
+
+
+@pytest.mark.parametrize(
+    "domain",
+    ["https://team.example.com", "team.example.com/path", "team.example.com:8443", "team", "a b.c"],
+)
+def test_cf_team_domain_must_be_a_bare_hostname(domain: str) -> None:
+    with pytest.raises(ValidationError, match="CF_ACCESS_TEAM_DOMAIN"):
+        _cf(CF_ACCESS_TEAM_DOMAIN=domain)
+
+
+def test_cf_team_domain_is_lowercased() -> None:
+    assert _cf(CF_ACCESS_TEAM_DOMAIN="Team.Example.com").CF_ACCESS_TEAM_DOMAIN == "team.example.com"
+
+
+def test_cf_production_accepts_the_mode_without_allow_anonymous() -> None:
+    s = _cf(ENV="production", DATABASE_URL=POSTGRES_URL, ALLOWED_HOSTS="api.example.com")
+    assert s.AUTH_MODE == "cloudflare-access"
