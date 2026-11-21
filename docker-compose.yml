@@ -88,12 +88,13 @@ services:
         condition: service_healthy
     healthcheck:
       # curl is absent from the distroless Node runtime, so probe with Node's
-      # built-in fetch (mirrors the HEALTHCHECK in Dockerfile.frontend). Target
+      # built-in fetch (mirrors the HEALTHCHECK in Dockerfile.frontend: /api/healthz, the
+      # frontend's own process-only route). Target
       # FRONTEND_PORT, which is what the standalone server actually binds to inside
       # the container. The distroless base has no shell and /nodejs/bin is not on
       # PATH, so use the absolute node binary in exec form — a bare `node` here
       # would fail with "executable file not found".
-      test: ["CMD", "/nodejs/bin/node", "-e", "fetch(`http://localhost:${FRONTEND_PORT:-3000}/`).then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"]
+      test: ["CMD", "/nodejs/bin/node", "-e", "fetch(`http://localhost:${FRONTEND_PORT:-3000}/api/healthz`).then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 3

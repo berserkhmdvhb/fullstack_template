@@ -155,6 +155,25 @@ const jsdocBlock = {
   },
 };
 
+// ---- 6) zod only through lib/zod-config.ts (it sets `jitless` before any schema exists) ----
+const zodBlock = {
+  files: ['**/*.{ts,tsx}'],
+  rules: {
+    'no-restricted-imports': [
+      'error',
+      {
+        patterns: [
+          {
+            regex: '^zod(/|$)',
+            message: "Import { z } from '@/lib/zod-config': it sets zod's jitless option first.",
+          },
+        ],
+      },
+    ],
+  },
+};
+const zodConfigBlock = { files: ['lib/zod-config.ts'], rules: { 'no-restricted-imports': 'off' } };
+
 export default defineConfig([
   {
     name: 'next/core-web-vitals',
@@ -163,5 +182,7 @@ export default defineConfig([
   typedTsBlock,
   testBlock,
   jsdocBlock,
+  zodBlock,
+  zodConfigBlock,
   ignoreBlock,
 ]);

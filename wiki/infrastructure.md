@@ -223,7 +223,7 @@ Access services directly on their ports:
 |---------|----------|--------|---------|
 | **postgres** | `pg_isready` | CMD-SHELL | Exit 0 |
 | **backend** | `/api/${API_VERSION}/health` | HTTP GET | 200 |
-| **frontend** | `/` | HTTP GET | 200 |
+| **frontend** | `/api/healthz` | HTTP GET | 200 |
 | **nginx** | `/healthz` | HTTP GET | 200 |
 
 ### Health Endpoint Behavior

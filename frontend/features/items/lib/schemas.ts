@@ -7,8 +7,7 @@
  * @packageDocumentation
  */
 
-import '@/lib/zod-config';
-import { z } from 'zod';
+import { z } from '@/lib/zod-config';
 
 /**
  * Zod schema for creating an item.

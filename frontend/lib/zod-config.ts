@@ -14,3 +14,6 @@
 import { z } from 'zod';
 
 z.config({ jitless: true });
+
+/** The configured zod: import `z` from here, never from `zod` (an ESLint rule enforces it). */
+export { z };

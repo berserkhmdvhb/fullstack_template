@@ -84,3 +84,8 @@ def test_the_image_binds_every_interface() -> None:
     """Next's standalone server.js listens on $HOSTNAME, which docker sets to the container id."""
     runtime = DOCKERFILE[DOCKERFILE.index(" AS runtime") :]
     assert re.search(r"^ENV HOSTNAME=0\.0\.0\.0$", runtime, re.MULTILINE)
+
+
+def test_the_compose_healthcheck_matches_the_images() -> None:
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "${FRONTEND_PORT:-3000}/api/healthz`" in compose
