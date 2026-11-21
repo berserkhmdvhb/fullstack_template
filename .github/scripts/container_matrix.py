@@ -111,6 +111,32 @@ def format_outputs(values: dict[str, str]) -> str:
     return "".join(f"{k}={v}\n" for k, v in values.items())
 
 
+# docker run flags the health-check container may never get (ports, host access, privilege).
+# The release job's host holds a registry login, so the manifest cannot widen the container.
+FORBIDDEN_RUN_FLAGS = (
+    "--publish",
+    "--publish-all",
+    "--privileged",
+    "--volume",
+    "--mount",
+    "--network",
+    "--net",
+    "--pid",
+    "--ipc",
+    "--cap-add",
+    "--device",
+    "--security-opt",
+)
+FORBIDDEN_SHORT_FLAGS = ("-p", "-P", "-v")
+
+
+def forbidden_run_arg(arg: str) -> bool:
+    """Whether a run_args entry is a forbidden flag: bare, ``--flag=value`` or ``-pX``."""
+    if arg.startswith("--"):
+        return arg.split("=", 1)[0] in FORBIDDEN_RUN_FLAGS
+    return arg.startswith(FORBIDDEN_SHORT_FLAGS)
+
+
 def check_image_checks_settings(image: dict[str, Any]) -> None:
     """Validate the keys scripts/ci/image-checks.sh reads: distroless, run_env and run_args."""
     env_vars = image.get("run_env") or {}
@@ -122,6 +148,9 @@ def check_image_checks_settings(image: dict[str, Any]) -> None:
     run_args = image.get("run_args") or []
     if not isinstance(run_args, list) or not all(isinstance(a, str) for a in run_args):
         msg = f"manifest: run_args of {image['id']!r} must be a list of strings"
+        raise InputError(msg)
+    if bad := [a for a in run_args if forbidden_run_arg(a)]:
+        msg = f"manifest: run_args of {image['id']!r} may not hold {bad[0]!r} (ports, mounts, host)"
         raise InputError(msg)
     if not isinstance(image.get("distroless", False), bool):
         msg = f"manifest: distroless of {image['id']!r} must be true or false"

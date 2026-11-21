@@ -298,3 +298,49 @@ def test_repo_manifest_renders() -> None:
     assert proc.returncode == 0, proc.stderr
     ids = [i["id"] for i in json.loads(proc.stdout.splitlines()[0])["include"]]
     assert ids == ["backend", "frontend", "nginx"]
+
+
+FORBIDDEN_RUN_ARGS = [
+    "-p",
+    "--publish",
+    "-P",
+    "--publish-all",
+    "--privileged",
+    "-v",
+    "--volume",
+    "--mount",
+    "--network",
+    "--net",
+    "--pid",
+    "--ipc",
+    "--cap-add",
+    "--device",
+    "--security-opt",
+]
+
+
+@pytest.mark.parametrize("flag", FORBIDDEN_RUN_ARGS)
+@pytest.mark.parametrize("form", ["separate", "equals", "attached"])
+def test_run_args_that_widen_the_container_are_refused(run: Runner, flag: str, form: str) -> None:
+    if form == "separate":
+        args = [flag, "x"]
+    elif form == "equals":
+        if not flag.startswith("--"):
+            pytest.skip("short flags have no = form")
+        args = [f"{flag}=x"]
+    else:
+        if flag.startswith("--"):
+            pytest.skip("long flags have no attached form")
+        args = [f"{flag}x"]
+    manifest = (
+        f"images:\n  - {{id: a, repository: r, dockerfile: d, run_args: {json.dumps(args)}}}\n"
+    )
+    refused(run("--matrix", manifest=manifest), "run_args")
+
+
+def test_harmless_run_args_are_accepted(run: Runner) -> None:
+    manifest = (
+        "images:\n  - {id: a, repository: r, dockerfile: d,"
+        " run_args: ['--read-only', '--tmpfs', '/tmp']}\n"
+    )
+    assert run("--matrix", manifest=manifest).code == 0

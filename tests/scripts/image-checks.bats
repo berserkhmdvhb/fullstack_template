@@ -44,46 +44,12 @@ YML
   export STUB_TAR="$BATS_TEST_TMPDIR/export.tar"
   tar -C "$BATS_TEST_TMPDIR/rootfs" -cf "$STUB_TAR" .
   mkdir -p "$BATS_TEST_TMPDIR/bin"
-  cat > "$BATS_TEST_TMPDIR/bin/docker" <<'STUB'
-#!/usr/bin/env bash
-# Stub docker: log the call, answer from STUB_* variables.
-echo "$*" >> "$STUB_LOG"
-fmt="${*: -1}"
-case "$1 $2" in
-  "image inspect")
-    case "$*" in
-      *Config.User*) printf '%s\n' "${STUB_USER-}" ;;
-      *Healthcheck.Test*) printf '%s\n' "${STUB_HC_TEST-}" ;;
-      *StartPeriod*) printf '%s\n' "${STUB_HC_TIMES-}" ;;
-      *Labels*)
-        key="$(sed -n 's/.*Labels "org.opencontainers.image.\([a-z.]*\)".*/\1/p' <<<"$*")"
-        var="STUB_LABEL_${key^^}"
-        default="x-$key"
-        printf '%s\n' "${!var-$default}" ;;
-      *) echo "stub docker: unexpected: $*" >&2; exit 99 ;;
-    esac ;;
-  "create --name") echo "created" ;;
-  "export "*) cat "$STUB_TAR" ;;
-  "rm -f") ;;
-  "run -d") echo "started" ;;
-  "inspect --format")
-    case "$*" in
-      *Health.Log*) echo "1 probe refused" ;;
-      *) read -r line < "$STUB_STATES"
-         # consume one line per poll while more remain
-         if [ "$(wc -l < "$STUB_STATES")" -gt 1 ]; then sed -i 1d "$STUB_STATES"; fi
-         echo "$line" ;;
-    esac ;;
-  "logs --tail") echo "app log line" ;;
-  *) echo "stub docker: unexpected: $*" >&2; exit 99 ;;
-esac
-STUB
-  chmod +x "$BATS_TEST_TMPDIR/bin/docker"
+  cp "$BATS_TEST_DIRNAME/fixtures/docker-stub.sh" "$BATS_TEST_TMPDIR/bin/docker"
   PATH="$BATS_TEST_TMPDIR/bin:$PATH"
 }
 
 placeholder_source() {
-  sed -n 's/^OLD_REPOSITORY: Final\[str\] = "\(.*\)"/https:\/\/github.com\/\1/p' "$ROOT/infra/adapt/adopt_stamp.py"
+  python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import adopt_stamp; print(adopt_stamp.OLD_SOURCE_URL)' "$ROOT/infra/adapt"
 }
 
 @test "all checks pass for a healthy distroless image" {
@@ -307,4 +273,37 @@ bound() { bash -c 'source "$1"; wait_bound "${@:2}"' _ "$SCRIPT" "$@"; }
 @test "wait bound: fractions round up" {
   run bound 0 $((1500000000)) $((500000000)) 1
   [ "$output" -eq 2 ]
+}
+
+# A docker call that fails is reported with ::error:: naming the step and the image, and fails closed.
+@test "a failing docker call is reported with ::error:: naming the step and the image" {
+  for step in user hctest labels create export run state; do
+    STUB_FAIL="$step" run bash "$SCRIPT" slim ghcr.io/o/r/slim:t
+    [ "$status" -eq 1 ] || { echo "step $step: status $status"; return 1; }
+    [[ "$output" == *"::error::"*"ghcr.io/o/r/slim:t"* ]] || { echo "step $step: $output"; return 1; }
+  done
+}
+
+@test "a failing docker call names its step" {
+  STUB_FAIL=hctimes run bash "$SCRIPT" slim ref:t
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"::error::"*"HEALTHCHECK timings"*"ref:t"* ]]
+  STUB_FAIL=run run bash "$SCRIPT" slim ref:t
+  [[ "$output" == *"::error::"*"docker run"*"ref:t"* ]]
+  STUB_FAIL='create' run bash "$SCRIPT" slim ref:t
+  [[ "$output" == *"::error::"*"docker create"*"ref:t"* ]]
+  STUB_FAIL='export' run bash "$SCRIPT" slim ref:t
+  [[ "$output" == *"::error::"*"docker export"*"ref:t"* ]]
+}
+
+@test "a failing docker call does not stop the other checks" {
+  STUB_FAIL=user run bash "$SCRIPT" slim ref:t
+  [[ "$output" == *"healthcheck: ok"* ]]
+  [[ "$output" == *"labels: ok"* ]]
+}
+
+@test "a failing docker call still removes the container" {
+  STUB_FAIL=state run bash "$SCRIPT" slim ref:t
+  name="$(sed -n 's/^run .*--name \([^ ]*\) .*/\1/p' "$STUB_LOG")"
+  grep -qx "rm -f $name" "$STUB_LOG"
 }

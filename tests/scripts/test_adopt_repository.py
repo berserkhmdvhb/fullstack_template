@@ -78,3 +78,25 @@ def test_a_repository_that_is_not_owner_slash_name_is_refused(tree: Path, bad: s
     with pytest.raises(subprocess.CalledProcessError) as err:
         _stamp(tree, "--repository", bad)
     assert "owner/name" in err.value.stderr
+
+
+def test_the_placeholder_source_url_is_defined_once_and_matches_the_dockerfiles() -> None:
+    """image-checks.sh reads OLD_SOURCE_URL from the adapter; the Dockerfiles carry the same."""
+    out = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            (
+                "import sys; sys.path.insert(0, sys.argv[1]); import adopt_stamp as a; "
+                "print(a.OLD_SOURCE_URL); print(a.OLD_REPOSITORY)"
+            ),
+            str(STAMP.parent),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    assert out[0] == f"https://github.com/{out[1]}"
+    for name in DOCKERFILES:
+        assert f"ARG SOURCE_URL={out[0]}\n" in (ROOT / name).read_text(encoding="utf-8")

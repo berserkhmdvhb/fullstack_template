@@ -60,7 +60,7 @@ manifest_get() { # manifest_get JQ-EXPRESSION — evaluated on the image entry w
 
 check_user() {
   local user
-  user="$(docker image inspect --format '{{.Config.User}}' "$ref")"
+  user="$(docker image inspect --format '{{.Config.User}}' "$ref")" || { fail "docker image inspect failed reading the user of ${ref}"; return; }
   if [[ "$user" =~ $USER_RE ]]; then
     echo "user: ok (${user})"
   else
@@ -73,12 +73,12 @@ check_no_shell() {
     echo "no shell: skipped (not a distroless image)"
     return
   fi
-  local name="image-checks-fs-${id}-$$-${RANDOM}" found
+  local name="image-checks-fs-${id}-$$-${RANDOM}" found listing
   containers+=("$name")
-  docker create --name "$name" "$ref" > /dev/null
-  found="$(docker export "$name" | tar -t | sed 's|^\./||; s|/$||' \
-    | grep -E "^(${BIN_DIRS})/(${FORBIDDEN})$" || true)"
-  docker rm -f "$name" > /dev/null
+  docker create --name "$name" "$ref" > /dev/null || { fail "docker create failed for ${ref}"; return; }
+  listing="$(docker export "$name" | tar -t)" || { fail "docker export failed for ${ref}"; return; }
+  docker rm -f "$name" > /dev/null || true
+  found="$(sed 's|^\./||; s|/$||' <<<"$listing" | grep -E "^(${BIN_DIRS})/(${FORBIDDEN})$" || true)"
   if [[ -n "$found" ]]; then
     fail "a distroless image must have no shell, package manager or fetcher; found: /${found//$'\n'/ /}"
   else
@@ -95,12 +95,14 @@ show_diagnostics() {
 
 check_healthcheck() {
   local test times start interval timeout retries bound
-  test="$(docker image inspect --format '{{if .Config.Healthcheck}}{{.Config.Healthcheck.Test}}{{end}}' "$ref")"
+  test="$(docker image inspect --format '{{if .Config.Healthcheck}}{{.Config.Healthcheck.Test}}{{end}}' "$ref")" \
+    || { fail "docker image inspect failed reading the HEALTHCHECK of ${ref}"; return; }
   if [[ -z "$test" || "$test" == "[NONE]" ]]; then
     fail "the image declares no HEALTHCHECK"
     return
   fi
-  times="$(docker image inspect --format '{{json .Config.Healthcheck.StartPeriod}} {{json .Config.Healthcheck.Interval}} {{json .Config.Healthcheck.Timeout}} {{json .Config.Healthcheck.Retries}}' "$ref")"
+  times="$(docker image inspect --format '{{json .Config.Healthcheck.StartPeriod}} {{json .Config.Healthcheck.Interval}} {{json .Config.Healthcheck.Timeout}} {{json .Config.Healthcheck.Retries}}' "$ref")" \
+    || { fail "docker image inspect failed reading the HEALTHCHECK timings of ${ref}"; return; }
   read -r start interval timeout retries <<<"$times"
   bound="$(wait_bound "$start" "$interval" "$timeout" "$retries")"
 
@@ -110,11 +112,12 @@ check_healthcheck() {
     < <(manifest_get '(.run_env // {}) | to_entries | .[] | .key + "=" + .value')
   while IFS= read -r line; do [[ -z "$line" ]] || args+=("$line"); done \
     < <(manifest_get '(.run_args // []) | .[]')
-  docker run -d --name "$name" "${args[@]}" "$ref" > /dev/null
+  docker run -d --name "$name" "${args[@]}" "$ref" > /dev/null || { fail "docker run failed for ${ref}"; return; }
 
   SECONDS=0
   while true; do
-    state="$(docker inspect --format '{{.State.Status}} {{.State.Health.Status}}' "$name")"
+    state="$(docker inspect --format '{{.State.Status}} {{.State.Health.Status}}' "$name")" \
+      || { fail "docker inspect failed for the health-check container of ${ref}"; return; }
     case "$state" in
       *" healthy")
         echo "healthcheck: ok (healthy after ${SECONDS}s, bound ${bound}s)"
@@ -140,11 +143,12 @@ check_healthcheck() {
 check_labels() {
   local placeholder="" label value bad=0
   if ((strict)); then
-    placeholder="https://github.com/$(sed -n 's/^OLD_REPOSITORY: Final\[str\] = "\(.*\)"$/\1/p' "$root/infra/adapt/adopt_stamp.py")"
-    [[ "$placeholder" != "https://github.com/" ]] || { fail "cannot read the placeholder repository from infra/adapt/adopt_stamp.py"; return; }
+    placeholder="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import adopt_stamp; print(adopt_stamp.OLD_SOURCE_URL)' "$root/infra/adapt")" \
+      || { fail "cannot read the placeholder source URL (OLD_SOURCE_URL) from infra/adapt/adopt_stamp.py"; return; }
   fi
   for label in "${LABELS[@]}"; do
-    value="$(docker image inspect --format "{{index .Config.Labels \"org.opencontainers.image.${label}\"}}" "$ref")"
+    value="$(docker image inspect --format "{{index .Config.Labels \"org.opencontainers.image.${label}\"}}" "$ref")" \
+      || { fail "docker image inspect failed reading the labels of ${ref}"; return; }
     if [[ -z "$value" ]]; then
       fail "label org.opencontainers.image.${label} is missing or empty"
       bad=1

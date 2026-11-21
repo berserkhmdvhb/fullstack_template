@@ -39,6 +39,8 @@ OLD_DOMAIN: Final[str] = "your-domain.example"
 OLD_REGISTRY: Final[str] = "registry.your-domain.example"
 # The GitHub repository in the SOURCE_URL default of every Dockerfile (the OCI `source` label).
 OLD_REPOSITORY: Final[str] = "your-org/your-repo"
+# The whole placeholder URL; scripts/ci/image-checks.sh reads it to refuse the template source.
+OLD_SOURCE_URL: Final[str] = f"https://github.com/{OLD_REPOSITORY}"
 _REPOSITORY: Final = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 

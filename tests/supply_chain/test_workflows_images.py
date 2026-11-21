@@ -94,7 +94,15 @@ def test_the_images_job_never_pushes_logs_in_or_touches_secrets_or_a_cache() -> 
     assert "secrets." not in text
     assert "GITHUB_TOKEN" not in text
     assert "docker login" not in text
-    for word in ("push: true", "--push", "docker push", "push=true"):
+    for word in (
+        "push: true",
+        "--push",
+        "docker push",
+        "push=true",
+        "type=registry",
+        "--output",
+        "output:",
+    ):
         assert word not in text, word
     for word in CACHE_WORDS:
         assert word not in text, word
