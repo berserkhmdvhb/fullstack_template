@@ -241,6 +241,16 @@ class TestClientIpSettings:
         with pytest.raises(ValidationError, match="TRUSTED_PROXY_CIDRS"):
             Settings()
 
+    def test_host_bits_are_refused_and_the_error_suggests_the_network_form(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "10.1.2.3/8")
+        with pytest.raises(ValidationError) as excinfo:
+            Settings()
+        text = str(excinfo.value)
+        assert "host bits" in text
+        assert "10.0.0.0/8" in text
+
     def test_blank_values_use_the_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TRUSTED_PROXY_CIDRS", " ")
         monkeypatch.setenv("TRUST_CF_CONNECTING_IP", "")

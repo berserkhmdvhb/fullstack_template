@@ -64,4 +64,5 @@ echo "🔗 Health   : http://localhost:${BACKEND_PORT}/api/${API_VERSION}/health
 echo "Press Ctrl+C to stop the server"
 
 # --reload watches the working directory and restarts on a change.
-exec uvicorn "${BACKEND_ENTRY}" --host "${BACKEND_HOST}" --port "${BACKEND_PORT}" --reload --log-level info
+exec uvicorn "${BACKEND_ENTRY}" --host "${BACKEND_HOST}" --port "${BACKEND_PORT}" --reload --log-level info \
+  --no-proxy-headers

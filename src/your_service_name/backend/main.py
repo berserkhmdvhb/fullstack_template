@@ -227,9 +227,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Optional request logging (controlled by the LOG_REQUESTS setting).
     app.add_middleware(RequestLoggingMiddleware, log_requests=settings.LOG_REQUESTS)
 
-    # Correlation id MUST be the outermost middleware so it scopes the id for every log emitted
-    # while handling the request — including the request-logging middleware and route handlers.
-    # ``add_middleware`` inserts at the front of the stack, so it is added LAST to end up outermost.
+    # Correlation id MUST sit just inside ClientIpMiddleware (added right after this) so it scopes
+    # the id for every log emitted while handling the request, including the request-logging
+    # middleware and route handlers. ``add_middleware`` inserts at the front of the stack, so the
+    # later a middleware is added, the further out it is.
     app.add_middleware(CorrelationIdMiddleware)
 
     # The client IP is resolved FIRST (outermost, added last) so correlation, the request logs, the

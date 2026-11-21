@@ -79,8 +79,12 @@ def resolve_client_ip(
     peer_ip = _parse_ip(peer) if peer else None
     if peer_ip is None or not _is_trusted(peer_ip, trusted):
         return peer
-    if trust_cf and cf_connecting_ip is not None and (cf := _parse_ip(cf_connecting_ip)):
-        return str(cf)  # a repeated header joins to "a, b", which does not parse
+    # Exactly one value: a repeated header joins to "a, b", and "a:1, b" must not resolve to "a".
+    single = (
+        cf_connecting_ip if trust_cf and cf_connecting_ip and "," not in cf_connecting_ip else None
+    )
+    if single and (cf := _parse_ip(single)):
+        return str(cf)
     if forwarded_for:
         hop = peer_ip
         entries = [_parse_ip(e) for e in forwarded_for.split(",")]

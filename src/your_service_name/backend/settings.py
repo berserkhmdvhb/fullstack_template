@@ -174,7 +174,8 @@ class Settings(BaseSettings):
         default_factory=list,
         description="Comma-separated IPv4/IPv6 CIDRs of the proxies (the gateway and, in "
         "the Tunnel edge mode, cloudflared) whose forwarding headers are trusted. Empty "
-        "trusts nothing: the TCP peer is the client. An invalid entry stops startup.",
+        "trusts nothing: the TCP peer is the client. An invalid entry stops startup, and so "
+        "does one with host bits set (`10.1.2.3/8`; write `10.0.0.0/8`).",
     )
     TRUST_CF_CONNECTING_IP: bool = Field(
         default=False,
@@ -307,7 +308,10 @@ class Settings(BaseSettings):
         try:
             return [ipaddress.ip_network(i.strip()) for i in value.split(",") if i.strip()]
         except ValueError as exc:
-            msg = "TRUSTED_PROXY_CIDRS must be comma-separated IPv4/IPv6 CIDRs, e.g. 10.0.0.0/8"
+            msg = (
+                "TRUSTED_PROXY_CIDRS must be comma-separated IPv4/IPv6 CIDRs in network form: "
+                "an entry with host bits set (10.1.2.3/8) is refused, write 10.0.0.0/8"
+            )
             raise ValueError(msg) from exc
 
     @field_validator("DB_POOL_SIZE", "DB_MAX_OVERFLOW", mode="before")

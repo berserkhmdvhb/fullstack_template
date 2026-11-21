@@ -56,3 +56,9 @@ def test_a_bad_keep_alive_stops_the_launcher(tmp_path: Path, value: str) -> None
     assert result.returncode != 0
     assert "BACKEND_KEEPALIVE_TIMEOUT" in result.stderr
     assert not _args(result)
+
+
+@pytest.mark.parametrize("script", ["run_backend.sh", "infra/runtime/entrypoint.sh"])
+def test_the_other_launchers_also_turn_uvicorns_proxy_headers_off(script: str) -> None:
+    """One resolver only: the developer launchers must not run Uvicorn's own either."""
+    assert "--no-proxy-headers" in (ROOT / script).read_text(encoding="utf-8")

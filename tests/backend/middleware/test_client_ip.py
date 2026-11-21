@@ -63,7 +63,16 @@ class TestCfConnectingIp:
         assert resolve(cf=FORGED, trust_cf=False) == PEER
         assert resolve(xff=CLIENT, cf=FORGED, trust_cf=False) == CLIENT
 
-    @pytest.mark.parametrize("cf", [f"{FORGED}, {CLIENT}", "garbage", ""])
+    @pytest.mark.parametrize(
+        "cf",
+        [
+            f"{FORGED}, {CLIENT}",
+            f"{FORGED}:1, {CLIENT}",  # the first value alone parses (with a port): still two values
+            f"[2001:db8::1], {CLIENT}",
+            "garbage",
+            "",
+        ],
+    )
     def test_an_invalid_or_multiple_cf_value_falls_through(self, cf: str) -> None:
         assert resolve(xff=CLIENT, cf=cf, trust_cf=True) == CLIENT
         assert resolve(cf=cf, trust_cf=True) == PEER
