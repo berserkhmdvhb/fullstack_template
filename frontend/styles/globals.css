@@ -36,6 +36,9 @@
   --color-accentGreen: var(--color-accent-green);
   --color-accentOrange: var(--color-accent-orange);
   --color-accentPink: var(--color-accent-pink);
+
+  /* Error text, readable on the surface of each theme */
+  --color-textDanger: var(--color-text-danger);
 }
 
 @theme {
@@ -44,6 +47,8 @@
   --color-statusRunning: #22c55e;
   --color-statusSucceeded: #4ade80;
   --color-statusFailed: #ef4444;
+  /* A fill for white text (6.5:1); statusFailed is only 3.8:1 against white. */
+  --color-statusFailedStrong: #b91c1c;
   --color-statusUnknown: #6b7280;
 
   --background-image-bg-card: linear-gradient(to bottom right, #1e293b, #334155);
@@ -120,6 +125,8 @@ html.light {
   --color-bg-main: #f0f2f5;
   --color-bg-card: #ffffff;
 
+  --color-text-danger: #b91c1c;
+
   --color-accent-blue: #2563eb;
   --color-accent-blue-hover: #1d4ed8;
   /* White label on this fill: 5.2:1 (4.5:1 needed). The dark accent is lighter, so the button keeps this one. */
@@ -149,6 +156,8 @@ html.dark {
 
   --color-bg-main: #020617;
   --color-bg-card: #1e293b;
+
+  --color-text-danger: #f87171;
 
   --color-accent-blue: #3b82f6;
   --color-accent-blue-hover: #2563eb;

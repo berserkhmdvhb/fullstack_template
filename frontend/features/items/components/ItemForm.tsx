@@ -185,7 +185,7 @@ export function ItemForm({ editingItem, onCancelEdit }: ItemFormProps): JSX.Elem
       <div className="space-y-4">
         <div className="space-y-1.5">
           <label htmlFor="name" className="block text-sm font-medium text-textPrimary">
-            Name <span className="text-statusFailed">*</span>
+            Name <span className="text-textDanger">*</span>
           </label>
           <input
             id="name"
@@ -197,7 +197,7 @@ export function ItemForm({ editingItem, onCancelEdit }: ItemFormProps): JSX.Elem
             aria-describedby={errors.name ? 'name-error' : undefined}
           />
           {errors.name && (
-            <p id="name-error" className="text-xs text-statusFailed" role="alert">
+            <p id="name-error" className="text-xs text-textDanger" role="alert">
               {errors.name.message}
             </p>
           )}
@@ -215,7 +215,7 @@ export function ItemForm({ editingItem, onCancelEdit }: ItemFormProps): JSX.Elem
             placeholder={isEditing ? 'Update description' : 'Optional description'}
           />
           {errors.description && (
-            <p className="text-xs text-statusFailed" role="alert">
+            <p className="text-xs text-textDanger" role="alert">
               {errors.description.message}
             </p>
           )}

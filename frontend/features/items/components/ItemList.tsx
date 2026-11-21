@@ -117,7 +117,7 @@ export function ItemList({ onEdit }: ItemListProps): JSX.Element {
     const { message } = mapApiError(error);
     return (
       <div className="panel space-y-3 text-center">
-        <p className="text-statusFailed text-sm font-medium">Failed to load items.</p>
+        <p className="text-textDanger text-sm font-medium">Failed to load items.</p>
         <p className="text-xs text-textPrimary">{message}</p>
         <button type="button" onClick={() => void refetch()} className="btn-neutral btn-sm">
           Retry
