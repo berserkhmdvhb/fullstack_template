@@ -1,7 +1,7 @@
 """The final add_header set of every location in infra/nginx/nginx.conf.
 
-nginx inherits a level's ``add_header`` only while the inner level declares none, so the final set of
-a location is its own ``add_header`` lines when it has any, else the server's.
+nginx inherits a level's ``add_header`` only while the inner level declares none, so the final
+set of a location is its own ``add_header`` lines when it has any, else the server's.
 """
 
 import re
@@ -43,7 +43,7 @@ def _final(location: str) -> list[tuple[str, str, bool]]:
 
 def test_the_server_level_set_is_the_three_security_headers() -> None:
     assert {k: v for k, v, _ in _server_level()} == SECURITY
-    assert len(_server_level()) == 3
+    assert len(_server_level()) == len(SECURITY)
     assert all(always for _, _, always in _server_level()), "error responses must carry them too"
 
 
