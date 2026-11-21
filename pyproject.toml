@@ -93,9 +93,8 @@ where = ["src"]
 include = ["your_service_name*"]
 
 [tool.setuptools.package-data]
-# py.typed marks the package as typed. Interactive docs are served by FastAPI's
-# built-in Swagger page from the jsDelivr CDN, so there are no vendored assets to
-# ship inside the package.
+# py.typed marks the package as typed. The interactive docs page loads Swagger UI from the
+# jsDelivr CDN (SRI-pinned, api/docs_page.py), so there are no vendored assets to ship.
 your_service_name = ["py.typed"]
 
 [tool.setuptools_scm]

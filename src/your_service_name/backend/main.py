@@ -49,6 +49,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from your_service_name.backend.api import build_api_router
+from your_service_name.backend.api.routers.docs import build_docs_router
 from your_service_name.backend.db import close_db
 from your_service_name.backend.errors import install_error_handling
 from your_service_name.backend.logging.correlation import RequestIdFilter
@@ -200,15 +201,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title=settings.API_TITLE,
         description=settings.API_DESCRIPTION,
         version=API_CONTRACT_VERSION,
-        # Interactive Swagger docs (/docs) use FastAPI's built-in page, which loads
-        # Swagger UI from the jsDelivr CDN and inlines its init script. A strict CSP
-        # would blank it, so the frontend admits that CDN origin + inline script ONLY
-        # on /docs via a scoped CSP relaxation (see frontend/proxy.ts). /docs is
-        # env-driven so it can be disabled (set API_DOCS_URL="" if desired).
-        docs_url=settings.docs_url,
+        # The interactive docs are our own page (api/routers/docs.py, mounted below): FastAPI's
+        # built-in one inlines a script, which the strict CSP would block.
+        docs_url=None,
+        swagger_ui_oauth2_redirect_url=None,
         openapi_url=settings.openapi_url,
-        # ReDoc is intentionally left disabled (dropped): it has the same CDN +
-        # inline-script CSP problem as /docs, and /docs alone covers interactive docs.
+        # ReDoc is intentionally left disabled (dropped): it also inlines a script, and the
+        # Swagger UI page alone covers interactive docs.
         redoc_url=None,
         lifespan=lifespan,
         # FastAPI's own telemetry is off: with the global OpenTelemetry providers unset it would
@@ -302,8 +301,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         install_tracing(app, settings)
 
-    # /docs is provided by FastAPI's built-in Swagger page (docs_url above); its
-    # /openapi.json is already mounted by the routers, so no extra wiring is needed.
+    # --- Interactive docs (opt-in; off by default in production) ---------------------
+    # /openapi.json is mounted by FastAPI itself (openapi_url above).
+    if settings.docs_url and settings.openapi_url:
+        app.include_router(
+            build_docs_router(
+                title=settings.API_TITLE,
+                docs_url=settings.docs_url,
+                openapi_url=settings.openapi_url,
+            )
+        )
 
     return app
 
