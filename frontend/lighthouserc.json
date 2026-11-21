@@ -3,7 +3,7 @@
     "collect": {
       "url": ["http://127.0.0.1:3419/", "http://127.0.0.1:3419/items"],
       "numberOfRuns": 3,
-      "startServerCommand": "npx next start -H 127.0.0.1 -p 3419",
+      "startServerCommand": "PORT=3419 HOSTNAME=127.0.0.1 node scripts/serve-standalone.mjs",
       "startServerReadyPattern": "Ready",
       "settings": { "chromeFlags": "--no-sandbox --headless=new" }
     },

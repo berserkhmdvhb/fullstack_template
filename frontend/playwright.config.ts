@@ -7,7 +7,7 @@
  * - Test directory: e2e/
  * - Reporter: list + html
  * - Timeout: 30s per test
- * - `webServer`: only with `E2E_START_SERVER=1` (see below)
+ * - `webServer`: only with `E2E_START_SERVER=1` (the standalone server, on its own port)
  * - One worker (serial execution for reliability)
  *
  * Usage:
@@ -48,7 +48,12 @@ function resolveFrontendPort(): string {
   return '3000';
 }
 
-const port = resolveFrontendPort();
+// `E2E_START_SERVER=1` (the `test:a11y` script sets it) serves the built app with the standalone server the image
+// ships (scripts/serve-standalone.mjs), on a port of its own so a stack running locally never collides with it.
+// Without it the suite targets a stack that is already up. One host form, 127.0.0.1, in both modes.
+const ownServer = Boolean(process.env['E2E_START_SERVER']);
+const port = ownServer ? (process.env['E2E_SERVER_PORT'] ?? '3100') : resolveFrontendPort();
+const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: './e2e',
@@ -59,10 +64,10 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   timeout: 30_000,
   use: {
-    // Target the Next.js frontend — the single entry point. It serves the app routes
-    // and proxies /api, /docs, /openapi.json to the backend (see
-    // frontend/proxy.ts). Port follows the running stack (see resolveFrontendPort).
-    baseURL: `http://localhost:${port}`,
+    // Target the Next.js frontend, the single entry point. It serves the app routes and proxies /api, /docs,
+    // /openapi.json to the backend (see frontend/proxy.ts). The port follows the running stack (see
+    // resolveFrontendPort).
+    baseURL,
     // Traces keep request headers, so they are only recorded on a retry after a failure. The CI
     // upload (failure-only) is safe because the stack under test is hermetic: localhost, no real
     // credentials, and the job holds no secrets. An adopter who adds real auth to the live stack
@@ -70,15 +75,15 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
-  // Set `E2E_START_SERVER=1` (the `test:a11y` script does) to serve the built app with `next start`, so a
-  // spec that needs no backend runs on its own. Without it the suite targets a stack that is already up.
-  ...(process.env['E2E_START_SERVER']
+  ...(ownServer
     ? {
         webServer: {
-          command: `npx next start -H 127.0.0.1 -p ${port}`,
-          url: `http://127.0.0.1:${port}/api/healthz`,
+          command: 'node scripts/serve-standalone.mjs',
+          url: `${baseURL}/api/healthz`,
           reuseExistingServer: false,
           timeout: 60_000,
+          // The proxy's backend is unreachable on purpose: this mode needs none, and no local one may leak in.
+          env: { PORT: port, HOSTNAME: '127.0.0.1', BACKEND_URL: 'http://127.0.0.1:1' },
         },
       }
     : {}),

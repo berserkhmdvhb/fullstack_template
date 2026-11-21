@@ -15,6 +15,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { lowContrastText } from './support/contrast';
 import { mockApi } from './support/mock-api';
 
+// axe is deterministic: a violation that shows up only now and then must not hide behind a retry.
+test.describe.configure({ retries: 0 });
+
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 // axe cannot sample the background of table cells and row buttons that the items table's horizontal scroll box clips (or the
 // open delete dialog covers) on a phone ("partially obscured"). These selectors, and only these, may stay undecided there: the
