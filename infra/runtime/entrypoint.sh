@@ -379,7 +379,7 @@ from your_service_name.backend.settings import Settings
 import asyncio
 asyncio.run(run_migrations(Settings()))
 " || {
-    echo "[entrypoint] WARNING: Migration failed (may already be applied)." >&2
+    echo "[entrypoint] WARNING: Migration failed; see the error above. It may already be applied, or the configuration may be invalid (the error names the variable)." >&2
   }
 }
 

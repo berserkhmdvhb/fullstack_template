@@ -14,3 +14,11 @@
 {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.enabled (eq (toString .Values.externalDatabase.egressCIDR) "") }}
 {{- fail (printf "%s: externalDatabase is selected (postgresql.enabled=false) but externalDatabase.egressCIDR is empty. Set it to the managed DB's VPC subnet (e.g. your RDS CIDR) in values.production.yaml so the :5432 egress allow renders; empty => default-deny egress strands the DB." (include "chart.fullname" .)) }}
 {{- end }}
+{{- /*
+  The backend turns its production checks on only when config.ENV is production (or prod).
+  A production release that does not layer values.production.yaml keeps the dev default ENV
+  and would run with those checks silently off, so refuse to render it.
+*/ -}}
+{{- if and (eq (toString .Values.environment) "production") (not (has (lower (toString .Values.config.ENV)) (list "production" "prod"))) }}
+{{- fail (printf "%s: environment is production but config.ENV is %q. Layer values.production.yaml (-f) or set config.ENV=production, otherwise the backend's production checks stay off." (include "chart.fullname" .) (toString .Values.config.ENV)) }}
+{{- end }}
