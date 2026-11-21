@@ -103,16 +103,17 @@ done
 echo "all running images match the expected digests"
 
 echo "== Check 5: Health endpoints =="
-# The backend image has no curl, so its probe is the image's own Python (a non-2xx raises, so it
-# exits non-zero). The frontend probe is still curl.
-PY_PROBE='import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=5)'
+# Neither image has curl or a shell, so each probe is the image's own runtime. A 2xx is healthy; a 3xx is
+# not (redirects are not followed), and so is anything that fails to answer.
+PY_PROBE='import sys, urllib.request as u; u.build_opener(type("N", (u.HTTPRedirectHandler,), {"redirect_request": lambda *a: None})).open(sys.argv[1], timeout=5)'
+NODE_PROBE='fetch(process.argv[1], {redirect: "manual", signal: AbortSignal.timeout(5000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))'
 health() {
   local comp="$1" url="$2" pod
   pod="$("${K[@]}" get pods -l "app.kubernetes.io/component=${comp}" \
     -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.metadata.deletionTimestamp}{"\n"}{end}' \
     | awk -F'|' '$1 != "" && $2 == "" {print $1; exit}')"
   [[ -n "$pod" ]] || fail "no $comp pod to check"
-  local probe=(curl -fsS "$url")
+  local probe=(/nodejs/bin/node -e "$NODE_PROBE" "$url")
   [[ "$comp" != backend ]] || probe=(/app/.venv/bin/python -c "$PY_PROBE" "$url")
   "${K[@]}" exec "$pod" -- "${probe[@]}" >/dev/null || fail "$comp health failed"
   echo "$comp health: OK"

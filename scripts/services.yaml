@@ -37,8 +37,8 @@
 #                instead of abort). Omit to skip per-image verification.
 #   verify_entrypoint  interpreter the verify snippet runs under (default: sh,
 #                passed via `-c`). Set it when the runtime image has no shell:
-#                the frontend's distroless base uses `/nodejs/bin/node` and its
-#                snippet is then a node `-e` expression (passed via `-e`).
+#                the backend uses its venv's Python (`-c`), the frontend's
+#                distroless base `/nodejs/bin/node` (`-e`).
 # =============================================================================
 
 namespace: your-service-name
@@ -53,7 +53,8 @@ services:
     port: 8000
     health_path: /api/v1/health
     probe_tool: python
-    verify: 'test -d "$(dirname "$(python3 -c "import your_service_name.backend.db.run_migrations as m,inspect;print(inspect.getsourcefile(m))")")/migrations" && echo "migrations dir: OK" || { echo "migrations dir: MISSING" >&2; exit 1; }'
+    verify_entrypoint: /app/.venv/bin/python
+    verify: 'import pathlib, sys, your_service_name.backend.db.run_migrations as m; d = pathlib.Path(m.__file__).parent / "migrations"; print("migrations dir: OK") if d.is_dir() else sys.exit("migrations dir: MISSING")'
 
   - key: frontend
     label: Frontend — Next.js standalone

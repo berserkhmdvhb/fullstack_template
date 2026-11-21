@@ -81,24 +81,17 @@ run_shell() {                     # shell snippet run on the HOST (kubectl exec 
 # it sees the image built into the node daemon in the normal flow.
 #
 # The interpreter defaults to sh but is overridable per service (services.yaml
-# `verify_entrypoint`): a shell-less runtime image (e.g. the frontend's distroless
-# base) has no /bin/sh to exec, so its snippet runs via the image's own entrypoint
-# instead of `-c` (`docker run --entrypoint <ep> <image> -e '<snippet>'`).
+# `verify_entrypoint`): a shell-less runtime image has no /bin/sh to exec, so its snippet
+# runs through the image's own interpreter: `-c` for Python (the backend), `-e` for Node
+# (the frontend): `docker run --entrypoint <ep> <image> -c|-e '<snippet>'`.
 run_in_image() {                  # $1 image  $2 snippet  $3 entrypoint (default sh)
-  local image="$1" snippet="$2" entrypoint="${3:-sh}"
+  local image="$1" snippet="$2" entrypoint="${3:-sh}" flag="-e"
+  case "${entrypoint##*/}" in sh | python*) flag="-c" ;; esac
   if [ "${DRY_RUN}" = "true" ]; then
-    if [ "${entrypoint}" = "sh" ]; then
-      printf '    ↪  docker run --rm --entrypoint sh %s -c %s\n' "${image}" "${snippet}"
-    else
-      printf '    ↪  docker run --rm --entrypoint %s %s -e %s\n' "${entrypoint}" "${image}" "${snippet}"
-    fi
+    printf '    ↪  docker run --rm --entrypoint %s %s %s %s\n' "${entrypoint}" "${image}" "${flag}" "${snippet}"
     return 0
   fi
-  if [ "${entrypoint}" = "sh" ]; then
-    docker run --rm --entrypoint sh "${image}" -c "${snippet}"
-  else
-    docker run --rm --entrypoint "${entrypoint}" "${image}" -e "${snippet}"
-  fi
+  docker run --rm --entrypoint "${entrypoint}" "${image}" "${flag}" "${snippet}"
 }
 
 # ---- Defaults ---------------------------------------------------------------

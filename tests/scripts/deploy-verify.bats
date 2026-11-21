@@ -168,13 +168,13 @@ STUB
   [[ "$output" == *"ERROR: frontend health failed"* ]]
 }
 
-@test "check 5 probes the backend with Python (the image has no curl) and the frontend with curl" {
+@test "check 5 probes the backend with Python and the frontend with Node (neither image has curl)" {
   run bash "$SCRIPT"
   [ "$status" -eq 0 ]
   grep -q "exec pod-backend -- /app/.venv/bin/python -c .*/api/v1/health" "$STUB_LOG"
-  run grep -q "exec pod-backend -- curl" "$STUB_LOG"
+  grep -q "exec pod-frontend -- /nodejs/bin/node -e .*/" "$STUB_LOG"
+  run grep -q " -- curl" "$STUB_LOG"
   [ "$status" -ne 0 ]
-  grep -q "exec pod-frontend -- curl" "$STUB_LOG"
 }
 
 @test "a missing release is a usage error" {

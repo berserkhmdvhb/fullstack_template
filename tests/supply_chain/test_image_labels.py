@@ -41,7 +41,7 @@ def _args_step() -> dict[str, Any]:
 def test_the_build_workflow_passes_the_source_url_of_this_repository_to_every_image() -> None:
     step = _args_step()
     assert step["env"]["SOURCE_URL"] == "${{ github.server_url }}/${{ github.repository }}"
-    assert 'SOURCE_URL=${SOURCE_URL}' in step["run"]
+    assert "SOURCE_URL=${SOURCE_URL}" in step["run"]
 
 
 def test_the_build_workflow_passes_the_commit_sha_and_the_commit_time_not_unknown() -> None:
