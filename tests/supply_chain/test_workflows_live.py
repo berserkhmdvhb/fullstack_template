@@ -75,7 +75,7 @@ def test_live_starts_the_stack_through_the_entrypoint_and_always_stops_it() -> N
 def test_live_uses_no_literal_ports() -> None:
     # A port may appear only as the default of an env expansion, ${NAME_PORT:-default}.
     bare = re.sub(r"\$\{\w+:-[^}]*\}", "", _runs(_live()))
-    assert not re.search(r"\b(8000|3000|8081)\b", bare)
+    assert not re.search(r"\b(8000|3000)\b", bare)
 
 
 def test_no_self_hosted_runner_anywhere() -> None:
@@ -105,16 +105,11 @@ def test_every_workflow_job_runs_on_the_hosted_image() -> None:
                 assert job["runs-on"] == "ubuntu-24.04", f"{path.name}:{name}"
 
 
-def test_tool_guard_runs_before_the_stack_starts() -> None:
-    steps = _live_job()["steps"]
-    names = [s.get("name", "") for s in steps]
-    guard = names.index("Ensure nginx and envsubst")
-    assert guard < names.index("Start the stack")
-    run = steps[guard]["run"]
-    assert "nginx" in run
-    assert "envsubst" in run
-    assert "gettext-base" in run
-    assert "command -v" in run
+def test_live_needs_no_web_server_and_stamps_the_build_version() -> None:
+    """The stack is backend + frontend (no web server to install); one version on build and test."""
+    job = _live_job()
+    assert not re.search(r"nginx|envsubst|gettext-base", _runs(_live()), re.IGNORECASE)
+    assert job["env"]["NEXT_DEPLOYMENT_ID"] == "live-test"
 
 
 def test_playwright_reports_upload_only_on_failure() -> None:

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # your-service-name — adaptable service template (see wiki/getting-started.md)
 # Central Entrypoint for Local & Container runs
-# Modes: backend | frontend | nginx | all
+# Modes: backend | frontend | all
 # - Starts backend (Uvicorn) and/or frontend (Streamlit / Next.js)
-# - 'all' starts backend + frontend + nginx together and health-waits each
-# - 'nginx' serves the built frontend static assets only (liveness at /healthz)
+# - 'all' starts backend + frontend together and health-waits each
+# - the Next.js server serves its own static assets (/_next/static, public/)
 # - FastAPI's /api, /docs, /openapi.json are proxied to the backend by the
 #   Next.js frontend proxy (see frontend/proxy.ts); there is no separate
 #   reverse proxy.
@@ -63,11 +63,6 @@ FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 # Standalone server
 FRONTEND_REACT_SERVER="${FRONTEND_REACT_SERVER:-/app/frontend/.next/standalone/server.js}"
 
-# Nginx for static assets (optional, only used in 'all' mode)
-NGINX_PORT="${NGINX_PORT:-8081}"
-NGINX_HOST="${NGINX_HOST:-127.0.0.1}"
-NGINX_BIND="${NGINX_BIND:-${NGINX_HOST}}"
-NGINX_CONF="${NGINX_CONF:-/app/infra/nginx/nginx.conf}"
 FRONTEND_ROOT="${FRONTEND_ROOT:-/app/frontend}"
 
 # ---- CLI -------------------------------------------------------------
@@ -85,10 +80,10 @@ done
 
 if $SHOW_HELP; then
   cat <<'EOF'
-Usage: entrypoint.sh [--mode backend|frontend|nginx|all] [--frontend-impl react|streamlit] [--no-wait]
+Usage: entrypoint.sh [--mode backend|frontend|all] [--frontend-impl react|streamlit] [--no-wait]
 
 Environment (overridable via .env or -e):
-  SERVICE_MODE         backend|frontend|nginx|all (default: backend)
+  SERVICE_MODE         backend|frontend|all (default: backend)
   API_VERSION          v1 (default: v1)
 
   # Backend
@@ -106,10 +101,6 @@ Environment (overridable via .env or -e):
                          ./frontend/.next/standalone/server.js    (local)
   EXTRA_CA_PEM         <path to custom root CA PEM>
 
-  # Nginx (static assets)
-  NGINX_PORT           8081
-  NGINX_HOST           127.0.0.1
-  NGINX_CONF           /app/infra/nginx/nginx.conf
   FRONTEND_ROOT        /app/frontend
 EOF
   exit 0
@@ -119,7 +110,6 @@ fi
 if [[ "${SERVICE_MODE}" == "all" ]]; then
   BACKEND_HOST=127.0.0.1
   FRONTEND_HOST=127.0.0.1
-  NGINX_HOST=127.0.0.1
 fi
 
 # ---- Utilities --------------------------------------------------------
@@ -147,36 +137,6 @@ wait_for_200() {
   return 1
 }
 
-resolve_nginx_conf() {
-  [[ -n "${NGINX_CONF}" && -f "${NGINX_CONF}" ]] && { echo "${NGINX_CONF}"; return 0; }
-  [[ -f "/app/infra/nginx/nginx.conf" ]] && { echo "/app/infra/nginx/nginx.conf"; return 0; }
-  [[ -f "./infra/nginx/nginx.conf"    ]] && { echo "./infra/nginx/nginx.conf";    return 0; }
-  local d; d="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  [[ -f "${d}/nginx/nginx.conf"       ]] && { echo "${d}/nginx/nginx.conf";       return 0; }
-  return 1
-}
-resolve_frontend_root() {
-  # If already absolute and exists
-  if [[ -n "${FRONTEND_ROOT}" && -d "${FRONTEND_ROOT}" && "${FRONTEND_ROOT}" = /* ]]; then
-    echo "${FRONTEND_ROOT}"
-    return 0
-  fi
-
-  # Local relative path → absolute
-  if [[ -n "${FRONTEND_ROOT}" && -d "${FRONTEND_ROOT}" ]]; then
-    (cd "${FRONTEND_ROOT}" && pwd)
-    return 0
-  fi
-
-  # Container default
-  if [[ -d "/app/frontend" ]]; then
-    echo "/app/frontend"
-    return 0
-  fi
-
-  echo "❌ Could not resolve FRONTEND_ROOT to an absolute directory" >&2
-  return 1
-}
 # True when a path is missing, or a symlink whose target does not exist
 # ("dangling"). Used to detect the ABSOLUTE .next/static symlink the Next.js
 # standalone bundle bakes in at build time: it resolves on the build host but
@@ -187,30 +147,6 @@ _is_unresolved() {
   if [[ -L "$p" ]]; then [[ -e "$p" ]] || return 0; return 1; fi
   [[ ! -d "$p" ]]
 }
-render_nginx_cfg() {
-  export NGINX_HOST NGINX_PORT NGINX_BIND FRONTEND_ROOT
-  FRONTEND_ROOT="$(resolve_frontend_root)" || { echo "❌ Could not resolve FRONTEND_ROOT"; exit 1; }
-  local tpl
-  tpl="$(resolve_nginx_conf)" || { echo "❌ Missing nginx config template"; exit 1; }
-  local out="/tmp/nginx.conf.rendered"
-
-  if [[ ! -f "${tpl}" ]]; then
-    echo "❌ Missing nginx config template: ${tpl}" >&2
-    exit 1
-  fi
-
-  # Only substitute the variables we explicitly allow
-  if ! command -v envsubst >/dev/null 2>&1; then
-    echo "[entrypoint] ERROR: envsubst is required but not found. Install gettext-base." >&2
-    return 1
-  fi
-  # shellcheck disable=SC2016
-  envsubst '${NGINX_HOST} ${NGINX_PORT} ${NGINX_BIND} ${FRONTEND_ROOT}' \
-    < "$tpl" > "$out"
-
-  echo "${out}"
-}
-
 resolve_ca_bundle() {
   local p="${EXTRA_CA_PEM:-}"
   [[ -z "$p" ]] && return 0
@@ -333,18 +269,9 @@ case "${SERVICE_MODE}" in
     }
     ;;
 
-  nginx)
-    need_cmd nginx
-    need_cmd envsubst
-    need_cmd curl
-    ;;
-
   all)
     need_cmd curl
     need_cmd uvicorn
-    need_cmd nginx
-    need_cmd envsubst
-
     need_cmd node
     # Fallback: resolve local ./frontend/ path if container default not found
     if [[ ! -f "${FRONTEND_REACT_SERVER}" && -f "./frontend/.next/standalone/server.js" ]]; then
@@ -357,7 +284,7 @@ case "${SERVICE_MODE}" in
     ;;
 
   *)
-    echo "❌ Unknown SERVICE_MODE=${SERVICE_MODE}. Valid modes: backend, frontend, nginx, all" >&2
+    echo "❌ Unknown SERVICE_MODE=${SERVICE_MODE}. Valid modes: backend, frontend, all" >&2
     exit 1
     ;;
 esac
@@ -365,7 +292,6 @@ esac
 echo "▶ Entrypoint context:"
 echo " Backend : ${BACKEND_HOST}:${BACKEND_PORT}"
 echo " Frontend: ${FRONTEND_HOST}:${FRONTEND_PORT}  (impl=${FRONTEND_IMPL})"
-echo " Nginx   : ${NGINX_HOST}:${NGINX_PORT}"
 echo " API_VERSION=${API_VERSION}"
 [[ "${FRONTEND_IMPL}" == "react" ]] && echo " React server: ${FRONTEND_REACT_SERVER}"
 
@@ -453,20 +379,6 @@ start_frontend_react() {
   pids+=("$!")
 }
 
-start_nginx() {
-  echo "🚀 Starting Nginx (static assets only) ..."
-  need_cmd nginx
-
-  # Ensure temp directories for unprivileged nginx exist
-  mkdir -p /tmp/nginx/{client_body,proxy,fastcgi,uwsgi,scgi}
-
-  local cfg
-  cfg="$(render_nginx_cfg)"
-
-  nginx -t -c "${cfg}" >&2
-  nginx -c "${cfg}" -g "daemon off;" &
-  pids+=("$!")
-}
 # ---- Dispatcher ------------------------------------------------------
 case "${SERVICE_MODE}" in
   backend)
@@ -482,14 +394,8 @@ case "${SERVICE_MODE}" in
     $NO_WAIT || wait_for_200 "http://$(connect_host "${FRONTEND_HOST}"):${FRONTEND_PORT}/" "frontend"
     ;;
 
-  nginx)
-    echo "▶ Starting Nginx (static-only service)"
-    start_nginx
-    $NO_WAIT || wait_for_200 "http://$(connect_host "${NGINX_HOST}"):${NGINX_PORT}/healthz" "nginx"
-    ;;
-
   all)
-    echo "▶ Starting ALL services: backend + frontend + nginx"
+    echo "▶ Starting ALL services: backend + frontend"
     print_backend_banner "${BACKEND_HOST}" "${BACKEND_PORT}"
     print_frontend_banner "${FRONTEND_HOST}" "${FRONTEND_PORT}"
 
@@ -502,14 +408,9 @@ case "${SERVICE_MODE}" in
     # Start frontend
     start_frontend_react
 
-    # Start nginx
-    start_nginx
-    echo "[entrypoint] Nginx static server started on ${NGINX_HOST}:${NGINX_PORT}"
-
     # Health checks
     $NO_WAIT || wait_for_200 "http://$(connect_host "${BACKEND_HOST}"):${BACKEND_PORT}/api/${API_VERSION}/health" "backend"
     $NO_WAIT || wait_for_200 "http://$(connect_host "${FRONTEND_HOST}"):${FRONTEND_PORT}/" "frontend"
-    $NO_WAIT || wait_for_200 "http://$(connect_host "${NGINX_HOST}"):${NGINX_PORT}/healthz" "nginx"
     ;;
   *)
     echo "❌ Unknown SERVICE_MODE=${SERVICE_MODE}" >&2

@@ -17,6 +17,8 @@ jobs:
       contents: read
     env:
       FRONTEND_ROOT: ./frontend
+      # Read by the frontend build (Next.js deploymentId) and by the header test that checks it.
+      NEXT_DEPLOYMENT_ID: live-test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -32,27 +34,6 @@ jobs:
       - name: Install the Playwright browser
         working-directory: frontend
         run: npx playwright install --with-deps chromium
-      # The entrypoint needs nginx and envsubst. Keep the image's copy when present, else install the distro package.
-      - name: Ensure nginx and envsubst
-        run: |
-          declare -A pkg=([nginx]=nginx [envsubst]=gettext-base)
-          missing=()
-          for cmd in nginx envsubst; do
-            if command -v "$cmd" >/dev/null; then
-              echo "$cmd: from the image"
-              echo "$cmd: from the image" >> "$GITHUB_STEP_SUMMARY"
-            else
-              missing+=("$cmd")
-            fi
-          done
-          if (( ${#missing[@]} )); then
-            sudo apt-get update
-            for cmd in "${missing[@]}"; do
-              sudo apt-get install -y --no-install-recommends "${pkg[$cmd]}"
-              echo "$cmd: installed (${pkg[$cmd]})"
-              echo "$cmd: installed (${pkg[$cmd]})" >> "$GITHUB_STEP_SUMMARY"
-            done
-          fi
       - name: Start the stack
         id: stack
         run: |
@@ -64,7 +45,6 @@ jobs:
           python tests/utils/wait_for_service.py "http://127.0.0.1:${FRONTEND_PORT:-3000}/" 60 0.5 Frontend
           # Fail fast when the client bundles are not served, before the browser run.
           python tests/utils/check_hydration.py "http://127.0.0.1:${FRONTEND_PORT:-3000}" 30 1 Frontend
-          python tests/utils/wait_for_service.py "http://127.0.0.1:${NGINX_PORT:-8081}/healthz" 30 0.5 Nginx
       # The frontend is the one public port of this stack: it serves the pages and proxies /api, /docs and
       # /openapi.json, so test_full_stack.py (which skips without PUBLIC_PORT) targets it.
       - name: Backend live suite
