@@ -265,4 +265,17 @@ def test_only_issues_made_by_the_workflow_token_count_as_existing(tmp_path: Path
     d = _setup(tmp_path, {"1": [_match("CVE-1", "High", "p")]}, {"1": ["dev"]})
     gh = Gh(["vuln"], [])
     _run(m, gh, d, tmp_path)
-    assert gh.list_args[gh.list_args.index("--author") + 1] == "app/github-actions"
+    assert gh.list_args[gh.list_args.index("--app") + 1] == "github-actions"
+
+
+def test_critical_findings_are_opened_before_high_ones_when_the_cap_bites(tmp_path: Path) -> None:
+    m = _mod()
+    matches = [_match(f"CVE-{i:03d}", "High", "p") for i in range(MAX_NEW)]
+    matches += [_match(f"CVE-9{i}", "Critical", "p") for i in range(3)]
+    d = _setup(tmp_path, {"1": matches}, {"1": ["dev"]})
+    gh = Gh(["vuln"], [])
+    notes = _run(m, gh, d, tmp_path)
+    opened = [c[1][c[1].index("--title") + 1] for c in gh.calls if c[0] == "issue create"]
+    assert all(f"CVE-9{i} in p" in opened for i in range(3))
+    assert len(opened) == MAX_NEW
+    assert all("(High)" in n for n in notes if n.startswith("not opened"))

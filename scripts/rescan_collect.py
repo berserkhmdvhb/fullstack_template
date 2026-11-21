@@ -4,12 +4,13 @@
 Usage: rescan_collect.py OUTDIR       (env: GH_REPO, GH_TOKEN; reads the GitHub API only)
 
 For each environment (dev, qa, production) take the newest deployment whose latest status is
-`success` and follow that status's run URL to the workflow run (and attempt) that created it.
+`success` and follow that status's job URL to the job, and so the workflow run, that created it.
   * a `release.yml` run: if the deployment's ref is a release tag whose release carries
     `image-digests.env` and `scan.env`, read them there; otherwise read the `image-digests`
-    artifact of that run attempt;
-  * a `deploy-ops.yml` run that rolled back: the running digest is unknown, so it is reported;
-  * any other run (an operator's check or history run on an old deployment record): ignored.
+    artifact of that run uploaded before the deploying job started (artifacts outlive re-runs);
+  * a `deploy-ops.yml` run (it records a deployment only for a rollback): the running digest is
+    unknown, so it is reported;
+  * any other run: ignored.
 Then do the same for the latest published release. An expired or missing artifact is reported as
 not scannable, never skipped silently.
 
@@ -115,32 +116,25 @@ def from_release(gh: Gh, repo: str, release: dict[str, Any]) -> Images | None:
     return build_from_env(asset(DIGESTS_FILE), asset(REFS_FILE), repo)
 
 
-def attempt_path(repo: str, run_id: int, attempt: int | None) -> str:
-    base = f"repos/{repo}/actions/runs/{run_id}"
-    return f"{base}/attempts/{attempt}" if attempt else base
-
-
-def parse_run_url(url: str, repo: str) -> tuple[int, int | None]:
-    """(run id, attempt) from a deployment status URL; anything else is reported."""
-    pattern = rf"^https://github\.com/{re.escape(repo)}/actions/runs/(\d+)(?:/attempts/(\d+))?(?:/job/\d+)?(?:[?#].*)?$"
+def parse_run_url(url: str, repo: str) -> tuple[int, int]:
+    """(run id, job id) from a deployment status URL; anything else is reported."""
+    pattern = rf"^https://github\.com/{re.escape(repo)}/actions/runs/(\d+)/job/(\d+)(?:[?#].*)?$"
     m = re.match(pattern, url)
     if not m:
         msg = "not scannable: unrecognised deployment status URL"
         raise LookupError(msg)
-    return int(m[1]), int(m[2]) if m[2] else None
+    return int(m[1]), int(m[2])
 
 
-def attempt_artifact(gh: Gh, repo: str, run_id: int, attempt: int | None) -> dict[str, bytes]:
-    """The files of the `image-digests` artifact uploaded during one attempt of a run."""
-    info = api(gh, attempt_path(repo, run_id, attempt))
+def run_artifact(gh: Gh, repo: str, run_id: int, before: str | None) -> dict[str, bytes]:
+    """The newest `image-digests` artifact of a run, uploaded at or before `before` if given.
+
+    Artifacts persist across attempts, so the deploying job's start time picks the one it used.
+    """
     found = api(gh, f"repos/{repo}/actions/runs/{run_id}/artifacts?name=image-digests&per_page=100")
-    arts = [
-        a
-        for a in found.get("artifacts", [])
-        if info["run_started_at"] <= a["created_at"] <= info["updated_at"]
-    ]
+    arts = [a for a in found.get("artifacts", []) if before is None or a["created_at"] <= before]
     if not arts:
-        msg = "not scannable: no image-digests artifact from the deployed run attempt"
+        msg = "not scannable: no image-digests artifact uploaded before the deploying job"
         raise LookupError(msg)
     art = max(arts, key=lambda a: a["created_at"])
     if art.get("expired"):
@@ -150,9 +144,9 @@ def attempt_artifact(gh: Gh, repo: str, run_id: int, attempt: int | None) -> dic
         return {Path(n).name: z.read(n) for n in z.namelist() if not n.endswith("/")}
 
 
-def from_attempt(gh: Gh, repo: str, run_id: int, attempt: int | None) -> Images:
+def from_run(gh: Gh, repo: str, run_id: int, before: str | None) -> Images:
     try:
-        files = attempt_artifact(gh, repo, run_id, attempt)
+        files = run_artifact(gh, repo, run_id, before)
     except Expired:
         raise LookupError(EXPIRED) from None
     if DIGESTS_FILE not in files or REFS_FILE not in files:
@@ -174,7 +168,7 @@ def from_tag_run(gh: Gh, repo: str, tag: str) -> Images:
     last: LookupError | None = None
     for run in mine:
         try:
-            return from_attempt(gh, repo, run["id"], run.get("run_attempt"))
+            return from_run(gh, repo, run["id"], None)
         except LookupError as err:
             last = err
     raise last or LookupError(EXPIRED)
@@ -195,17 +189,19 @@ def deployed(gh: Gh, repo: str, env: str) -> Images | None:
         if not statuses or statuses[0].get("state") != "success":
             continue
         url = str(statuses[0].get("log_url") or statuses[0].get("target_url") or "")
-        run_id, attempt = parse_run_url(url, repo)
-        path = str(api(gh, attempt_path(repo, run_id, attempt)).get("path", "")).split("@")[0]
-        if path == OPS_WORKFLOW:
-            jobs = api(gh, attempt_path(repo, run_id, attempt) + "/jobs").get("jobs", [])
-            if any(str(j.get("name", "")).startswith("rollback") for j in jobs):
-                raise LookupError(ROLLBACK)
-        elif path == RELEASE_WORKFLOW:
+        run_id, job_id = parse_run_url(url, repo)
+        job = api(gh, f"repos/{repo}/actions/jobs/{job_id}")
+        if job.get("run_id") != run_id:
+            msg = "not scannable: the deployment's job does not belong to its run"
+            raise LookupError(msg)
+        path = str(api(gh, f"repos/{repo}/actions/runs/{run_id}").get("path", "")).split("@")[0]
+        if path == OPS_WORKFLOW:  # it records a deployment only for a rollback
+            raise LookupError(ROLLBACK)
+        if path == RELEASE_WORKFLOW:
             ref = str(dep.get("ref", ""))
             release = release_by_tag(gh, repo, ref) if ref.startswith("v") else None
             built = from_release(gh, repo, release) if release else None
-            return built or from_attempt(gh, repo, run_id, attempt)
+            return built or from_run(gh, repo, run_id, str(job["started_at"]))
     return None
 
 

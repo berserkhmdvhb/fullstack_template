@@ -28,7 +28,7 @@ from typing import Any
 from rescan_collect import Gh, run_gh
 
 LABEL = "vuln"
-AUTHOR = "app/github-actions"  # only issues the workflow token made count as ours
+APP = "github-actions"  # only issues the workflow token made count as ours
 MAX_NEW = 20
 SEVERITIES = ("Critical", "High")
 SLA_DAYS = {"Critical": 7, "High": 30}
@@ -138,8 +138,8 @@ def open_issues(gh: Gh) -> dict[str, dict[str, Any]]:
         "list",
         "--label",
         LABEL,
-        "--author",
-        AUTHOR,
+        "--app",
+        APP,
         "--state",
         "open",
         "--limit",
@@ -162,7 +162,10 @@ def report(gh: Gh, digests: dict[str, Any], findings_dir: Path) -> tuple[list[st
     ensure_label(gh)
     existing = open_issues(gh)
     created = 0
-    for key, entry in sorted(found.items()):
+    # Critical before high, then by key, so the cap never defers a critical finding.
+    for key, entry in sorted(
+        found.items(), key=lambda kv: (kv[1]["severity"] != "Critical", kv[0])
+    ):
         body = body_of(key, entry)
         title = f"{entry['id']} in {entry['package']}"
         old = existing.get(key)

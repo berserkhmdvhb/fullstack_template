@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import io
 import json
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -74,25 +75,22 @@ class Api:
             {"id": i, "ref": ref, "sha": sha} for i, ref, sha, _ in deps
         ]
         for i, _, _, url in deps:
+            m = re.search(r"/runs/(\d+)/job/(\d+)$", url)
+            if m and f"repos/{REPO}/actions/jobs/{m[2]}" not in self.routes:
+                self.job(int(m[2]), int(m[1]))
             status = {"state": "failure"} if url == "failure" else {"state": "success"}
             if url != "failure":
                 status["log_url"] = url
             self.routes[f"repos/{REPO}/deployments/{i}/statuses"] = [status]
 
-    def run(
-        self, run_id: int, attempt: int | None, path: str, window: tuple[str, str] = (T0, T3)
-    ) -> None:
-        base = f"repos/{REPO}/actions/runs/{run_id}"
-        self.routes[base + (f"/attempts/{attempt}" if attempt else "")] = {
-            "path": path,
-            "run_started_at": window[0],
-            "updated_at": window[1],
-        }
+    def run(self, run_id: int, path: str) -> None:
+        self.routes[f"repos/{REPO}/actions/runs/{run_id}"] = {"id": run_id, "path": path}
 
-    def jobs(self, run_id: int, attempt: int | None, *names: str) -> None:
-        base = f"repos/{REPO}/actions/runs/{run_id}"
-        self.routes[base + (f"/attempts/{attempt}" if attempt else "") + "/jobs"] = {
-            "jobs": [{"name": n} for n in names]
+    def job(self, job_id: int, run_id: int, started: str = T2) -> None:
+        self.routes[f"repos/{REPO}/actions/jobs/{job_id}"] = {
+            "id": job_id,
+            "run_id": run_id,
+            "started_at": started,
         }
 
     def artifact(
@@ -129,8 +127,8 @@ def test_a_deployment_is_mapped_through_its_status_url_to_the_release_run_artifa
     api: Api,
 ) -> None:
     m = _mod()
-    api.deploy("dev", (7, "main", "aaa", f"{URL}/100"))
-    api.run(100, None, RELEASE_PATH)
+    api.deploy("dev", (7, "main", "aaa", f"{URL}/100/job/1001"))
+    api.run(100, RELEASE_PATH)
     api.artifact(100, 1000, _digests(D1))
     images, bad, notes = m.collect(api, REPO)
     assert bad == []
@@ -143,46 +141,68 @@ def test_a_deployment_is_mapped_through_its_status_url_to_the_release_run_artifa
 
 def test_the_latest_deployment_whose_latest_status_is_success_is_used(api: Api) -> None:
     m = _mod()
-    api.deploy("qa", (9, "main", "new", "failure"), (8, "main", "old", f"{URL}/100"))
-    api.run(100, None, RELEASE_PATH)
+    api.deploy("qa", (9, "main", "new", "failure"), (8, "main", "old", f"{URL}/100/job/1001"))
+    api.run(100, RELEASE_PATH)
     api.artifact(100, 1000, _digests(D2))
     images, _, _ = m.collect(api, REPO)
     assert set(images) == {D2}
 
 
-def test_an_ops_check_deployment_newer_than_the_release_one_is_ignored(api: Api) -> None:
+def test_any_ops_deployment_is_a_rollback_whatever_its_jobs_are_called(api: Api) -> None:
     m = _mod()
-    api.deploy("production", (9, "main", "mainhead", f"{URL}/200"), (8, "v1", "tag", f"{URL}/100"))
-    api.run(200, None, OPS_PATH)
-    api.jobs(200, None, "check (production)")
-    api.run(100, None, RELEASE_PATH)
-    api.artifact(100, 1000, _digests(D1))
-    images, bad, _ = m.collect(api, REPO)
-    assert bad == []
-    assert images[D1]["where"] == ["production"]
-
-
-def test_a_rollback_is_reported_and_the_digest_is_not_guessed(api: Api) -> None:
-    m = _mod()
-    api.deploy("production", (9, "main", "x", f"{URL}/200"), (8, "v1", "tag", f"{URL}/100"))
-    api.run(200, None, OPS_PATH)
-    api.jobs(200, None, "rollback (production)")
+    api.deploy(
+        "production", (9, "main", "x", f"{URL}/200/job/2"), (8, "v1", "tag", f"{URL}/100/job/1")
+    )
+    api.run(200, OPS_PATH)
     images, bad, _ = m.collect(api, REPO)
     assert images == {}
     assert bad[0]["where"] == "production"
     assert ROLLBACK in bad[0]["reason"]
     assert "redeploy or inspect the cluster" in bad[0]["reason"]
     assert not any("/runs/100" in p for p in api.paths)
+    assert not any(p.endswith("/jobs") for p in api.paths)  # no job-name heuristic
 
 
-def test_a_rerun_uses_the_artifact_of_the_attempt_that_deployed(api: Api) -> None:
+def test_a_rerun_of_failed_jobs_still_finds_the_artifact_of_the_first_attempt(api: Api) -> None:
     m = _mod()
-    api.deploy("dev", (7, "main", "aaa", f"{URL}/100/attempts/1"))
-    api.run(100, 1, RELEASE_PATH, window=(T0, T1))
-    api.artifact(100, 1001, _digests(D1), created=T0)  # the attempt that deployed
-    api.artifact(100, 1002, _digests(D2), created=T3)  # a later re-run, other digests
+    api.deploy("dev", (7, "main", "aaa", f"{URL}/100/job/5"))
+    api.job(5, 100, started=T3)  # the deploy job ran in a later attempt
+    api.run(100, RELEASE_PATH)
+    api.artifact(100, 1001, _digests(D1), created=T1)  # uploaded once, kept by the re-run
+    images, bad, _ = m.collect(api, REPO)
+    assert bad == []
+    assert set(images) == {D1}
+
+
+def test_a_rerun_of_all_jobs_does_not_hand_new_digests_to_an_older_deployment(api: Api) -> None:
+    m = _mod()
+    api.deploy("production", (7, "v1", "aaa", f"{URL}/100/job/5"))
+    api.job(5, 100, started=T1)  # the success record is from the first attempt
+    api.run(100, RELEASE_PATH)
+    api.artifact(100, 1001, _digests(D1), created=T0)  # the first attempt
+    api.artifact(100, 1002, _digests(D2), created=T3)  # a re-run, its deploy still pending
     images, _, _ = m.collect(api, REPO)
     assert set(images) == {D1}
+
+
+def test_no_artifact_from_before_the_deploy_job_is_reported_not_guessed(api: Api) -> None:
+    m = _mod()
+    api.deploy("dev", (7, "main", "aaa", f"{URL}/100/job/5"))
+    api.job(5, 100, started=T1)
+    api.run(100, RELEASE_PATH)
+    api.artifact(100, 1002, _digests(D2), created=T3)
+    images, bad, _ = m.collect(api, REPO)
+    assert images == {}
+    assert "no image-digests artifact uploaded before the deploying job" in bad[0]["reason"]
+
+
+def test_a_job_that_belongs_to_another_run_is_reported(api: Api) -> None:
+    m = _mod()
+    api.deploy("dev", (7, "main", "aaa", f"{URL}/100/job/5"))
+    api.job(5, 999)
+    images, bad, _ = m.collect(api, REPO)
+    assert images == {}
+    assert "does not belong" in bad[0]["reason"]
 
 
 @pytest.mark.parametrize(
@@ -191,7 +211,9 @@ def test_a_rerun_uses_the_artifact_of_the_attempt_that_deployed(api: Api) -> Non
         "https://example.com/o/r/actions/runs/100",
         f"https://github.com/other/repo/actions/runs/100",  # noqa: F541
         f"{URL}/abc",
-        f"{URL}/100/attempts/x",
+        f"{URL}/100/attempts/1",  # the shape GitHub never sends
+        f"{URL}/100/job/x",
+        f"{URL}/100",
         "",
     ],
 )
@@ -206,8 +228,8 @@ def test_a_malformed_status_url_is_reported(api: Api, url: str) -> None:
 
 def test_a_run_of_another_workflow_is_not_trusted(api: Api) -> None:
     m = _mod()
-    api.deploy("dev", (7, "main", "aaa", f"{URL}/100"))
-    api.run(100, None, ".github/workflows/ci.yml")
+    api.deploy("dev", (7, "main", "aaa", f"{URL}/100/job/1001"))
+    api.run(100, ".github/workflows/ci.yml")
     images, bad, notes = m.collect(api, REPO)
     assert images == {}
     assert bad == []
@@ -226,8 +248,8 @@ def test_a_release_tag_deployment_prefers_the_release_assets_over_any_artifact(a
     d = _digests(D1)
     api.routes[f"repos/{REPO}/releases/assets/1"] = d["image-digests.env"].encode()
     api.routes[f"repos/{REPO}/releases/assets/2"] = d["scan.env"].encode()
-    api.deploy("production", (5, "v1.0.0", "sss", f"{URL}/100"))
-    api.run(100, None, RELEASE_PATH)
+    api.deploy("production", (5, "v1.0.0", "sss", f"{URL}/100/job/1001"))
+    api.run(100, RELEASE_PATH)
     images, bad, _ = m.collect(api, REPO)
     assert bad == []
     assert images[D1]["where"] == ["production"]
@@ -250,7 +272,7 @@ def test_the_latest_release_endpoint_is_used_and_falls_back_to_its_tag_run(api: 
             {"id": 400, "head_branch": "v1.0.0", "run_attempt": 1},
         ]
     }
-    api.run(400, 1, RELEASE_PATH)
+    api.run(400, RELEASE_PATH)
     api.artifact(400, 4000, _digests(D1))
     images, _, _ = m.collect(api, REPO)
     assert images[D1]["where"] == ["release v1.0.0"]
@@ -259,8 +281,8 @@ def test_the_latest_release_endpoint_is_used_and_falls_back_to_its_tag_run(api: 
 
 def test_an_expired_artifact_is_reported_not_skipped(api: Api) -> None:
     m = _mod()
-    api.deploy("dev", (7, "main", "aaa", f"{URL}/100"))
-    api.run(100, None, RELEASE_PATH)
+    api.deploy("dev", (7, "main", "aaa", f"{URL}/100/job/1001"))
+    api.run(100, RELEASE_PATH)
     api.artifact(100, 1000, _digests(D1), expired=True)
     images, bad, _ = m.collect(api, REPO)
     assert images == {}
@@ -269,8 +291,8 @@ def test_an_expired_artifact_is_reported_not_skipped(api: Api) -> None:
 
 def test_a_release_run_without_an_artifact_is_reported(api: Api) -> None:
     m = _mod()
-    api.deploy("dev", (7, "main", "aaa", f"{URL}/100"))
-    api.run(100, None, RELEASE_PATH)
+    api.deploy("dev", (7, "main", "aaa", f"{URL}/100/job/1001"))
+    api.run(100, RELEASE_PATH)
     api.routes[f"repos/{REPO}/actions/runs/100/artifacts?name=image-digests"] = {"artifacts": []}
     _, bad, _ = m.collect(api, REPO)
     assert bad[0]["where"] == "dev"
@@ -279,9 +301,9 @@ def test_a_release_run_without_an_artifact_is_reported(api: Api) -> None:
 
 def test_digests_are_deduplicated_across_environments_and_the_release(api: Api) -> None:
     m = _mod()
-    api.deploy("dev", (7, "main", "aaa", f"{URL}/100"))
-    api.deploy("qa", (8, "main", "aaa", f"{URL}/100"))
-    api.run(100, None, RELEASE_PATH)
+    api.deploy("dev", (7, "main", "aaa", f"{URL}/100/job/1001"))
+    api.deploy("qa", (8, "main", "aaa", f"{URL}/100/job/1001"))
+    api.run(100, RELEASE_PATH)
     api.artifact(100, 1000, _digests(D1))
     api.routes[f"repos/{REPO}/releases/latest"] = {
         "tag_name": "v1.0.0",
@@ -297,8 +319,8 @@ def test_digests_are_deduplicated_across_environments_and_the_release(api: Api) 
 
 def test_the_scan_input_carries_no_vex(api: Api, tmp_path: Path) -> None:
     m = _mod()
-    api.deploy("dev", (7, "main", "aaa", f"{URL}/100"))
-    api.run(100, None, RELEASE_PATH)
+    api.deploy("dev", (7, "main", "aaa", f"{URL}/100/job/1001"))
+    api.run(100, RELEASE_PATH)
     api.artifact(100, 1000, _digests(D1))
     images, bad, _ = m.collect(api, REPO)
     m.write(tmp_path, images, bad)
@@ -341,8 +363,8 @@ def test_main_writes_digests_json(
     api: Api, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     m = _mod()
-    api.deploy("dev", (7, "main", "aaa", f"{URL}/100"))
-    api.run(100, None, RELEASE_PATH)
+    api.deploy("dev", (7, "main", "aaa", f"{URL}/100/job/1001"))
+    api.run(100, RELEASE_PATH)
     api.artifact(100, 1000, _digests(D1))
     monkeypatch.setenv("GH_REPO", REPO)
     assert m.main(["x", str(tmp_path)], api) == 0
