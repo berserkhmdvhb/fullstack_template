@@ -15,11 +15,24 @@ import { mockApi } from './support/mock-api';
 
 const MIN = 3;
 
-/** Resolve once no CSS transition or animation is running (`getAnimations` flushes style, so a started one counts). */
-async function settled(page: Page): Promise<void> {
+/**
+ * Resolve once the dot's row (the card, or the table row) has no finite transition or animation running.
+ * `getAnimations` flushes style, so a transition that just started counts; an unrelated animation elsewhere
+ * on the page, or one that never ends, cannot hold the spec up.
+ */
+async function settled(page: Page, selector: string): Promise<void> {
+  const dot = page.locator(selector).first();
   await expect
     .poll(() =>
-      page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length),
+      dot.evaluate((el) => {
+        const row = el.closest('tr, li, article, [role="row"]') ?? el.parentElement ?? el;
+        return row
+          .getAnimations({ subtree: true })
+          .filter(
+            (a) =>
+              a.playState === 'running' && a.effect?.getComputedTiming().iterations !== Infinity,
+          ).length;
+      }),
     )
     .toBe(0);
 }
@@ -45,10 +58,10 @@ for (const theme of ['light', 'dark'] as const) {
         expect(await dotContrast(page, selector), `${status} at rest`).toBeGreaterThanOrEqual(MIN);
         await page.locator(selector).first().hover();
         // The row's background transitions for 150 ms; measure once it has settled.
-        await settled(page);
+        await settled(page, selector);
         expect(await dotContrast(page, selector), `${status} hovered`).toBeGreaterThanOrEqual(MIN);
         await page.mouse.move(0, 0);
-        await settled(page);
+        await settled(page, selector);
       }
     });
   }
