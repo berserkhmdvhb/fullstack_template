@@ -49,6 +49,7 @@
   --color-statusFailed: #ef4444;
   /* A fill for white text (6.5:1); statusFailed is only 3.8:1 against white. */
   --color-statusFailedStrong: #b91c1c;
+  --color-buttonPrimary: var(--color-button-primary);
   --color-statusUnknown: #6b7280;
 
   --background-image-bg-card: linear-gradient(to bottom right, #1e293b, #334155);
@@ -433,7 +434,7 @@ html.dark .table-row-hover:hover {
   }
 
   .btn-danger {
-    background: #ef4444;
+    background: var(--color-statusFailedStrong);
     color: #ffffff;
     transition:
       background-color 0.15s,
@@ -441,7 +442,7 @@ html.dark .table-row-hover:hover {
   }
 
   .btn-danger:hover {
-    background: #dc2626;
+    background: #991b1b;
   }
 
   .btn-danger:disabled {
@@ -462,14 +463,16 @@ html.dark .table-row-hover:hover {
     color: var(--color-text-primary);
   }
 
-  /* btn-danger overrides btn-ghost color when both classes present */
+  /* A ghost danger button: red text on the surface, a red fill with white text on hover. It comes after
+     .btn-ghost so the transparent ghost background can never turn white text invisible. */
   .btn-ghost.btn-danger {
-    color: #ffffff;
+    background: transparent;
+    color: var(--color-text-danger);
   }
 
   .btn-ghost.btn-danger:hover {
     color: #ffffff;
-    background: #dc2626;
+    background: var(--color-statusFailedStrong);
   }
 
   .btn-sm {

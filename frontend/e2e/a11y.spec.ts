@@ -12,7 +12,15 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
+import { lowContrastText } from './support/contrast';
+
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
+// axe cannot sample the background of table cells and row buttons that the items table's horizontal scroll box clips (or the
+// open delete dialog covers) on a phone ("partially obscured"). These selectors, and only these, may stay undecided there: the
+// measured-contrast backstop below still checks the same text from its computed styles.
+const CLIPPED_TABLE_CELLS =
+  /^(\.table-row-hover:nth-child\(\d+\) > (\.text-xs|td:nth-child\(3\) > \.badge-status > span:nth-child\(2\))|\.text-left:nth-child\([34]\)|button\[aria-label="(Edit|Delete) [^"]+"\]|thead > tr > \.text-right)$/;
+
 const THEMES = ['light', 'dark'] as const;
 const WIDTHS = { desktop: 1280, phone: 390 } as const;
 
@@ -100,6 +108,14 @@ const SCENARIOS: Scenario[] = [
       await expect(page.locator('[role="dialog"]')).toBeVisible();
     },
   },
+  {
+    name: '/ (skip link focused)',
+    path: '/',
+    arrange: async (page) => {
+      await page.keyboard.press('Tab');
+      await expect(page.locator('a[href="#main"]')).toBeFocused();
+    },
+  },
   { name: '/no-such-page', path: '/no-such-page', arrange: nothing },
 ];
 
@@ -125,6 +141,17 @@ for (const [size, width] of Object.entries(WIDTHS)) {
         await arrange(page);
 
         const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+
+        // axe files text it cannot resolve under `incomplete`; none of that may hide a contrast bug.
+        // Allowlist a node only with its selector and a reason (none is needed today).
+        const undecided = results.incomplete
+          .filter((v) => v.id === 'color-contrast')
+          .flatMap((v) => v.nodes)
+          .filter((n) => !(size === 'phone' && CLIPPED_TABLE_CELLS.test(n.target.join(' '))))
+          .map((n) => `${n.target.join(' ')}: ${n.failureSummary ?? ''}`);
+        expect(undecided).toEqual([]);
+        // The backstop: measured contrast of every visible text node, from computed styles.
+        expect(await lowContrastText(page)).toEqual([]);
 
         // A readable summary: the rule, the elements and axe's own explanation.
         expect(

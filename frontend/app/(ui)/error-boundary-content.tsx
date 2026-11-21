@@ -33,7 +33,7 @@ export function ErrorBoundaryContent({ error, reset }: Props): JSX.Element {
 
   return (
     <div className="card max-w-md space-y-4 text-center">
-      <h2 className="text-lg font-semibold text-white">Something went wrong</h2>
+      <h2 className="text-lg font-semibold text-textPrimary">Something went wrong</h2>
       <p className="text-textTertiary">
         An unexpected error occurred. You can try again or return home.
       </p>

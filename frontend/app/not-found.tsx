@@ -22,7 +22,7 @@ import type { JSX } from 'react';
 export default function NotFound(): JSX.Element {
   return (
     <div className="card max-w-md space-y-4 text-center mx-auto my-12">
-      <h2 className="text-lg font-semibold text-white">Page Not Found</h2>
+      <h2 className="text-lg font-semibold text-textPrimary">Page Not Found</h2>
       <p className="text-textTertiary">
         The page you&apos;re looking for doesn&apos;t exist or has been moved.
       </p>

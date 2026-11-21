@@ -77,7 +77,13 @@ const nonTypedTsBlock = {
 // ---- 2) Typed TS block: type-aware rules (excludes test files) ----
 const typedTsBlock = {
   files: ['**/*.{ts,tsx}'],
-  ignores: ['**/*.test.{ts,tsx}', '**/*.spec.{ts,tsx}', 'src/test/**', 'lib/api/types.gen.d.ts'],
+  ignores: [
+    '**/*.test.{ts,tsx}',
+    '**/*.spec.{ts,tsx}',
+    'src/test/**',
+    'e2e/**',
+    'lib/api/types.gen.d.ts',
+  ],
   languageOptions: {
     parser: tseslint.parser,
     parserOptions: {
