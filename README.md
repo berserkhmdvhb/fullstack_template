@@ -130,7 +130,8 @@ make compose-build-backend compose-build-frontend compose-build-nginx
 # Build and push images (registry flow — see wiki/containerization.md)
 #   …<registry>/your-service-name:<tag>
 
-# Deploy with the Helm chart (reads charts/your-service-name/values.production.yaml)
+# Deploy with the Helm chart (reads charts/your-service-name/values.production.yaml).
+# Production needs an auth mode first: wiki/getting-started.md#production-needs-an-auth-mode
 helm upgrade --install your-service-name ./charts/your-service-name \
   -f ./charts/your-service-name/values.production.yaml \
   --namespace your-service-name --create-namespace

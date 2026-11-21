@@ -32,10 +32,9 @@ config:
   ENV: production
   DEBUG: "false"
   LOG_LEVEL: WARNING
-  # The reference CRUD has no authentication until you choose a mode: with ENV=production the
-  # backend refuses to start on AUTH_MODE=none unless this is explicit. Set AUTH_MODE
-  # (gateway or bearer; see wiki/environment-variables.md) and delete this line to secure it.
-  ALLOW_ANONYMOUS: "true"
+  # An auth mode is REQUIRED in production: with ENV=production the backend refuses to start on
+  # AUTH_MODE=none. Choose one (gateway or bearer; see wiki/environment-variables.md), for example:
+  # AUTH_MODE: gateway
   # Same-origin, versioned: the browser calls /api/v1 and the Next.js server
   # proxies it to BACKEND_URL (set in the ConfigMap). Relative => one bundle
   # for every environment; no build-time API URL to inject per env.

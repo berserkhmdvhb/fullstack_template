@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from your_service_name.backend.settings import Settings
 
@@ -40,9 +41,33 @@ def test_other_environments_are_not_production(env: str) -> None:
     assert not Settings(ENV=_config(env)["ENV"]).is_production
 
 
-@pytest.mark.parametrize("env", ["dev", "qa", "production", "local"])
-def test_every_environment_configuration_starts_the_backend(env: str) -> None:
-    """The ConfigMap + chart-assembled DATABASE_URL pass Settings validation in each env."""
+def _chart_settings(env: str, **extra: str) -> Settings:
+    """Settings as the backend sees them in ``env``: ConfigMap + chart DATABASE_URL + ``extra``."""
     config = {k: v for k, v in _config(env).items() if k in Settings.model_fields}
     config.setdefault("DATABASE_URL", CHART_DATABASE_URL)
-    Settings(**config)
+    return Settings(**{**config, **extra})
+
+
+@pytest.mark.parametrize("env", ["dev", "qa", "local"])
+def test_non_production_configuration_starts_the_backend(env: str) -> None:
+    """The ConfigMap + chart-assembled DATABASE_URL pass Settings validation."""
+    _chart_settings(env)
+
+
+def test_production_refuses_to_start_until_an_auth_mode_is_chosen() -> None:
+    """The template does not choose anonymous production for the adopter; only auth is missing."""
+    with pytest.raises(ValidationError) as excinfo:
+        _chart_settings("production")
+    text = str(excinfo.value)
+    assert "AUTH_MODE" in text
+    assert "ALLOW_ANONYMOUS" in text
+    for other in ("DATABASE_URL", "CORS_", "API_DOCS_URL", "OPENAPI_URL", "TEST_DATABASE_URL"):
+        assert other not in text
+
+
+def test_production_starts_once_an_auth_mode_is_added() -> None:
+    assert _chart_settings("production", AUTH_MODE="gateway").AUTH_MODE == "gateway"
+
+
+def test_production_values_do_not_opt_in_to_anonymous() -> None:
+    assert "ALLOW_ANONYMOUS" not in _config("production")

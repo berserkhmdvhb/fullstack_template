@@ -202,7 +202,9 @@ class Settings(BaseSettings):
     TEST_DATABASE_URL: SecretStr | None = Field(
         default=None,
         description="Test-only: database URL that takes precedence over DATABASE_URL.",
-        json_schema_extra={"production": "Counts as the database URL, so it is checked too."},
+        json_schema_extra={
+            "production": "Refused when set: it is test-only and would take precedence."
+        },
     )
     SQLITE_PATH: str = Field(
         default=DEFAULT_SQLITE_REL_PATH,
@@ -356,11 +358,16 @@ class Settings(BaseSettings):
         """The checks that apply only when ENV is production."""
         problems: list[str] = []
 
-        url = self.database_url
-        if url is None or url.strip().lower().startswith("sqlite"):
+        url = self.DATABASE_URL.get_secret_value() if self.DATABASE_URL is not None else ""
+        if not url.strip() or url.strip().lower().startswith("sqlite"):
             problems.append(
                 "DATABASE_URL: SQLite (or no database) is refused in production; set DATABASE_URL "
-                "to a PostgreSQL URL, and unset TEST_DATABASE_URL, which takes precedence"
+                "to a PostgreSQL URL"
+            )
+        if self.TEST_DATABASE_URL is not None:
+            problems.append(
+                "TEST_DATABASE_URL: test-only, and it takes precedence over DATABASE_URL; "
+                "unset it in production"
             )
 
         origins = self.CORS_ORIGINS

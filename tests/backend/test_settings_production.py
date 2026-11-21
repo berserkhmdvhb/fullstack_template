@@ -95,6 +95,34 @@ class TestDatabase:
         with pytest.raises(ValidationError, match="DATABASE_URL"):
             Settings()
 
+    def test_a_postgres_test_database_url_cannot_stand_in_for_database_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """TEST_DATABASE_URL wins in the engine, so it must never satisfy the production check."""
+        _production(monkeypatch, TEST_DATABASE_URL=POSTGRES_URL)
+        monkeypatch.delenv("DATABASE_URL")
+        with pytest.raises(ValidationError) as excinfo:
+            Settings()
+        assert "DATABASE_URL" in str(excinfo.value)
+        assert "TEST_DATABASE_URL" in str(excinfo.value)
+
+    def test_test_database_url_alongside_database_url_is_refused_not_ignored(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        text = _refused(monkeypatch, "TEST_DATABASE_URL", TEST_DATABASE_URL=POSTGRES_URL)
+        assert "test-only" in text
+
+    def test_database_url_itself_is_checked_even_with_a_test_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _production(
+            monkeypatch,
+            DATABASE_URL="sqlite+aiosqlite:///x.db",
+            TEST_DATABASE_URL=POSTGRES_URL,
+        )
+        with pytest.raises(ValidationError, match="SQLite"):
+            Settings()
+
     def test_the_refusal_does_not_echo_the_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         text = self._refused_url(monkeypatch, f"sqlite:///{FAKE_DB_PASSWORD}.db")
         assert FAKE_DB_PASSWORD not in text

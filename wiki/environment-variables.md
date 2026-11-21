@@ -79,7 +79,7 @@ the rules are on there.
 | `AUTH_JWT_ALGORITHM` | str | `HS256` | Bearer mode: HMAC algorithm (`HS256`, `HS384` or `HS512`). | — |
 | `AUTH_JWT_USER_ID_CLAIM` | str | `sub` | Bearer mode: token claim holding the user id. | — |
 | `DATABASE_URL` | secret | (secret) | Async SQLAlchemy database URL. Unset falls back to SQLite (SQLITE_PATH). | Required, and not SQLite. |
-| `TEST_DATABASE_URL` | secret | (secret) | Test-only: database URL that takes precedence over DATABASE_URL. | Counts as the database URL, so it is checked too. |
+| `TEST_DATABASE_URL` | secret | (secret) | Test-only: database URL that takes precedence over DATABASE_URL. | Refused when set: it is test-only and would take precedence. |
 | `SQLITE_PATH` | str | `data/items.db` | SQLite fallback file, relative to the project root. | Ignored: SQLite is refused. |
 | `DB_POOL_SIZE` | int | `10` | PostgreSQL connection pool size; a non-positive or invalid value falls back to the default. | — |
 | `DB_MAX_OVERFLOW` | int | `20` | PostgreSQL pool overflow; a non-positive or invalid value falls back to the default. | — |
@@ -249,7 +249,7 @@ config:
   ENV: production
   DEBUG: "false"
   LOG_LEVEL: WARNING
-  ALLOW_ANONYMOUS: "true"   # remove once AUTH_MODE is set; see Backend settings
+  # An auth mode is required in production, e.g. AUTH_MODE: gateway (see Backend settings)
   NEXT_PUBLIC_API_URL: "/api/v1"
 ```
 
