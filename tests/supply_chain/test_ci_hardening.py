@@ -305,17 +305,19 @@ def test_no_step_puts_a_venv_bin_on_github_path() -> None:
                     )
 
 
-def test_hardening_lint_runs_with_the_setup_backend_interpreter() -> None:
+def test_hardening_lint_runs_with_a_hashed_pyyaml_venv_not_setup_backend() -> None:
     from tests.supply_chain._workflows import workflow  # noqa: PLC0415
 
     steps = workflow("ci.yml")["jobs"]["workflows"]["steps"]
+    assert not any(s.get("uses") == "./.github/actions/setup-backend" for s in steps)
     lint = next(i for i, s in enumerate(steps) if s.get("name") == "CI hardening lint")
-    setup = next(
-        i for i, s in enumerate(steps) if s.get("uses") == "./.github/actions/setup-backend"
+    assert any(_installs_pyyaml(s) for s in steps[:lint])
+    # The venv's bin is prefixed in the run line itself: never on GITHUB_PATH, never a step env.
+    assert (
+        steps[lint]["run"].strip()
+        == 'PATH="$RUNNER_TEMP/pyyaml/bin:$PATH" infra/security/check-ci-hardening.sh'
     )
-    assert setup < lint
     assert "env" not in steps[lint]
-    assert not any("venv" in s.get("run", "") for s in steps[setup + 1 : lint])
 
 
 def _installs_pyyaml(step: dict[str, str]) -> bool:

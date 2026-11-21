@@ -126,6 +126,35 @@ jobs:
           LIB_TS=0 bats infra/security/local/tests/
           bats tests/scripts/
 
+  # Blocking, always runs: every tracked Dockerfile through the pinned hadolint (scripts/tools.sh).
+  hadolint:
+    name: Dockerfile lint (hadolint)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The cache is restored everywhere but saved only from a push to main, never from a pull request or a tag.
+      - id: tools-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+      - name: Install hadolint
+        run: |
+          scripts/tools.sh install hadolint
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.tools-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+      - name: hadolint
+        run: bash scripts/ci/hadolint.sh
+
   # Blocking, always runs (no paths gate): the hardening lint, actionlint and zizmor over .github/.
   workflows:
     name: Workflow hardening
@@ -137,14 +166,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-backend
       - name: Install actionlint
         run: |
           scripts/tools.sh install actionlint
           echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
-      # The lint uses setup-backend's interpreter (PyYAML comes from the develop extras), so no step may put a venv's bin on GITHUB_PATH before it.
+      # PyYAML for the lint comes from a hashed venv; its bin goes on PATH for this one command only (never GITHUB_PATH).
+      - name: Install PyYAML for the hardening lint
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pyyaml"
+          "$RUNNER_TEMP/pyyaml/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pyyaml.txt
       - name: CI hardening lint
-        run: infra/security/check-ci-hardening.sh
+        run: PATH="$RUNNER_TEMP/pyyaml/bin:$PATH" infra/security/check-ci-hardening.sh
       - name: actionlint
         run: actionlint
       - name: Install zizmor
@@ -167,7 +199,7 @@ jobs:
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, chart, backend, frontend, live, security, repo, workflows]
+    needs: [changes, chart, backend, frontend, live, security, repo, hadolint, workflows]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
