@@ -33,7 +33,7 @@ from typing import Final
 # The shared rewrite engine lives in this directory; ``infra/`` is not a package,
 # so put this dir on sys.path before importing it (same trick as the name adapter).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import rewrite_tree
+from _common import DEFAULT_INCLUDE_EXTS, load_excludes, rewrite_tree
 
 OLD_DOMAIN: Final[str] = "your-domain.example"
 OLD_REGISTRY: Final[str] = "registry.your-domain.example"
@@ -78,14 +78,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Show changes only")
     parser.add_argument(
         "--include-exts",
-        default=".py,.sh,.yml,.yaml,.toml,.cfg,.ini,.env,.def",
+        default=DEFAULT_INCLUDE_EXTS,
         help="Comma-separated list of file extensions to edit",
     )
     parser.add_argument(
         "--exclude-dirs",
-        default=".git,.venv,venv,__pycache__,.mypy_cache,.ruff_cache,.pytest_cache,"
-        "infra/adapt,.adapt-backup,wiki",
-        help="Comma-separated list of directories (relative) to skip",
+        default=None,
+        help="Comma-separated paths (relative) to skip (default: infra/adapt/excludes.txt)",
     )
     parser.add_argument("--backup-dir", required=True, help="Backup base directory")
     return parser.parse_args()
@@ -95,7 +94,11 @@ def main() -> int:
     args = parse_args()
 
     include_exts: set[str] = {e.strip().lower() for e in args.include_exts.split(",") if e.strip()}
-    excludes: set[str] = {e.strip() for e in args.exclude_dirs.split(",") if e.strip()}
+    excludes: set[str] = (
+        {e.strip() for e in args.exclude_dirs.split(",") if e.strip()}
+        if args.exclude_dirs
+        else load_excludes()
+    )
     config = _Config(include_exts, excludes, Path(args.backup_dir), dry=args.dry_run)
     root: Path = Path(args.root) if args.root else Path.cwd()
 

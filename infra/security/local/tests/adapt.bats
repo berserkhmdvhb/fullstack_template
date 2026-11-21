@@ -122,6 +122,15 @@ YAML
   grep -qF 'your_service_name' "$ROOT/infra/adapt/keep.py"  # excluded dir untouched
 }
 
+@test "service-name: rewrites .env.example, skips a path listed in excludes.txt" {
+  printf 'BACKEND_ENTRY=your_service_name.backend.main:app\n' > "$ROOT/.env.example"
+  mkdir -p "$ROOT/agent"; printf 'from your_service_name import x\n' > "$ROOT/agent/keep.py"
+  run bash "$SCRIPT" --root "$ROOT" -n acme
+  [ "$status" -eq 0 ]
+  grep -qF 'BACKEND_ENTRY=acme.backend.main:app' "$ROOT/.env.example"
+  grep -qF 'your_service_name' "$ROOT/agent/keep.py"
+}
+
 @test "service-name: real run backs up every touched file" {
   printf 'from your_service_name import echo\n' > "$ROOT/echo.py"
   run bash "$SCRIPT" --root "$ROOT" -n acme

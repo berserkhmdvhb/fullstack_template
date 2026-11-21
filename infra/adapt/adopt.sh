@@ -65,13 +65,10 @@ else
 fi
 [ "${DRY_RUN}" != "true" ] && mkdir -p "${BACKUP_DIR}"
 
-# Reuse the name adapter's file selection so both steps touch the same tree.
-INCLUDE_EXTS=".py,.sh,.yml,.yaml,.toml,.cfg,.ini,.env,.def"
-EXCLUDE_DIRS=".git,.venv,venv,__pycache__,.mypy_cache,.ruff_cache,.pytest_cache,infra/adapt,.adapt-backup,wiki"
+# Reuse the name adapter's file selection so both steps touch the same tree (the file types and
+# excluded paths come from _common.py and infra/adapt/excludes.txt, read by both Python scripts).
 
 common_args=(
-  --include-exts "${INCLUDE_EXTS}"
-  --exclude-dirs "${EXCLUDE_DIRS}"
   --backup-dir   "${BACKUP_DIR}"
 )
 [ -n "${ADAPT_ROOT}" ] && common_args+=( --root "${ADAPT_ROOT}" )

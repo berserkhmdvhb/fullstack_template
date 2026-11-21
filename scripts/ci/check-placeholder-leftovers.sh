@@ -3,8 +3,8 @@
 #
 # Template mode: src/<placeholder>/ is still tracked, so the placeholder is meant to be there; pass.
 # Adopted mode: the package was renamed, so any tracked path or text that still says
-# `your_service_name` / `your-service-name` is a missed rename; list it and fail.
-# Allowed to keep the placeholder: the adapt tooling and its tests, the changelog, and this gate.
+# placeholder name (underscore or hyphen form) is a missed rename; list it and fail.
+# Allowed to keep the placeholder: the paths in infra/adapt/excludes.txt (what the adapter leaves alone).
 #
 # Run from the repo root (pre-commit does). The placeholders are spelled in two pieces so the
 # adapt tooling, which rewrites this very file, can never turn them into the new name.
@@ -18,13 +18,11 @@ if [[ -n "$(git ls-files -- "src/${under}")" ]]; then
   exit 0
 fi
 
-allow=(
-  ':(exclude)infra/adapt'
-  ':(exclude)infra/security/local/tests/adapt.bats'
-  ':(exclude)wiki/changelog.md'
-  ':(exclude)scripts/ci/check-placeholder-leftovers.sh'
-  ':(exclude)tests/scripts/placeholder-leftovers.bats'
-)
+# The paths the adapter never rewrites: the one list infra/adapt/excludes.txt, read by the adapter too.
+allow=()
+while IFS= read -r line; do
+  [[ -z "$line" || "$line" == \#* ]] || allow+=(":(exclude)$line")
+done < infra/adapt/excludes.txt
 
 hits="$(git grep -nIF -e "$under" -e "$dash" -- . "${allow[@]}" || true)"
 paths="$(git ls-files -- . "${allow[@]}" | grep -F -e "$under" -e "$dash" || true)"

@@ -1,0 +1,25 @@
+# Paths the adapt scripts never rewrite (one per line, relative to the repo root; a directory
+# covers everything under it). This is the single list: replace_service_name.py, adopt_stamp.py and
+# scripts/ci/check-placeholder-leftovers.sh all read it, so the leftover check allows exactly what
+# the adapter leaves alone.
+#
+# Caches and tooling:
+.git
+.venv
+venv
+__pycache__
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.adapt-backup
+frontend/node_modules
+# The adapter itself and its tests:
+infra/adapt
+infra/security/local/tests/adapt.bats
+# Instructional text that explains the placeholder to template contributors:
+wiki
+agent
+README.md
+CONTRIBUTING.md
+CONVENTIONS.md
+AGENTS.md

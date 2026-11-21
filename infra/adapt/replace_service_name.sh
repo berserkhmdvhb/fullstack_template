@@ -29,8 +29,10 @@ NEW_NAME=""
 OLD_NAME="${OLD_NAME:-}"
 DRY_RUN="${DRY_RUN:-false}"
 ADAPT_ROOT="${ADAPT_ROOT:-}"
-INCLUDE_EXTS="${INCLUDE_EXTS:-.py,.sh,.yml,.yaml,.toml,.cfg,.ini,.env,.def}"
-EXCLUDE_DIRS="${EXCLUDE_DIRS:-.git,.venv,venv,__pycache__,.mypy_cache,.ruff_cache,.pytest_cache,infra/adapt,.adapt-backup,wiki}"
+# Empty: the file types come from DEFAULT_INCLUDE_EXTS in _common.py (set INCLUDE_EXTS to override).
+INCLUDE_EXTS="${INCLUDE_EXTS:-}"
+# Empty: the excluded paths come from infra/adapt/excludes.txt (set EXCLUDE_DIRS to override).
+EXCLUDE_DIRS="${EXCLUDE_DIRS:-}"
 
 print_usage() {
   cat <<'EOF'
@@ -88,10 +90,10 @@ PY="${SCRIPT_DIR}/replace_service_name.py"   # your Ruff-clean Python
 args=(
   --new          "${NEW_NAME}"
   --old          "${OLD_NAME}"
-  --include-exts "${INCLUDE_EXTS}"
-  --exclude-dirs "${EXCLUDE_DIRS}"
   --backup-dir   "${BACKUP_DIR}"
 )
+[ -n "${INCLUDE_EXTS}" ] && args+=( --include-exts "${INCLUDE_EXTS}" )
+[ -n "${EXCLUDE_DIRS}" ] && args+=( --exclude-dirs "${EXCLUDE_DIRS}" )
 [ -n "${ADAPT_ROOT}" ] && args+=( --root "${ADAPT_ROOT}" )
 [[ "${DRY_RUN}" == "true" ]] && args+=( --dry-run )
 

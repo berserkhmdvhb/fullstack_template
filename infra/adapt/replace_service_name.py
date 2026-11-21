@@ -21,9 +21,11 @@ from pathlib import Path
 # path -- put this directory on sys.path before importing the sibling `_common`.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import (
+    DEFAULT_INCLUDE_EXTS,
     VALID_NAME_RE,
     backup_file,
     detect_images,
+    load_excludes,
     os_walk_safe,
     rewrite_images_block,
     rewrite_services_block,
@@ -544,14 +546,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Show changes only")
     parser.add_argument(
         "--include-exts",
-        default=".py,.sh,.yml,.yaml,.toml,.cfg,.ini,.env,.def",
+        default=DEFAULT_INCLUDE_EXTS,
         help="Comma-separated list of file extensions to edit",
     )
     parser.add_argument(
         "--exclude-dirs",
-        default=".git,.venv,venv,__pycache__,.mypy_cache,.ruff_cache,.pytest_cache,"
-        "infra/adapt,.adapt-backup,wiki,frontend/node_modules",
-        help="Comma-separated list of directories (relative) to skip",
+        default=None,
+        help="Comma-separated paths (relative) to skip (default: infra/adapt/excludes.txt)",
     )
     parser.add_argument("--backup-dir", required=True, help="Backup base directory")
     return parser.parse_args()
@@ -565,7 +566,11 @@ def main() -> int:
     dry: bool = args.dry_run
 
     include_exts: set[str] = {e.strip().lower() for e in args.include_exts.split(",") if e.strip()}
-    exclude_dirs: set[str] = {e.strip() for e in args.exclude_dirs.split(",") if e.strip()}
+    exclude_dirs: set[str] = (
+        {e.strip() for e in args.exclude_dirs.split(",") if e.strip()}
+        if args.exclude_dirs
+        else load_excludes()
+    )
     backup: Path = Path(args.backup_dir)
 
     # Validate new name

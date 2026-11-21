@@ -45,6 +45,17 @@ def norm_rel(p: Path) -> str:
     return str(p.as_posix().rstrip("/"))
 
 
+# The file types the adapters rewrite (the default of every --include-exts flag).
+DEFAULT_INCLUDE_EXTS: Final = ".py,.sh,.yml,.yaml,.toml,.cfg,.ini,.env,.def,.json,.ts,.bats,.md"
+EXCLUDES_FILE: Final = Path(__file__).with_name("excludes.txt")
+
+
+def load_excludes() -> set[str]:
+    """Paths the adapters never rewrite: the lines of ``excludes.txt`` (``#`` comments skipped)."""
+    lines = (ln.strip() for ln in EXCLUDES_FILE.read_text(encoding="utf-8").splitlines())
+    return {ln for ln in lines if ln and not ln.startswith("#")}
+
+
 def is_excluded(rel_path: Path, excludes: set[str]) -> bool:
     """Return ``True`` when *rel_path* matches (or is nested under) any exclusion."""
     rp = norm_rel(rel_path)
@@ -77,6 +88,8 @@ def iter_files(root: Path, excludes: set[str]) -> Iterable[tuple[str, Path]]:
         for fn in filenames:
             full = dirpath / fn
             relf = full.relative_to(root)
+            if is_excluded(relf, excludes):
+                continue
             yield (str(relf.as_posix()), full)
 
 
@@ -87,7 +100,10 @@ def should_edit(name: str, include_exts: set[str]) -> bool:
     # NOT a real extension, so the extension filter below would wrongly skip it --
     # which would leave the build-script patterns (SETUPTOOLS_SCM_PRETEND_VERSION
     # _FOR_<NAME>, image-name defaults, …) dead for the very files they target.
-    if name == "Makefile" or name.startswith("Dockerfile"):
+    # A ".example" template (.env.example, values.secret.yaml.example) is judged by the name
+    # under it; the dotfiles have no usable suffix, so they are matched by name.
+    name = name.removesuffix(".example")
+    if name in {"Makefile", ".env", ".prettierignore"} or name.startswith(("Dockerfile", ".env.")):
         return True
     # Otherwise filter by extension
     ext = Path(name).suffix.lower()

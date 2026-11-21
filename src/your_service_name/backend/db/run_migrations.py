@@ -104,7 +104,7 @@ def _run_alembic_sync(cfg_path: str) -> None:
     cfg = Config(cfg_path)
 
     # The migration *scripts* ship inside the installed package
-    # (`your_service_name/backend/db/migrations`, next to this file), not under
+    # (`src/your_service_name/backend/db/migrations`, next to this file), not under
     # the repo's `src/` tree — which is absent from the runtime image. alembic.ini
     # declares `script_location = src/.../migrations` (relative to the repo root),
     # so it fails to resolve in the container. Point it at the packaged migrations
