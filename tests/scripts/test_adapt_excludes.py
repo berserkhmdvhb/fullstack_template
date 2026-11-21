@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -68,3 +70,29 @@ def test_tool_installs_and_build_output_are_excluded() -> None:
 def test_the_adapter_rewrites_uv_lock_so_the_locked_project_name_follows_the_rename() -> None:
     exts = _common().DEFAULT_INCLUDE_EXTS.split(",")  # type: ignore[attr-defined]
     assert ".lock" in exts
+
+
+def test_a_rename_keeps_pyproject_and_uv_lock_consistent(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    (root / "src" / "your_service_name").mkdir(parents=True)
+    (root / "src" / "your_service_name" / "__init__.py").write_text("")
+    for name in ("pyproject.toml", "uv.lock"):
+        (root / name).write_text((ROOT / name).read_text(encoding="utf-8"), encoding="utf-8")
+    result = subprocess.run(
+        [  # noqa: S607
+            "bash", str(ADAPT / "replace_service_name.sh"),
+            "-n", "my_svc", "-o", "your_service_name", "-r", str(root),
+        ],
+        cwd=root, capture_output=True, text=True, check=False,
+    )  # fmt: skip
+    assert result.returncode == 0, result.stdout + result.stderr
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = tomllib.loads((root / "uv.lock").read_text(encoding="utf-8"))
+    normalised = re.sub(r"[-_.]+", "-", pyproject["project"]["name"]).lower()
+    assert normalised == "my-svc"
+    local = [p["name"] for p in lock["package"] if "registry" not in p["source"]]
+    assert local == [normalised]
+    for name in ("pyproject.toml", "uv.lock"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert "your-service-name" not in text
+        assert "your_service_name" not in text
