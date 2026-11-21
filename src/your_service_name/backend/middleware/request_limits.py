@@ -7,21 +7,24 @@ because they sit just inside the correlation middleware (see ``main.create_app``
   a body without a length (chunked) streams past it. ``MAX_REQUEST_BODY_BYTES`` defaults to the
   chart's ingress ``proxy-body-size``, so the edge and the service agree.
 - :class:`TrustedHostMiddleware`: 400 unless the ``Host`` header matches ``ALLOWED_HOSTS``. Probe
-  and metrics paths are exempt (the rate limiter's list): Kubernetes probes and Prometheus send the
-  Pod IP as ``Host``. Starlette's own middleware answers in plain text, hence this one.
+  and metrics paths are exempt (the rate limiter's exact paths): Kubernetes probes and Prometheus
+  send the Pod IP as ``Host``. Starlette's own middleware answers in plain text, hence this one.
 """
 
 from __future__ import annotations
 
 import contextlib
+import ipaddress
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException
 
+from your_service_name.backend import paths
 from your_service_name.backend.errors import problem_response
-from your_service_name.backend.middleware.rate_limiting import EXEMPT_PATH_SUFFIXES, is_exempt_path
+from your_service_name.utils.versioning_api import DEFAULT_API_VERSION
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -36,15 +39,28 @@ _BODY_DETAIL = "The request body is too large."
 _HOST_DETAIL = "The Host header is not allowed."
 
 
+_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+# Host: an RFC 1123 hostname (an IPv4 address is one), or a bracketed IPv6 literal, then an
+# optional numeric port. Anything else is not a Host this service can match, and is refused.
+_HOST = re.compile(
+    rf"(?P<host>(?=.{{1,253}}(?::|$))(?:{_LABEL}(?:\.{_LABEL})*)|\[[0-9a-f:.]+\])(?::\d{{1,5}})?"
+)
+
+
 def _hostname(header: str | None) -> str | None:
-    """The host of a ``Host`` header without its port (``[::1]:80`` gives ``[::1]``), lowercase."""
-    if not header or not header.isascii():
+    """The lowercase host of a well-formed ``Host`` header, without its port; else ``None``."""
+    if not header:
         return None
-    value = header.strip().lower()
-    if value.startswith("["):
-        end = value.find("]")
-        return value[: end + 1] if end > 0 else None
-    return value.partition(":")[0] or None
+    match = _HOST.fullmatch(header.strip().lower())
+    if match is None:
+        return None
+    host = match["host"]
+    if host.startswith("["):
+        try:
+            ipaddress.IPv6Address(host[1:-1])
+        except ValueError:
+            return None
+    return host
 
 
 class PayloadTooLargeError(HTTPException):
@@ -121,13 +137,13 @@ class TrustedHostMiddleware:
         app: ASGIApp,
         *,
         allowed_hosts: Sequence[str],
-        exempt_path_suffixes: tuple[str, ...] = EXEMPT_PATH_SUFFIXES,
+        exempt_paths: frozenset[str] = paths.exempt_paths(DEFAULT_API_VERSION),
     ) -> None:
         self.app = app
         patterns = [p.strip().lower() for p in allowed_hosts]
         self._patterns = patterns
         self._allow_any = "*" in patterns
-        self._exempt = exempt_path_suffixes
+        self._exempt = exempt_paths
 
     def _allowed(self, host: str) -> bool:
         return any(
@@ -136,11 +152,7 @@ class TrustedHostMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Pass an allowed or exempt request on; answer the rest with 400."""
-        if (
-            self._allow_any
-            or scope["type"] != "http"
-            or is_exempt_path(scope["path"], self._exempt)
-        ):
+        if self._allow_any or scope["type"] != "http" or scope["path"] in self._exempt:
             await self.app(scope, receive, send)
             return
         host = _hostname(Headers(scope=scope).get("host"))

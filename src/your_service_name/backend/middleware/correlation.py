@@ -23,6 +23,7 @@ from starlette.datastructures import Headers, MutableHeaders
 from your_service_name.backend.logging.correlation import (
     HEADER_NAME,
     TRACEPARENT_HEADER,
+    TRACESTATE_HEADER,
     get_request_id,
     parse_traceparent,
     reset_request_id,
@@ -52,7 +53,12 @@ class CorrelationIdMiddleware:
         request_id = get_request_id()
         # Exactly one traceparent header counts; a repeated one is ambiguous and ignored.
         values = headers.getlist(TRACEPARENT_HEADER)
-        trace = parse_traceparent(values[0]) if len(values) == 1 else None
+        state_values = headers.getlist(TRACESTATE_HEADER)
+        trace = (
+            parse_traceparent(values[0], ",".join(state_values) if state_values else None)
+            if len(values) == 1
+            else None
+        )
         trace_token = set_trace_context(trace)
         # The scope outlives the context variables (reset below), and the catch-all 500 handler runs
         # outside this middleware: leave the ids on the scope's shared ``state`` for it.

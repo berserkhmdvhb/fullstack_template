@@ -61,6 +61,7 @@ from your_service_name.backend.middleware.request_limits import (
     TrustedHostMiddleware,
 )
 from your_service_name.backend.middleware.security import register_security_middleware
+from your_service_name.backend.paths import API_PREFIX, METRICS_PATH, exempt_paths
 from your_service_name.backend.repositories.in_memory_echo import InMemoryEchoRepository
 from your_service_name.backend.services.echo_service import EchoService
 from your_service_name.backend.settings import Settings
@@ -239,7 +240,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # correlation middleware (the 400/413 carry the request id) and outside everything else
     # (logging, security headers, the rate limiter, CORS): a refused request costs nothing more.
     # Added in reverse: ``add_middleware`` puts the later call further out.
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=settings.ALLOWED_HOSTS,
+        exempt_paths=exempt_paths(settings.API_VERSION),
+    )
     app.add_middleware(RequestSizeLimitMiddleware, max_bytes=settings.MAX_REQUEST_BODY_BYTES)
 
     # Correlation id MUST sit just inside ClientIpMiddleware (added right after this) so it scopes
@@ -258,11 +263,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     # --- Router assembly under a canonical prefix --------------------------------
-    app.include_router(build_api_router(prefix="/api", version=settings.API_VERSION))
+    app.include_router(build_api_router(prefix=API_PREFIX, version=settings.API_VERSION))
 
     # --- Prometheus metrics instrumentation ------------------------------------
     # Exposes /metrics endpoint for Prometheus scraping
-    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    Instrumentator().instrument(app).expose(app, endpoint=METRICS_PATH)
 
     # /docs is provided by FastAPI's built-in Swagger page (docs_url above); its
     # /openapi.json is already mounted by the routers, so no extra wiring is needed.

@@ -257,3 +257,20 @@ class TestClientIpSettings:
         s = Settings()
         assert s.TRUSTED_PROXY_CIDRS == []
         assert s.TRUST_CF_CONNECTING_IP is False
+
+
+class TestAllowedHostsEntries:
+    @pytest.mark.parametrize("entry", ["api.example.com:8000", "[::1]:8000", "*.example.com:443"])
+    def test_an_entry_with_a_port_is_refused_in_every_environment(
+        self, monkeypatch: pytest.MonkeyPatch, entry: str
+    ) -> None:
+        monkeypatch.setenv("ALLOWED_HOSTS", entry)
+        with pytest.raises(ValidationError, match=r"ALLOWED_HOSTS.*port"):
+            Settings()
+
+    @pytest.mark.parametrize("entry", ["api.example.com", "*.example.com", "[::1]", "*"])
+    def test_an_entry_without_a_port_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch, entry: str
+    ) -> None:
+        monkeypatch.setenv("ALLOWED_HOSTS", entry)
+        assert Settings().ALLOWED_HOSTS == [entry]  # noqa: SIM300

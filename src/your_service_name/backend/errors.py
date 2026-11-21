@@ -112,7 +112,10 @@ def problem_response(
     if errors is not None:
         body["errors"] = errors
     return JSONResponse(
-        body, status_code=status_code, headers=dict(headers or {}), media_type=PROBLEM_MEDIA_TYPE
+        body,
+        status_code=status_code,
+        headers={"X-Content-Type-Options": "nosniff", **(headers or {})},
+        media_type=PROBLEM_MEDIA_TYPE,
     )
 
 
@@ -180,7 +183,7 @@ def _problem_openapi(app: FastAPI) -> dict[str, Any]:
             responses = operation.setdefault("responses", {})
             for code in _DEFAULT_PROBLEM_STATUSES:
                 if code != _TOO_LARGE or "requestBody" in operation:
-                    responses[str(code)] = _describe(code, "ProblemDetails")
+                    responses.setdefault(str(code), _describe(code, "ProblemDetails"))
             if "422" in responses:
                 responses["422"] = _describe(422, "ValidationProblem")
     app.openapi_schema = schema

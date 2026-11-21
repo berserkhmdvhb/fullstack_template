@@ -307,8 +307,12 @@ Soft-delete an item (sets `deleted_at` timestamp).
 ## Error Responses
 
 Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem with the content type
-`application/problem+json`, whichever layer produced it (a route, validation, the rate limiter, the
-request limits, an unknown path). Members:
+`application/problem+json`, whichever layer of the backend produced it (a route, validation, the rate
+limiter, the request limits, an unknown path). Two answers are not problems: the readiness probe's
+`503` with `{"status": "degraded"}` when the database is down, and the ingress controller's own HTML
+`413`. The ingress body limit equals `MAX_REQUEST_BODY_BYTES`, so through the ingress the edge
+answers an oversized body first; a caller that reaches the backend directly gets the problem `413`.
+Members:
 
 | Member | Meaning |
 |--------|---------|

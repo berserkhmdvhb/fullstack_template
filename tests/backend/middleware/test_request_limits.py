@@ -12,13 +12,14 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from your_service_name.backend import paths
 from your_service_name.backend.main import create_app
-from your_service_name.backend.middleware import rate_limiting
 from your_service_name.backend.middleware.request_limits import (
     RequestSizeLimitMiddleware,
     TrustedHostMiddleware,
 )
 from your_service_name.backend.settings import Settings
+from your_service_name.utils.versioning_api import DEFAULT_API_VERSION
 
 PROBLEM = "application/problem+json"
 LIMIT = 100
@@ -139,6 +140,42 @@ def test_an_ipv6_literal_host_with_a_port_matches_without_it() -> None:
     assert client.get("/t/none", headers={"Host": "[::2]:8000"}).status_code == 400  # noqa: PLR2004
 
 
+@pytest.mark.parametrize(
+    "host",
+    [
+        "[::1]junk",
+        "[::1",
+        "[zz::1]",
+        "evil.test#.example.com",
+        "evil.test/.example.com",
+        "a b.example.com",
+        "x.example.com:port",
+        "x.example.com:",
+        "-x.example.com",
+        "x..example.com",
+        "x.example.com?",
+        "us_er.example.com",
+        "x.example.com:99999999",
+        "x.example.com\x00",
+    ],
+)
+def test_a_malformed_host_is_a_400_even_when_it_ends_like_an_allowed_pattern(host: str) -> None:
+    res = _hosts("*.example.com", "[::1]").get("/t/none", headers={"Host": host})
+    assert res.status_code == 400  # noqa: PLR2004
+
+
+@pytest.mark.parametrize("host", ["a.example.com:8000", "a-b.c.example.com", "A.EXAMPLE.com:1"])
+def test_a_well_formed_host_matching_a_wildcard_is_accepted(host: str) -> None:
+    res = _hosts("*.example.com").get("/t/none", headers={"Host": host})
+    assert res.status_code == 404  # noqa: PLR2004
+
+
+def test_an_ipv4_literal_host_is_matched_exactly() -> None:
+    client = _hosts("10.0.0.7")
+    assert client.get("/t/none", headers={"Host": "10.0.0.7:80"}).status_code == 404  # noqa: PLR2004
+    assert client.get("/t/none", headers={"Host": "10.0.0.8"}).status_code == 400  # noqa: PLR2004
+
+
 def test_an_unlisted_host_is_a_400_problem() -> None:
     res = _hosts("api.example.com").get("/api/v1/items?token=abc", headers={"Host": "evil.test"})
     body = _problem(res, 400, "/api/v1/items")
@@ -169,9 +206,9 @@ def test_the_default_allows_any_host() -> None:
     assert TestClient(_app()).get("/t/none", headers={"Host": "anything.test"}).status_code == 404  # noqa: PLR2004
 
 
-def test_the_exempt_list_is_the_rate_limiters() -> None:
+def test_the_exempt_paths_are_the_rate_limiters() -> None:
     inner = TrustedHostMiddleware(lambda *_: None, allowed_hosts=["api.example.com"])  # type: ignore[arg-type]
-    assert inner._exempt is rate_limiting.EXEMPT_PATH_SUFFIXES
+    assert inner._exempt == paths.exempt_paths(DEFAULT_API_VERSION)
 
 
 def test_the_limits_sit_just_inside_client_ip_and_correlation() -> None:
@@ -184,3 +221,11 @@ def test_the_limits_sit_just_inside_client_ip_and_correlation() -> None:
         "RequestSizeLimitMiddleware",
         "TrustedHostMiddleware",
     ]
+
+
+@pytest.mark.parametrize(
+    "path", ["/api/v1/items/metrics", "/x/health", "/health", "/api/v1/healthz/x"]
+)
+def test_a_path_that_merely_ends_like_a_probe_is_not_exempt(path: str) -> None:
+    res = _hosts("api.example.com").get(path, headers={"Host": "10.42.0.17"})
+    assert res.status_code == 400  # noqa: PLR2004

@@ -3,7 +3,7 @@
 Rate limiting middleware.
 
 Provides a configurable, per-IP default rate limit applied to every route, with
-liveness/readiness/metrics paths exempt.
+liveness/readiness/metrics paths exempt (exact paths, see ``backend/paths.py``).
 
 Why this is not slowapi: slowapi's middleware decides which limits apply by
 resolving the target route *handler* from the top-level Starlette route table.
@@ -34,8 +34,10 @@ from limits.storage import MemoryStorage
 from limits.strategies import FixedWindowRateLimiter
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from your_service_name.backend import paths
 from your_service_name.backend.errors import problem_response
 from your_service_name.backend.settings import DEFAULT_RATE_LIMIT
+from your_service_name.utils.versioning_api import DEFAULT_API_VERSION
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -49,12 +51,6 @@ if TYPE_CHECKING:
     from your_service_name.backend.settings import Settings
 
 logger = logging.getLogger(__name__)
-
-# Liveness/readiness probes and the metrics endpoint are exempt from rate
-# limiting. Matched by *trailing path segment* so the exemption holds regardless
-# of the API prefix an adopter mounts under (e.g. /health vs /api/v1/health). The trusted-host
-# check (request_limits.py) exempts the same paths: one list.
-EXEMPT_PATH_SUFFIXES: tuple[str, ...] = ("health", "healthz", "metrics")
 
 
 def _parse_limit(raw: str) -> RateLimitItem:
@@ -84,18 +80,6 @@ def _parse_limit(raw: str) -> RateLimitItem:
         raise ValueError(msg) from exc
 
 
-def is_exempt_path(path: str, suffixes: tuple[str, ...]) -> bool:
-    """
-    Return True if ``path`` ends on one of the exempt trailing segments.
-
-    Matches both a bare ``/health`` and a prefixed ``/api/v1/health`` (and
-    ``/metrics``), so the exemption is independent of the mounted API prefix.
-    """
-    if not suffixes:
-        return False
-    return any(path == "/" + suffix or path.endswith("/" + suffix) for suffix in suffixes)
-
-
 def _client_ip(request: Request) -> str:
     """Best-effort client IP used as the rate-limit key (falls back to loopback)."""
     if request.client and request.client.host:
@@ -118,18 +102,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         app: ASGIApp,
         *,
         limit: str = DEFAULT_RATE_LIMIT,
-        exempt_path_suffixes: tuple[str, ...] = EXEMPT_PATH_SUFFIXES,
+        exempt_paths: frozenset[str] = paths.exempt_paths(DEFAULT_API_VERSION),
     ) -> None:
         super().__init__(app)
         self._limiter = FixedWindowRateLimiter(MemoryStorage())
         self._limit = _parse_limit(limit)
-        self._exempt_path_suffixes = exempt_path_suffixes
+        self._exempt_paths = exempt_paths
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         """Skip exempt paths; reject requests that exceed the per-IP limit with 429."""
-        if is_exempt_path(request.url.path, self._exempt_path_suffixes):
+        if request.url.path in self._exempt_paths:
             return await call_next(request)
 
         if not self._limiter.hit(self._limit, _client_ip(request)):
@@ -170,4 +154,6 @@ def register_rate_limiting(app: FastAPI, settings: Settings) -> None:
     logger.info("Rate limiting enabled: %s per IP", limit)
     # Parse eagerly so a misconfigured limit fails at startup, not per request.
     _parse_limit(limit)
-    app.add_middleware(RateLimitMiddleware, limit=limit)
+    app.add_middleware(
+        RateLimitMiddleware, limit=limit, exempt_paths=paths.exempt_paths(settings.API_VERSION)
+    )

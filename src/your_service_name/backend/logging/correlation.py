@@ -35,9 +35,14 @@ NO_REQUEST_ID: str = "-"
 
 #: Header carrying the W3C Trace Context (level 1).
 TRACEPARENT_HEADER: str = "traceparent"
+TRACESTATE_HEADER: str = "tracestate"
 
 _VALID_REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
-_TRACEPARENT = re.compile(r"00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})")
+_TRACEPARENT = re.compile(
+    r"([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})(-.*)?", re.DOTALL
+)
+_TRACEPARENT_LENGTH = 55
+_MAX_TRACESTATE = 512
 _ZERO_TRACE, _ZERO_PARENT = "0" * 32, "0" * 16
 
 
@@ -48,18 +53,30 @@ class TraceContext:
     trace_id: str
     parent_id: str
     flags: str
+    tracestate: str | None = None
 
 
-def parse_traceparent(value: str | None) -> TraceContext | None:
-    """Parse a ``traceparent`` value; ``None`` unless it is valid version 00 (lowercase hex).
+def parse_traceparent(value: str | None, tracestate: str | None = None) -> TraceContext | None:
+    """Parse a ``traceparent`` value (W3C Trace Context level 1); ``None`` when it is invalid.
 
-    Valid means ``00-<32 hex trace id>-<16 hex parent id>-<2 hex flags>``, neither id all zeros.
-    Anything else (other version, uppercase, wrong length, extra fields) is ignored, not an error.
+    Version ``00`` is exactly ``00-<32 hex trace id>-<16 hex parent id>-<2 hex flags>``. A newer
+    version (``01`` to ``fe``) is read by its first 55 characters, which must be followed by a
+    ``-`` or the end. ``ff`` is invalid, hex is lowercase and neither id may be all zeros. An
+    invalid value is ignored, never an error. ``tracestate`` is kept as received when it is at
+    most 512 characters.
     """
     match = _TRACEPARENT.fullmatch(value or "")
-    if match is None or match[1] == _ZERO_TRACE or match[2] == _ZERO_PARENT:
+    if match is None:
         return None
-    return TraceContext(match[1], match[2], match[3])
+    version, trace_id, parent_id, flags, rest = match.groups()
+    if version == "ff" or trace_id == _ZERO_TRACE or parent_id == _ZERO_PARENT:
+        return None
+    if version == "00" and rest is not None:
+        return None
+    if rest is not None and len(value or "") <= _TRACEPARENT_LENGTH:
+        return None
+    kept = tracestate if tracestate and len(tracestate) <= _MAX_TRACESTATE else None
+    return TraceContext(trace_id, parent_id, flags, kept)
 
 
 # The active correlation id for the current async context. ``-`` is the out-of-request default.
@@ -120,11 +137,16 @@ def outgoing_trace_headers() -> dict[str, str]:
     """Headers that carry the current trace to a downstream HTTP call (empty without a trace).
 
     Merge them into every outbound request, for example ``httpx.get(url, headers={**own,
-    **outgoing_trace_headers()})``. Today it forwards the inbound ``traceparent`` unchanged: the
-    service creates no spans of its own.
+    **outgoing_trace_headers()})``. It forwards the inbound trace (restarted at version 00) and its
+    ``tracestate``, as received, when that is at most 512 characters: the service creates no spans.
     """
     ctx = _TRACE.get()
-    return {TRACEPARENT_HEADER: f"00-{ctx.trace_id}-{ctx.parent_id}-{ctx.flags}"} if ctx else {}
+    if ctx is None:
+        return {}
+    headers = {TRACEPARENT_HEADER: f"00-{ctx.trace_id}-{ctx.parent_id}-{ctx.flags}"}
+    if ctx.tracestate:
+        headers[TRACESTATE_HEADER] = ctx.tracestate
+    return headers
 
 
 class RequestIdFilter(logging.Filter):

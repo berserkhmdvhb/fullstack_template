@@ -255,8 +255,8 @@ OpenTelemetry/trace pipeline.
   when it is at most 64 characters of `[A-Za-z0-9._-]`. Anything else is replaced (the rejected
   value is never logged, since it could be a log-injection attempt). The id in use is returned in
   the `X-Request-Id` response header and in every error body.
-- A valid W3C `traceparent` header (`00-<32 hex>-<16 hex>-<2 hex>`, lowercase, no all-zero ids, sent
-  once) puts its trace id on every log line as `trace_id` (and on error bodies). An invalid or
+- A valid W3C `traceparent` header (`<version>-<32 hex>-<16 hex>-<2 hex>`, lowercase, no all-zero ids,
+  version `00` exactly, a newer version read by its first 55 characters, `ff` invalid, sent once) puts its trace id on every log line as `trace_id` (and on error bodies). An invalid or
   absent one is ignored, never a 400, and no trace id is generated here.
 - If the caller sends no valid id, the middleware **generates** one — a UUID4 hex
   string (32 chars, e.g. `2f1c9a7b…`). It is never blank and never the sentinel.
@@ -302,8 +302,8 @@ kubectl -n your-service-name-<environment> logs -l app.kubernetes.io/component=b
 
 Forward the ids to downstream services: whatever calls this service should copy its inbound
 `X-Request-Id` onto any outbound calls, so a single id spans the whole request path. For the trace,
-`outgoing_trace_headers()` (in `backend/logging/correlation.py`) returns the `traceparent` to merge
-into every outbound HTTP call; the template makes none today. Span creation is left to the opt-in
+`outgoing_trace_headers()` (in `backend/logging/correlation.py`) returns the `traceparent` (and the
+inbound `tracestate`, when at most 512 characters) to merge into every outbound HTTP call; the template makes none today. Span creation is left to the opt-in
 OpenTelemetry tracing.
 
 ---

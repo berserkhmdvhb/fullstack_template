@@ -31,6 +31,7 @@ from sqlalchemy import text
 
 import your_service_name.backend.db.engine as _engine_module
 from your_service_name.backend.db.engine import get_session
+from your_service_name.backend.paths import HEALTH_ROUTE, LIVENESS_ROUTE
 from your_service_name.backend.schemas.health import HealthStatus
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ def _degraded_response() -> JSONResponse:
     )
 
 
-@router.get("/health")
+@router.get(HEALTH_ROUTE)
 async def health_check() -> JSONResponse:
     """
     Readiness probe.
@@ -79,7 +80,7 @@ async def health_check() -> JSONResponse:
     )
 
 
-@router.get("/healthz", status_code=status.HTTP_200_OK, response_model=HealthStatus)
+@router.get(LIVENESS_ROUTE, status_code=status.HTTP_200_OK, response_model=HealthStatus)
 async def healthz() -> HealthStatus:
     """
     Return a bare health status for uptime/proxy monitors (e.g., a Kubernetes

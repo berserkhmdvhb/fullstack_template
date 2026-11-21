@@ -223,12 +223,19 @@ request id.
 - The body limit default is the chart's ingress `nginx.ingress.kubernetes.io/proxy-body-size`
   (`10m`, which nginx reads as MiB), so the edge and the service agree; a test fails if they diverge.
   Change both together.
-- The probe and metrics paths (`health`, `healthz`, `metrics`, the rate limiter's exempt list) skip
-  the host check, because Kubernetes probes and Prometheus send the Pod IP as `Host`.
+- The probe and metrics paths (`/api/<version>/health`, `/api/<version>/healthz`, `/metrics`; exact
+  paths, the rate limiter's exempt list) skip the host check, because Kubernetes probes and
+  Prometheus send the Pod IP as `Host`.
+- An entry is a host only: one with a port is refused at startup (the request's port is ignored), and
+  a `Host` header that is not a valid hostname, IPv4 address or bracketed IPv6 (plus an optional
+  numeric port) is a `400`.
 - The chart sets `ALLOWED_HOSTS` from `ingress.hosts` (`api`, `app`, `root`) plus the backend
   Service names (`<svc>`, `<svc>.<ns>`, `<svc>.<ns>.svc`, `<svc>.<ns>.svc.cluster.local`): the
-  frontend's server-side calls reach the backend by Service name. Set `config.ALLOWED_HOSTS` to take
-  the list over, for example to add a custom domain.
+  frontend's server-side calls reach the backend by Service name. `backend.extraAllowedHosts`
+  (comma-separated) appends more; `values.local.yaml` adds `localhost,127.0.0.1` so a local
+  port-forward works. Set `config.ALLOWED_HOSTS` to take the whole list over. The deploy and e2e
+  scripts send the backend Service name as `Host` through their port-forwards, and a test checks
+  that name is in every rendered list.
 - These refusals sit outside the security-headers and CORS middlewares, so a browser on another
   origin sees them as a failed request rather than a readable `413`.
 

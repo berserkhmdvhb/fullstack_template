@@ -172,10 +172,31 @@ def test_500_from_inside_a_middleware_carries_the_request_id(client: TestClient)
     assert body["request_id"] == "abc-123"
 
 
-def test_500_is_the_same_whatever_the_debug_setting(client: TestClient) -> None:
+def test_the_app_never_runs_in_debug_mode_so_a_500_stays_generic() -> None:
+    assert _build().debug is False
+
+
+def test_every_problem_response_is_nosniff(client: TestClient) -> None:
+    for res in (
+        client.get("/nope"),
+        client.get("/t/bad"),
+        client.post("/t/body", json={}),
+        client.get("/t/boom"),  # answered by the outermost layer
+        client.get("/mw-boom"),
+    ):
+        assert res.headers["x-content-type-options"] == "nosniff", res.status_code
+
+
+def test_a_route_declared_error_response_is_kept_in_the_openapi_document() -> None:
     app = _build()
-    assert app.debug is False
-    _assert_problem(client.get("/t/boom"), 500, "/t/boom")
+
+    @app.get("/t/declared", responses={404: {"description": "Declared by the route"}})
+    def declared() -> None: ...
+
+    responses = app.openapi()["paths"]["/t/declared"]["get"]["responses"]
+    assert responses["404"]["description"] == "Declared by the route"
+    assert "413" not in responses  # no request body
+    assert responses["500"]["content"]["application/problem+json"]
 
 
 def test_unhandled_exception_is_logged_with_the_request_id(

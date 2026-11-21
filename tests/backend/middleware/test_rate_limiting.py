@@ -4,7 +4,7 @@ Unit tests for the rate limiting middleware.
 
 Covers:
 - ``_parse_limit``: parses ``limits`` specs; rejects invalid ones loudly.
-- ``is_exempt_path``: trailing-segment exemption (bare + prefixed + non-match).
+- ``exempt_paths``: the exact exempt paths.
 - ``_client_ip``: key extraction with/without a client address.
 - ``RateLimitMiddleware`` on a minimal app: the (limit+1)-th request is 429 with a
   ``Retry-After`` header, and exempt paths are never throttled.
@@ -17,11 +17,11 @@ from fastapi import FastAPI, Request, status
 from fastapi.testclient import TestClient
 from starlette.datastructures import Address
 
+from your_service_name.backend import paths
 from your_service_name.backend.middleware.rate_limiting import (
     RateLimitMiddleware,
     _client_ip,
     _parse_limit,
-    is_exempt_path,
     register_rate_limiting,
 )
 from your_service_name.backend.settings import Settings
@@ -42,7 +42,7 @@ def _make_app(limit: str = "3/minute") -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    app.add_middleware(RateLimitMiddleware, limit=limit)
+    app.add_middleware(RateLimitMiddleware, limit=limit, exempt_paths=frozenset({"/health"}))
     return app
 
 
@@ -61,23 +61,17 @@ class TestParseLimit:
             _parse_limit("not-a-limit")
 
 
-class TestIsExemptPath:
-    """``is_exempt_path`` matches exempt trailing segments."""
+class TestExemptPaths:
+    """``exempt_paths`` lists exact paths: the versioned probes and the metrics endpoint."""
 
-    def test_matches_bare_and_prefixed(self) -> None:
-        """Both ``/health`` and ``/api/v1/health`` are exempt."""
-        suffixes: tuple[str, ...] = ("health", "healthz", "metrics")
-        assert is_exempt_path("/health", suffixes)
-        assert is_exempt_path("/api/v1/health", suffixes)
-        assert is_exempt_path("/metrics", suffixes)
+    def test_lists_the_probes_and_metrics_for_the_version(self) -> None:
+        """The probe paths follow the API version; metrics is unversioned."""
+        assert paths.exempt_paths("v7") == {"/api/v7/health", "/api/v7/healthz", "/metrics"}
 
-    def test_non_exempt_path(self) -> None:
-        """An unrelated path is not exempt."""
-        assert not is_exempt_path("/api/v1/items", ("health", "healthz", "metrics"))
-
-    def test_empty_suffixes_never_exempt(self) -> None:
-        """No configured suffixes means nothing is exempt."""
-        assert not is_exempt_path("/health", ())
+    def test_a_path_ending_like_a_probe_is_not_exempt(self) -> None:
+        """No suffix matching: a route that happens to end in /health is limited."""
+        assert "/api/v1/items/metrics" not in paths.exempt_paths("v1")
+        assert "/x/health" not in paths.exempt_paths("v1")
 
 
 class TestClientIp:

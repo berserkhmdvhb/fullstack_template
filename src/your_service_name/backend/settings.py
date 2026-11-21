@@ -180,8 +180,9 @@ class Settings(BaseSettings):
     ALLOWED_HOSTS: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["*"],
         description="Comma-separated `Host` values the service answers (`*.example.com` matches "
-        "subdomains, `*` anything). Anything else is a 400; the probe and metrics paths are "
-        "exempt. The chart sets it from the ingress hosts and the backend Service names.",
+        "subdomains, `*` anything; an entry never carries a port). Anything else is a 400; the "
+        "probe and metrics paths are exempt. The chart sets it from the ingress hosts and the "
+        "backend Service names.",
         json_schema_extra={"production": "Must be set and must not contain `*`."},
     )
 
@@ -319,6 +320,20 @@ class Settings(BaseSettings):
             return value
         items = [item.strip() for item in value.split(",") if item.strip()]
         return items or cls._default_of(info.field_name)
+
+    @field_validator("ALLOWED_HOSTS")
+    @classmethod
+    def _hosts_without_ports(cls, value: list[str]) -> list[str]:
+        """An entry names a host only: the request's port is dropped before matching."""
+        for entry in value:
+            host = entry.rsplit("]", 1)[-1] if entry.startswith("[") else entry
+            if ":" in host:
+                msg = (
+                    "ALLOWED_HOSTS: an entry carries a port; ports are matched separately (the "
+                    "request's port is ignored), so remove the port from the entry"
+                )
+                raise ValueError(msg)
+        return value
 
     @field_validator("TRUSTED_PROXY_CIDRS", mode="before")
     @classmethod

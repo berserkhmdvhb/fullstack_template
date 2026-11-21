@@ -107,7 +107,9 @@ def test_parse_valid() -> None:
         None,
         "",
         "garbage",
-        f"01-{TRACE}-{PARENT}-01",  # version other than 00
+        f"00-{TRACE}-{PARENT}-01-",  # version 00 admits nothing after the flags
+        f"01-{TRACE}-{PARENT}-011",  # a longer header must continue with a dash
+        f"01-{TRACE}-{PARENT}",  # too short
         f"ff-{TRACE}-{PARENT}-01",
         f"00-{TRACE.upper()}-{PARENT}-01",  # lowercase only
         f"00-{'0' * 32}-{PARENT}-01",  # all-zero trace id
@@ -122,6 +124,40 @@ def test_parse_valid() -> None:
 )
 def test_parse_invalid(value: str | None) -> None:
     assert parse_traceparent(value) is None
+
+
+@pytest.mark.parametrize("version", ["01", "02", "7f", "fe"])
+def test_a_future_version_is_read_by_its_first_55_characters(version: str) -> None:
+    for header in (f"{version}-{TRACE}-{PARENT}-01", f"{version}-{TRACE}-{PARENT}-01-extra-fields"):
+        ctx = parse_traceparent(header)
+        assert ctx is not None
+        assert (ctx.trace_id, ctx.parent_id, ctx.flags) == (TRACE, PARENT, "01")
+
+
+def test_version_ff_is_invalid() -> None:
+    assert parse_traceparent(f"ff-{TRACE}-{PARENT}-01") is None
+
+
+def test_outgoing_headers_restart_at_version_00_and_forward_tracestate(client: TestClient) -> None:
+    res = client.get(
+        "/probe", headers={"traceparent": f"01-{TRACE}-{PARENT}-01-x", "tracestate": "a=1,b=2"}
+    )
+    assert res.json()["out"] == {
+        "traceparent": f"00-{TRACE}-{PARENT}-01",
+        "tracestate": "a=1,b=2",
+    }
+
+
+def test_tracestate_over_512_characters_is_not_forwarded(client: TestClient) -> None:
+    res = client.get("/probe", headers={"traceparent": VALID, "tracestate": "k=" + "v" * 511})
+    assert res.json()["out"] == {"traceparent": VALID}
+    ok = client.get("/probe", headers={"traceparent": VALID, "tracestate": "k=" + "v" * 510})
+    assert len(ok.json()["out"]["tracestate"]) == 512  # noqa: PLR2004
+
+
+def test_tracestate_without_a_valid_traceparent_is_dropped(client: TestClient) -> None:
+    res = client.get("/probe", headers={"tracestate": "a=1"})
+    assert res.json()["out"] == {}
 
 
 def test_trace_id_reaches_the_handler_and_is_forwarded(client: TestClient) -> None:
