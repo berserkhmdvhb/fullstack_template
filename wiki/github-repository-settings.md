@@ -19,6 +19,7 @@ These warn and don't block. They are never listed as required:
 - `pip-audit (advisory)`
 - `Live suites (full stack)`
 - `Unit (Python 3.14)`
+- `Lighthouse CI (advisory)`
 - `ZAP baseline (advisory)`
 - `Licences (grant, advisory)`
 - `VEX (advisory)`
