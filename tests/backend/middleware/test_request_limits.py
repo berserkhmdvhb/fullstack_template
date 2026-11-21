@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from your_service_name.backend.main import create_app
 from your_service_name.backend.middleware import rate_limiting
@@ -23,12 +24,21 @@ PROBLEM = "application/problem+json"
 LIMIT = 100
 
 
+class _Model(BaseModel):
+    count: int = 0
+    pad: str = ""
+
+
 def _app(**settings: Any) -> FastAPI:  # noqa: ANN401
     app = create_app(Settings(MAX_REQUEST_BODY_BYTES=LIMIT, **settings))
 
     @app.post("/t/echo")
     async def echo(request: Request) -> dict[str, int]:
         return {"bytes": len(await request.body())}
+
+    @app.post("/t/model")
+    async def model(payload: _Model) -> dict[str, int]:
+        return {"count": payload.count}
 
     return app
 
@@ -75,6 +85,20 @@ def test_a_chunked_body_without_a_length_is_cut_off_with_a_413() -> None:
     res = TestClient(_app()).post("/t/echo", content=_chunks(LIMIT * 3))
     assert "content-length" not in res.request.headers
     _problem(res, 413, "/t/echo")
+
+
+def test_a_chunked_json_body_parsed_by_fastapi_is_a_413_not_a_400() -> None:
+    """FastAPI turns a failed body read into a 400; the limit's 413 must win."""
+
+    def json_chunks() -> Iterator[bytes]:
+        yield b'{"count": 1, "pad": "'
+        yield from _chunks(LIMIT * 3)
+        yield b'"}'
+
+    res = TestClient(_app()).post(
+        "/t/model", content=json_chunks(), headers={"Content-Type": "application/json"}
+    )
+    _problem(res, 413, "/t/model")
 
 
 def test_a_chunked_body_within_the_limit_is_accepted() -> None:

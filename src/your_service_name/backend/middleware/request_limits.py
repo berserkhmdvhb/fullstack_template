@@ -13,6 +13,7 @@ because they sit just inside the correlation middleware (see ``main.create_app``
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -53,6 +54,40 @@ class PayloadTooLargeError(HTTPException):
         super().__init__(status_code=_TOO_LARGE, detail=_BODY_DETAIL)
 
 
+class _BodyGuard:
+    """The per-request state: counts streamed bytes, and replaces any answer once over the limit."""
+
+    def __init__(self, scope: Scope, receive: Receive, send: Send, max_bytes: int) -> None:
+        self._scope, self._receive, self._send, self._max = scope, receive, send, max_bytes
+        self.seen = 0
+        self.exceeded = False
+        self._answered = False
+
+    async def receive(self) -> Message:
+        message = await self._receive()
+        if message["type"] == "http.request":
+            self.seen += len(message.get("body", b""))
+            if self.seen > self._max:
+                self.exceeded = True
+                raise PayloadTooLargeError
+        return message
+
+    async def send(self, message: Message) -> None:
+        # Once the limit is passed, whatever the app answers is replaced by the 413: FastAPI turns a
+        # failed body read into a 400, and an inner middleware may wrap the error.
+        if self.exceeded:
+            await self.refuse()
+        else:
+            await self._send(message)
+
+    async def refuse(self) -> None:
+        if not self._answered:
+            self._answered = True
+            await problem_response(self._scope, _TOO_LARGE, _BODY_DETAIL)(
+                self._scope, self._receive, self._send
+            )
+
+
 class RequestSizeLimitMiddleware:
     """Reject a body over ``max_bytes``: early on ``Content-Length``, else while it streams."""
 
@@ -65,36 +100,17 @@ class RequestSizeLimitMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        guard = _BodyGuard(scope, receive, send, self._max)
         declared = Headers(scope=scope).get("content-length", "")
         if declared.isascii() and declared.isdigit() and int(declared) > self._max:
-            await problem_response(scope, _TOO_LARGE, _BODY_DETAIL)(scope, receive, send)
+            await guard.refuse()
             return
-
-        seen = 0
-        started = False
-
-        async def counting_receive() -> Message:
-            nonlocal seen
-            message = await receive()
-            if message["type"] == "http.request":
-                seen += len(message.get("body", b""))
-                if seen > self._max:
-                    raise PayloadTooLargeError
-            return message
-
-        async def tracking_send(message: Message) -> None:
-            nonlocal started
-            started = started or message["type"] == "http.response.start"
-            await send(message)
-
-        try:
-            await self.app(scope, counting_receive, tracking_send)
-        except* PayloadTooLargeError:
-            # ``except*``: a ``BaseHTTPMiddleware`` further in runs ``receive`` inside a task group,
-            # which wraps the exception in an ``ExceptionGroup`` before it reaches this frame.
-            if started:
-                raise
-            await problem_response(scope, _TOO_LARGE, _BODY_DETAIL)(scope, receive, send)
+        # ``suppress`` takes a bare error and an ``ExceptionGroup`` alike: a ``BaseHTTPMiddleware``
+        # further in runs ``receive`` in a task group, which wraps what ``guard.receive`` raises.
+        with contextlib.suppress(PayloadTooLargeError):
+            await self.app(scope, guard.receive, guard.send)
+        if guard.exceeded:
+            await guard.refuse()
 
 
 class TrustedHostMiddleware:
