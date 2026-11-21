@@ -234,8 +234,9 @@ Beyond the built-in scanners, the pipeline hardens its own supply chain:
   Python (`pypi`) and frontend (`npm`) dependency trees are matched against the OSV
   malicious-packages (`MAL-*`) corpus separately, so a PyPI record never flags an npm name and vice
   versa.
-- **OpenVEX** — the `vex` job emits `not_affected` / `fixed_version` statements pinned by the
-  immutable digest.
+- **OpenVEX** — the `vex` job emits an `affected` statement (with an action) for every Grype finding, pinned by the
+  immutable digest; `not_affected` only for entries of a reviewed list (see
+  [vulnerability management](wiki/vulnerability-management.md#the-releases-openvex)).
 - **The CI's own supply chain** — the blocking `workflows` job runs `infra/security/check-ci-hardening.sh`,
   actionlint and zizmor over `.github/`, and goes red if the workflows regress on the controls above
   (SHA-pinned actions, least-privilege tokens, no inline secrets).

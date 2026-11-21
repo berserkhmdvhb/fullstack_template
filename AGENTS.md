@@ -42,7 +42,7 @@ Adapt the placeholder before running the app for real:
 6. **Never edit the eight frozen `infra/security/*.sh` scripts** — `_helpers.sh`, `sbom-generate.sh`,
    `scan-vulnerabilities.sh`, `scan-licenses.sh`, `generate-vex.sh`, `check-ci-hardening.sh`,
    `tools-install.sh`, `verify-image-digest.sh` — new supply-chain logic goes under
-   `infra/security/local/`. (They were edited once, as a one-time re-baseline, to remove the old CI vendor coupling.) Add/extend a scanner via the `add-supply-chain-scanner` skill.
+   `infra/security/local/`. (They were edited once, as a one-time re-baseline, to remove the old CI vendor coupling, and once more for a VEX correctness fix in `generate-vex.sh`; both were one-time, owner-approved edits and the rule is unchanged.) Add/extend a scanner via the `add-supply-chain-scanner` skill.
 7. **No secrets in code, tests, docs, examples, or CI YAML** — and no real internal URLs / project
    IDs (redact them). CI's secret-template check and gitleaks fail the run on a leak.
 8. **Version comes from Git tags (`setuptools_scm`) — never hard-code `__version__`.**

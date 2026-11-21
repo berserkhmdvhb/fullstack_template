@@ -18,7 +18,7 @@ the supply-chain and CI/CD pipeline practices this template aims for — and why
 |---------|--------|-------|------------------|
 | Immutable digest-pin | `reusable-build.yml` `build`, `release.yml` `digests` → `scripts/ci/deploy-verify.sh` | release / deploy | [`wiki/ci-cd.md`](./ci-cd.md) |
 | Keyless signing, SLSA provenance, SBOM attestation | `reusable-build.yml` `sign-attest` | release | [`wiki/security.md`](./security.md#verifying-an-image) |
-| OpenVEX (`not_affected` / `fixed_version`) | `release.yml` `vex` | release | [`wiki/security.md`](./security.md) |
+| OpenVEX (`affected`, plus a reviewed `not_affected` list) | `release.yml` `vex` | release | [`wiki/security.md`](./security.md) |
 | Typosquat / malicious-dep detection | `security.yml` `advisory` leg `osv` (OSV-Scanner `MAL-*`) | security | [`wiki/security.md`](./security.md) |
 | CI's-own-supply-chain self-check | `ci.yml` `workflows` (hardening lint, actionlint, zizmor) | ci | [`wiki/security.md`](./security.md) |
 
@@ -143,7 +143,7 @@ assurance, not a hard gate.
 ## 7. SBOM-consumption / VEX-actuation loop — *roadmap*
 
 Close the loop from the **SBOM + VEX** the pipeline already produces to **remediation**: when a
-*fixable* CVE appears in the SBOM and is `not_affected` / `fixed_version` in the VEX, drive a
+*fixable* CVE appears in the SBOM and is `affected` in the VEX, drive a
 remediation SLA (open an issue, bump the dependency, re-attest the VEX) on a cadence — rather than
 publishing the SBOM/VEX once and treating that as done.
 
