@@ -78,3 +78,8 @@ def test_the_envoy_config_leaves_the_trusted_hops_at_the_default() -> None:
     assert out.returncode == 0, out.stderr
     assert "http_connection_manager" in out.stdout
     assert not re.search(r"xff_num_trusted_hops:\s*[1-9]", out.stdout)
+
+
+def test_the_values_file_comments_stay_within_the_wrap_width() -> None:
+    lines = (CHART / "values.yaml").read_text(encoding="utf-8").splitlines()
+    assert [n for n, ln in enumerate(lines, 1) if len(ln) > 100] == []

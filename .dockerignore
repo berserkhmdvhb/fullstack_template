@@ -8,6 +8,12 @@
 .git
 .venv
 .tools
+# Local-only state (the kind kubeconfig, generated secrets and certificates)
+.local
+.hypothesis
+
+# The default SQLite database directory of a local run (the image creates its own, empty one)
+data
 
 # Dependencies and build output
 **/node_modules
