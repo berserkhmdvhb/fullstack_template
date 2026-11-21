@@ -177,5 +177,10 @@ describe('ItemForm', () => {
     await waitFor(() => {
       expect(screen.getByText('Creating...')).toBeInTheDocument();
     });
+
+    // Let the delayed request settle so the window teardown has nothing in flight to abort
+    await waitFor(() => {
+      expect(screen.queryByText('Creating...')).not.toBeInTheDocument();
+    });
   });
 });
