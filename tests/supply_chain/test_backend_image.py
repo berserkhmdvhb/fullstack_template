@@ -62,11 +62,7 @@ def test_there_is_no_pip_at_all_which_is_stronger_than_a_pinned_pip() -> None:
 
 
 def test_code_and_config_copies_are_root_owned_and_only_the_writable_dirs_are_chowned() -> None:
-    owned = []
-    for ln in _runtime():
-        if ln.startswith("COPY"):
-            if "--chown" in ln:
-                owned.append(ln)
+    owned = [ln for ln in _runtime() if ln.startswith("COPY") and "--chown" in ln]
     assert sorted(ln.split()[-1] for ln in owned) == ["/app/data", "/app/logs", "/home/appuser"]
     for ln in owned:
         assert "--chown=10001:10001" in ln.split(), ln
@@ -131,7 +127,7 @@ def _stage_text(name: str) -> str:
 
 
 def test_the_runtime_base_is_declared_once_as_distroless_python_by_digest() -> None:
-    froms = dict((n, i) for i, n in _froms())
+    froms = {n: i for i, n in _froms()}
     assert re.fullmatch(
         r"gcr\.io/distroless/python3-debian13@sha256:[0-9a-f]{64}", froms["runtime-base"]
     )
@@ -142,7 +138,7 @@ def test_the_runtime_base_is_declared_once_as_distroless_python_by_digest() -> N
 
 
 def test_the_builder_is_debian_13_and_the_runtime_names_the_same_major() -> None:
-    froms = dict((n, i) for i, n in _froms())
+    froms = {n: i for i, n in _froms()}
     builder = re.fullmatch(r"debian:(\d+)-slim@sha256:[0-9a-f]{64}", froms["py-builder"])
     assert builder, "the builder must be debian:<major>-slim pinned by digest"
     runtime = re.search(r"python3-debian(\d+)@", froms["runtime-base"])
@@ -175,7 +171,9 @@ def test_the_runtime_files_come_from_the_runtime_base_stage_not_a_second_digest(
 def test_tini_is_the_debian_package_binary_with_its_dpkg_record_and_copyright() -> None:
     runtime = _stage_text("runtime")
     assert "COPY --from=py-builder /usr/bin/tini /usr/bin/tini" in runtime
-    assert re.search(r"COPY --from=py-builder \S+ /var/lib/dpkg/status\.d/tini$", runtime, re.M)
+    assert re.search(
+        r"COPY --from=py-builder \S+ /var/lib/dpkg/status\.d/tini$", runtime, re.MULTILINE
+    )
     assert "/usr/share/doc/tini/copyright" in runtime
     assert "dpkg-query -s tini" in _stage_text("py-builder")
 

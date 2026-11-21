@@ -1,4 +1,4 @@
-"""All three images carry the OCI labels, and the build workflow fills every one with a real value."""
+"""All three images carry the OCI labels, and the build workflow fills each with a real value."""
 
 from __future__ import annotations
 
@@ -66,4 +66,4 @@ def test_the_build_arguments_reach_the_build_step_and_expressions_stay_out_of_th
 
 def test_the_manifest_still_supplies_the_version_to_every_image() -> None:
     text = Path(REPO / ".github/container-images.yml").read_text(encoding="utf-8")
-    assert text.count('VERSION: "${VERSION}"') == 3
+    assert text.count('VERSION: "${VERSION}"') == len(DOCKERFILES)

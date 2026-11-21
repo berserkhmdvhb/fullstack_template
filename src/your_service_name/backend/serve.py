@@ -11,8 +11,8 @@ Configuration (environment; defaults are the safe baseline):
 - ``BACKEND_KEEPALIVE_TIMEOUT``: seconds an idle connection stays open (``75``). Keep it above the
   gateway's upstream idle timeout (``waf.upstreamIdleTimeoutSeconds`` in the chart), or the proxy
   can reuse a connection Uvicorn just closed and return a 502.
-- ``API_VERSION``: only for the banner's URLs (default ``v1``). The app validates it, with the rest of
-  its settings, when Uvicorn imports it; the launcher does not build ``Settings`` a second time.
+- ``API_VERSION``: only for the banner's URLs (default ``v1``). The app validates it, with the
+  rest of its settings, when Uvicorn imports it; the launcher does not build ``Settings`` twice.
 
 Fixed options, each on purpose:
 - No proxy headers: the app resolves the client IP itself (``TRUSTED_PROXY_CIDRS``), and two

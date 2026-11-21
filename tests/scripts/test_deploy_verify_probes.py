@@ -1,4 +1,4 @@
-"""The in-Pod health probes of scripts/ci/deploy-verify.sh: 2xx is healthy, a 3xx is not (not followed)."""
+"""The in-Pod health probes of scripts/ci/deploy-verify.sh: 2xx is healthy, a 3xx is not."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def _probe(name: str) -> str:
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self) -> None:  # noqa: N802 - the stdlib's name
+    def do_GET(self) -> None:
         if self.path == "/redirect":
             self.send_response(302)
             self.send_header("Location", "/ok")

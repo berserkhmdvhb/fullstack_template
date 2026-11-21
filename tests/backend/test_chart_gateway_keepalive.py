@@ -80,6 +80,9 @@ def test_the_envoy_config_leaves_the_trusted_hops_at_the_default() -> None:
     assert not re.search(r"xff_num_trusted_hops:\s*[1-9]", out.stdout)
 
 
+WRAP_WIDTH = 100
+
+
 def test_the_values_file_comments_stay_within_the_wrap_width() -> None:
     lines = (CHART / "values.yaml").read_text(encoding="utf-8").splitlines()
-    assert [n for n, ln in enumerate(lines, 1) if len(ln) > 100] == []
+    assert [n for n, ln in enumerate(lines, 1) if len(ln) > WRAP_WIDTH] == []
