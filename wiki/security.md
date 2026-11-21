@@ -481,8 +481,11 @@ No bot writes checksums or holds a write token for it. `scripts/pins-refresh.sh 
 ### Verifying an image
 
 Every image the release workflow pushes is signed keyless (Sigstore, no key to keep) and carries a
-SLSA build-provenance attestation and a CycloneDX SBOM attestation, all stored next to the image in
-`ghcr.io`. Only images that passed the blocking Grype gate are signed. The signing certificate names
+SLSA build-provenance attestation and CycloneDX SBOM attestations, all stored next to the image in
+`ghcr.io`. An image is a multi-architecture index. The **signature and the provenance are on the
+index digest** (the digest in `image-digests.env`, the one deploys and admission use). Each
+**SBOM attestation is on one platform's manifest digest**, because an SBOM describes one platform's
+image; `docker buildx imagetools inspect ghcr.io/<owner>/<repo>/<image>@sha256:<index digest>` lists those digests. Only images that passed the blocking Grype gate are signed. The signing certificate names
 the reusable workflow that ran, not `release.yml`, because a keyless certificate issued inside a
 called workflow carries that workflow's ref.
 
@@ -496,9 +499,15 @@ cosign verify ghcr.io/<owner>/<repo>/<image>@sha256:<digest> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-github-workflow-repository <owner>/<repo> \
   --certificate-github-workflow-sha <commit sha of the release>
-gh attestation verify oci://ghcr.io/<owner>/<repo>/<image>@sha256:<digest> \
+# Provenance: the index digest
+gh attestation verify oci://ghcr.io/<owner>/<repo>/<image>@sha256:<index digest> \
   --repo <owner>/<repo> \
   --signer-workflow <owner>/<repo>/.github/workflows/reusable-build.yml
+# SBOM: a platform's manifest digest, with the SBOM predicate type
+gh attestation verify oci://ghcr.io/<owner>/<repo>/<image>@sha256:<platform manifest digest> \
+  --repo <owner>/<repo> \
+  --signer-workflow <owner>/<repo>/.github/workflows/reusable-build.yml \
+  --predicate-type https://cyclonedx.org/bom
 ```
 
 Identity plus issuer is **not enough**. Any repository can call a public reusable workflow, and the

@@ -84,17 +84,13 @@ jobs:
           GRYPE_REGISTRY_AUTH_AUTHORITY: ghcr.io
           GRYPE_REGISTRY_AUTH_USERNAME: ${{ github.actor }}
           GRYPE_REGISTRY_AUTH_PASSWORD: ${{ github.token }}
+          DOCKER_USER: ${{ github.actor }}
+          DOCKER_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p findings
-          rc=0
-          grype "registry:${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" -c infra/security/grype.yaml \
-            -o json --file "findings/${IMAGE_SHORT}.json" || rc=$?
-          if (( rc != 0 && rc != 2 )) || ! jq -e '.matches' "findings/${IMAGE_SHORT}.json" > /dev/null; then
-            echo "::error::grype failed on ${IMAGE_REPOSITORY}@${IMAGE_DIGEST} (exit ${rc})"
-            exit 1
-          fi
-          echo "- \`${IMAGE_REPOSITORY}@${IMAGE_DIGEST}\`: $(jq '.matches | length' "findings/${IMAGE_SHORT}.json") finding(s)" >> "$GITHUB_STEP_SUMMARY"
+          # docker lists the index's platforms; the token goes in on stdin, never on a command line.
+          printf '%s' "${DOCKER_TOKEN}" | docker login ghcr.io --username "${DOCKER_USER}" --password-stdin
+          bash scripts/ci/rescan-scan.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: findings-${{ matrix.short }}
