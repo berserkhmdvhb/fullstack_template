@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   images: { unoptimized: true },
   typedRoutes: true,
-  // Same-origin API/docs proxying is handled by middleware.ts (see that file):
+  // Same-origin API/docs proxying is handled by proxy.ts (see that file):
   // it reads `BACKEND_URL` per request at runtime. It is intentionally NOT done
   // here — `next.config.ts` `rewrites()` destinations are baked into
   // routes-manifest.json at build time, so a runtime env var could never reach
@@ -25,11 +25,11 @@ const nextConfig: NextConfig = {
             key: 'Strict-Transport-Security',
             value: 'max-age=15552000; includeSubDomains; preload',
           },
-          // Content-Security-Policy is set per request in `middleware.ts`, not
+          // Content-Security-Policy is set per request in `proxy.ts`, not
           // here: it carries a fresh nonce on every render (see that file), and a
           // static build-time header from `headers()` could never provide one.
           // The directive rationale (no CDN, same-origin connect, no `unsafe-*`)
-          // lives next to the header in `middleware.ts`.
+          // lives next to the header in `proxy.ts`.
         ],
       },
     ];

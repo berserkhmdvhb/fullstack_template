@@ -1,6 +1,6 @@
 # Contributing
 
-How to contribute to this service template — a FastAPI + Next.js 15 service with an NGINX gateway,
+How to contribute to this service template — a FastAPI + Next.js 16 service with an NGINX gateway,
 Helm packaging, GitHub Actions, and supply-chain hardening. This guide is organised by the **kind of
 change** you are making; every kind ends at the same quality gates. The deep "how" for each area
 lives in `wiki/` and in the scoped skills under `agent/skills/` — this file points at them rather
@@ -37,7 +37,7 @@ than restating them.
 ```
 service-template-react/
 ├── src/your_service_name/     # FastAPI backend (placeholder name — adapts per service)
-├── frontend/                  # Next.js 15 / React / TypeScript app
+├── frontend/                  # Next.js 16 / React / TypeScript app
 ├── charts/your-service-name/  # Helm chart (per-env values.<env>.yaml)
 ├── .github/                   # GitHub Actions workflows, composite actions, helper scripts
 ├── scripts/ci/                # scripts the workflows call (deploy-env, deploy-verify, shell-lint, …)

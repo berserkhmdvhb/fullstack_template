@@ -64,7 +64,7 @@ spec:
             # NEXT_PUBLIC_API_URL is left to the same-origin default — it is a
             # build-time var and cannot vary per env, so it must not be set here.
             {{- if .Values.cspReporting.enabled }}
-            # Adds report-uri / report-to to the CSP (frontend/middleware.ts); read per request.
+            # Adds report-uri / report-to to the CSP (frontend/proxy.ts); read per request.
             - name: CSP_REPORTING_ENABLED
               value: "true"
             {{- end }}

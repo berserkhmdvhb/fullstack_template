@@ -58,7 +58,7 @@ export default defineConfig({
   use: {
     // Target the Next.js frontend — the single entry point. It serves the app routes
     // and proxies /api, /docs, /openapi.json to the backend (see
-    // frontend/middleware.ts). Port follows the running stack (see resolveFrontendPort).
+    // frontend/proxy.ts). Port follows the running stack (see resolveFrontendPort).
     baseURL: `http://localhost:${resolveFrontendPort()}`,
     // Traces keep request headers, so they are only recorded on a retry after a failure. The CI
     // upload (failure-only) is safe because the stack under test is hermetic: localhost, no real

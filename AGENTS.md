@@ -5,7 +5,7 @@ Always-on instructions for coding agents in this repo. This is the **cross-tool 
 [`CONTRIBUTING.md`](./CONTRIBUTING.md), [`CONVENTIONS.md`](./CONVENTIONS.md), `wiki/`, and
 `agent/skills/`. When in doubt, this file points at them instead of restating them.
 
-**What this is:** a *service template* — a FastAPI + Next.js 15 service (NGINX gateway, Helm, GitHub
+**What this is:** a *service template* — a FastAPI + Next.js 16 service (NGINX gateway, Helm, GitHub
 Actions, supply-chain hardening) that adapts to each adopter. You are contributing for **every future
 service built from it**, not just this checkout. See [`CONVENTIONS.md`](./CONVENTIONS.md).
 

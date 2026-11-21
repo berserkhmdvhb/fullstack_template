@@ -75,7 +75,7 @@ pytest markers live in `pyproject.toml` → `[tool.pytest.ini_options].markers`:
 
 ## Frontend gates
 
-Next.js 15 / React / TypeScript. Run from the `frontend/` directory.
+Next.js 16 / React / TypeScript. Run from the `frontend/` directory.
 
 | Gate | npm script | Raw command | CI job |
 |---|---|---|---|

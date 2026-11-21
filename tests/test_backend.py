@@ -95,7 +95,7 @@ def test_docs_serves_the_swagger_ui() -> None:
     #
     # FastAPI serves it from the jsDelivr CDN (bundle + inline init script), so the
     # page is not CSP-clean by itself: the frontend admits that CDN origin and
-    # inline script ONLY on /docs via a scoped CSP relaxation (see middleware.ts).
+    # inline script ONLY on /docs via a scoped CSP relaxation (see proxy.ts).
     app = create_app()
     with TestClient(app) as client:
         docs = client.get("/docs")

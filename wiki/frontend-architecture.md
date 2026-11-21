@@ -1,6 +1,6 @@
 # Frontend Architecture
 
-Detailed breakdown of the Next.js 15 frontend: App Router, components, hooks, API client, and testing.
+Detailed breakdown of the Next.js 16 frontend: App Router, components, hooks, API client, and testing.
 
 ---
 
@@ -20,12 +20,12 @@ Detailed breakdown of the Next.js 15 frontend: App Router, components, hooks, AP
 
 ## Overview
 
-The frontend is a **Next.js 15** application using the App Router, built with:
+The frontend is a **Next.js 16** application using the App Router, built with:
 
 | Technology | Purpose |
 |-----------|---------|
-| **Next.js 15** | Framework, App Router, SSR/SSG, standalone output |
-| **React 18** | UI library, hooks, concurrent features |
+| **Next.js 16** | Framework, App Router, SSR/SSG, standalone output |
+| **React 19** | UI library, hooks, concurrent features |
 | **TypeScript 5.9** | Type safety, strict mode |
 | **Tailwind CSS 3** | Utility-first styling with CSS variable theming |
 | **React Query v5** | Server state management, caching, refetching |
@@ -36,7 +36,7 @@ The frontend is a **Next.js 15** application using the App Router, built with:
 
 ```mermaid
 flowchart TB
-    subgraph App["Next.js 15 App Router"]
+    subgraph App["Next.js 16 App Router"]
         Layout["Root Layout<br/>Providers, Header"]
         Pages["Pages<br/>Home, Items, Error, Loading"]
     end
@@ -134,7 +134,7 @@ frontend/
 
 ## App Router Structure
 
-Next.js 15 App Router with route groups and layouts:
+Next.js 16 App Router with route groups and layouts:
 
 ```mermaid
 flowchart TB

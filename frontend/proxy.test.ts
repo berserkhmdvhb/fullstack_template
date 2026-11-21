@@ -1,5 +1,5 @@
 /**
- * Unit tests for the per-request CSP built in middleware.ts: the reporting directives and header
+ * Unit tests for the per-request CSP built in proxy.ts: the reporting directives and header
  * appear only when CSP_REPORTING_ENABLED is set (read at request time).
  *
  * @packageDocumentation
@@ -8,9 +8,9 @@
 import { NextRequest } from 'next/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { middleware } from './middleware';
+import { proxy } from './proxy';
 
-const run = (path = '/') => middleware(new NextRequest(`http://localhost${path}`));
+const run = (path = '/') => proxy(new NextRequest(`http://localhost${path}`));
 const csp = (path = '/') => run(path).headers.get('Content-Security-Policy') ?? '';
 
 describe('CSP reporting', () => {

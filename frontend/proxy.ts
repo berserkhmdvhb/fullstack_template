@@ -4,17 +4,17 @@ import { NextResponse } from 'next/server';
 // Runtime backend proxy.
 //
 // The browser calls same-origin `/api/v1/...`, `/docs` and `/openapi.json`;
-// this middleware rewrites them to the backend at `BACKEND_URL`. `/docs` is
+// this proxy rewrites them to the backend at `BACKEND_URL`. `/docs` is
 // FastAPI's built-in Swagger page (its bundle loads from the jsDelivr CDN).
 //
-// WHY MIDDLEWARE AND NOT `rewrites()` IN next.config.ts
+// WHY A PROXY AND NOT `rewrites()` IN next.config.ts
 //   Next.js evaluates `rewrites()` during `next build` and freezes the concrete
 //   destinations into `.next/routes-manifest.json`. A `process.env` reference
 //   there captures whatever env was present at *build* time, and the standalone
 //   server serves that baked manifest at runtime — so a runtime container env
 //   like `BACKEND_URL` can never reach it (this is exactly what made the image
 //   proxy to the value baked in at build, e.g. a developer's local `.env.local`).
-//   Middleware runs per request in the Node runtime and reads the *live* env,
+//   The proxy runs per request in the Node runtime and reads the *live* env,
 //   which is what lets one image target any backend (local, compose, k8s).
 //
 // `BACKEND_URL` defaults to a local dev backend on :8000. The frontend's own
@@ -39,10 +39,10 @@ const cspReportingEnabled = () =>
   (process.env['CSP_REPORTING_ENABLED'] ?? '').trim().toLowerCase() === 'true';
 
 /**
- * Per request this middleware does two things.
+ * Per request this proxy does two things.
  *
  * First, it rewrites same-origin API/docs requests onto the live backend
- * (`BACKEND_URL`) — see the header comment for why this is middleware and not
+ * (`BACKEND_URL`) — see the header comment for why this is a proxy and not
  * next.config `rewrites()` (a build-time rewrite destination could never see a
  * runtime container env).
  *

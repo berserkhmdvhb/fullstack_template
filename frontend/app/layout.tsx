@@ -37,7 +37,7 @@ export default async function RootLayout({
 }: {
   children: ReactNode;
 }): Promise<JSX.Element> {
-  // Per-request CSP nonce minted by middleware.ts and forwarded as `x-nonce`.
+  // Per-request CSP nonce minted by proxy.ts and forwarded as `x-nonce`.
   // Next.js reads the same nonce out of the CSP header and applies it to its
   // inline bootstrap scripts, so mirroring it here on `<html>` lets the App
   // Router hydrate under a strict CSP with no `'unsafe-inline'`.

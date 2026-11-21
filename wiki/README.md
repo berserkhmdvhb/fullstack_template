@@ -1,6 +1,6 @@
 # Your Service Name — Documentation
 
-Production-grade template for API-based services with a FastAPI backend, Next.js 15 frontend, Kubernetes deployment with a Helm chart, and comprehensive CI/CD.
+Production-grade template for API-based services with a FastAPI backend, Next.js 16 frontend, Kubernetes deployment with a Helm chart, and comprehensive CI/CD.
 
 ---
 
@@ -29,8 +29,8 @@ flowchart TB
         IC["NGINX Ingress Controller<br/>TLS termination<br/>Rate limiting<br/>Security headers"]
     end
 
-    subgraph Frontend["Frontend — Next.js 15"]
-        FE["React 18 + TypeScript<br/>Tailwind CSS · React Query<br/>Zod validation · React Hook Form"]
+    subgraph Frontend["Frontend — Next.js 16"]
+        FE["React 19 + TypeScript<br/>Tailwind CSS · React Query<br/>Zod validation · React Hook Form"]
     end
 
     subgraph Backend["Backend — FastAPI"]
@@ -58,7 +58,7 @@ flowchart TB
 | Layer | Technology | Version |
 |-------|-----------|---------|
 | **Backend** | Python, FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2 | 3.12+ |
-| **Frontend** | Next.js 15, React 18, TypeScript 5.9, Tailwind CSS 3 | Node 26+ |
+| **Frontend** | Next.js 16, React 19, TypeScript 5.9, Tailwind CSS 3 | Node 26+ |
 | **Edge/Gateway** | NGINX Ingress Controller (Kubernetes) | — |
 | **Static** | Nginx (light, in-cluster) | — |
 | **Database** | PostgreSQL 16 (asyncpg) / SQLite fallback | — |
@@ -107,7 +107,7 @@ flowchart TB
 │   │   └── logging/            # Audit logging
 │   └── utils/                  # API versioning, validators
 │
-├── frontend/                   # Next.js 15 frontend
+├── frontend/                   # Next.js 16 frontend
 │   ├── app/                    # App Router pages & layouts
 │   ├── components/             # Shared UI components
 │   ├── features/items/         # Item CRUD feature module

@@ -73,7 +73,7 @@ services:
       PORT: "${FRONTEND_PORT:-3000}"
       HOSTNAME: "0.0.0.0"
       # The browser calls same-origin /api/v1; the Next.js server proxies it to
-      # the backend at runtime (frontend/middleware.ts). BACKEND_URL is a *runtime*
+      # the backend at runtime (frontend/proxy.ts). BACKEND_URL is a *runtime*
       # env, so one image serves every environment — unlike NEXT_PUBLIC_*, which
       # Next.js bakes into the browser bundle at build time and cannot vary per env.
       #

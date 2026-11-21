@@ -114,9 +114,9 @@ base-uri 'self'
 No `unsafe-eval`/`unsafe-inline` and no third-party (`https:`, CDN) origins: the
 production build inlines no eval and loads styles from `'self'`. `connect-src
 'self'` because the frontend calls the API same-origin (`/api/v1`, rewritten
-server-side by `middleware.ts`) — no broad `https:` that would permit
+server-side by `proxy.ts`) — no broad `https:` that would permit
 exfiltration to any endpoint. The frontend also serves a per-request nonce on
-`script-src` (see `middleware.ts`), so any *inline* script would be blocked.
+`script-src` (see `proxy.ts`), so any *inline* script would be blocked.
 
 Interactive docs (`/docs`) are the one deliberate, tightly-scoped exception.
 FastAPI's built-in Swagger page loads Swagger UI from the jsDelivr CDN and inlines
@@ -312,7 +312,7 @@ not API: it is not in the OpenAPI document, takes no authentication (browsers se
   cannot forge a log line) and are cut to 512 characters, integers must be 0 to 2^31 - 1, and
   anything else, and every unknown field (such as `original-policy` or `script-sample`), is dropped.
   The sanitising is in `services/csp_report_service.py`.
-- **Frontend.** With `CSP_REPORTING_ENABLED=true` (read per request by `frontend/middleware.ts`) the
+- **Frontend.** With `CSP_REPORTING_ENABLED=true` (read per request by `frontend/proxy.ts`) the
   CSP gets `report-uri /api/v1/csp-report` and `report-to csp-endpoint`, and the response gets
   `Reporting-Endpoints: csp-endpoint="/api/v1/csp-report"`. Unset, nothing changes.
 

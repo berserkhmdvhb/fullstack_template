@@ -203,7 +203,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Interactive Swagger docs (/docs) use FastAPI's built-in page, which loads
         # Swagger UI from the jsDelivr CDN and inlines its init script. A strict CSP
         # would blank it, so the frontend admits that CDN origin + inline script ONLY
-        # on /docs via a scoped CSP relaxation (see frontend/middleware.ts). /docs is
+        # on /docs via a scoped CSP relaxation (see frontend/proxy.ts). /docs is
         # env-driven so it can be disabled (set API_DOCS_URL="" if desired).
         docs_url=settings.docs_url,
         openapi_url=settings.openapi_url,

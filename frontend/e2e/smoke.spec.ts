@@ -4,7 +4,7 @@
  * @remarks
  * These tests run against the Next.js frontend (default :3000), which serves the app
  * routes and proxies /api/v1, /docs, /openapi.json to the backend (see
- * frontend/middleware.ts).
+ * frontend/proxy.ts).
  *
  * @packageDocumentation
  */

@@ -29,7 +29,7 @@ flowchart TB
     end
 
     subgraph App["Application Layer"]
-        FE["Next.js 15<br/>React 18 · TypeScript<br/>Tailwind CSS"]
+        FE["Next.js 16<br/>React 19 · TypeScript<br/>Tailwind CSS"]
         BE["FastAPI<br/>Python 3.12+<br/>SQLAlchemy 2.0"]
     end
 
@@ -54,7 +54,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    subgraph Frontend["Frontend (Next.js 15)"]
+    subgraph Frontend["Frontend (Next.js 16)"]
         Pages["App Router Pages"]
         Components["React Components"]
         Hooks["Custom Hooks"]
@@ -132,7 +132,7 @@ flowchart LR
 | Layer | Technology | Responsibility |
 |-------|-----------|---------------|
 | **Edge/Gateway** | NGINX Ingress Controller | TLS termination, routing, rate limiting, security headers, health checks |
-| **Frontend** | Next.js 15, React 18 | UI rendering, state management, API communication, form validation |
+| **Frontend** | Next.js 16, React 19 | UI rendering, state management, API communication, form validation |
 | **Backend API** | FastAPI | Request handling, validation, business logic orchestration |
 | **Services** | Python | Business logic, transaction coordination |
 | **Repositories** | SQLAlchemy 2.0 | Data access, query building, soft-delete patterns |
@@ -270,7 +270,7 @@ live in `values.<env>.yaml`, not separate overlays.
 - **Type safety** — Mypy-compatible type annotations.
 - **Modern API** — 2.0-style queries with `select()` instead of legacy Query API.
 
-### Why Next.js 15 App Router?
+### Why Next.js 16 App Router?
 
 - **Server Components** — Reduced client-side JavaScript.
 - **Standalone output** — Minimal production bundle (`output: 'standalone'`).

@@ -18,7 +18,7 @@ It ensures:
 
 ## Features
 
-- **Consistent Architecture**: Backend (FastAPI), Frontend (Next.js 15), NGINX Ingress gateway
+- **Consistent Architecture**: Backend (FastAPI), Frontend (Next.js 16), NGINX Ingress gateway
 - **Kubernetes Deployment**: Helm chart with per-env values (dev/qa/production/local), HPA, PDB, NetworkPolicy
 - **Developer Experience**: Makefile shortcuts, run scripts, `.env` support, local K8s via kind/minikube
 - **Code Quality & Security**: Ruff, Mypy, Pytest, CodeQL, gitleaks, supply-chain (digest-pin, typosquat scan, OpenVEX, CI self-check; keyless image signing + SLSA provenance)
@@ -44,7 +44,7 @@ It ensures:
 ├── src/
 │   └── your_service_name/
 │       ├── backend/        # routers/schemas/services/models/repos/entities/middleware
-│       ├── frontend/       # Next.js 15 app
+│       ├── frontend/       # Next.js 16 app
 │       ├── utils/          # validators, API versioning
 │       └── __init__.py     # runtime version resolution
 ├── tests/                  # unit/e2e/integration/live (subfolders)
@@ -162,7 +162,7 @@ flowchart LR
     Ingress["NGINX Ingress<br/>TLS termination<br/>Rate limiting<br/>Security headers"]
   end
 
-  FE["Next.js 15 Frontend"]
+  FE["Next.js 16 Frontend"]
   BE["FastAPI Backend"]
 
   Client -->|"HTTPS"| Ingress

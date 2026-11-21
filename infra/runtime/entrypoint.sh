@@ -6,7 +6,7 @@
 # - 'all' starts backend + frontend + nginx together and health-waits each
 # - 'nginx' serves the built frontend static assets only (liveness at /healthz)
 # - FastAPI's /api, /docs, /openapi.json are proxied to the backend by the
-#   Next.js frontend middleware (see frontend/middleware.ts); there is no separate
+#   Next.js frontend proxy (see frontend/proxy.ts); there is no separate
 #   reverse proxy.
 # - Prints developer-friendly URLs while keeping binds on 127.0.0.1
 # Supports containers: /app/src/** (the backend image copies this script; run_migrations.sh hands off to it)
