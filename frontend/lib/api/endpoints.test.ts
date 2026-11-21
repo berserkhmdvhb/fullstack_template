@@ -49,7 +49,7 @@ describe('API Endpoints', () => {
     it('should post echo and return response', async () => {
       server.use(
         http.post(`${API_BASE}/echo`, async ({ request }) => {
-          const body = await request.json();
+          const body = (await request.json()) as { text: string };
           return HttpResponse.json({ text: body.text, length: body.text.length }, { status: 201 });
         }),
       );
@@ -75,7 +75,7 @@ describe('API Endpoints', () => {
       const result = await getEchoHistory();
 
       expect(result).toHaveLength(2);
-      expect(result[0].text).toBe('first');
+      expect(result[0]?.text).toBe('first');
     });
   });
 });

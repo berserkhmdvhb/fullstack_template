@@ -10,14 +10,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders, screen } from '@/src/test/test-utils';
 
-import Error from './error';
+import ErrorBoundary from './error';
 
-describe('Error', () => {
+describe('ErrorBoundary', () => {
   it('should render error boundary content', () => {
     const mockError = new Error('Test error');
     const mockReset = vi.fn();
 
-    renderWithProviders(<Error error={mockError} reset={mockReset} />);
+    renderWithProviders(<ErrorBoundary error={mockError} reset={mockReset} />);
 
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
   });
@@ -26,7 +26,7 @@ describe('Error', () => {
     const mockError = new Error('Test error');
     const mockReset = vi.fn();
 
-    renderWithProviders(<Error error={mockError} reset={mockReset} />);
+    renderWithProviders(<ErrorBoundary error={mockError} reset={mockReset} />);
 
     expect(screen.getByText('Try Again')).toBeInTheDocument();
   });
@@ -35,7 +35,7 @@ describe('Error', () => {
     const mockError = new Error('Test error');
     const mockReset = vi.fn();
 
-    renderWithProviders(<Error error={mockError} reset={mockReset} />);
+    renderWithProviders(<ErrorBoundary error={mockError} reset={mockReset} />);
 
     expect(screen.getByText('Return Home')).toBeInTheDocument();
   });

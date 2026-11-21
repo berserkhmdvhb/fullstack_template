@@ -16,20 +16,22 @@ import { renderWithProviders, screen, waitFor } from '@/src/test/test-utils';
 
 import { ItemList } from './ItemList';
 
+const noop = (): void => {};
+
 // ---------------------------------------------------------------------------
 // Tests: Rendering
 // ---------------------------------------------------------------------------
 
 describe('ItemList', () => {
   it('renders the component with heading', async () => {
-    renderWithProviders(<ItemList />);
+    renderWithProviders(<ItemList onEdit={noop} />);
     await waitFor(() => {
       expect(screen.getByText(/Items/)).toBeInTheDocument();
     });
   });
 
   it('renders search input', async () => {
-    renderWithProviders(<ItemList />);
+    renderWithProviders(<ItemList onEdit={noop} />);
     await waitFor(() => {
       expect(screen.getByLabelText('Search items')).toBeInTheDocument();
     });
@@ -47,7 +49,7 @@ describe('ItemList', () => {
       }),
     );
 
-    renderWithProviders(<ItemList />);
+    renderWithProviders(<ItemList onEdit={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('No items found.')).toBeInTheDocument();
@@ -67,7 +69,7 @@ describe('ItemList', () => {
       }),
     );
 
-    renderWithProviders(<ItemList />);
+    renderWithProviders(<ItemList onEdit={noop} />);
     // The loading skeleton should appear briefly
     const skeletons = screen.getAllByTestId('skeleton');
     expect(skeletons.length).toBeGreaterThan(0);
@@ -78,7 +80,7 @@ describe('ItemList', () => {
   // ---------------------------------------------------------------------------
 
   it('renders items in a table', async () => {
-    renderWithProviders(<ItemList />);
+    renderWithProviders(<ItemList onEdit={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('Alpha Item')).toBeInTheDocument();
@@ -88,7 +90,7 @@ describe('ItemList', () => {
   });
 
   it('shows active/inactive status indicators', async () => {
-    renderWithProviders(<ItemList />);
+    renderWithProviders(<ItemList onEdit={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('Active')).toBeInTheDocument();
@@ -97,7 +99,7 @@ describe('ItemList', () => {
   });
 
   it('shows delete button for each item', async () => {
-    renderWithProviders(<ItemList />);
+    renderWithProviders(<ItemList onEdit={noop} />);
 
     await waitFor(() => {
       const deleteButtons = screen.getAllByText('Delete');
@@ -110,7 +112,7 @@ describe('ItemList', () => {
   // ---------------------------------------------------------------------------
 
   it('filters items when search text is entered', async () => {
-    renderWithProviders(<ItemList />);
+    renderWithProviders(<ItemList onEdit={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('Alpha Item')).toBeInTheDocument();
@@ -139,7 +141,7 @@ describe('ItemList', () => {
       }),
     );
 
-    renderWithProviders(<ItemList />);
+    renderWithProviders(<ItemList onEdit={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText('Failed to load items.')).toBeInTheDocument();
@@ -151,7 +153,7 @@ describe('ItemList', () => {
   // ---------------------------------------------------------------------------
 
   it('displays total item count in heading', async () => {
-    renderWithProviders(<ItemList />);
+    renderWithProviders(<ItemList onEdit={noop} />);
 
     await waitFor(() => {
       expect(screen.getByText(/Items \(2\)/)).toBeInTheDocument();

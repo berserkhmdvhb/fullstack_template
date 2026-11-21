@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import postcss, { type AtRule, type Rule } from 'postcss';
+import postcss, { type AtRule, type Container, type Document, type Rule } from 'postcss';
 import { describe, expect, it } from 'vitest';
 
 const css = readFileSync(path.join(__dirname, 'globals.css'), 'utf8');
@@ -29,7 +29,7 @@ const EXEMPT = new Set(['layer', 'theme', 'utility', 'custom-variant', 'keyframe
 function unlayeredRules(): Rule[] {
   const out: Rule[] = [];
   root.walkRules((rule) => {
-    for (let p = rule.parent; p; p = p.parent) {
+    for (let p: Container | Document | undefined = rule.parent; p; p = p.parent) {
       if (p.type === 'atrule' && EXEMPT.has((p as AtRule).name)) return;
     }
     out.push(rule);
@@ -49,7 +49,9 @@ describe('globals.css cascade', () => {
     const inBase: string[] = [];
     root.walkAtRules('layer', (layer) => {
       if (layer.params !== 'base') return;
-      layer.walkRules((r) => inBase.push(...r.selectors.map((s) => s.trim())));
+      layer.walkRules((r) => {
+        inBase.push(...r.selectors.map((s) => s.trim()));
+      });
     });
     expect(inBase).toEqual(expect.arrayContaining(['html', 'body', 'header']));
   });

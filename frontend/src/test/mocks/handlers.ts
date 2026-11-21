@@ -82,7 +82,7 @@ export const handlers = [
 
   // GET /api/v1/items/:id
   http.get(`${API_BASE}/items/:id`, ({ params }) => {
-    const id = params.id as string;
+    const id = params['id'] as string;
     if (id === '11111111-1111-1111-1111-111111111111') {
       return HttpResponse.json({
         id,
@@ -121,7 +121,7 @@ export const handlers = [
 
   // PATCH /api/v1/items/:id
   http.patch(`${API_BASE}/items/:id`, async ({ request, params }) => {
-    const id = params.id as string;
+    const id = params['id'] as string;
     const body = (await request.json()) as {
       name?: string;
       description?: string;
@@ -139,7 +139,7 @@ export const handlers = [
 
   // DELETE /api/v1/items/:id
   http.delete(`${API_BASE}/items/:id`, ({ params }) => {
-    const id = params.id as string;
+    const id = params['id'] as string;
     if (id === '11111111-1111-1111-1111-111111111111') {
       return new HttpResponse(null, { status: 204 });
     }
