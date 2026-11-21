@@ -1,5 +1,7 @@
 import type { NextConfig } from 'next';
 
+import { STATIC_HEADER_SOURCES } from './static-paths';
+
 // Cache policy of the files in `public/`, the one place it lives (the nginx tier that used to set it is
 // retired). `/_next/static/*` is not listed: Next.js already sends `public, max-age=31536000, immutable`
 // for the content-hashed build output, and the live test asserts it on a real response.
@@ -50,9 +52,23 @@ const nextConfig: NextConfig = {
           // lives next to the header in `proxy.ts`.
         ],
       },
+      // Files the proxy skips (see static-paths.ts) carry no page, so nothing may frame them and no
+      // content policy lets anything run from them; this is what the retired static tier sent. No
+      // duplicate Content-Security-Policy can arise: the proxy never runs on these paths.
+      ...STATIC_HEADER_SOURCES.map((source) => ({
+        source,
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Content-Security-Policy', value: "default-src 'none'" },
+        ],
+      })),
+      // The proxied text files (they carry the page policy) cannot be framed either.
       ...publicFileCache.map(([source, value]) => ({
         source,
-        headers: [{ key: 'Cache-Control', value }],
+        headers: [
+          { key: 'Cache-Control', value },
+          ...(value === CACHE_REVALIDATE ? [{ key: 'X-Frame-Options', value: 'DENY' }] : []),
+        ],
       })),
     ];
   },

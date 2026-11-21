@@ -11,6 +11,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import nextConfig from './next.config';
+import { STATIC_HEADER_SOURCES } from './static-paths';
 
 const headersFor = async () => {
   const rules = (await nextConfig.headers?.()) ?? [];
@@ -42,16 +43,29 @@ describe('next.config headers()', () => {
     });
   });
 
-  it('sets the cache policy per file, from this one table', async () => {
+  it('sets the cache policy per file, with a frame ban on the proxied ones', async () => {
     vi.stubEnv('NODE_ENV', 'production');
-    const [, ...cacheRules] = await headersFor();
+    const cacheRules = (await headersFor()).slice(5);
+    const deny = { 'X-Frame-Options': 'DENY' };
     expect(cacheRules).toEqual([
       { source: '/logo.png', count: 1, headers: { 'Cache-Control': 'public, max-age=604800' } },
       { source: '/favicon.ico', count: 1, headers: { 'Cache-Control': 'public, max-age=604800' } },
-      { source: '/robots.txt', count: 1, headers: { 'Cache-Control': 'no-cache' } },
-      { source: '/sitemap.xml', count: 1, headers: { 'Cache-Control': 'no-cache' } },
-      { source: '/health.txt', count: 1, headers: { 'Cache-Control': 'no-cache' } },
+      { source: '/robots.txt', count: 2, headers: { 'Cache-Control': 'no-cache', ...deny } },
+      { source: '/sitemap.xml', count: 2, headers: { 'Cache-Control': 'no-cache', ...deny } },
+      { source: '/health.txt', count: 2, headers: { 'Cache-Control': 'no-cache', ...deny } },
     ]);
+  });
+
+  it('locks down every file the proxy skips: no framing, no content policy to run anything', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const rules = await headersFor();
+    expect(rules.slice(1, 5).map((r) => r.source)).toEqual(STATIC_HEADER_SOURCES);
+    for (const rule of rules.slice(1, 5)) {
+      expect(rule.headers).toEqual({
+        'X-Frame-Options': 'DENY',
+        'Content-Security-Policy': "default-src 'none'",
+      });
+    }
   });
 
   it('sets no HSTS (the edge owns it) and no CSP (proxy.ts owns it)', async () => {

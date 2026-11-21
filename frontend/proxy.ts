@@ -109,5 +109,7 @@ export function proxy(request: NextRequest) {
 export const config = {
   // Run on every route except the static asset / image / icon files, which are
   // served straight from disk and must not carry the per-request CSP/nonce work.
+  // Next.js needs this as a literal; static-paths.ts is the list it must equal (a test checks it),
+  // and next.config.ts gives those same paths their own locked-down headers.
   matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 };

@@ -64,6 +64,12 @@ _FRONTEND_LAYER: Final[dict[str, str]] = {
     "cross-origin-opener-policy": "same-origin",
     "cross-origin-resource-policy": "same-origin",
 }
+# Files the proxy skips (build output, images, the favicon): nothing may frame them or run there.
+_STATIC_LAYER: Final[dict[str, str]] = {
+    **_FRONTEND_LAYER,
+    "x-frame-options": "DENY",
+    "content-security-policy": "default-src 'none'",
+}
 
 
 def _client(port_var: str, default_port: str, host_var: str) -> httpx.Client:
@@ -199,7 +205,7 @@ def test_a_static_asset_through_the_frontend() -> None:
     assert res.status_code == status.HTTP_200_OK
     # One Cache-Control (a repeat fails in _final_headers), immutable for a year, the same security
     # headers as every other response, and compressed (the Next.js default; there may be no CDN).
-    _assert_final_set(res, _FRONTEND_LAYER, exact_transport={"cache-control": _IMMUTABLE})
+    _assert_final_set(res, _STATIC_LAYER, exact_transport={"cache-control": _IMMUTABLE})
     assert res.headers["content-encoding"] == "gzip"
 
 
@@ -210,13 +216,13 @@ def test_a_public_file_through_the_frontend_is_always_revalidated() -> None:
     # The proxy matches a .txt path, so the page's per-request CSP rides along.
     _assert_final_set(
         res,
-        {**_FRONTEND_LAYER, "content-security-policy": _NEXT_CSP},
+        {**_FRONTEND_LAYER, "content-security-policy": _NEXT_CSP, "x-frame-options": "DENY"},
         exact_transport={"cache-control": "no-cache"},
     )
 
 
 def test_the_build_version_is_on_the_page_and_its_asset_urls() -> None:
-    expected = os.getenv("NEXT_DEPLOYMENT_ID")
+    expected = os.getenv("NEXT_DEPLOYMENT_ID") or None
     with _frontend() as client:
         html = client.get("/").text
     if expected is None:
