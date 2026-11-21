@@ -36,7 +36,7 @@ flowchart LR
 
 | Workflow | Runs on | What it does |
 |---|---|---|
-| [`ci.yml`](../.github/workflows/ci.yml) | pull request, push to `main` and `v*`, manual | The quality gate. Jobs: `changes` (path filter), `backend`, `frontend`, `chart`, `live`, `security`, `repo`, `hadolint`, `workflows`, and the `CI OK` gate |
+| [`ci.yml`](../.github/workflows/ci.yml) | pull request, push to `main` and `v*`, manual | The quality gate. Jobs: `changes` (path filter), `backend`, `frontend`, `chart`, `live`, `security`, `repo`, `hadolint`, `workflows`, `pins` (pin drift), and the `CI OK` gate |
 | [`reusable-backend.yml`](../.github/workflows/reusable-backend.yml) | called by `ci` | `lint` (ruff format, ruff lint, mypy), `unit` (Python 3.12, 3.13 and the advisory 3.14), `integration`, `e2e` |
 | [`reusable-frontend.yml`](../.github/workflows/reusable-frontend.yml) | called by `ci` | `eslint`, `prettier`, `type-check`, `openapi-drift`, `build`, `unit`, `integration`, `playwright-list` |
 | [`reusable-live.yml`](../.github/workflows/reusable-live.yml) | called by `ci` | The full stack, then the backend live suite and the Playwright suite |
@@ -46,6 +46,8 @@ flowchart LR
 | [`reusable-build.yml`](../.github/workflows/reusable-build.yml) | called by `release` | `build` (build, push, verify the digest), `sbom`, `grype` (blocking gate), `sign-attest` |
 | [`deploy.yml`](../.github/workflows/deploy.yml) | called by `release` | `helm-checks`, `deploy-notice` (the skip notice), then `deploy-dev`, `deploy-qa`, `deploy-production` |
 | [`deploy-ops.yml`](../.github/workflows/deploy-ops.yml) | manual | `rollback`, `history`, `cleanup` (a report) and `check` on one environment |
+| [`reusable-pins.yml`](../.github/workflows/reusable-pins.yml) | called by `ci` and `pins-drift` | `pins`: `scripts/pins-refresh.sh --check` (read-only) against the vendors' published checksums; on a pull request only the rows that differ from the base. See [dependency updates](./security.md#dependency-updates-and-pinned-checksums) |
+| [`pins-drift.yml`](../.github/workflows/pins-drift.yml) | weekly (Monday 04:41 UTC); manual | `pins` over every row |
 | [`scorecard.yml`](../.github/workflows/scorecard.yml) | weekly (Monday 03:17 UTC); push to `main` | `analysis`: the OpenSSF Scorecard, published and uploaded as SARIF. Public repositories only; never a gate |
 | [`dast.yml`](../.github/workflows/dast.yml) | after `Release` succeeds; manual | The ZAP baseline against the backend image just pushed |
 
@@ -54,10 +56,11 @@ flowchart LR
 ## Triggers and gates
 
 - **Path filter.** On a pull request, the `changes` job decides whether `backend` and `frontend` run. Backend paths: `src/`, `tests/`, `alembic*`, `pyproject.toml`, `Makefile`, `frontend/lib/api/`, `.github/`, `scripts/`, `infra/`, `tools/` (every root `make ruff-lint` covers). Frontend paths: `frontend/`, `Makefile`, `.github/`, `scripts/`, `tools/`. The frontend job also runs when the backend changed, because the OpenAPI drift check needs it. On `main`, tags and manual runs everything runs.
+- **`pins`** runs on a pull request only when `tools/pins.tsv`, `tools/requirements/`, `infra/security/config.yaml` or the refresh script changed; on `main`, tags and manual runs it always does.
 - **Always run:** `chart`, `security`, `repo`, `hadolint`, `workflows`.
 - **`CODE_SECURITY=off`** (a repository variable, for a private copy without GitHub code security) makes `codeql` and `dependency-review` skip, and a `code-security-off` job says so in the summary. See [Platform setup](./platform-setup.md#variables-and-secrets).
 - **`live`** waits for `backend` and `frontend` (a skipped one does not stop it) and runs when either side changed.
-- **The required check is `CI OK`.** It depends on every blocking job and fails on any result other than success. On a pull request `backend` and `frontend` may be skipped, and `live`'s result is ignored (it is advisory there). See [GitHub repository settings](./github-repository-settings.md#required-status-checks).
+- **The required check is `CI OK`.** It depends on every blocking job and fails on any result other than success. On a pull request `backend`, `frontend` and `pins` may be skipped (their path filter), and `live`'s result is ignored (it is advisory there). See [GitHub repository settings](./github-repository-settings.md#required-status-checks).
 - **A fork's pull request** gets a read-only token and no secrets, never pushes an image and never reaches a deploy job. Workflows never use `pull_request_target`, and every workflow starts from `permissions: {}` with job-level grants.
 - **Concurrency.** A pull request run cancels the previous one; release, deploy and DAST runs are never cancelled mid-flight.
 
@@ -65,7 +68,7 @@ flowchart LR
 
 | Kind | Behaviour | Jobs |
 |---|---|---|
-| Blocking, required | Fails the run on a finding; behind `CI OK` | ruff, mypy, unit (3.12, 3.13), integration, e2e, the frontend gates, `chart`, `codeql`, `dependency-review`, `gitleaks`, `repo`, `hadolint`, `workflows`; `live` on `main` and tags |
+| Blocking, required | Fails the run on a finding; behind `CI OK` | ruff, mypy, unit (3.12, 3.13), integration, e2e, the frontend gates, `chart`, `codeql`, `dependency-review`, `gitleaks`, `repo`, `hadolint`, `workflows`, `pins`; `live` on `main` and tags |
 | Blocking, release | Fails the release run | `build` (digest check), `grype` (threshold `policy.fail_level` in `infra/security/config.yaml`) |
 | Advisory | Findings become a `::warning` annotation and a step-summary line; fails only on a tool error; never a required check | `pip-audit`, the `advisory` matrix (`osv`, `guarddog`, `checkov`, `kubescape`), `Unit (Python 3.14)`, `live` on pull requests, `grant`, `vex`, DAST |
 

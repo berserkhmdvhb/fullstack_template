@@ -19,6 +19,7 @@ make test                 # backend unit + integration + e2e (hermetic; excludes
 make test-unit            # backend unit only
 make test-integration / test-e2e / test-live
 make shellcheck           # lint every tracked *.sh + *.bats
+make pins-refresh         # after bumping a pin: write the vendor checksums and regenerate the hashed locks
 cd frontend && npm run lint && npm run typecheck && npm run test   # frontend gates
 ```
 
