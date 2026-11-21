@@ -1,0 +1,7 @@
+# gitleaks findings confirmed as false positives, one exact fingerprint each
+# (<commit sha>:<path>:<rule id>:<line>). Never add a pattern here: fix a real secret at its source
+# and rotate it. tests/supply_chain/test_gitleaks_ignore.py requires a reason directly above each entry.
+
+# The value is the URL path "/api-docs" passed to the API_DOCS_URL setting, not a key: the generic rule
+# matches the "API" keyword, and the short path scores just over its entropy threshold.
+5dd6650f351b6eaa01d4905fe25f21a4d4449de8:tests/backend/api/test_docs_page.py:generic-api-key:67
