@@ -7,12 +7,13 @@
  * @packageDocumentation
  */
 
+import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw/http';
 import React from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { server } from '@/src/test/mocks/server';
-import { renderWithProviders, screen, waitFor } from '@/src/test/test-utils';
+import { renderWithProviders, screen, waitFor, within } from '@/src/test/test-utils';
 
 import { ItemList } from './ItemList';
 
@@ -158,5 +159,135 @@ describe('ItemList', () => {
     await waitFor(() => {
       expect(screen.getByText(/Items \(2\)/)).toBeInTheDocument();
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Tests: Actions
+  // ---------------------------------------------------------------------------
+
+  it('passes the clicked item to onEdit', async () => {
+    const onEdit = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(<ItemList onEdit={onEdit} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Edit Beta Item' }));
+
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Beta Item' }));
+  });
+
+  it('retries the fetch from the error state', async () => {
+    let failing = true;
+    server.use(
+      http.get('/api/v1/items', () =>
+        failing
+          ? HttpResponse.json({ detail: 'down' }, { status: 500 })
+          : HttpResponse.json({ items: [], total: 0 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<ItemList onEdit={noop} />);
+    await screen.findByText('Failed to load items.');
+
+    failing = false;
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByText('No items found.')).toBeInTheDocument();
+  });
+
+  it('deletes an item after confirmation and says so', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ItemList onEdit={noop} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Delete Alpha Item' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    expect(await screen.findByText('Item deleted successfully.')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  it('does not delete when the confirmation is cancelled', async () => {
+    let deletes = 0;
+    server.use(
+      http.delete('/api/v1/items/:id', () => {
+        deletes += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<ItemList onEdit={noop} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Delete Alpha Item' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(deletes).toBe(0);
+  });
+
+  it('reports a failed delete and closes the dialog', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ItemList onEdit={noop} />);
+
+    // The default handler answers 404 for every id except Alpha's.
+    await user.click(await screen.findByRole('button', { name: 'Delete Beta Item' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+
+    expect(await screen.findByText(/^Failed to delete item:/)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Tests: Pagination
+  // ---------------------------------------------------------------------------
+
+  it('pages through the results', async () => {
+    const pages: string[] = [];
+    server.use(
+      http.get('/api/v1/items', ({ request }) => {
+        const page = new URL(request.url).searchParams.get('page') ?? '1';
+        pages.push(page);
+        return HttpResponse.json({
+          items: [
+            {
+              id: `00000000-0000-0000-0000-00000000000${page}`,
+              name: `Item on page ${page}`,
+              description: '',
+              is_active: true,
+              created_at: '2025-01-01T00:00:00Z',
+              updated_at: '2025-01-01T00:00:00Z',
+            },
+          ],
+          total: 3,
+          total_pages: 3,
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<ItemList onEdit={noop} />);
+
+    expect(await screen.findByText('Item on page 1')).toBeInTheDocument();
+    expect(screen.getByText('Page 1 of 3 (3 items)')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('Item on page 2')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('Item on page 3')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'Previous' }));
+    expect(await screen.findByText('Item on page 2')).toBeInTheDocument();
+    expect(pages).toContain('3');
+  });
+
+  it('hides the pager when everything fits on one page', async () => {
+    renderWithProviders(<ItemList onEdit={noop} />);
+
+    await screen.findByText('Alpha Item');
+
+    expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument();
   });
 });
