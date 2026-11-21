@@ -1,14 +1,12 @@
-# squawk configuration (read by scripts/ci/squawk.sh). squawk's default rules apply; the exceptions are listed
-# here, each with its reason.
+# squawk configuration (read by scripts/ci/squawk.sh). squawk's default rules apply to every migration.
 #
-# prefer-text-field: it flags every VARCHAR(n). Two are unavoidable and one is a decision, none can change:
+# The one exception is not set here: scripts/ci/squawk.sh passes `--exclude prefer-text-field` (squawk's
+# command-line option for excluding a rule) for the SQL of revision 0001 only, and lints every later revision with
+# the defaults. prefer-text-field flags every VARCHAR(n); two in 0001 cannot change:
 #   - alembic_version.version_num VARCHAR(32) is Alembic's own table, created by Alembic itself.
-#   - items.name VARCHAR(255) (revision 0001) is a deliberate length limit that the API also enforces. The
-#     revision is applied on every deployed database; changing it now would only make new and old databases differ.
-# A new migration that needs a bounded string should use text with a CHECK constraint; review it on its merits.
-excluded_rules = ["prefer-text-field"]
+#   - items.name VARCHAR(255) is a deliberate length limit that the API also enforces. The revision is applied on
+#     every deployed database; changing it now would only make new and old databases differ.
+# A new migration that needs a bounded string should use text with a CHECK constraint.
 
 # The runtime database is PostgreSQL 16 (charts: postgresql.image).
 pg_version = "16"
-
-# No assume_in_transaction: the offline SQL carries its own BEGIN and COMMIT.
