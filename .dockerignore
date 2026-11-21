@@ -11,6 +11,11 @@
 # Local-only state (the kind kubeconfig, generated secrets and certificates)
 .local
 .hypothesis
+# Every other root dot-entry (editor, agent and tool state, local notes): none is a build input
+.*
+
+# Documentation is not a build input
+wiki
 
 # The default SQLite database directory of a local run (the image creates its own, empty one)
 data
