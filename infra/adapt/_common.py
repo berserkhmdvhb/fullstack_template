@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shared filesystem helpers and rewrite engine for the adapt scripts.
 
 This module centralises the duplicated utilities used by
@@ -29,7 +28,7 @@ import sys
 from collections.abc import Iterable
 from os import walk
 from pathlib import Path
-from typing import Final
+from typing import Final, Protocol
 
 # A valid service name / image id: it becomes an env var, a Dockerfile name and a
 # repository suffix, so it must be a lowercase identifier. Shared by the name and
@@ -115,10 +114,19 @@ def backup_file(backup: Path, relf: str, full: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+class _RewriteConfig(Protocol):
+    """The attributes :func:`rewrite_tree` reads from its config object."""
+
+    include_exts: set[str]
+    excludes: set[str]
+    backup: Path
+    dry: bool
+
+
 def rewrite_tree(
     root: Path,
     patterns: list[tuple[re.Pattern[str], str]],
-    config,  # AdaptConfig -- duck-typed to avoid circular import
+    config: _RewriteConfig,  # AdaptConfig -- duck-typed to avoid circular import
 ) -> list[str]:
     """Apply regex replacements across files matching ``include_exts`` (respecting ``excludes``).
 
@@ -203,16 +211,16 @@ def detect_images(root: Path, service_name: str) -> list[tuple[str, str]]:
             continue
         image_id = _dockerfile_id(path.name, service_name)
         if not VALID_NAME_RE.match(image_id):
-            raise ValueError(
-                f"invalid image id '{image_id}' from {path.name} "
-                "(use lowercase [a-z][a-z0-9_]*)",
-            )
+            msg = f"invalid image id '{image_id}' from {path.name} (use lowercase [a-z][a-z0-9_]*)"
+            raise ValueError(msg)
         if image_id in seen:
-            raise ValueError(f"duplicate image id '{image_id}' ({path.name})")
+            msg = f"duplicate image id '{image_id}' ({path.name})"
+            raise ValueError(msg)
         seen.add(image_id)
         images.append((image_id, path.name))
     if not images:
-        raise ValueError("nothing to build: no root Dockerfile found")
+        msg = "nothing to build: no root Dockerfile found"
+        raise ValueError(msg)
     images.sort(key=lambda pair: pair[0])
     return images
 
@@ -287,7 +295,8 @@ def _replace_block(
             k = i
             break
     if k is None:
-        raise ValueError(f"key {key!r} not found")
+        msg = f"key {key!r} not found"
+        raise ValueError(msg)
     key_indent = _indent(lines[k])
     j = k + 1
     while j < len(lines):
@@ -298,7 +307,7 @@ def _replace_block(
     return lines[: k + 1] + rendered + lines[j:]
 
 
-def _finalize(lines: list[str], had_trailing_newline: bool) -> str:
+def _finalize(lines: list[str], *, had_trailing_newline: bool) -> str:
     """Join ``lines``, restoring the input's trailing-newline state.
 
     ``content.split("\n")`` drops the marker of whether the source ended in "\n"
@@ -319,7 +328,7 @@ def rewrite_images_block(content: str, images: list[tuple[str, str]]) -> str:
     had_nl = content.endswith("\n")
     lines = content.split("\n")
     lines = _replace_block(lines, "images", render_images_block(images), expected_indent=0)
-    return _finalize(lines, had_nl)
+    return _finalize(lines, had_trailing_newline=had_nl)
 
 
 def rewrite_services_block(content: str, images: list[tuple[str, str]]) -> str:
@@ -332,4 +341,4 @@ def rewrite_services_block(content: str, images: list[tuple[str, str]]) -> str:
     had_nl = content.endswith("\n")
     lines = content.split("\n")
     lines = _replace_block(lines, "services", render_services_block(images))
-    return _finalize(lines, had_nl)
+    return _finalize(lines, had_trailing_newline=had_nl)

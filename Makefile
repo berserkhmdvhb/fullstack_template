@@ -1,6 +1,6 @@
 # your-service-name — adaptable service template (see wiki/getting-started.md)
 .PHONY: all help install develop \
-    ruff-format ruff-format-check ruff-lint mypy-check \
+    ruff-format ruff-format-check ruff-lint ruff-lint-fix mypy-check \
     openapi-gen openapi-drift-check \
     shellcheck tools tools-dry-run \
     check-all check-all-dry \
@@ -149,14 +149,21 @@ develop:
 # -------------------------------------------------------------------
 # Develop Tools (Including Code Quality & Security Checks)
 # -------------------------------------------------------------------
+# One scope for format, lint and the pre-commit hook: all the Python the repo owns.
+RUFF_PATHS := src/ tests/ scripts/ infra/ .github/scripts/
+
 ruff-format:
-	ruff format src/ tests/
+	ruff format $(RUFF_PATHS)
 
 ruff-format-check:
-	ruff format --check src/ tests/
+	ruff format --check $(RUFF_PATHS)
 
 ruff-lint:
-	ruff check src/ tests/
+	ruff check --no-fix $(RUFF_PATHS)
+
+# Auto-fixing lint, used only by check-all (never by CI, check-all-dry or pre-commit).
+ruff-lint-fix:
+	ruff check --fix $(RUFF_PATHS)
 
 mypy-check:
 	mypy
@@ -250,7 +257,7 @@ dev-tools-outdated:
 dev-tools-upgrade:
 	$(PIP) install -U $(DEV_TOOLS)
 
-check-all: dev-tools-outdated ruff-format ruff-lint mypy-check
+check-all: dev-tools-outdated ruff-format ruff-lint-fix mypy-check
 check-all-dry: dev-tools-outdated ruff-format-check ruff-lint mypy-check
 
 # -------------------------------------------------------------------

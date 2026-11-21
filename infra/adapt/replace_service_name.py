@@ -232,7 +232,7 @@ def _patterns_build_scripts(cfg: ServiceNameConfig) -> list[tuple[re.Pattern[str
     pats.append(
         (
             re.compile(rf"#\s*-n/--name\s+IMAGE_NAME\s+\(default:\s+{re.escape(old)}\)"),
-            f"#   -n/--name        IMAGE_NAME      (default: {new})"
+            f"#   -n/--name        IMAGE_NAME      (default: {new})",
         )
     )
 
@@ -242,14 +242,14 @@ def _patterns_build_scripts(cfg: ServiceNameConfig) -> list[tuple[re.Pattern[str
     pats.append(
         (
             re.compile(rf"SETUPTOOLS_SCM_PRETEND_VERSION_FOR_{re.escape(old_upper)}"),
-            f"SETUPTOOLS_SCM_PRETEND_VERSION_FOR_{new_upper}"
+            f"SETUPTOOLS_SCM_PRETEND_VERSION_FOR_{new_upper}",
         )
     )
     # Also handle the comment reference
     pats.append(
         (
             re.compile(rf"SETUPTOOLS_SCM_PRETEND_VERSION_FOR_{re.escape(old_upper)},"),
-            f"SETUPTOOLS_SCM_PRETEND_VERSION_FOR_{new_upper},"
+            f"SETUPTOOLS_SCM_PRETEND_VERSION_FOR_{new_upper},",
         )
     )
 
@@ -271,12 +271,7 @@ def _patterns_python_imports(cfg: ServiceNameConfig) -> list[tuple[re.Pattern[st
     old, new = cfg.old, cfg.new
     pats: list[tuple[re.Pattern[str], str]] = []
     # Pattern for "from your_service_name import" statements
-    pats.append(
-        (
-            re.compile(rf"from\s+{re.escape(old)}\s+import"),
-            f"from {new} import"
-        )
-    )
+    pats.append((re.compile(rf"from\s+{re.escape(old)}\s+import"), f"from {new} import"))
     return pats
 
 
@@ -296,7 +291,12 @@ def _patterns_pyproject_and_sonar(cfg: ServiceNameConfig) -> list[tuple[re.Patte
     # Pattern for importlib.metadata.version("your_service_name")
     pats.append((re.compile(rf'im\.version\("{re.escape(old)}"\)'), f'im.version("{new}")'))
     # Pattern for package-data entry in pyproject.toml
-    pats.append((re.compile(rf'^\s*{re.escape(old)}\s*=\s*\["py\.typed"\]', re.MULTILINE), f'{new} = ["py.typed"]'))
+    pats.append(
+        (
+            re.compile(rf'^\s*{re.escape(old)}\s*=\s*\["py\.typed"\]', re.MULTILINE),
+            f'{new} = ["py.typed"]',
+        )
+    )
     return pats
 
 
@@ -310,6 +310,7 @@ def _patterns_makefile(cfg: ServiceNameConfig) -> list[tuple[re.Pattern[str], st
         )
     )
     return pats
+
 
 def _patterns_yaml_config_values(cfg: ServiceNameConfig) -> list[tuple[re.Pattern[str], str]]:
     """Handle generic YAML/TOML-style template config values.
@@ -368,6 +369,7 @@ def _patterns_yaml_config_values(cfg: ServiceNameConfig) -> list[tuple[re.Patter
     )
 
     return pats
+
 
 def build_patterns(old: str, new: str) -> list[tuple[re.Pattern[str], str]]:
     """Aggregate all pattern builders; low branch count and low complexity."""
@@ -538,9 +540,7 @@ def parse_args() -> argparse.Namespace:
         "--new", required=True, help="New package name (lowercase, [a-z][a-z0-9_]*)"
     )
     parser.add_argument("--old", default="", help="Old package name (auto-detected if empty)")
-    parser.add_argument(
-        "--root", default=None, help="Repo root (default: the current directory)"
-    )
+    parser.add_argument("--root", default=None, help="Repo root (default: the current directory)")
     parser.add_argument("--dry-run", action="store_true", help="Show changes only")
     parser.add_argument(
         "--include-exts",

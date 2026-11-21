@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Adopt a forked copy of the template — stamp the deployment coordinates.
 
 Complements :mod:`replace_service_name`, which rewrites the *service name*.
@@ -34,7 +33,7 @@ from typing import Final
 # The shared rewrite engine lives in this directory; ``infra/`` is not a package,
 # so put this dir on sys.path before importing it (same trick as the name adapter).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import rewrite_tree  # noqa: E402
+from _common import rewrite_tree
 
 OLD_DOMAIN: Final[str] = "your-domain.example"
 OLD_REGISTRY: Final[str] = "registry.your-domain.example"
@@ -48,7 +47,9 @@ class _Config:
     to keep the two adapters decoupled.
     """
 
-    def __init__(self, include_exts: set[str], excludes: set[str], backup: Path, *, dry: bool) -> None:
+    def __init__(
+        self, include_exts: set[str], excludes: set[str], backup: Path, *, dry: bool
+    ) -> None:
         self.include_exts = include_exts
         self.excludes = excludes
         self.backup = backup
@@ -65,8 +66,14 @@ def build_patterns(domain: str, registry: str) -> list[tuple[re.Pattern[str], st
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Adopt template: stamp domain + registry")
-    parser.add_argument("--domain", required=True, help="New base domain (replaces your-domain.example)")
-    parser.add_argument("--registry", required=True, help="New image registry (replaces registry.your-domain.example)")
+    parser.add_argument(
+        "--domain", required=True, help="New base domain (replaces your-domain.example)"
+    )
+    parser.add_argument(
+        "--registry",
+        required=True,
+        help="New image registry (replaces registry.your-domain.example)",
+    )
     parser.add_argument("--root", default=None, help="Repo root (default: the current directory)")
     parser.add_argument("--dry-run", action="store_true", help="Show changes only")
     parser.add_argument(
@@ -96,8 +103,10 @@ def main() -> int:
     changed = rewrite_tree(root=root, patterns=patterns, config=config)
 
     if not changed:
-        print("[adopt] Domain/registry already canonical "
-              "(no your-domain.example / registry.your-domain.example left); nothing to do.")
+        print(
+            "[adopt] Domain/registry already canonical "
+            "(no your-domain.example / registry.your-domain.example left); nothing to do."
+        )
     else:
         print("[adopt] Domain/registry stamped in:")
         for relf in changed:
