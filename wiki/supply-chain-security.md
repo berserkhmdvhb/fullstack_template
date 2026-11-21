@@ -145,7 +145,7 @@ intentional overlaps are in the [tooling assessment](./supply-chain-tooling-asse
 | **CodeQL, gitleaks, dependency review** (`security.yml`) | code analysis, secrets, new vulnerable or disallowed-licence dependencies | source | static analysis, secret rules, advisory DB | **gate** (dependency review on pull requests only) | pull requests, `main`, tags | [`ci-cd.md`](./ci-cd.md) |
 | **cosign + GitHub attestations** (`reusable-build.yml` / `sign-attest`) | signing, provenance, SBOM attestation | image digest | Sigstore (Fulcio, Rekor), GitHub OIDC | **gate** (the run fails if `cosign verify` fails) | `main` and `v*` tags only | [`security.md`](./security.md#verifying-an-image) |
 | **Digest verify** (`reusable-build.yml` / `build`, `release.yml` / `digests`) | digest-pin + verify | image | immutable `sha256` | **gate** | `main` and `v*` tags only | [`containerization.md`](./containerization.md) |
-| **OpenVEX** (`release.yml` / `vex`) | VEX (`affected`; reviewed `not_affected`) | shipped digest | exploitability assertion | advisory document | `main` and `v*` tags only | [`ci-cd.md`](./ci-cd.md) |
+| **OpenVEX** (`release.yml` / `vex`) | VEX (`affected`; reviewed `not_affected`) | shipped digest | exploitability assertion | advisory document | `main` and `v*` tags only | [`vulnerability-management.md`](./vulnerability-management.md#the-releases-openvex) |
 | **Workflow hardening** (`ci.yml` / `workflows`) | lints the repo's own workflows | `.github/` | hardening lint, actionlint, zizmor | **gate** | pull requests, `main`, tags | [`ci-cd.md`](./ci-cd.md) |
 
 > Two overlaps are **intentional** (different target or detection model): OSV-Scanner and
