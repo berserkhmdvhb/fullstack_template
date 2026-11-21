@@ -22,6 +22,7 @@ Design
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
 from typing import Annotated, Final, Literal
@@ -69,6 +70,7 @@ _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
     "CORS_ALLOW_CREDENTIALS",
     "ALLOW_ANONYMOUS",
     "ALLOW_PRODUCTION_DOCS",
+    "TRUST_CF_CONNECTING_IP",
 )
 
 
@@ -163,6 +165,22 @@ class Settings(BaseSettings):
     RATE_LIMIT_DEFAULT: str = Field(
         default=DEFAULT_RATE_LIMIT,
         description="Per-IP rate limit in `limits` format, for example `100/minute`.",
+    )
+
+    # --- Client IP ------------------------------------------------------------
+    TRUSTED_PROXY_CIDRS: Annotated[
+        list[ipaddress.IPv4Network | ipaddress.IPv6Network], NoDecode
+    ] = Field(
+        default_factory=list,
+        description="Comma-separated IPv4/IPv6 CIDRs of the proxies (the gateway and, in "
+        "the Tunnel edge mode, cloudflared) whose forwarding headers are trusted. Empty "
+        "trusts nothing: the TCP peer is the client. An invalid entry stops startup.",
+    )
+    TRUST_CF_CONNECTING_IP: bool = Field(
+        default=False,
+        description="Trust `CF-Connecting-IP` from a peer in TRUSTED_PROXY_CIDRS. Set it only in "
+        "the Cloudflare Tunnel edge mode, where Cloudflare overwrites the header.",
+        json_schema_extra={"production": "Refused when TRUSTED_PROXY_CIDRS is empty."},
     )
 
     # --- Auth -----------------------------------------------------------------
@@ -280,6 +298,18 @@ class Settings(BaseSettings):
         items = [item.strip() for item in value.split(",") if item.strip()]
         return items or cls._default_of(info.field_name)
 
+    @field_validator("TRUSTED_PROXY_CIDRS", mode="before")
+    @classmethod
+    def _cidrs(cls, value: object) -> object:
+        """Comma-separated CIDRs (a bare address is a /32 or /128); an invalid one is an error."""
+        if not isinstance(value, str):
+            return value
+        try:
+            return [ipaddress.ip_network(i.strip()) for i in value.split(",") if i.strip()]
+        except ValueError as exc:
+            msg = "TRUSTED_PROXY_CIDRS must be comma-separated IPv4/IPv6 CIDRs, e.g. 10.0.0.0/8"
+            raise ValueError(msg) from exc
+
     @field_validator("DB_POOL_SIZE", "DB_MAX_OVERFLOW", mode="before")
     @classmethod
     def _positive_int_or_default(cls, value: object, info: ValidationInfo) -> object:
@@ -389,6 +419,13 @@ class Settings(BaseSettings):
             problems.append(
                 "CORS_ORIGINS: every origin must be a bare scheme://host[:port], with no path "
                 "and no trailing slash"
+            )
+
+        if self.TRUST_CF_CONNECTING_IP and not self.TRUSTED_PROXY_CIDRS:
+            problems.append(
+                "TRUST_CF_CONNECTING_IP=true with an empty TRUSTED_PROXY_CIDRS trusts nothing; "
+                "set TRUSTED_PROXY_CIDRS to the cloudflared and gateway Pod ranges, or set "
+                "TRUST_CF_CONNECTING_IP=false"
             )
 
         if self.AUTH_MODE == "none" and not self.ALLOW_ANONYMOUS:

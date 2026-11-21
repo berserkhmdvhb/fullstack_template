@@ -71,6 +71,8 @@ the rules are on there.
 | `CORS_ALLOW_METHODS` | comma-separated list | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | Comma-separated allowed methods. | — |
 | `CORS_ALLOW_HEADERS` | comma-separated list | `Authorization,Content-Type,X-Requested-With` | Comma-separated allowed request headers. | — |
 | `RATE_LIMIT_DEFAULT` | str | `100/minute` | Per-IP rate limit in `limits` format, for example `100/minute`. | — |
+| `TRUSTED_PROXY_CIDRS` | comma-separated list | (empty) | Comma-separated IPv4/IPv6 CIDRs of the proxies (the gateway and, in the Tunnel edge mode, cloudflared) whose forwarding headers are trusted. Empty trusts nothing: the TCP peer is the client. An invalid entry stops startup. | — |
+| `TRUST_CF_CONNECTING_IP` | bool | `false` | Trust `CF-Connecting-IP` from a peer in TRUSTED_PROXY_CIDRS. Set it only in the Cloudflare Tunnel edge mode, where Cloudflare overwrites the header. | Refused when TRUSTED_PROXY_CIDRS is empty. |
 | `AUTH_MODE` | one of `none`, `gateway`, `bearer` | `none` | `none` (anonymous), `gateway` (trusted identity header) or `bearer` (HMAC-signed JWT). | `none` is refused unless ALLOW_ANONYMOUS=true. |
 | `ALLOW_ANONYMOUS` | bool | `false` | Production only: explicitly accept AUTH_MODE=none (open endpoints). | — |
 | `AUTH_USER_ID_HEADER` | str | `x-authenticated-user-id` | Gateway mode: header carrying the authenticated user id. | — |

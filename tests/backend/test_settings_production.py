@@ -41,6 +41,26 @@ def _refused(monkeypatch: pytest.MonkeyPatch, *names: str, **env: str) -> str:
     return text
 
 
+class TestClientIpRule:
+    def test_cf_trust_with_no_trusted_proxies_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        text = _refused(monkeypatch, "TRUST_CF_CONNECTING_IP", TRUST_CF_CONNECTING_IP="true")
+        assert "TRUSTED_PROXY_CIDRS" in text
+
+    def test_cf_trust_with_trusted_proxies_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _production(monkeypatch, TRUST_CF_CONNECTING_IP="true", TRUSTED_PROXY_CIDRS="10.0.0.0/8")
+        assert Settings().TRUST_CF_CONNECTING_IP
+
+    def test_cf_trust_off_with_no_trusted_proxies_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _production(monkeypatch)
+        assert Settings().TRUSTED_PROXY_CIDRS == []
+
+
 class TestProductionSwitch:
     def test_a_valid_production_configuration_is_accepted(
         self, monkeypatch: pytest.MonkeyPatch

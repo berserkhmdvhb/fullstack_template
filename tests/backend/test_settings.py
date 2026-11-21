@@ -218,3 +218,32 @@ class TestSecretsNeverEcho:
         with pytest.raises(ValidationError) as excinfo:
             Settings(DATABASE_URL=["leaky", FAKE_DB_PASSWORD])  # type: ignore[arg-type]
         assert FAKE_DB_PASSWORD not in str(excinfo.value)
+
+
+class TestClientIpSettings:
+    """TRUSTED_PROXY_CIDRS / TRUST_CF_CONNECTING_IP: the default trusts nothing."""
+
+    def test_defaults_trust_nothing(self) -> None:
+        s = Settings()
+        assert s.TRUSTED_PROXY_CIDRS == []
+        assert s.TRUST_CF_CONNECTING_IP is False
+
+    def test_cidrs_are_parsed_v4_and_v6(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TRUSTED_PROXY_CIDRS", " 10.0.0.0/8 , fd00::/8,, 192.0.2.7 ")
+        got = [str(n) for n in Settings().TRUSTED_PROXY_CIDRS]
+        assert got == ["10.0.0.0/8", "fd00::/8", "192.0.2.7/32"]
+
+    @pytest.mark.parametrize("raw", ["not-an-ip", "10.0.0.0/33", "10.0.0.0/8,oops", "10.1.2.3/8"])
+    def test_an_invalid_entry_fails_at_startup(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str
+    ) -> None:
+        monkeypatch.setenv("TRUSTED_PROXY_CIDRS", raw)
+        with pytest.raises(ValidationError, match="TRUSTED_PROXY_CIDRS"):
+            Settings()
+
+    def test_blank_values_use_the_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TRUSTED_PROXY_CIDRS", " ")
+        monkeypatch.setenv("TRUST_CF_CONNECTING_IP", "")
+        s = Settings()
+        assert s.TRUSTED_PROXY_CIDRS == []
+        assert s.TRUST_CF_CONNECTING_IP is False
