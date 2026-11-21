@@ -319,14 +319,17 @@ check_http_contract() {
   # the local coexistence window). /health gates readiness; /items proves the
   # migration populated the schema — against an un-migrated DB the read path is 500.
   lib_sep "verify: backend HTTP contract (port-forward :8000)"
-  kubectl port-forward -n "${NAMESPACE}" svc/your-service-name-backend 8000:8000 >/dev/null 2>&1 &
+  # Send the Service name as Host, as the frontend does in-cluster: the backend refuses a Host that
+  # is not in the ALLOWED_HOSTS the chart renders (127.0.0.1 is not).
+  local BACKEND_SERVICE="${HELM_RELEASE}-backend"
+  kubectl port-forward -n "${NAMESPACE}" "svc/${BACKEND_SERVICE}" 8000:8000 >/dev/null 2>&1 &
   local pf=$! i up=0 health items
   for i in 1 2 3 4 5; do
-    if curl -s -o /dev/null --max-time 3 http://127.0.0.1:8000/api/v1/health 2>/dev/null; then up=1; break; fi
+    if curl -s -o /dev/null --max-time 3 -H "Host: ${BACKEND_SERVICE}" http://127.0.0.1:8000/api/v1/health 2>/dev/null; then up=1; break; fi
     sleep 1
   done
-  health="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:8000/api/v1/health 2>/dev/null || echo 000)"
-  items="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:8000/api/v1/items 2>/dev/null || echo 000)"
+  health="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H "Host: ${BACKEND_SERVICE}" http://127.0.0.1:8000/api/v1/health 2>/dev/null || echo 000)"
+  items="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H "Host: ${BACKEND_SERVICE}" http://127.0.0.1:8000/api/v1/items 2>/dev/null || echo 000)"
   kill "${pf}" >/dev/null 2>&1 || true
   wait "${pf}" 2>/dev/null || true
   if [ "${up}" = "1" ] && [ "${health}" = "200" ]; then record "GET /health → 200" PASS "backend ready"

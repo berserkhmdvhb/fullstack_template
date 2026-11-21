@@ -27,6 +27,9 @@ MATRIX_CMD="${MATRIX_CMD:-python3 $ROOT/.github/scripts/container_matrix.py}"
 VERIFY_SCRIPT="${VERIFY_SCRIPT:-$ROOT/scripts/ci/deploy-verify.sh}"
 SMOKE_SCRIPT="${SMOKE_SCRIPT:-$ROOT/scripts/smoke-test.sh}"
 NAMESPACE="${SERVICE_NAME}-${DEPLOY_ENV}"
+# The backend Service. The port-forwarded checks send its name as Host, as the frontend does
+# in-cluster: the backend refuses a Host that is not in the ALLOWED_HOSTS the chart renders.
+BACKEND_SERVICE="${SERVICE_NAME}-backend"
 VALUES="$WORK_DIR/image-values.json"
 
 # The digest variable of an image id: uppercase, non-alphanumerics to _ (as release.yml writes them).
@@ -67,13 +70,13 @@ helm history "$SERVICE_NAME" -n "$NAMESPACE" --max 5
 checks() {
   RELEASE="$SERVICE_NAME" NAMESPACE="$NAMESPACE" COMPONENTS="${components[*]}" bash "$VERIFY_SCRIPT" || return 1
   local pf rc=0
-  kubectl -n "$NAMESPACE" port-forward "svc/${SERVICE_NAME}-backend" "${BACKEND_PORT}:${BACKEND_PORT}" >"$WORK_DIR/pf.log" 2>&1 &
+  kubectl -n "$NAMESPACE" port-forward "svc/${BACKEND_SERVICE}" "${BACKEND_PORT}:${BACKEND_PORT}" >"$WORK_DIR/pf.log" 2>&1 &
   pf=$!
   for _ in $(seq 1 "${SMOKE_WAIT_TRIES:-30}"); do
     curl -fsS --max-time 3 "http://127.0.0.1:${BACKEND_PORT}/api/${API_VERSION}/health" >/dev/null 2>&1 && break
     sleep "${SMOKE_WAIT_SLEEP:-2}"
   done
-  bash "$SMOKE_SCRIPT" --base-url "http://127.0.0.1:${BACKEND_PORT}" --path "/api/${API_VERSION}" \
+  bash "$SMOKE_SCRIPT" --base-url "http://127.0.0.1:${BACKEND_PORT}" --host "${BACKEND_SERVICE}" --path "/api/${API_VERSION}" \
     --format junit --out "$WORK_DIR/smoke-${DEPLOY_ENV}.xml" || rc=1
   kill "$pf" 2>/dev/null || true
   return "$rc"

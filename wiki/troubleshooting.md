@@ -309,6 +309,7 @@ kubectl -n your-service-name-<env> rollout undo deployment/your-service-name-bac
 |-------|----------|
 | PostgreSQL not ready | Wait for `pg_isready` health check; check `DB_PASSWORD` matches |
 | Backend can't connect to DB | Verify `DATABASE_URL` uses `postgres` as hostname (not `localhost`) |
+| Backend answers `400` "The Host header is not allowed." | The `Host` is not in `ALLOWED_HOSTS` (the chart renders the ingress hosts and the backend Service names; add more with `backend.extraAllowedHosts`). Through a port-forward send `Host: <release>-backend`; the health and metrics paths accept any host |
 | Frontend can't reach backend | Check `NEXT_PUBLIC_API_URL` points to the backend port (default: `http://127.0.0.1:8000`) |
 
 **Debug**:

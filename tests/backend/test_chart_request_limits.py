@@ -31,14 +31,14 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-def rendered_config(env: str, *extra: str) -> dict[str, str]:
+def rendered_config(env: str, *extra: str, release: str = RELEASE) -> dict[str, str]:
     """The backend ConfigMap data helm renders for ``values.<env>.yaml``."""
     helm = require_helm(find_helm(), ci=bool(os.environ.get("CI")))
     out = subprocess.run(
         [
             helm,
             "template",
-            RELEASE,
+            release,
             str(CHART),
             "-n",
             NAMESPACE,
@@ -66,6 +66,7 @@ def test_allowed_hosts_are_the_ingress_hosts_and_the_backend_service_names(env: 
     rendered = rendered_config(env)["ALLOWED_HOSTS"].split(",")
     base = yaml.safe_load((CHART / "values.yaml").read_text("utf-8"))["ingress"]["hosts"]
     hosts = {**base, **_values(env).get("ingress", {}).get("hosts", {})}
+    extra = _values(env).get("backend", {}).get("extraAllowedHosts", "")
     assert rendered == [
         hosts["api"],
         hosts["app"],
@@ -74,6 +75,7 @@ def test_allowed_hosts_are_the_ingress_hosts_and_the_backend_service_names(env: 
         f"{BACKEND_SERVICE}.{NAMESPACE}",
         f"{BACKEND_SERVICE}.{NAMESPACE}.svc",
         f"{BACKEND_SERVICE}.{NAMESPACE}.svc.cluster.local",
+        *[h for h in extra.split(",") if h],
     ]
     assert "*" not in rendered
 
@@ -118,3 +120,23 @@ def test_the_body_limit_default_is_the_ingress_body_size() -> None:
     assert sizes, "the chart no longer sets proxy-body-size"
     assert set(sizes.values()) == {DEFAULT_MAX_REQUEST_BODY_BYTES}, sizes
     assert Settings().MAX_REQUEST_BODY_BYTES == DEFAULT_MAX_REQUEST_BODY_BYTES
+
+
+def test_extra_allowed_hosts_are_appended_for_local_clusters_only() -> None:
+    local = rendered_config("local")["ALLOWED_HOSTS"].split(",")
+    assert local[-2:] == ["localhost", "127.0.0.1"]
+    for env in ("dev", "qa", "production"):
+        hosts = rendered_config(env)["ALLOWED_HOSTS"].split(",")
+        assert "localhost" not in hosts
+        assert "127.0.0.1" not in hosts
+
+
+def test_extra_allowed_hosts_value_is_appended_after_the_service_names() -> None:
+    config = rendered_config("production", "--set", "backend.extraAllowedHosts=x.example.com")
+    hosts = config["ALLOWED_HOSTS"].split(",")
+    assert hosts[-1] == "x.example.com"
+    assert hosts[:3] == [
+        "api.your-domain.example",
+        "app.your-domain.example",
+        "your-service-name.your-domain.example",
+    ]

@@ -56,6 +56,13 @@ images:
     registry: ""
     digest: ""
 
+# Backend-only settings.
+backend:
+  # Comma-separated Host values added to the backend's ALLOWED_HOSTS (the ingress hosts and the
+  # backend Service names are always allowed). Empty by default. A local cluster that reaches the
+  # backend through a port-forward sets "localhost,127.0.0.1" (values.local.yaml).
+  extraAllowedHosts: ""
+
 replicas:
   backend: 2
   frontend: 2

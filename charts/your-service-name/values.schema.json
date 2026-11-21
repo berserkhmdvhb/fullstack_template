@@ -53,6 +53,18 @@
       }
     },
 
+    "backend": {
+      "description": "Backend-only settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "extraAllowedHosts": {
+          "description": "Comma-separated Host values appended to the backend's ALLOWED_HOSTS.",
+          "type": "string"
+        }
+      }
+    },
+
     "replicas": {
       "type": "object",
       "additionalProperties": false,

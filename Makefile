@@ -472,6 +472,8 @@ K8S_PORT ?= 8000
 # works, exactly like HELM_ENV / K8S_PORT above.
 HELM_ARGS ?=
 SMOKE_BASE_URL ?= http://localhost:8000
+# Host header to send (a dev/qa/production backend checks it; use <release>-backend). Empty: none.
+SMOKE_HOST ?=
 
 k8s-apply:
 	@echo "Applying $(HELM_ENV) environment (release $(HELM_RELEASE))..."
@@ -527,7 +529,7 @@ rebuild-and-roll:
 
 smoke-test:
 	@echo "Smoke-testing the live HTTP surface at $(SMOKE_BASE_URL)…"
-	./scripts/smoke-test.sh --base-url $(SMOKE_BASE_URL) $(HELM_ARGS)
+	./scripts/smoke-test.sh --base-url $(SMOKE_BASE_URL) $(if $(SMOKE_HOST),--host $(SMOKE_HOST)) $(HELM_ARGS)
 
 secrets:
 	@echo "Updating $(HELM_ENV) secrets from .env (keys only; values masked)…"

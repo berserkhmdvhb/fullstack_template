@@ -64,7 +64,7 @@ STUB
   grep -q -- "--rollback-on-failure --wait --timeout 5m" "$LOG"
   grep -q -- "-n svc-dev" "$LOG"
   grep -q "^verify COMPONENTS=backend frontend" "$LOG"
-  grep -q "^smoke --base-url http://127.0.0.1:8000 --path /api/v1" "$LOG"
+  grep -q "^smoke --base-url http://127.0.0.1:8000 --host svc-backend --path /api/v1" "$LOG"
   grep -q "port-forward svc/svc-backend 8000:8000" "$LOG"
   run grep -q "helm rollback" "$LOG"
   [ "$status" -ne 0 ]

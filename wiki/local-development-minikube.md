@@ -436,6 +436,12 @@ make rebuild-and-roll HELM_ENV=local HELM_ARGS="--only backend"   # one service
 The client-surface gate — exercises the live API like a real client and reports
 pass/fail per check (text / JSON / JUnit for CI). Run it **after** port-forward.
 
+The backend refuses a `Host` header that is not in its `ALLOWED_HOSTS` (the chart renders it).
+`values.local.yaml` adds `localhost` and `127.0.0.1` (`backend.extraAllowedHosts`), so the commands
+below work on a local cluster as they are. Against a dev, qa or production release through a
+port-forward, send the backend Service name instead: `--host <release>-backend` (or
+`curl -H 'Host: <release>-backend' ...`). The health and metrics paths accept any host.
+
 ### ① Manual
 
 ```bash

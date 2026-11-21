@@ -23,6 +23,8 @@
 #
 # Inputs (flags)
 #   -b, --base-url URL      base URL to test (default: http://localhost:8000)
+#       --host NAME         send "Host: NAME" on every request (a port-forward reaches the backend
+#                           as 127.0.0.1, which its ALLOWED_HOSTS refuses; send the Service name)
 #       --format txt|json|junit   report format (default: txt)
 #       --out FILE          write the report to FILE (in addition to stdout)
 #   -k, --insecure          allow insecure TLS (self-signed local certs)
@@ -46,6 +48,7 @@ OUT_FILE=""
 INSECURE="false"
 TIMEOUT="10"
 PREFIX="/api/v1"
+HOST_HEADER=""
 DRY_RUN="${DRY_RUN:-false}"
 
 # Results accumulators
@@ -58,6 +61,8 @@ Usage: smoke-test.sh [options]
 
 Options:
   -b, --base-url URL      base URL to test (default: http://localhost:8000)
+      --host NAME         send "Host: NAME" on every request (a port-forward reaches the backend
+                          as 127.0.0.1, which its ALLOWED_HOSTS refuses; send the Service name)
       --format txt|json|junit   report format (default: txt)
       --out FILE          write the report to FILE (in addition to stdout)
   -k, --insecure          allow insecure TLS (self-signed local certs)
@@ -70,6 +75,9 @@ Examples:
   ./scripts/port-forward.sh --only backend &    # in one terminal
   ./scripts/smoke-test.sh --base-url http://localhost:8000
 
+  # through a port-forward to a cluster whose backend checks the Host header
+  ./scripts/smoke-test.sh --base-url http://127.0.0.1:8000 --host <release>-backend
+
   # CI: emit a JUnit report
   ./scripts/smoke-test.sh --format junit --out smoke.xml http://my-ingress
 EOF
@@ -79,6 +87,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -b|--base-url)   BASE_URL="$2"; shift 2 ;;
+    --host)          HOST_HEADER="$2"; shift 2 ;;
     --format)        FORMAT="$2"; shift 2 ;;
     --out)           OUT_FILE="$2"; shift 2 ;;
     -k|--insecure)   INSECURE="true"; shift ;;
@@ -94,6 +103,7 @@ BASE_URL="${BASE_URL%/}"   # strip trailing slash
 # No -f: we inspect status codes ourselves, so a 4xx/5xx must not abort curl.
 CURL_OPTS=(-sS --max-time "${TIMEOUT}" -o - -w $'\n%{http_code}')
 [ "${INSECURE}" = "true" ] && CURL_OPTS+=(-k)
+[ -n "${HOST_HEADER}" ] && CURL_OPTS+=(-H "Host: ${HOST_HEADER}")
 
 # curl that returns "body\n<status>" — body may be multi-line, status is last line.
 api() {                           # $1 method  $2 path  [$3 data]

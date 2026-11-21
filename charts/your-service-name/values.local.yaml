@@ -8,6 +8,10 @@ images:
   frontend: {repository: your-service-name-frontend, tag: local, registry: ""}
   nginx: {repository: your-service-name-nginx, tag: local, registry: ""}
 
+# A local cluster is reached through a port-forward, which sends Host: localhost or 127.0.0.1.
+backend:
+  extraAllowedHosts: "localhost,127.0.0.1"
+
 replicas:
   backend: 1
   frontend: 1

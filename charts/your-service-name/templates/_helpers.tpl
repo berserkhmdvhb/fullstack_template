@@ -150,5 +150,8 @@ imagePullSecrets:
 {{- $svc := printf "%s-backend" (include "chart.fullname" .) -}}
 {{- $ns := .Release.Namespace -}}
 {{- $hosts := list .Values.ingress.hosts.api .Values.ingress.hosts.app .Values.ingress.hosts.root $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns) -}}
+{{- if .Values.backend.extraAllowedHosts -}}
+{{- $hosts = concat $hosts (list (trim .Values.backend.extraAllowedHosts)) -}}
+{{- end -}}
 {{- join "," $hosts -}}
 {{- end -}}

@@ -239,6 +239,9 @@ or JUnit (for CI). Exit code is non-zero on any failure.
 ./scripts/port-forward.sh --only backend &            # in one terminal
 ./scripts/smoke-test.sh --base-url http://localhost:8000
 ./scripts/smoke-test.sh --format junit --out smoke.xml   # CI test report
+# a release whose backend checks the Host header (dev, qa, production; the local values allow
+# localhost): send the backend Service name as Host, as the frontend does in-cluster
+./scripts/smoke-test.sh --base-url http://localhost:8000 --host <release>-backend
 ```
 
 Checks: `GET /health`, `GET /healthz`, `POST /echo` round-trip,
