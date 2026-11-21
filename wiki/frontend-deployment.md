@@ -142,7 +142,7 @@ const nextConfig: NextConfig = {
 | `NEXT_TELEMETRY_DISABLED` | `1` (disable Next.js telemetry) |
 | `NEXT_PUBLIC_API_URL` | Backend API base URL (exposed to browser) |
 | `PORT` | Server port (from `FRONTEND_PORT`) |
-| `HOSTNAME` | Server host (from `FRONTEND_HOST`) |
+| `HOSTNAME` | Server bind address (from `FRONTEND_HOST`). The image defaults to `0.0.0.0`: Next's standalone server binds `$HOSTNAME`, which docker sets to the container id. Override it (for example `::`) on an IPv6-only cluster. |
 
 ---
 
@@ -199,15 +199,15 @@ async headers() {
         { key: 'Referrer-Policy', value: 'no-referrer' },
         { key: 'X-Content-Type-Options', value: 'nosniff' },
         { key: 'Permissions-Policy', value: 'geolocation=(), microphone=(), camera=()' },
-        { key: 'Strict-Transport-Security', value: 'max-age=15552000; includeSubDomains; preload' },
-        { key: 'Content-Security-Policy', value: "default-src 'self'; ..." },
+        { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+        { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
       ],
     },
   ];
 }
 ```
 
-> Headers are **only applied in production** (`NODE_ENV !== 'production'` returns empty).
+> Headers are **only applied in production** (`NODE_ENV !== 'production'` returns empty). HSTS is not set here (the edge sets it), and the Content-Security-Policy is per request in `proxy.ts` (it carries a nonce).
 
 ---
 

@@ -213,9 +213,9 @@ Access services directly on their ports:
 
 | Probe | Backend | Frontend |
 |-------|---------|----------|
-| **startupProbe** | `/api/v1/health` (30×5s, failureThreshold: 30) | `/` (20×5s, failureThreshold: 20) |
-| **readinessProbe** | `/api/v1/health` (10s interval, 3s timeout) | `/` (10s interval, 3s timeout) |
-| **livenessProbe** | `/api/v1/healthz` (15s interval, 3s timeout) | `/` (15s interval, 3s timeout) |
+| **startupProbe** | `/api/v1/health` (30×5s, failureThreshold: 30) | `/api/healthz` (20×5s, failureThreshold: 20) |
+| **readinessProbe** | `/api/v1/health` (10s interval, 3s timeout) | `/api/healthz` (10s interval, 3s timeout) |
+| **livenessProbe** | `/api/v1/healthz` (15s interval, 3s timeout) | `/api/healthz` (15s interval, 3s timeout) |
 
 ### Docker Compose Health Checks
 

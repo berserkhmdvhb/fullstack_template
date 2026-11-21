@@ -76,11 +76,12 @@ Security headers are applied in production via `next.config.ts`:
 
 | Header | Value | Purpose |
 |--------|-------|---------|
-| `Strict-Transport-Security` | `max-age=15552000; includeSubDomains; preload` | Force HTTPS for 180 days |
 | `Content-Security-Policy` | `default-src 'self'; img-src 'self' blob: data:; ...` | Restrict resource loading |
 | `X-Content-Type-Options` | `nosniff` | Prevent MIME-type sniffing |
 | `Referrer-Policy` | `no-referrer` | Don't send referrer header |
 | `Permissions-Policy` | `geolocation=(), microphone=(), camera=()` | Disable browser features |
+| `Cross-Origin-Opener-Policy` | `same-origin` | Isolate the browsing context from cross-origin windows |
+| `Cross-Origin-Resource-Policy` | `same-origin` | Other origins cannot embed or read the response |
 | `frame-ancestors` | `'none'` (via CSP) | Prevent clickjacking |
 
 ### Ingress-Level Headers
@@ -741,12 +742,11 @@ helm install cert-manager cert-manager \
 #                  Ingress TLS secretName + hosts from values.<env>.yaml
 ```
 
-### Frontend HSTS
+### HSTS
 
-The frontend sets `Strict-Transport-Security` header in production:
-
-```
-max-age=15552000; includeSubDomains; preload
-```
-
-This tells browsers to **always use HTTPS** for 180 days.
+The frontend does not set `Strict-Transport-Security`: HSTS belongs to the TLS edge, and a header from
+every layer would give the browser several competing `max-age` values. Today the backend sends it over
+https only (`max-age=31536000; includeSubDomains; preload`), and the browser applies it per host, so the
+pages (which call the API same-origin) are covered. In the edge modes the edge sets HSTS once and the
+backend's copy is turned off. A test per layer pins the final header set (`frontend/next.config.test.ts`,
+`tests/supply_chain/test_nginx_headers.py`, the live `TestFinalHeaderSet`).
