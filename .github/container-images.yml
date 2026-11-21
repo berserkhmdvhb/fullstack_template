@@ -2,6 +2,10 @@
 # .github/scripts/container_matrix.py renders it for the workflows, and
 # infra/security/local/devsec.sh (local build) reads the same file. Minimal template ships
 # a backend, a frontend and an nginx image; add ids here to build more.
+# Per image, scripts/ci/image-checks.sh also reads:
+#   distroless: true  the image has no shell, package manager or fetcher (the check fails if one is found)
+#   run_env, run_args optional: environment variables and extra `docker run` arguments the throwaway
+#                     health-check container needs to start alone (none of the shipped images do)
 # Placeholders: ${OWNER} and ${REPO} (lowercased GitHub owner and repository name) and
 # ${VERSION} (the computed version).
 schema_version: 1
@@ -20,6 +24,7 @@ images:
   - id: backend
     repository: "ghcr.io/${OWNER}/${REPO}/backend"
     dockerfile: Dockerfile.backend
+    distroless: true
     context: .
     dockerfile_context: .
     build_args:
@@ -27,6 +32,7 @@ images:
   - id: frontend
     repository: "ghcr.io/${OWNER}/${REPO}/frontend"
     dockerfile: Dockerfile.frontend
+    distroless: true
     context: .
     dockerfile_context: .
     build_args:
@@ -34,6 +40,7 @@ images:
   - id: nginx
     repository: "ghcr.io/${OWNER}/${REPO}/nginx"
     dockerfile: Dockerfile.nginx
+    distroless: false
     context: .
     dockerfile_context: .
     build_args:

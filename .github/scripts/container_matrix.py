@@ -24,7 +24,18 @@ from typing import Any, NoReturn
 import yaml
 
 TOP_KEYS = {"schema_version", "version", "images"}
-IMAGE_KEYS = {"id", "repository", "dockerfile", "context", "dockerfile_context", "build_args"}
+IMAGE_KEYS = {
+    "id",
+    "repository",
+    "dockerfile",
+    "context",
+    "dockerfile_context",
+    "build_args",
+    # Read by scripts/ci/image-checks.sh, not rendered into the matrix.
+    "distroless",
+    "run_env",
+    "run_args",
+}
 ID_RE = re.compile(r"[a-z0-9-]+")
 VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?")
 TAG_RE = re.compile(r"v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)")
@@ -100,6 +111,23 @@ def format_outputs(values: dict[str, str]) -> str:
     return "".join(f"{k}={v}\n" for k, v in values.items())
 
 
+def check_image_checks_settings(image: dict[str, Any]) -> None:
+    """Validate the keys scripts/ci/image-checks.sh reads: distroless, run_env and run_args."""
+    env_vars = image.get("run_env") or {}
+    if not isinstance(env_vars, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in env_vars.items()
+    ):
+        msg = f"manifest: run_env of {image['id']!r} must map strings to strings"
+        raise InputError(msg)
+    run_args = image.get("run_args") or []
+    if not isinstance(run_args, list) or not all(isinstance(a, str) for a in run_args):
+        msg = f"manifest: run_args of {image['id']!r} must be a list of strings"
+        raise InputError(msg)
+    if not isinstance(image.get("distroless", False), bool):
+        msg = f"manifest: distroless of {image['id']!r} must be true or false"
+        raise InputError(msg)
+
+
 def check_image(image: Any, seen: set[str]) -> None:  # noqa: ANN401
     """Validate one manifest image entry and record its id in ``seen``."""
     if not isinstance(image, dict):
@@ -125,6 +153,7 @@ def check_image(image: Any, seen: set[str]) -> None:  # noqa: ANN401
     ):
         msg = f"manifest: build_args of {image['id']!r} must map strings to strings"
         raise InputError(msg)
+    check_image_checks_settings(image)
 
 
 def load_manifest(path: Path) -> list[dict[str, Any]]:

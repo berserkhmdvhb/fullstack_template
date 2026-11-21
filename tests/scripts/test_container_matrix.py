@@ -258,10 +258,28 @@ def test_deploy_matrix_requires_select(run: Runner) -> None:
         ("images:\n  - {id: a, repository: r}\n", "dockerfile"),
         ("images:\n  - {id: a, repository: '${NOPE}/x', dockerfile: d}\n", "NOPE"),
         ("images:\n  - {id: a, repository: r, dockerfile: d, build_args: [x]}\n", "build_args"),
+        (
+            "images:\n  - {id: a, repository: r, dockerfile: d, distroless: yes please}\n",
+            "distroless",
+        ),
+        ("images:\n  - {id: a, repository: r, dockerfile: d, run_env: [x]}\n", "run_env"),
+        ("images:\n  - {id: a, repository: r, dockerfile: d, run_env: {K: 1}}\n", "run_env"),
+        ("images:\n  - {id: a, repository: r, dockerfile: d, run_args: x}\n", "run_args"),
     ],
 )
 def test_bad_manifest_refused(run: Runner, manifest: str, needle: str) -> None:
     refused(run("--matrix", manifest=manifest), needle)
+
+
+def test_image_check_settings_are_accepted_and_not_rendered(run: Runner) -> None:
+    manifest = (
+        "images:\n  - {id: a, repository: r, dockerfile: d, distroless: true,"
+        " run_env: {K: v}, run_args: ['--read-only']}\n"
+    )
+    res = run("--matrix", manifest=manifest)
+    assert res.code == 0, res.stderr
+    entry = json.loads(res.stdout.splitlines()[0])["include"][0]
+    assert set(entry) == {"id", "repository", "dockerfile", "context", "build_args"}
 
 
 def test_missing_manifest_refused(run: Runner, tmp_path: Path) -> None:
