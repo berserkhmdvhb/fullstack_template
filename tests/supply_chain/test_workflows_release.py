@@ -144,8 +144,9 @@ def _assets() -> dict[str, Any]:
 def test_release_assets_run_only_on_v_tags_after_the_images_job() -> None:
     job = _assets()
     assert TAG_ONLY in job["if"]
-    assert {"images", "grant", "vex"} <= set(job["needs"])
-    assert "needs.images.result == 'success'" in job["if"]
+    assert {"images", "digests", "grant", "vex"} <= set(job["needs"])
+    for needed in ("images", "digests", "grant", "vex"):
+        assert f"needs.{needed}.result == 'success'" in job["if"]
     assert job["permissions"] == {"contents": "write"}
     assert "id-token" not in str(job["permissions"])
 
@@ -164,15 +165,17 @@ def test_release_assets_only_ever_create_or_extend_a_draft() -> None:
     assert not re.search(r"\$\{\{", text)
 
 
-def test_release_assets_upload_the_sbom_vex_and_licence_report() -> None:
+def test_release_assets_upload_the_sbom_vex_licence_report_and_the_digests() -> None:
     job = _assets()
     names = {
         s["with"].get("name") or s["with"].get("pattern")
         for s in _uses(job, "actions/download-artifact@")
     }
-    assert names == {"sbom-*", "vex", "grant-report"}
+    assert names == {"sbom-*", "vex", "grant-report", "image-digests"}
     text = _runs(job)
-    for needle in ("cdx.json", "openvex.json", "license.grant.json", "licence-summary.json"):
+    # The digests and the image references outlive the 90-day artifact: the weekly re-scan reads them.
+    needles = ("cdx.json", "openvex.json", "license.grant.json", "licence-summary.json")
+    for needle in (*needles, "image-digests.env", "scan.env"):
         assert needle in text, needle
 
 

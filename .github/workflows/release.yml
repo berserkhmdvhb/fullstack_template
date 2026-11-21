@@ -202,12 +202,13 @@ jobs:
       immutable: ${{ needs.plan.outputs.immutable }}
       digests: ${{ needs.digests.outputs.digests }}
 
-  # A v* tag only: the SBOMs, the OpenVEX document and the licence report go to a draft GitHub Release.
+  # A v* tag only: the SBOMs, the OpenVEX document, the licence report and the image digests go to a draft GitHub Release.
+# The digests (image-digests.env, scan.env) outlive the workflow artifact; the weekly re-scan reads them.
   # The release is never published here; immutable releases reject assets added after publication.
   release-assets:
     name: Release assets (draft)
-    needs: [images, grant, vex]
-    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.images.result == 'success' && needs.grant.result == 'success' && needs.vex.result == 'success' }}
+    needs: [images, digests, grant, vex]
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.images.result == 'success' && needs.digests.result == 'success' && needs.grant.result == 'success' && needs.vex.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -230,11 +231,16 @@ jobs:
         with:
           name: grant-report
           path: assets/grant
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: image-digests
+          path: assets/digests
       - name: Collect the assets
         run: |
           mkdir release-assets
           cp assets/sbom/*.cdx.json assets/vex/openvex.json assets/grant/*.license.grant.json release-assets/
           cp assets/grant/summary.json release-assets/licence-summary.json
+          cp assets/digests/image-digests.env assets/digests/scan.env release-assets/
       - name: Upload to the draft release
         run: |
           set -euo pipefail
