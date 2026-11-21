@@ -112,6 +112,7 @@ INDEX = {
 }
 DOCKER_STUB = """#!/usr/bin/env bash
 echo "docker $*" >> "$STUB_LOG"
+if [[ -n "${DOCKER_FAILS:-}" ]]; then echo "denied" >&2; exit 1; fi
 cat "$INDEX_JSON"
 """
 GRYPE_STUB = r"""#!/usr/bin/env bash
@@ -130,7 +131,12 @@ exit "${GRYPE_RC:-2}"
 
 
 def _scan(
-    tmp_path: Path, index: dict[str, Any], reports: dict[str, Any], rc: int = 2
+    tmp_path: Path,
+    index: dict[str, Any],
+    reports: dict[str, Any],
+    rc: int = 2,
+    *,
+    docker_fails: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -151,6 +157,7 @@ def _scan(
             "INDEX_JSON": str(tmp_path / "index.json"),
             "GRYPE_DIR": str(gdir),
             "GRYPE_RC": str(rc),
+            "DOCKER_FAILS": "1" if docker_fails else "",
             "IMAGE_REPOSITORY": "ghcr.io/o/r/app",
             "IMAGE_DIGEST": "sha256:" + "f" * 64,
             "IMAGE_SHORT": "app-ffffff",
@@ -250,3 +257,37 @@ def test_nothing_hard_codes_an_owner_or_a_repository() -> None:
 def test_the_matrix_carries_no_vex_field() -> None:
     step = next(s for s in _jobs()["collect"]["steps"] if s.get("id") == "matrix")
     assert "vex" not in step["run"]
+
+
+def _failed_closed(tmp_path: Path, res: subprocess.CompletedProcess[str]) -> None:
+    assert res.returncode != 0
+    out = res.stdout + res.stderr
+    assert "::error::" in out
+    assert "ghcr.io/o/r/app@sha256:" in out  # names the image
+    assert "platform" in out  # and the step
+    assert not (tmp_path / "findings" / "app-ffffff.json").exists()
+    assert "grype" not in (tmp_path / "log").read_text()  # never falls back to one platform
+
+
+def test_an_unreadable_platform_list_fails_closed_instead_of_scanning_one_platform(
+    tmp_path: Path,
+) -> None:
+    reports: dict[str, Any] = {"": {"matches": []}, "linux/amd64": {"matches": []}}
+    _failed_closed(tmp_path, _scan(tmp_path, INDEX, reports, docker_fails=True))
+
+
+def test_an_index_that_lists_no_platform_fails_closed(tmp_path: Path) -> None:
+    only_attestations = {"manifests": [{"platform": {"os": "unknown", "architecture": "unknown"}}]}
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    _failed_closed(tmp_path / "a", _scan(tmp_path / "a", only_attestations, {}))
+    _failed_closed(tmp_path / "b", _scan(tmp_path / "b", {"manifests": []}, {}))
+
+
+def test_a_one_platform_index_is_scanned_for_that_platform(tmp_path: Path) -> None:
+    index = {"manifests": INDEX["manifests"][:1] + INDEX["manifests"][3:]}
+    res = _scan(tmp_path, index, {"linux/amd64": {"matches": [_match("CVE-5", "x")]}})
+    assert res.returncode == 0, res.stderr
+    log = (tmp_path / "log").read_text()
+    assert log.count("grype ") == 1
+    assert "--platform linux/amd64" in log

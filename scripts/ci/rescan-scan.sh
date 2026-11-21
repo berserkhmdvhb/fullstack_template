@@ -11,12 +11,24 @@ ref="${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
 config="${GRYPE_CONFIG:-infra/security/grype.yaml}"
 mkdir -p findings parts
 
-# os/arch[/variant] of every real manifest; attestation manifests carry the platform unknown/unknown.
-mapfile -t platforms < <(docker buildx imagetools inspect --raw "${ref}" |
-  jq -r '.manifests[]?.platform | select(. != null and .os != "unknown")
-    | "\(.os)/\(.architecture)" + (if .variant then "/\(.variant)" else "" end)')
-if ((${#platforms[@]} == 0)); then
-  platforms=("")
+# The platform list must be readable: a failure here must never fall back to scanning one platform.
+if ! raw="$(docker buildx imagetools inspect --raw "${ref}")"; then
+  echo "::error::cannot read the platforms of ${ref} (docker buildx imagetools inspect failed); not scanning one platform only"
+  exit 1
+fi
+if jq -e 'has("manifests")' <<<"${raw}" >/dev/null 2>&1; then
+  # os/arch[/variant] of every real manifest; attestation manifests carry the platform unknown/unknown.
+  mapfile -t platforms < <(jq -r '.manifests[]?.platform | select(. != null and .os != "unknown")
+    | "\(.os)/\(.architecture)" + (if .variant then "/\(.variant)" else "" end)' <<<"${raw}")
+  if ((${#platforms[@]} == 0)); then
+    echo "::error::the index ${ref} lists no platform to scan"
+    exit 1
+  fi
+elif jq -e 'type == "object"' <<<"${raw}" >/dev/null 2>&1; then
+  platforms=("") # a plain single-platform manifest
+else
+  echo "::error::cannot parse the manifest of ${ref} to list its platforms"
+  exit 1
 fi
 
 reports=()
