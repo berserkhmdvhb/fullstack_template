@@ -82,7 +82,7 @@ Next.js 16 / React / TypeScript. Run from the `frontend/` directory.
 | Format (prettier) | `npm run format-check` | `prettier . --check` | `reusable-frontend` / `prettier` |
 | Lint (eslint) | `npm run lint` | `eslint . --max-warnings=0` | `reusable-frontend` / `eslint` |
 | Type check (TS) | `npm run typecheck` | `tsc --noEmit` | `reusable-frontend` / `type-check` |
-| Unit tests (vitest) | `npm run test` | `vitest run` | `reusable-frontend` / `unit` and `integration` (CI runs `npm run test:unit` and `npm run test:integration`) |
+| Unit tests (vitest) | `npm run test` | `vitest run` | `reusable-frontend` / `unit` and `integration` (CI runs `npm run test:unit`, then `npm run test:coverage`: the whole suite with the coverage thresholds) |
 | Build (Next.js) | `npm run build` | `next build` | `reusable-frontend` / `build` — gates the unit tests |
 | E2E (playwright) | `npm run test:e2e` | `playwright test` | `reusable-frontend` / `playwright-list` (config/discovery only); the real run is `reusable-live` / `live` |
 

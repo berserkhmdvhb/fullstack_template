@@ -64,7 +64,7 @@ def test_the_jobs_call_the_npm_scripts() -> None:
         "type-check": "npm run typecheck",
         "build": "npm run build",
         "unit": "npm run test:unit",
-        "integration": "npm run test:integration",
+        "integration": "npm run test:coverage",
         "playwright-list": "npx playwright test --list",
     }
     for name, command in expected.items():
@@ -102,14 +102,33 @@ def test_coverage_gate_is_not_restated() -> None:
     for word in ("threshold", "--coverage.", "fail_under", "fail-under"):
         assert word not in text, word
     # The gates live in the vitest configs, so they must still be there.
-    for config in ("vitest.config.ts", "vitest.integration.config.ts"):
-        src = (Path(__file__).parents[2] / "frontend" / config).read_text(encoding="utf-8")
-        block = re.search(r"thresholds:\s*\{(.*?)\}", src, re.DOTALL)
-        assert block, config
-        found = dict(re.findall(r"(\w+):\s*(\d+)", block[1]))
-        assert found == {"lines": "80", "functions": "80", "statements": "80", "branches": "70"}, (
-            config
-        )
+    frontend = Path(__file__).parents[2] / "frontend"
+    src = (frontend / "vitest.config.ts").read_text(encoding="utf-8")
+    block = re.search(r"thresholds:\s*\{(.*?)\}", src, re.DOTALL)
+    assert block
+    found = dict(re.findall(r"(\w+):\s*(\d+)", block[1]))
+    assert found == {"lines": "80", "functions": "80", "statements": "80", "branches": "70"}
+    # One measurement: no second threshold block, and no test file hidden from it.
+    for other in ("vitest.integration.config.ts", "vitest.unit.config.ts"):
+        text = (frontend / other).read_text(encoding="utf-8")
+        assert "thresholds:" not in text, other
+        assert "coverage:" not in text, other
+    assert re.search(r"exclude:\s*\[[^\]]*\.test\.ts", src) is None, "the whole suite must run"
+
+
+def test_the_coverage_run_is_blocking_and_covers_the_whole_suite() -> None:
+    """The integration job runs `npm run test:coverage` over every test file, with no `|| true`."""
+    job = _jobs()["integration"]
+    runs = _runs(job)
+    assert "npm run test:coverage" in runs
+    assert "|| true" not in runs
+    assert "continue-on-error" not in job
+    scripts = (Path(__file__).parents[2] / "frontend" / "package.json").read_text(encoding="utf-8")
+    line = next(ln for ln in scripts.splitlines() if '"test:coverage":' in ln)
+    assert "--coverage" in line
+    assert "--config" not in line, "it must use the default config, which runs every test"
+    assert "@vitest/coverage-v8" in scripts
+    assert "integration" in _needs(_jobs()["playwright-list"])
 
 
 def test_drift_check_is_the_make_target_and_runs_once() -> None:
@@ -238,7 +257,8 @@ def test_filter_outputs_match_the_declared_outputs() -> None:
 def test_integration_job_uploads_its_report_only_on_failure() -> None:
     ups = failure_uploads(_jobs()["integration"])
     assert len(ups) == 1
-    assert "junit-integration.xml" in ups[0]["with"]["path"]
+    assert "junit-coverage.xml" in ups[0]["with"]["path"]
+    assert "frontend/coverage/" in ups[0]["with"]["path"]
 
 
 def test_unit_job_uploads_its_report_only_on_failure() -> None:

@@ -143,7 +143,7 @@ All frontend commands are run from the `frontend/` directory:
 | `npm run test` | Run all Vitest tests (unit + component) |
 | `npm run test:unit` | Run unit tests only |
 | `npm run test:integration` | Run integration/component tests (with MSW) |
-| `npm run test:coverage` | Run tests with coverage |
+| `npm run test:coverage` | Run the whole suite once with the coverage thresholds (what CI runs) |
 | `npm run test:e2e` | Run Playwright E2E tests |
 | `npm run test:e2e:ui` | Run Playwright E2E tests with UI mode |
 | `npm run format` | Prettier format all files |

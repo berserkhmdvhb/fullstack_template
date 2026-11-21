@@ -35,17 +35,5 @@ export default defineConfig({
       'lib/api/error-map.test.ts',
       'features/items/lib/schemas.test.ts',
     ],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'lcov'],
-      thresholds: {
-        lines: 80,
-        functions: 80,
-        statements: 80,
-        branches: 70,
-      },
-      include: ['lib/**/*.{ts,tsx}', 'app/**/*.{ts,tsx}', 'features/**/*.{ts,tsx}'],
-      exclude: ['lib/api/types.gen.d.ts', '**/*.test.{ts,tsx}', '**/*.spec.{ts,tsx}', 'app/api/**'],
-    },
   },
 });

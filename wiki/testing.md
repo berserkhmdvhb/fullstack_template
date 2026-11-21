@@ -314,8 +314,8 @@ A failed run uploads its JUnit and coverage reports as an artifact (7 days).
 | Job | Tests |
 |-----|-------|
 | `build` | Next.js build |
-| `unit` | Vitest unit tests with coverage (`npm run test:unit`, writes `test-results/junit.xml`) |
-| `integration` | Vitest integration tests |
+| `unit` | Vitest pure-logic tests, fast signal (`npm run test:unit`, writes `test-results/junit.xml`) |
+| `integration` | The whole Vitest suite once with coverage (`npm run test:coverage`); blocks on the thresholds below and uploads `frontend/coverage/` on failure |
 | `playwright-list` | Playwright config validation |
 | `eslint`, `prettier`, `type-check`, `openapi-drift` | Lint, format, types, API-type drift |
 
@@ -391,6 +391,6 @@ cd frontend && npm run test:integration
 # Frontend — E2E tests
 cd frontend && npm run test:e2e
 
-# Frontend — coverage
+# Frontend — whole suite with the coverage thresholds (what CI runs)
 cd frontend && npm run test:coverage
 ```

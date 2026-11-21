@@ -22,8 +22,7 @@
     "test:unit": "vitest run --config vitest.unit.config.ts --reporter default --reporter junit --outputFile=test-results/junit.xml",
     "test:integration": "vitest run --config vitest.integration.config.ts --reporter default --reporter junit --outputFile=test-results/junit-integration.xml",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "test:coverage:integration": "vitest run --config vitest.integration.config.ts --coverage",
+    "test:coverage": "vitest run --coverage --reporter default --reporter junit --outputFile=test-results/junit-coverage.xml",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },

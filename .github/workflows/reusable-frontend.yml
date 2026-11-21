@@ -95,7 +95,8 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-  # The coverage gates live in the vitest config, not here.
+  # The coverage gates live in the vitest config, not here. The unit job runs the pure-logic files for a fast
+  # signal; the integration job then runs the WHOLE suite once, with coverage, so the gate counts every test.
   unit:
     name: Unit tests
     if: inputs.frontend-changed
@@ -122,7 +123,7 @@ jobs:
           retention-days: 7
 
   integration:
-    name: Integration tests
+    name: Integration tests and coverage
     if: inputs.frontend-changed
     needs: unit
     runs-on: ubuntu-24.04
@@ -134,16 +135,17 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-frontend
-      - name: Integration tests
+      - name: Whole suite with the coverage gate
         working-directory: frontend
-        run: npm run test:integration
+        run: npm run test:coverage
       - name: Upload the test reports on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: frontend-integration-reports
           path: |
-            frontend/test-results/junit-integration.xml
+            frontend/test-results/junit-coverage.xml
+            frontend/coverage/
           retention-days: 7
 
   # Lists the Playwright tests only, which validates the config and discovery with no browser install.

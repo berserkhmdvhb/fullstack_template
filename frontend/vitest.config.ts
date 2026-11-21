@@ -1,7 +1,8 @@
 /**
- * Vitest configuration for unit and integration tests.
+ * Vitest configuration for the whole suite: the one place coverage is measured and its thresholds live.
  *
  * @remarks
+ * - Runs every test file (the unit-only files too), so one coverage run counts them all
  * - Environment: jsdom (simulates browser DOM)
  * - Globals: describe, it, expect available without explicit import
  * - Setup: pre-wired test utilities with all providers
@@ -32,9 +33,6 @@ export default defineConfig({
       '**/node_modules/**',
       '**/.next/**',
       '**/e2e/**',
-      'lib/config.test.ts',
-      'lib/api/error-map.test.ts',
-      'features/items/lib/schemas.test.ts',
     ],
     coverage: {
       provider: 'v8',
