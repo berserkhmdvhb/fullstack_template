@@ -1,0 +1,20 @@
+name: Pin drift (weekly)
+
+# Every pinned checksum against the vendors, weekly: catches a vendor re-publishing an asset under the same
+# version, which no pull request would show. The same job ci.yml runs for the rows a pull request changes.
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pins-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pins:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-pins.yml

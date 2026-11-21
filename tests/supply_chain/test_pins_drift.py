@@ -17,6 +17,8 @@ from types import ModuleType
 
 import pytest
 
+from tests.supply_chain._workflows import WORKFLOWS, workflow
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 PINS = ROOT / "tools" / "pins.tsv"
 CONFIG = ROOT / "infra" / "security" / "config.yaml"
@@ -302,3 +304,49 @@ def test_wrapper_check_with_no_rows_needs_no_network(tmp_path: Path) -> None:
     empty.write_text("# nothing\n")
     run = _wrapper("--check", PINS=str(empty), SECURITY_CONFIG=str(tmp_path / "none.yaml"))
     assert run.returncode == 0, run.stderr
+
+
+# --- the CI wiring ---
+
+
+def _pins_job() -> dict[str, object]:
+    return workflow("reusable-pins.yml")["jobs"]["pins"]  # type: ignore[no-any-return]
+
+
+def test_the_drift_job_is_blocking_and_filtered_on_pull_requests() -> None:
+    ci = workflow("ci.yml")
+    assert "pins" in ci["jobs"]["ci-ok"]["needs"]
+    job = ci["jobs"]["pins"]
+    assert job["uses"] == "./.github/workflows/reusable-pins.yml"
+    assert job["permissions"] == {"contents": "read"}
+    steps = ci["jobs"]["changes"]["steps"]
+    run = next(s["run"] for s in steps if s.get("id") == "filter")
+    pattern = next(m for m in re.findall(r"grep -Eq '([^']+)'", run) if "pins" in m)
+    for path in (
+        "tools/pins.tsv",
+        "tools/requirements/zizmor.txt",
+        "infra/security/config.yaml",
+        "scripts/pins-refresh.sh",
+        "scripts/pins_refresh.py",
+    ):
+        assert re.search(pattern, path), f"the pins filter misses {path}"
+    assert not re.search(pattern, "src/app.py")
+
+
+def test_the_drift_job_is_read_only_pinned_and_runs_the_check() -> None:
+    job = _pins_job()
+    assert job["permissions"] == {"contents": "read"}
+    assert job["timeout-minutes"]
+    text = (WORKFLOWS / "reusable-pins.yml").read_text(encoding="utf-8")
+    assert "scripts/pins-refresh.sh" in text
+    assert "--check" in text
+    assert "--base" in text
+    assert "GITHUB_PATH" not in text
+
+
+def test_a_weekly_run_checks_every_row() -> None:
+    doc = workflow("pins-drift.yml")
+    assert doc["on"]["schedule"]
+    call = doc["jobs"]["pins"]
+    assert call["uses"] == "./.github/workflows/reusable-pins.yml"
+    assert "with" not in call  # no base: every row

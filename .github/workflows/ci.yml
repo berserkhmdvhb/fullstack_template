@@ -23,6 +23,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      pins: ${{ steps.filter.outputs.pins }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,8 +36,7 @@ jobs:
         run: |
           # Everything runs on main, on tags and on a manual run; only pull requests are filtered.
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            echo "backend=true" >> "$GITHUB_OUTPUT"
-            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            printf '%s\n' backend=true frontend=true pins=true >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
@@ -50,6 +50,11 @@ jobs:
             echo "frontend=true" >> "$GITHUB_OUTPUT"
           else
             echo "frontend=false" >> "$GITHUB_OUTPUT"
+          fi
+          if grep -Eq '^(tools/pins\.tsv|tools/requirements/|infra/security/config\.yaml|scripts/pins[-_]refresh\.)' <<<"$changed"; then
+            echo "pins=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pins=false" >> "$GITHUB_OUTPUT"
           fi
 
   backend:
@@ -68,6 +73,17 @@ jobs:
     uses: ./.github/workflows/reusable-frontend.yml
     with:
       frontend-changed: ${{ needs.changes.outputs.frontend == 'true' }}
+
+  # Blocking. A pull request checks only the pin rows it changed, and only when a pin file or the refresh script
+  # changed; main and the weekly pins-drift.yml check every row. Red after a version bump by design: run `make pins-refresh`.
+  pins:
+    needs: changes
+    if: needs.changes.outputs.pins == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-pins.yml
+    with:
+      base-sha: ${{ github.event.pull_request.base.sha }}
 
   # Always runs (no paths gate): lints and renders the chart for every values file.
   chart:
@@ -192,14 +208,14 @@ jobs:
 
   # The one required status check. Path-filtered jobs that are skipped and the matrix legs of the reusable
   # workflows have no stable check names, so the branch ruleset requires this job instead (see
-  # wiki/github-repository-settings.md). Only backend, frontend and live may be skipped, and only on a pull
+  # wiki/github-repository-settings.md). Only backend, frontend, live and pins may be skipped, and only on a pull
   # request (their path filter); everything else must succeed, and so must `changes`, or the filter never ran.
   # `live` is advisory on pull requests, so its result is ignored there instead of relying on how
   # continue-on-error surfaces through a called workflow.
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, chart, backend, frontend, live, security, repo, hadolint, workflows]
+    needs: [changes, chart, backend, frontend, live, security, repo, hadolint, workflows, pins]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -213,7 +229,7 @@ jobs:
           bad="$(jq -r --arg ev "$EVENT_NAME" 'to_entries[] | .key as $k | .value.result as $r
             | select(
                 if $k == "live" and $ev == "pull_request" then false
-                elif ($k == "backend" or $k == "frontend") and $ev == "pull_request" then ($r != "success" and $r != "skipped")
+                elif ($k == "backend" or $k == "frontend" or $k == "pins") and $ev == "pull_request" then ($r != "success" and $r != "skipped")
                 else $r != "success" end)
             | "\($k)=\($r)"' <<<"$NEEDS")"
           if [[ -n "$bad" ]]; then

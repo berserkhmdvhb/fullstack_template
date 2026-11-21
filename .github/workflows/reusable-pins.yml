@@ -1,0 +1,39 @@
+name: Pin drift
+
+# Call-only: ci.yml (pull requests and pushes: only the rows a pull request changed) and pins-drift.yml
+# (weekly: every row). The recorded sha256 of each pin must equal the vendor's published one for that
+# exact version, a hashed lock must match PyPI, and the security scanners' release checksums must exist.
+# Read-only on purpose: a bump is refreshed by a maintainer with `make pins-refresh`, never by a bot.
+on:
+  workflow_call:
+    inputs:
+      base-sha:
+        description: Check only the rows that differ from this commit; empty checks every row
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  pins:
+    name: Pin drift
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The read-only job token only lifts the GitHub API rate limit (release-asset digests); it is sent nowhere else.
+      - name: Check the pinned checksums against the vendors
+        env:
+          BASE_SHA: ${{ inputs.base-sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          args=(--check)
+          if [[ -n "$BASE_SHA" ]]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            args+=(--base "$BASE_SHA")
+          fi
+          scripts/pins-refresh.sh "${args[@]}"

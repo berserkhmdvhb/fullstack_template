@@ -214,7 +214,10 @@ def test_pull_request_paths_map_to_outputs(
     tmp_path: Path, path: str, *, backend: bool, frontend: bool
 ) -> None:
     result = _run_filter(tmp_path, "pull_request", [path])
-    assert result == {"backend": str(backend).lower(), "frontend": str(frontend).lower()}
+    assert {k: result[k] for k in ("backend", "frontend")} == {
+        "backend": str(backend).lower(),
+        "frontend": str(frontend).lower(),
+    }
 
 
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch"])
@@ -223,12 +226,13 @@ def test_main_tags_and_dispatch_force_every_output(tmp_path: Path, event: str) -
     assert _run_filter(tmp_path, event, ["docs/readme.md"]) == {
         "backend": "true",
         "frontend": "true",
+        "pins": "true",
     }
 
 
 def test_filter_outputs_match_the_declared_outputs() -> None:
     declared = set(workflow("ci.yml")["jobs"]["changes"]["outputs"])
-    assert declared == {"backend", "frontend"}
+    assert declared == {"backend", "frontend", "pins"}
 
 
 def test_integration_job_uploads_its_report_only_on_failure() -> None:

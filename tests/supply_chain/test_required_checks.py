@@ -135,9 +135,10 @@ class TestGateScript:
         assert _gate(_all(), "push") == 0
 
     def test_filtered_jobs_may_be_skipped_on_a_pull_request(self) -> None:
-        assert _gate(_all(backend="skipped", frontend="skipped", live="skipped")) == 0
+        skipped = _all(backend="skipped", frontend="skipped", live="skipped", pins="skipped")
+        assert _gate(skipped) == 0
 
-    @pytest.mark.parametrize("job", ["backend", "frontend", "live"])
+    @pytest.mark.parametrize("job", ["backend", "frontend", "live", "pins"])
     def test_skips_fail_off_a_pull_request(self, job: str) -> None:
         assert _gate(_all(**{job: "skipped"}), "push") != 0
 
