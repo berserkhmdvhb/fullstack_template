@@ -47,3 +47,20 @@ def test_the_image_keeps_its_other_hardening() -> None:
     assert "USER 10001" in DOCKERFILE
     assert "HEALTHCHECK" in DOCKERFILE
     assert "pip>=25.3" in DOCKERFILE.split("AS runtime")[1]
+
+
+def test_code_and_config_copies_are_root_owned_and_only_the_writable_dirs_are_chowned() -> None:
+    lines = DOCKERFILE.split("AS runtime")[1].splitlines()
+    for ln in lines:
+        if ln.startswith("COPY") and not ln.startswith("COPY --from"):
+            assert "--chown" not in ln, ln
+    chown = next(ln for ln in lines if "chown " in ln and "useradd" not in ln)
+    assert chown.split("chown ")[1].split() == ["appuser:appuser", "/app/logs", "/app/data"]
+
+
+def test_the_migrations_wrapper_finds_the_entrypoint_it_execs_in_the_image() -> None:
+    script = (ROOT / "infra/db/run_migrations.sh").read_text(encoding="utf-8")
+    target = re.search(r"exec (/app/\S+)", script)
+    assert target
+    copied = {m.group(1) for m in re.finditer(r" (/app/\S+\.sh)$", DOCKERFILE, re.MULTILINE)}
+    assert target.group(1) in copied

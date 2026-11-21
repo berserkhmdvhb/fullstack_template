@@ -101,17 +101,16 @@ RUN useradd -m -u 10001 appuser
 # own code, and its bytecode is already compiled, so nothing is written at start-up.
 COPY --from=py-builder /app/.venv /app/.venv
 
-# Copy alembic.ini (needed at runtime for migrations)
-COPY --chown=10001:10001 alembic.ini /app/alembic.ini
+# Config and scripts are root-owned: the app user can run them but not rewrite them.
+# alembic.ini is needed at runtime for migrations; run_migrations.sh hands off to entrypoint.sh.
+COPY --chmod=644 alembic.ini /app/alembic.ini
+COPY --chmod=755 infra/db/run_migrations.sh /app/infra/db/run_migrations.sh
+COPY --chmod=755 infra/backend/run_backend.sh /app/infra/backend/run_backend.sh
+COPY --chmod=755 infra/runtime/entrypoint.sh /app/infra/runtime/entrypoint.sh
 
-# Infra scripts
-COPY --chown=10001:10001 infra/db/run_migrations.sh /app/infra/db/run_migrations.sh
-COPY --chown=10001:10001 infra/backend/run_backend.sh /app/infra/backend/run_backend.sh
-
-# Make the scripts executable. /app stays root-owned; only the dirs the app writes (logs, and data for the
-# default SQLite database) belong to the app user.
-RUN chmod +x /app/infra/db/run_migrations.sh /app/infra/backend/run_backend.sh \
- && mkdir -p /app/logs /app/data && chown appuser:appuser /app/logs /app/data
+# /app stays root-owned; only the dirs the app writes (logs, and data for the default SQLite database)
+# belong to the app user.
+RUN mkdir -p /app/logs /app/data && chown appuser:appuser /app/logs /app/data
 
 # Healthcheck — uses HTTPS when HEALTHCHECK_SCHEME=https
 ARG HEALTHCHECK_SCHEME=http
