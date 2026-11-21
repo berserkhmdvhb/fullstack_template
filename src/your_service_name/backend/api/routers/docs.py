@@ -14,11 +14,16 @@ from fastapi.responses import HTMLResponse, Response
 from your_service_name.backend.api import docs_page
 
 
-def build_docs_router(*, title: str, docs_url: str, openapi_url: str) -> APIRouter:
-    """Routes for ``docs_url`` (HTML) and ``<docs_url>/init.js``; not in the OpenAPI document."""
+def build_docs_router(
+    *, title: str, docs_url: str, openapi_url: str, csp_report_path: str | None = None
+) -> APIRouter:
+    """Routes for ``docs_url`` (HTML) and ``<docs_url>/init.js``; not in the OpenAPI document.
+
+    ``csp_report_path`` (set when CSP reporting is on) adds the reporting directives to their CSP.
+    """
     init_url = f"{docs_url.rstrip('/')}/init.js"
     page = docs_page.render_html(title=f"{title} - Swagger UI", init_url=init_url)
-    csp = {"Content-Security-Policy": docs_page.CSP}
+    csp = docs_page.csp_headers(csp_report_path)
     router = APIRouter(include_in_schema=False)
 
     @router.get(docs_url)

@@ -329,6 +329,9 @@ not API: it is not in the OpenAPI document, takes no authentication (browsers se
 - **Frontend.** With `CSP_REPORTING_ENABLED=true` (read per request by `frontend/proxy.ts`) the
   CSP gets `report-uri /api/v1/csp-report` and `report-to csp-endpoint`, and the response gets
   `Reporting-Endpoints: csp-endpoint="/api/v1/csp-report"`. Unset, nothing changes.
+- **The backend's `/docs`.** It sets its own CSP (`api/docs_page.py`), so with `CSP_REPORT_ENABLED` on the
+  backend adds the same `report-uri`, `report-to` and `Reporting-Endpoints` to the docs page and its init
+  script. Off, they carry the plain CSP.
 
 ---
 

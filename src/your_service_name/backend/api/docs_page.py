@@ -43,6 +43,24 @@ CSP: Final[str] = (
     "base-uri 'self'"
 )
 
+# The reporting group the page's CSP names; the same name `frontend/proxy.ts` uses for its pages.
+REPORT_GROUP: Final[str] = "csp-endpoint"
+
+
+def csp_headers(report_path: str | None = None) -> dict[str, str]:
+    """The CSP response headers; with ``report_path`` (reporting on) also the reporting directives.
+
+    Adds ``report-uri`` for browsers that only know it, ``report-to`` plus ``Reporting-Endpoints``
+    for the rest, as ``frontend/proxy.ts`` does for the pages it serves.
+    """
+    if report_path is None:
+        return {"Content-Security-Policy": CSP}
+    return {
+        "Content-Security-Policy": f"{CSP}; report-uri {report_path}; report-to {REPORT_GROUP}",
+        "Reporting-Endpoints": f'{REPORT_GROUP}="{report_path}"',
+    }
+
+
 _PAGE: Final[str] = """<!DOCTYPE html>
 <html lang="en">
 <head>

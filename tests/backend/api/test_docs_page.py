@@ -95,3 +95,21 @@ async def test_the_docs_send_their_own_strict_csp_once(path: str) -> None:
     assert directives["frame-ancestors"] == "'none'"
     assert directives["base-uri"] == "'self'"
     assert directives["connect-src"] == "'self'"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/docs", "/docs/init.js"])
+async def test_the_docs_csp_reports_violations_when_reporting_is_on(path: str) -> None:
+    res = await _get(path, CSP_REPORT_ENABLED=True)
+    assert res.headers.get_list("content-security-policy") == [
+        f"{docs_page.CSP}; report-uri /api/v1/csp-report; report-to csp-endpoint"
+    ]
+    assert res.headers.get_list("reporting-endpoints") == ['csp-endpoint="/api/v1/csp-report"']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/docs", "/docs/init.js"])
+async def test_the_docs_csp_has_no_reporting_when_it_is_off(path: str) -> None:
+    res = await _get(path)
+    assert "report-" not in res.headers["content-security-policy"]
+    assert "reporting-endpoints" not in res.headers
