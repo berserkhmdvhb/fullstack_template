@@ -58,6 +58,13 @@ cd <YOUR_REPO_DIR>
 cp .env.example .env
 ```
 
+Install the pre-commit hook once (`make precommit` runs every hook on all files):
+
+```bash
+scripts/tools.sh install pre-commit
+.tools/bin/pre-commit install
+```
+
 ---
 
 ## Adapt the Service Name

@@ -83,6 +83,8 @@ cd frontend && npm ci && npm run dev # frontend at :3000
 # backend:  source .venv/bin/activate && python -m your_service_name.backend.main  (API at :8000)
 ```
 
+Install the git hook once with `scripts/tools.sh install pre-commit` and then `.tools/bin/pre-commit install`; `make precommit` runs every hook on all files. The hooks call the same tools CI does (see `.pre-commit-config.yaml`) and name the install command for any that is missing.
+
 Python ≥ 3.12, Node ≥ 22. Without a `DATABASE_URL` the backend falls back to SQLite, so it comes up
 green with zero infra.
 
@@ -176,6 +178,7 @@ Run these before every commit / PR. The exact commands (verified against this re
 | Gate | Command | CI job |
 |---|---|---|
 | Pre-commit (dry, read-only) | `make check-all-dry` | — (local only) |
+| Git hooks (all files) | `make precommit` | `ci` / `hadolint`, `repo`, `workflows` run the same tools |
 | Format (ruff) | `make ruff-format-check` | `reusable-backend` / `lint` |
 | Lint (ruff) | `make ruff-lint` | `reusable-backend` / `lint` |
 | Type check (mypy) | `make mypy-check` | `reusable-backend` / `lint` |

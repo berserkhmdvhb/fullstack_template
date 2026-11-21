@@ -42,8 +42,8 @@ files) instead of `make check-all-dry`.
 
 | Gate | Make target | Raw command | CI job |
 |---|---|---|---|
-| Format check | `make ruff-format-check` | `ruff format --check src/ tests/` | `reusable-backend` / `lint` |
-| Lint | `make ruff-lint` | `ruff check src/ tests/` | `reusable-backend` / `lint` |
+| Format check | `make ruff-format-check` | `ruff format --check $(RUFF_PATHS)` | `reusable-backend` / `lint` |
+| Lint | `make ruff-lint` | `ruff check --no-fix $(RUFF_PATHS)` | `reusable-backend` / `lint` |
 | Type check | `make mypy-check` | `mypy` *(config-driven: no path args)* | `reusable-backend` / `lint` |
 | Unit tests | `make test-unit` | `pytest tests/ -v` *(default addopts = unit only)* | `reusable-backend` / `unit` |
 | Integration | `make test-integration` | `pytest tests/ -m integration -o addopts="" -v` | `reusable-backend` / `integration` |

@@ -51,10 +51,12 @@ flowchart TB
 
 | Command | Description |
 |---------|-------------|
-| `ruff format src/ tests/` | Auto-format code |
-| `ruff format --check src/ tests/` | Check formatting (dry run) |
-| `ruff check src/ tests/` | Run linter |
-| `ruff check --fix src/ tests/` | Auto-fix lint errors |
+| `make ruff-format` | Auto-format code |
+| `make ruff-format-check` | Check formatting (dry run) |
+| `make ruff-lint` | Run linter (never rewrites files) |
+| `make ruff-lint-fix` | Auto-fix lint errors (`make check-all` runs it) |
+
+The scope is `RUFF_PATHS` in the Makefile: `src/ tests/ scripts/ infra/ .github/scripts/`. CI, `make check-all-dry` and the pre-commit hooks never fix; only `make check-all` does.
 
 **Configuration** (`pyproject.toml`):
 
@@ -62,7 +64,6 @@ flowchart TB
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-fix = true
 show-fixes = true
 exclude = ["tests/exclude/*", "**/_version.py"]
 
@@ -190,8 +191,8 @@ ignore_missing_imports = true
 ruff:
   stage: lint
   script:
-    - ruff format --check src/ tests/
-    - ruff check src/ tests/
+    - make ruff-format-check
+    - make ruff-lint
 
 mypy:
   stage: type-check

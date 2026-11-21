@@ -36,7 +36,7 @@ flowchart LR
 
 | Workflow | Runs on | What it does |
 |---|---|---|
-| [`ci.yml`](../.github/workflows/ci.yml) | pull request, push to `main` and `v*`, manual | The quality gate. Jobs: `changes` (path filter), `backend`, `frontend`, `chart`, `live`, `security`, `repo`, `workflows`, and the `CI OK` gate |
+| [`ci.yml`](../.github/workflows/ci.yml) | pull request, push to `main` and `v*`, manual | The quality gate. Jobs: `changes` (path filter), `backend`, `frontend`, `chart`, `live`, `security`, `repo`, `hadolint`, `workflows`, and the `CI OK` gate |
 | [`reusable-backend.yml`](../.github/workflows/reusable-backend.yml) | called by `ci` | `lint` (ruff format, ruff lint, mypy), `unit` (Python 3.12, 3.13 and the advisory 3.14), `integration`, `e2e` |
 | [`reusable-frontend.yml`](../.github/workflows/reusable-frontend.yml) | called by `ci` | `eslint`, `prettier`, `type-check`, `openapi-drift`, `build`, `unit`, `integration`, `playwright-list` |
 | [`reusable-live.yml`](../.github/workflows/reusable-live.yml) | called by `ci` | The full stack, then the backend live suite and the Playwright suite |
@@ -48,12 +48,12 @@ flowchart LR
 | [`deploy-ops.yml`](../.github/workflows/deploy-ops.yml) | manual | `rollback`, `history`, `cleanup` (a report) and `check` on one environment |
 | [`dast.yml`](../.github/workflows/dast.yml) | after `Release` succeeds; manual | The ZAP baseline against the backend image just pushed |
 
-`ci.yml` jobs: `repo` runs shellcheck, the secret-template check and the bats suites; `workflows` runs the CI hardening lint, actionlint and zizmor over `.github/`.
+`ci.yml` jobs: `repo` runs shellcheck, the secret-template check and the bats suites; `hadolint` lints every tracked Dockerfile with the pinned hadolint (`scripts/ci/hadolint.sh`, also a pre-commit hook); `workflows` runs the CI hardening lint, actionlint and zizmor over `.github/`.
 
 ## Triggers and gates
 
 - **Path filter.** On a pull request, the `changes` job decides whether `backend` and `frontend` run. Backend paths: `src/`, `tests/`, `alembic*`, `pyproject.toml`, `Makefile`, `frontend/lib/api/`, `.github/`, `scripts/`, `tools/`. Frontend paths: `frontend/`, `Makefile`, `.github/`, `scripts/`, `tools/`. The frontend job also runs when the backend changed, because the OpenAPI drift check needs it. On `main`, tags and manual runs everything runs.
-- **Always run:** `chart`, `security`, `repo`, `workflows`.
+- **Always run:** `chart`, `security`, `repo`, `hadolint`, `workflows`.
 - **`CODE_SECURITY=off`** (a repository variable, for a private copy without GitHub code security) makes `codeql` and `dependency-review` skip, and a `code-security-off` job says so in the summary. See [Platform setup](./platform-setup.md#variables-and-secrets).
 - **`live`** waits for `backend` and `frontend` (a skipped one does not stop it) and runs when either side changed.
 - **The required check is `CI OK`.** It depends on every blocking job and fails on any result other than success. On a pull request `backend` and `frontend` may be skipped, and `live`'s result is ignored (it is advisory there). See [GitHub repository settings](./github-repository-settings.md#required-status-checks).
@@ -64,7 +64,7 @@ flowchart LR
 
 | Kind | Behaviour | Jobs |
 |---|---|---|
-| Blocking, required | Fails the run on a finding; behind `CI OK` | ruff, mypy, unit (3.12, 3.13), integration, e2e, the frontend gates, `chart`, `codeql`, `dependency-review`, `gitleaks`, `repo`, `workflows`; `live` on `main` and tags |
+| Blocking, required | Fails the run on a finding; behind `CI OK` | ruff, mypy, unit (3.12, 3.13), integration, e2e, the frontend gates, `chart`, `codeql`, `dependency-review`, `gitleaks`, `repo`, `hadolint`, `workflows`; `live` on `main` and tags |
 | Blocking, release | Fails the release run | `build` (digest check), `grype` (threshold `policy.fail_level` in `infra/security/config.yaml`) |
 | Advisory | Findings become a `::warning` annotation and a step-summary line; fails only on a tool error; never a required check | `pip-audit`, the `advisory` matrix (`osv`, `guarddog`, `checkov`, `kubescape`), `Unit (Python 3.14)`, `live` on pull requests, `grant`, `vex`, DAST |
 
