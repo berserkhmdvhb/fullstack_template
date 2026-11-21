@@ -2,7 +2,7 @@
 .PHONY: all help install develop lock lock-check \
     export-requirements check-requirements-sync \
     ruff-format ruff-format-check ruff-lint ruff-lint-fix mypy-check \
-    openapi-gen openapi-drift-check \
+    openapi-gen openapi-drift-check env-docs env-docs-check \
     shellcheck tools tools-dry-run pins-refresh \
     check-all check-all-dry precommit \
     test test-unit test-integration test-e2e test-live test-file test-file-function test-fast \
@@ -70,6 +70,8 @@ help::
 	@echo "  precommit                Run every pre-commit hook on all files (pinned pre-commit, no network)"
 	@echo "  openapi-gen              Regenerate openapi.json + TS types from the backend single source"
 	@echo "  openapi-drift-check      Fail if committed openapi.json / types.gen.d.ts is stale (CI mirror)"
+	@echo "  env-docs                 Regenerate the backend-settings block of wiki/environment-variables.md"
+	@echo "  env-docs-check           Fail if that block is stale (also part of check-all-dry and CI)"
 	@echo ""
 	@echo "  dev-tools-list           Show dev tools detected from pyproject.toml"
 	@echo "  dev-tools-outdated       List dev tools with a newer release (uv tree --outdated; read-only)"
@@ -158,6 +160,17 @@ lock:
 
 lock-check:
 	$(UV) lock --check
+# -------------------------------------------------------------------
+# Environment-variable reference (Settings -> wiki/environment-variables.md)
+# -------------------------------------------------------------------
+# The backend-settings block of the doc is generated from the Settings model, so the doc cannot
+# drift from the code; everything else in that file is hand-written.
+env-docs:
+	$(PYTHON) scripts/gen_env_docs.py
+
+env-docs-check:
+	$(PYTHON) scripts/gen_env_docs.py --check
+
 # -------------------------------------------------------------------
 # Develop Tools (Including Code Quality & Security Checks)
 # -------------------------------------------------------------------
@@ -282,7 +295,7 @@ dev-tools-upgrade:
 	$(UV) sync --locked
 
 check-all: dev-tools-outdated ruff-format ruff-lint-fix mypy-check
-check-all-dry: dev-tools-outdated ruff-format-check ruff-lint mypy-check
+check-all-dry: dev-tools-outdated ruff-format-check ruff-lint mypy-check env-docs-check
 
 # The hooks in .pre-commit-config.yaml, run by the pinned pre-commit (tools/pins.tsv).
 precommit:

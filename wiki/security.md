@@ -120,8 +120,10 @@ FastAPI's built-in Swagger page loads Swagger UI from the jsDelivr CDN and inlin
 its init script, so `/docs` alone gets a relaxed CSP that admits that CDN origin and
 inline scripts/styles — **scoped to that single path**, so every other page keeps the
 strict nonce-only policy. `/docs` can be disabled with `API_DOCS_URL=` (empty). The
-machine-readable schema at `/openapi.json` is unaffected and stays available for
-non-browser consumers regardless of the interactive page.
+machine-readable schema at `/openapi.json` is unaffected by that and stays available for
+non-browser consumers regardless of the interactive page. With `ENV=production` both are
+off unless `ALLOW_PRODUCTION_DOCS=true` (see
+[Environment Variables](./environment-variables.md#backend-settings)).
 
 ---
 
@@ -134,7 +136,7 @@ FastAPI dependency, which resolves a `Principal` per request.
 
 | `AUTH_MODE` | Behaviour | Trust model |
 |-------------|-----------|-------------|
-| `none` *(default)* | Auth disabled; the dependency yields an anonymous principal. Reference CRUD is open. | N/A — opt-in only. |
+| `none` *(default)* | Auth disabled; the dependency yields an anonymous principal. Reference CRUD is open. With `ENV=production` it is refused unless `ALLOW_ANONYMOUS=true`. | N/A — opt-in only. |
 | `gateway` | Identity is read from a gateway-injected header (`AUTH_USER_ID_HEADER`, default `X-Authenticated-User-Id`; roles from `AUTH_ROLES_HEADER`, default `X-Authenticated-User-Roles`, comma-separated). Missing → `401`. | The service trusts the header **unconditionally**. Safe only because the deployment denies every client but the ingress the path to the pods (Kubernetes `NetworkPolicy` default-deny). Do not expose the service directly to untrusted clients in this mode. |
 | `bearer` | Identity from an HMAC-signed JWT bearer token verified with a shared secret (`AUTH_JWT_SECRET`, algorithm `AUTH_JWT_ALGORITHM`, default `HS256`, subject claim `AUTH_JWT_USER_ID_CLAIM`, default `sub`). Missing/invalid → `401`. | The service verifies the signature itself. |
 

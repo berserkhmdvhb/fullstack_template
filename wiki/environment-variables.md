@@ -7,6 +7,7 @@ Complete reference for all environment variables used by the service template.
 ## Table of Contents
 
 - [Overview](#overview)
+- [Backend settings](#backend-settings)
 - [General](#general)
 - [Backend](#backend)
 - [Frontend](#frontend)
@@ -15,7 +16,6 @@ Complete reference for all environment variables used by the service template.
 - [TLS](#tls)
 - [Database](#database)
 - [Logging](#logging)
-- [Rate Limiting](#rate-limiting)
 - [CI/CD](#cicd)
 - [Kubernetes-Specific](#kubernetes-specific)
 
@@ -41,15 +41,58 @@ cp .env.example .env
 
 ---
 
+<!-- BEGIN GENERATED: backend settings (scripts/gen_env_docs.py; edit Settings, not this) -->
+
+## Backend settings
+
+Every variable the Python backend reads is declared once, in `Settings`
+(`src/your_service_name/backend/settings.py`), and validated at startup: an invalid value stops
+the backend with one error naming each problem. Names are case-sensitive.
+
+`ENV` selects the deployment environment. When it is `production` (or `prod`, case-insensitive) the
+rules in the last column are enforced at startup, and a violation stops the backend. Any other value
+leaves them off, and an unset `ENV` is `dev`. The chart's production values set `ENV=production`, so
+the rules are on there.
+
+| Variable | Type | Default | Description | Production rule |
+|---|---|---|---|---|
+| `ENV` | str | `dev` | Deployment environment. `production` (or `prod`) turns on the production checks below; any other value leaves them off. | — |
+| `LOG_LEVEL` | str | `INFO` | Root log level (name or number); an unknown value falls back to INFO. | — |
+| `LOG_FORMAT` | str | (empty) | `json` emits structured JSON logs; they are also on when ENV is production. | — |
+| `LOG_REQUESTS` | bool | `false` | Log every HTTP request (method, path, status, duration). | — |
+| `API_VERSION` | str | `v1` | Active API version; must be one of the supported versions. | — |
+| `API_TITLE` | str | `Backend Title` | OpenAPI document title. | — |
+| `API_DESCRIPTION` | str | `Minimal FastAPI backend` | OpenAPI document description. | — |
+| `API_DOCS_URL` | str | (unset) | Path of the Swagger UI. Unset means `/docs` (off in production); an empty value turns it off. | Off unless ALLOW_PRODUCTION_DOCS=true; setting it to a path without that flag is refused. |
+| `OPENAPI_URL` | str | (unset) | Path of the OpenAPI JSON. Unset means `/openapi.json` (off in production); an empty value turns it off. | Off unless ALLOW_PRODUCTION_DOCS=true; setting it to a path without that flag is refused. |
+| `ALLOW_PRODUCTION_DOCS` | bool | `false` | Production only: allow the Swagger UI and the OpenAPI JSON to be served. | — |
+| `CORS_ORIGINS` | comma-separated list | (empty) | Comma-separated allowed origins. Empty means same-origin only. | Each origin must be a bare `scheme://host[:port]` (no path, no trailing slash). With CORS_ALLOW_CREDENTIALS=true it must be non-empty and must not contain `*`. |
+| `CORS_ALLOW_CREDENTIALS` | bool | `false` | Allow credentialed cross-origin requests. Outside production a `*` origin is dropped (with a warning) when this is on. | — |
+| `CORS_ALLOW_METHODS` | comma-separated list | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | Comma-separated allowed methods. | — |
+| `CORS_ALLOW_HEADERS` | comma-separated list | `Authorization,Content-Type,X-Requested-With` | Comma-separated allowed request headers. | — |
+| `RATE_LIMIT_DEFAULT` | str | `100/minute` | Per-IP rate limit in `limits` format, for example `100/minute`. | — |
+| `AUTH_MODE` | one of `none`, `gateway`, `bearer` | `none` | `none` (anonymous), `gateway` (trusted identity header) or `bearer` (HMAC-signed JWT). | `none` is refused unless ALLOW_ANONYMOUS=true. |
+| `ALLOW_ANONYMOUS` | bool | `false` | Production only: explicitly accept AUTH_MODE=none (open endpoints). | — |
+| `AUTH_USER_ID_HEADER` | str | `x-authenticated-user-id` | Gateway mode: header carrying the authenticated user id. | — |
+| `AUTH_ROLES_HEADER` | str | `x-authenticated-user-roles` | Gateway mode: header carrying comma-separated roles. | — |
+| `AUTH_JWT_SECRET` | secret | (secret) | Bearer mode: shared HMAC secret. Required when AUTH_MODE=bearer. | — |
+| `AUTH_JWT_ALGORITHM` | str | `HS256` | Bearer mode: HMAC algorithm (`HS256`, `HS384` or `HS512`). | — |
+| `AUTH_JWT_USER_ID_CLAIM` | str | `sub` | Bearer mode: token claim holding the user id. | — |
+| `DATABASE_URL` | secret | (secret) | Async SQLAlchemy database URL. Unset falls back to SQLite (SQLITE_PATH). | Required, and not SQLite. |
+| `TEST_DATABASE_URL` | secret | (secret) | Test-only: database URL that takes precedence over DATABASE_URL. | Counts as the database URL, so it is checked too. |
+| `SQLITE_PATH` | str | `data/items.db` | SQLite fallback file, relative to the project root. | Ignored: SQLite is refused. |
+| `DB_POOL_SIZE` | int | `10` | PostgreSQL connection pool size; a non-positive or invalid value falls back to the default. | — |
+| `DB_MAX_OVERFLOW` | int | `20` | PostgreSQL pool overflow; a non-positive or invalid value falls back to the default. | — |
+
+<!-- END GENERATED -->
+
+---
+
 ## General
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ENV` | `dev` | Deployment environment (`dev`, `qa`, `production`) |
 | `DEBUG` | `false` | Enable debug mode (verbose logging, detailed errors) |
-| `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
-| `LOG_FORMAT` | _(unset)_ | Emit structured JSON logs when `json` (also forced on in `production`). See [Log correlation & tracing](./operations-runbook.md#log-correlation--tracing). |
-| `API_VERSION` | `v1` | Active API version (must be in `SUPPORTED_VERSIONS`) |
 
 ---
 
@@ -117,18 +160,11 @@ cp .env.example .env
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}` | Database connection URL |
 | `DB_USER` | `app` | PostgreSQL username |
 | `DB_PASSWORD` | `changeme` | PostgreSQL password |
 | `DB_NAME` | `service_template` | PostgreSQL database name |
 
-### SQLite Fallback
-
-If `DATABASE_URL` is **not set**, the backend falls back to SQLite:
-
-```
-sqlite+aiosqlite:///./data/items.db
-```
+`DATABASE_URL`, `TEST_DATABASE_URL`, `SQLITE_PATH` and the pool settings are in [Backend settings](#backend-settings). With `DATABASE_URL` unset the backend falls back to SQLite, which `ENV=production` refuses.
 
 ---
 
@@ -137,15 +173,6 @@ sqlite+aiosqlite:///./data/items.db
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LOG_DIR` | `./logs` | Directory for log files |
-| `LOG_REQUESTS` | `false` | Log every HTTP request (method, path, status, duration) |
-
----
-
-## Rate Limiting
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RATE_LIMIT_DEFAULT` | `100/minute` | Per-IP rate limit (`limits` format: `N/minute`, `N/second`) |
 
 ---
 
@@ -222,6 +249,7 @@ config:
   ENV: production
   DEBUG: "false"
   LOG_LEVEL: WARNING
+  ALLOW_ANONYMOUS: "true"   # remove once AUTH_MODE is set; see Backend settings
   NEXT_PUBLIC_API_URL: "/api/v1"
 ```
 

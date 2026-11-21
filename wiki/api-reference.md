@@ -361,7 +361,9 @@ Swagger UI from the jsDelivr CDN and inlines its init script. Because the fronte
 serves every page under a strict nonce CSP, it admits that CDN origin and inline
 script **only on `/docs`** — every other page stays CDN-free and nonce-only (see
 [Security: CSP](security.md#csp-details) and `frontend/middleware.ts`).
-Set `API_DOCS_URL=` (empty) to disable `/docs`. ReDoc is intentionally not shipped
+Set `API_DOCS_URL=` (empty) to disable `/docs`. With `ENV=production` both `/docs` and
+`/openapi.json` are off unless `ALLOW_PRODUCTION_DOCS=true` (the frontend uses the committed
+snapshot, not the live schema). ReDoc is intentionally not shipped
 (same CDN + inline-script CSP problem; `/docs` covers interactive docs).
 
 | Tool | URL (Local) | URL (Kubernetes) |

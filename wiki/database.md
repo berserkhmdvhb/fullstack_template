@@ -109,15 +109,15 @@ class ItemModel(Base):
 ```python
 # src/your_service_name/backend/db/engine.py
 
-def _resolve_database_url() -> str:
-    """DATABASE_URL > SQLite fallback"""
-    url = os.getenv("DATABASE_URL")
+def _resolve_database_url(settings: Settings) -> str:
+    """TEST_DATABASE_URL > DATABASE_URL > SQLite fallback (settings.SQLITE_PATH)"""
+    url = settings.database_url
     if url:
         return url
     return "sqlite+aiosqlite:///./data/items.db"
 
-def create_engine() -> AsyncEngine:
-    url = _resolve_database_url()
+def create_engine(settings: Settings) -> AsyncEngine:
+    url = _resolve_database_url(settings)
     if url.startswith("sqlite"):
         return create_async_engine(url, connect_args={"check_same_thread": False})
     return create_async_engine(url, pool_pre_ping=True)

@@ -25,6 +25,8 @@ jobs:
         run: make ruff-lint
       - name: Mypy
         run: make mypy-check
+      - name: Environment-variable doc is current
+        run: make env-docs-check
 
   unit:
     name: Unit (Python ${{ matrix.python-version }})
