@@ -41,7 +41,7 @@ jobs:
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
           changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
-          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|Makefile|frontend/lib/api/|\.github/|scripts/|tools/)' <<<"$changed"; then
+          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|Makefile|frontend/lib/api/|\.github/|scripts/|infra/|tools/)' <<<"$changed"; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"
@@ -102,12 +102,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The cache is restored everywhere but saved only from a push to main, never from a pull request or a tag.
+      # One cache per job: the jobs install different tools, so a shared key would let the first save win. Restored everywhere, saved only from a push to main.
       - id: tools-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools
-          key: tools-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+          key: tools-repo-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
       - name: Install the pinned tools
         run: |
           scripts/tools.sh install shellcheck bats yq
@@ -116,7 +116,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools
-          key: tools-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+          key: tools-repo-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
       - name: Shellcheck
         run: bash scripts/ci/shell-lint.sh
       - name: Secret templates
@@ -137,12 +137,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The cache is restored everywhere but saved only from a push to main, never from a pull request or a tag.
+      # One cache per job: the jobs install different tools, so a shared key would let the first save win. Restored everywhere, saved only from a push to main.
       - id: tools-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools
-          key: tools-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+          key: tools-hadolint-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
       - name: Install hadolint
         run: |
           scripts/tools.sh install hadolint
@@ -151,7 +151,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools
-          key: tools-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+          key: tools-hadolint-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
       - name: hadolint
         run: bash scripts/ci/hadolint.sh
 
