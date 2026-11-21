@@ -557,7 +557,7 @@ def test_a_transitive_package_younger_than_seven_days_is_named(
         monkeypatch,
         {
             "https://pypi.org/pypi/zizmor/1.0.0/json": _pypi([("1" * 64, OLD)]),
-            "https://pypi.org/pypi/pyyaml/6.0.4/json": _pypi([("2" * 64, OLD), ("5" * 64, YOUNG)]),
+            "https://pypi.org/pypi/pyyaml/6.0.4/json": _pypi([("2" * 64, YOUNG)]),
         },
     )
     problems = pr.lock_problems(tmp_path / "reqs" / "zizmor.txt")
@@ -767,3 +767,17 @@ def test_the_constraint_source_is_removed_from_the_via_lines() -> None:
     assert "constraints.txt" not in tidy
     assert "    # via yamale\n" in tidy
     assert "    # via\n    #   a\n    #   b\n" in tidy
+
+
+def test_only_the_files_a_lock_records_are_age_checked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _lock_dir(monkeypatch, tmp_path, {"zizmor.txt": _lock("pyyaml", "6.0.4", ["2" * 64])})
+    path = tmp_path / "reqs" / "zizmor.txt"
+    url = "https://pypi.org/pypi/pyyaml/6.0.4/json"
+    _stub(monkeypatch, {url: _pypi([("2" * 64, OLD), ("5" * 64, YOUNG)])})
+    assert pr.lock_problems(path) == []  # the recent file is not one the lock installs
+    _stub(monkeypatch, {url: _pypi([("2" * 64, YOUNG), ("5" * 64, OLD)])})
+    problems = pr.lock_problems(path)
+    assert len(problems) == 1
+    assert "7 days" in problems[0]

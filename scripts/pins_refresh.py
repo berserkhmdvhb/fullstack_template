@@ -401,7 +401,7 @@ def lock_entries(text: str) -> dict[str, tuple[str, set[str]]]:
 
 
 def lock_problems(path: Path) -> list[str]:
-    """Every entry's hashes must be on PyPI for that version, and every file of it 7+ days old."""
+    """Recorded hashes must be on PyPI for that version, and those files 7+ days old."""
     found = []
     cutoff = utcnow() - MIN_AGE
     for name, (version, hashes) in sorted(lock_entries(path.read_text()).items()):
@@ -411,7 +411,8 @@ def lock_problems(path: Path) -> list[str]:
             found.append(
                 f"{name} {version}: {len(hashes - published)} hash(es) PyPI does not publish"
             )
-        young = [f for f in files if datetime.fromisoformat(f["upload_time_iso_8601"]) > cutoff]
+        recorded = [f for f in files if f["digests"]["sha256"] in hashes]
+        young = [f for f in recorded if datetime.fromisoformat(f["upload_time_iso_8601"]) > cutoff]
         if young:
             found.append(f"{name} {version}: uploaded less than 7 days ago")
     return found
