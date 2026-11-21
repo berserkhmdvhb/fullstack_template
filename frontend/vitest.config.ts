@@ -3,7 +3,7 @@
  *
  * @remarks
  * - Runs every test file (the unit-only files too), so one coverage run counts them all
- * - Environment: jsdom (simulates browser DOM)
+ * - Environment: happy-dom (simulates browser DOM)
  * - Globals: describe, it, expect available without explicit import
  * - Setup: pre-wired test utilities with all providers
  * - Coverage: 80% lines/functions/statements, 70% branches
@@ -43,12 +43,25 @@ export default defineConfig({
         statements: 80,
         branches: 70,
       },
-      include: ['lib/**/*.{ts,tsx}', 'app/**/*.{ts,tsx}', 'features/**/*.{ts,tsx}'],
+      // All application code: the routes (including the API route handlers), shared components, features,
+      // the library and the proxy.
+      include: [
+        'app/**/*.{ts,tsx}',
+        'components/**/*.{ts,tsx}',
+        'features/**/*.{ts,tsx}',
+        'lib/**/*.{ts,tsx}',
+        'proxy.ts',
+      ],
       exclude: [
-        'lib/api/types.gen.d.ts',
+        // Tests.
         '**/*.test.{ts,tsx}',
         '**/*.spec.{ts,tsx}',
-        'app/api/**',
+        'src/test/**',
+        // Playwright specs run in the browser job, not here.
+        'e2e/**',
+        // Type declarations and generated code (the OpenAPI types).
+        '**/*.d.ts',
+        '**/*.gen.ts',
       ],
     },
   },
