@@ -106,9 +106,24 @@ describe('ItemList', () => {
     expect(cells[3]).toHaveAttribute('data-label', 'Created');
     expect(within(row).getByRole('button', { name: 'Edit Alpha Item' })).toBeInTheDocument();
     expect(within(row).getByRole('button', { name: 'Delete Alpha Item' })).toBeInTheDocument();
+    // The status class sits on the badge itself, where globals.css draws the dot (.badge-status.active::before).
+    expect(cells[2]).toContainHTML('class="badge-status active"');
+    // Explicit roles keep the table semantics where `display: block` would drop them (Safari, Firefox).
+    expect(table).toHaveAttribute('role', 'table');
+    expect(row).toHaveAttribute('role', 'row');
+    expect(cells[0]).toHaveAttribute('role', 'cell');
+    expect(screen.getAllByRole('columnheader')[0]).toHaveAttribute('role', 'columnheader');
     // The table is in the accessibility tree once, with its column headers.
     expect(screen.getAllByRole('table')).toHaveLength(1);
     expect(screen.getAllByRole('columnheader')).toHaveLength(5);
+  });
+
+  it('marks an inactive item with the inactive status class', async () => {
+    renderWithProviders(<ItemList onEdit={noop} />);
+
+    const row = await screen.findByRole('row', { name: /Beta Item/ });
+
+    expect(within(row).getAllByRole('cell')[2]).toContainHTML('class="badge-status inactive"');
   });
 
   it('shows active/inactive status indicators', async () => {

@@ -115,3 +115,37 @@ for (const width of [390, 600, 767, 768, 1280]) {
     }
   });
 }
+
+test('the values in a phone card share one left edge and one size (390px)', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await mockApi(page);
+  await page.goto('/items');
+  await page.waitForLoadState('networkidle');
+  await expect(page.locator('td', { hasText: 'First item' })).toBeVisible();
+
+  const fields = await page.evaluate(() =>
+    [...document.querySelectorAll('tbody tr:first-child td[data-label]')].map((td) => {
+      // The value starts at the badge (status) or at its first text; the label is the ::before.
+      const badge = td.querySelector('.badge-status');
+      const range = document.createRange();
+      const text = document.createTreeWalker(td, NodeFilter.SHOW_TEXT).nextNode();
+      if (!text) throw new Error('empty cell');
+      range.selectNodeContents(text);
+      const value = badge ?? range;
+      return {
+        label: td.getAttribute('data-label'),
+        left: value.getBoundingClientRect().left,
+        valueSize: getComputedStyle(text.parentElement as Element).fontSize,
+        labelSize: getComputedStyle(td, '::before').fontSize,
+      };
+    }),
+  );
+
+  expect(fields.map((f) => f.label)).toEqual(['Description', 'Status', 'Created']);
+  const [first] = fields;
+  for (const field of fields) {
+    expect(Math.abs(field.left - (first?.left ?? 0)), field.label ?? '').toBeLessThanOrEqual(1);
+    expect(field.valueSize, field.label ?? '').toBe(first?.valueSize);
+    expect(field.labelSize, field.label ?? '').toBe(first?.labelSize);
+  }
+});

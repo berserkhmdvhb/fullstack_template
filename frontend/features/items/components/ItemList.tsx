@@ -25,6 +25,19 @@ const CELL = 'table-cell max-md:block max-md:px-0 max-md:py-1';
 const LABELLED =
   'max-md:before:mr-2 max-md:before:inline-block max-md:before:min-w-24 max-md:before:font-medium max-md:before:text-textSecondary max-md:before:content-[attr(data-label)]';
 
+/**
+ * Explicit table roles. Below md the table elements are `display: block`, and Safari and Firefox can drop their
+ * table semantics then; the roles keep them in every engine. (Spread, because the jsx-a11y rule against redundant
+ * roles cannot tell that the CSS changes what the element exposes.)
+ */
+const ROLE = {
+  table: { role: 'table' },
+  rowgroup: { role: 'rowgroup' },
+  row: { role: 'row' },
+  columnheader: { role: 'columnheader' },
+  cell: { role: 'cell' },
+} as const;
+
 type ItemResponse = components['schemas']['ItemResponse'];
 
 /**
@@ -161,41 +174,73 @@ export function ItemList({ onEdit }: ItemListProps): JSX.Element {
           {/* One structure for every width. Below md (768 px) each row is a stacked card (labelled fields, the actions in
               view, no sideways scroll); the table fits from about 640 px, and thead stays for assistive tech. */}
           <div className="overflow-x-auto">
-            <table className="w-full text-sm max-md:block">
-              <thead className="max-md:sr-only">
-                <tr className="border-b border-borderWeak">
-                  <th className="text-left py-3 px-4 font-medium text-textPrimary">Name</th>
-                  <th className="text-left py-3 px-4 font-medium text-textPrimary">Description</th>
-                  <th className="text-left py-3 px-4 font-medium text-textPrimary">Status</th>
-                  <th className="text-left py-3 px-4 font-medium text-textPrimary">Created</th>
-                  <th className="text-right py-3 px-4 font-medium text-textPrimary">Actions</th>
+            <table className="w-full text-sm max-md:block" {...ROLE.table}>
+              <thead className="max-md:sr-only" {...ROLE.rowgroup}>
+                <tr className="border-b border-borderWeak" {...ROLE.row}>
+                  <th
+                    className="text-left py-3 px-4 font-medium text-textPrimary"
+                    {...ROLE.columnheader}
+                  >
+                    Name
+                  </th>
+                  <th
+                    className="text-left py-3 px-4 font-medium text-textPrimary"
+                    {...ROLE.columnheader}
+                  >
+                    Description
+                  </th>
+                  <th
+                    className="text-left py-3 px-4 font-medium text-textPrimary"
+                    {...ROLE.columnheader}
+                  >
+                    Status
+                  </th>
+                  <th
+                    className="text-left py-3 px-4 font-medium text-textPrimary"
+                    {...ROLE.columnheader}
+                  >
+                    Created
+                  </th>
+                  <th
+                    className="text-right py-3 px-4 font-medium text-textPrimary"
+                    {...ROLE.columnheader}
+                  >
+                    Actions
+                  </th>
                 </tr>
               </thead>
-              <tbody className="max-md:block">
+              <tbody className="max-md:block" {...ROLE.rowgroup}>
                 {items.map((item) => (
                   <tr
                     key={item.id}
+                    {...ROLE.row}
                     className="border-b border-borderWeak table-row-hover max-md:block max-md:py-3"
                   >
-                    <td className={`${CELL} text-textPrimary font-medium`}>{item.name}</td>
-                    <td className={`${CELL} ${LABELLED} text-textPrimary`} data-label="Description">
+                    <td className={`${CELL} text-textPrimary font-medium`} {...ROLE.cell}>
+                      {item.name}
+                    </td>
+                    <td
+                      className={`${CELL} ${LABELLED} text-textPrimary`}
+                      data-label="Description"
+                      {...ROLE.cell}
+                    >
                       {item.description || '—'}
                     </td>
-                    <td className={`${CELL} ${LABELLED}`} data-label="Status">
-                      <span className="badge-status">
-                        <span className={item.is_active ? 'active' : 'inactive'} />
+                    <td className={`${CELL} ${LABELLED}`} data-label="Status" {...ROLE.cell}>
+                      {/* The class sits on the badge itself: globals.css draws the dot with .badge-status.active::before */}
+                      <span className={`badge-status ${item.is_active ? 'active' : 'inactive'}`}>
                         <span className="text-textPrimary">
                           {item.is_active ? 'Active' : 'Inactive'}
                         </span>
                       </span>
                     </td>
                     <td
-                      className={`${CELL} ${LABELLED} text-textPrimary text-xs`}
+                      className={`${CELL} ${LABELLED} text-textPrimary text-sm md:text-xs`}
                       data-label="Created"
                     >
                       {new Date(item.created_at).toLocaleDateString()}
                     </td>
-                    <td className={`${CELL} text-right max-md:text-left`}>
+                    <td className={`${CELL} text-right max-md:text-left`} {...ROLE.cell}>
                       <div className="inline-flex items-center gap-1">
                         <button
                           onClick={() => onEdit(item)}

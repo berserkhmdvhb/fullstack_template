@@ -358,7 +358,7 @@ html.dark .table-row-hover:hover {
   background: var(--color-surface-alt);
 }
 
-/* In the components layer so a utility (for example the phone layout's max-xl:px-0) can override it. */
+/* In the components layer so a utility (for example the phone layout's max-md:px-0) can override it. */
 @layer components {
   .table-cell {
     padding: 0.75rem 1rem;
@@ -509,14 +509,33 @@ html.dark .table-row-hover:hover {
   flex-shrink: 0;
 }
 
+/* The dot is not the only signal (the text says Active or Inactive); each colour is at least 3:1 against its
+   surface (WCAG 1.4.11): the darker pair on white, the brighter pair on the dark surfaces. */
 .badge-status.active::before {
+  background-color: #15803d;
+  box-shadow: 0 0 4px rgba(21, 128, 61, 0.4);
+}
+
+.badge-status.inactive::before {
+  background-color: #dc2626;
+  box-shadow: 0 0 4px rgba(220, 38, 38, 0.4);
+}
+
+html.dark .badge-status.active::before {
   background-color: #22c55e;
   box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
 }
 
-.badge-status.inactive::before {
+html.dark .badge-status.inactive::before {
   background-color: #ef4444;
   box-shadow: 0 0 4px rgba(239, 68, 68, 0.4);
+}
+
+/* Stacked phone cards: the badge reads at the same size as the other values. */
+@media (max-width: 767px) {
+  .badge-status {
+    font-size: 0.875rem;
+  }
 }
 
 /* ───────────────────────────────────────────
