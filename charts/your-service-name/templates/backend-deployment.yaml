@@ -69,6 +69,24 @@ spec:
             - name: DATABASE_URL
               value: {{ include "chart.databaseURL" . | quote }}
             {{- include "chart.dbCaEnv" . | nindent 12 }}
+            {{- with .Values.observability.tracing }}
+            {{- if .enabled }}
+            - name: TRACING_ENABLED
+              value: "true"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .endpoint | quote }}
+            - name: TRACING_SAMPLE_RATIO
+              value: {{ .sampleRatio | quote }}
+            {{- if .serviceName }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .serviceName | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.cspReporting.enabled }}
+            - name: CSP_REPORT_ENABLED
+              value: "true"
+            {{- end }}
           ports:
             - name: http
               containerPort: 8000

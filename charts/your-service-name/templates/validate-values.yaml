@@ -22,3 +22,18 @@
 {{- if and (eq (toString .Values.environment) "production") (not (has (lower (toString .Values.config.ENV)) (list "production" "prod"))) }}
 {{- fail (printf "%s: environment is production but config.ENV is %q. Layer values.production.yaml (-f) or set config.ENV=production, otherwise the backend's production checks stay off." (include "chart.fullname" .) (toString .Values.config.ENV)) }}
 {{- end }}
+{{- /*
+  Opt-in tracing needs a collector URL: without it the backend refuses to start.
+*/ -}}
+{{- if and .Values.observability.tracing.enabled (eq (toString .Values.observability.tracing.endpoint) "") }}
+{{- fail (printf "%s: observability.tracing.enabled is true but observability.tracing.endpoint is empty. Set the collector URL (for example http://collector:4318), and allow the egress with backend.networkPolicy.extraEgress." (include "chart.fullname" .)) }}
+{{- end }}
+{{- /*
+  These two can hold a password or a token, and a ConfigMap is readable by anyone who can read the
+  namespace: they belong in the app Secret (secrets.existingSecret), never in config.
+*/ -}}
+{{- range $name := list "RATE_LIMIT_STORAGE" "OTEL_EXPORTER_OTLP_HEADERS" }}
+{{- if hasKey $.Values.config $name }}
+{{- fail (printf "%s: config.%s must not be set: it can hold a credential. Put %s in the app Secret (secrets.existingSecret) instead." (include "chart.fullname" $) $name $name) }}
+{{- end }}
+{{- end }}

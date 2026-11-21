@@ -67,6 +67,37 @@ backend:
   # restartPolicy: Always, Kubernetes 1.29+). The chart does not ship the proxy image; see
   # wiki/database.md. Empty by default.
   extraInitContainers: []
+  networkPolicy:
+    # Egress rules appended to the backend's NetworkPolicy (a list of NetworkPolicy `egress`
+    # items). The policy is default-deny, so traffic to an OTLP collector or a Redis is dropped
+    # silently unless a rule allows it. Empty by default. Examples:
+    #   extraEgress:
+    #     - to:                      # OTLP/HTTP collector (observability.tracing), port 4318
+    #         - namespaceSelector:
+    #             matchLabels: {kubernetes.io/metadata.name: monitoring}
+    #       ports: [{protocol: TCP, port: 4318}]
+    #     - to:                      # Redis for RATE_LIMIT_STORAGE (rediss://), port 6379
+    #         - ipBlock: {cidr: 10.20.0.0/24}
+    #       ports: [{protocol: TCP, port: 6379}]
+    extraEgress: []
+
+# ---- Opt-in features (all off by default; nothing renders until enabled) ------------------
+observability:
+  tracing:
+    # OpenTelemetry traces over OTLP/HTTP (backend env TRACING_ENABLED, OTEL_EXPORTER_OTLP_ENDPOINT,
+    # TRACING_SAMPLE_RATIO, OTEL_SERVICE_NAME). `endpoint` is required when enabled; allow the
+    # egress with backend.networkPolicy.extraEgress (port 4318). The collector's auth headers are a
+    # secret: put OTEL_EXPORTER_OTLP_HEADERS ("name=value,...") in the app Secret
+    # (secrets.existingSecret), never here.
+    enabled: false
+    endpoint: ""
+    sampleRatio: 1
+    serviceName: ""      # empty: the backend default (the package's service name)
+
+# CSP violation reports: one value, two env vars (backend CSP_REPORT_ENABLED serves
+# POST /api/v1/csp-report; frontend CSP_REPORTING_ENABLED adds the reporting directives).
+cspReporting:
+  enabled: false
 
 # TLS to the database. For a managed database whose CA is not in the image's trust store, name an
 # existing Secret holding the CA certificate: it is mounted read-only in the backend and the
@@ -123,6 +154,10 @@ config:
   LOG_DIR: /app/logs
   LOG_REQUESTS: "false"
   RATE_LIMIT_DEFAULT: 100/minute
+  # RATE_LIMIT_STORAGE is deliberately not a config value: a Redis URL can hold a password, so it
+  # comes from the app Secret (secrets.existingSecret holds a RATE_LIMIT_STORAGE key, read through
+  # the backend's envFrom). Unset means memory:// (a counter per replica). Putting it here is
+  # refused. Allow the Redis egress with backend.networkPolicy.extraEgress (port 6379).
   # Client IP: set TRUSTED_PROXY_CIDRS to the cloudflared and gateway Pod ranges of YOUR cluster
   # (comma-separated CIDRs; Pod CIDRs are cluster-specific, so none is guessed here). Empty trusts
   # no forwarding header and the TCP peer is the client, so behind a proxy every client then shares

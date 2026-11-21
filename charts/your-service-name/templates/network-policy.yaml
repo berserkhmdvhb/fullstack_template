@@ -85,6 +85,10 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+{{- /* backend.networkPolicy.extraEgress: an OTLP collector (4318), a Redis (6379), ... */}}
+{{- with .Values.backend.networkPolicy.extraEgress }}
+{{ toYaml . | indent 4 }}
+{{- end }}
 ---
 # ---- 4. Allow Migration Job -> PostgreSQL (cross-namespace) + DNS ----
 apiVersion: networking.k8s.io/v1

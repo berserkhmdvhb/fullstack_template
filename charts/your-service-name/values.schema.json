@@ -66,7 +66,45 @@
           "description": "Init containers rendered first, before wait-for-db, in the backend Deployment and the migration Job.",
           "type": "array",
           "items": { "type": "object" }
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "extraEgress": {
+              "description": "NetworkPolicy egress rules appended to the backend's egress policy (an OTLP collector on 4318, a Redis on 6379).",
+              "type": "array",
+              "items": { "type": "object" }
+            }
+          }
         }
+      }
+    },
+
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tracing": {
+          "description": "Opt-in OpenTelemetry tracing of the backend (OTLP/HTTP). The collector headers (OTEL_EXPORTER_OTLP_HEADERS) are a secret: put them in the app Secret.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled":     { "type": "boolean" },
+            "endpoint":    { "description": "The collector's base URL, for example http://collector:4318. Required when enabled.", "type": "string" },
+            "sampleRatio": { "description": "Share of new traces recorded (0 to 1).", "type": "number", "minimum": 0, "maximum": 1 },
+            "serviceName": { "description": "service.name; empty keeps the backend default.", "type": "string" }
+          }
+        }
+      }
+    },
+
+    "cspReporting": {
+      "description": "Opt-in CSP violation reports: turns on the backend endpoint (CSP_REPORT_ENABLED) and the frontend's reporting directives (CSP_REPORTING_ENABLED).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
       }
     },
 
