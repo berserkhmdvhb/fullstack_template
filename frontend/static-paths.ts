@@ -18,9 +18,13 @@ const FILES = ['favicon.ico'] as const;
 /** Image types served from `public/`; an adopter's own files of these types are covered too. */
 const EXTENSIONS = ['svg', 'png', 'jpg', 'jpeg', 'gif', 'webp'] as const;
 
-/** The proxy matcher: every route except the static paths above. */
-export const proxyMatcher = (): string =>
-  `/((?!${[...DIRECTORIES, ...FILES].join('|')}|.*\\.(?:${EXTENSIONS.join('|')})$).*)`;
+/**
+ * The proxy matcher: every route except the static paths above.
+ * @returns The matcher pattern.
+ */
+export function proxyMatcher(): string {
+  return `/((?!${[...DIRECTORIES, ...FILES].join('|')}|.*\\.(?:${EXTENSIONS.join('|')})$).*)`;
+}
 
 /** The `headers()` sources of the same paths. */
 export const STATIC_HEADER_SOURCES: readonly string[] = [

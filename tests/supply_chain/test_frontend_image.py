@@ -27,13 +27,13 @@ def test_the_builder_node_is_the_pinned_node_version() -> None:
 
 
 def test_the_build_derives_the_deployment_id_from_the_version_and_the_commit() -> None:
-    """One id per build: the version alone repeats on every main build (scripts/deployment-id.mjs)."""
+    """One id per build: the version alone repeats on every main build."""
     builder = DOCKERFILE.split("AS runtime")[0]
     assert re.search(r"^ARG VERSION$", builder, re.MULTILINE)
     assert re.search(r"^ARG VCS_REF$", builder, re.MULTILINE)
     assert re.search(
-        r"NEXT_DEPLOYMENT_ID=\"\$\(node scripts/deployment-id\.mjs \"\$\{VERSION\}\" \"\$\{VCS_REF\}\"\)\""
-        r" npx next build$",
+        r"NEXT_DEPLOYMENT_ID=\"\$\(node scripts/deployment-id\.mjs"
+        r" \"\$\{VERSION\}\" \"\$\{VCS_REF\}\"\)\" npx next build$",
         builder,
         re.MULTILINE,
     )
