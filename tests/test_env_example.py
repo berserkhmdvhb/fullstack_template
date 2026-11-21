@@ -3,14 +3,14 @@
 import re
 from pathlib import Path
 
+from your_service_name.backend.settings import Settings
+
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = ROOT / ".env.example"
 
 # Names deliberately not in .env.example, with the reason. The GITHUB_* names and DEPLOY_ENV in the
 # CI/CD table are set by GitHub Actions and the deploy job, never by a developer.
 ALLOWED_PREFIXES = {"GITHUB_": "set by GitHub Actions", "DEPLOY_ENV": "set by the deploy job"}
-
-ENV_CONST = r"^_[A-Z_]*ENV\s*(?::\s*str\s*)?=\s*\"([A-Z][A-Z0-9_]*)\""
 
 
 def _names(text: str) -> set[str]:
@@ -24,13 +24,8 @@ def _doc_names() -> set[str]:
 
 
 def _code_names() -> set[str]:
-    found: set[str] = set()
-    for path in (ROOT / "src").rglob("*.py"):
-        text = path.read_text()
-        found |= set(re.findall(r"os\.getenv\(\s*\"([A-Z][A-Z0-9_]*)\"", text))
-        found |= set(re.findall(r"os\.environ(?:\.get\(|\[)\s*\"([A-Z][A-Z0-9_]*)\"", text))
-        found |= set(re.findall(ENV_CONST, text, re.MULTILINE))
-    return found
+    """Every variable the backend reads: the ``Settings`` fields (the only reader)."""
+    return set(Settings.model_fields)
 
 
 def test_required_variables_are_set_in_env_example() -> None:

@@ -25,6 +25,7 @@ import pytest
 from _pytest.logging import LogCaptureHandler
 
 from your_service_name.backend.logging.correlation import NO_REQUEST_ID, RequestIdFilter
+from your_service_name.backend.main import create_app
 from your_service_name.backend.middleware import logging as request_logging
 from your_service_name.backend.middleware.correlation import CorrelationIdMiddleware
 from your_service_name.backend.middleware.logging import RequestLoggingMiddleware
@@ -44,7 +45,7 @@ def captured() -> Iterator[LogCaptureHandler]:
     The DB/alembic startup reconfigures logging and leaves non-root loggers disabled at an
     effective ``WARNING`` level, which would silence the request-logging middleware's ``INFO``
     record; re-enable it here so that record is observable. The previous state is restored on
-    teardown, and ``_LOG_REQUESTS`` is toggled per-test via ``monkeypatch``.
+    teardown, and request logging is switched on by building the app with ``LOG_REQUESTS=true``.
     """
     root = logging.getLogger()
     previous_root_level = root.level
@@ -63,9 +64,11 @@ def captured() -> Iterator[LogCaptureHandler]:
         request_logging.logger.setLevel(logging.NOTSET)
 
 
-def _enable_request_logging(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Emit the per-request log line for the duration of the test."""
-    monkeypatch.setattr(request_logging, "_LOG_REQUESTS", True)
+@pytest.fixture
+def app(monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+    """The real app, built with request logging on so the per-request log line is emitted."""
+    monkeypatch.setenv("LOG_REQUESTS", "true")
+    return create_app()
 
 
 def _request_ids(records: list[logging.LogRecord]) -> set[str | None]:
@@ -77,11 +80,8 @@ def _request_ids(records: list[logging.LogRecord]) -> set[str | None]:
 async def test_request_id_reaches_downstream_logs(
     async_client: httpx.AsyncClient,
     captured: LogCaptureHandler,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A request carrying ``X-Request-Id`` produces log records with that id — through the stack."""
-    _enable_request_logging(monkeypatch)
-
     request_id = "integration-req-123"
     response = await async_client.get(HEALTH_PATH, headers={REQUEST_ID_HEADER: request_id})
     assert response.is_success
@@ -94,11 +94,8 @@ async def test_request_id_reaches_downstream_logs(
 async def test_generated_id_when_header_absent(
     async_client: httpx.AsyncClient,
     captured: LogCaptureHandler,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With no inbound header, a generated (non-blank) id is carried onto the request's logs."""
-    _enable_request_logging(monkeypatch)
-
     await async_client.get(HEALTH_PATH)
 
     ids = _request_ids(captured.records)

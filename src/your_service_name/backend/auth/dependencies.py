@@ -12,7 +12,7 @@ architecture is an API gateway that terminates TLS and authn and forwards a
 network policy denies any client but the ingress from reaching it). A JWT bearer
 mode is provided for adopters who terminate authn in the service itself.
 
-Modes (``AUTH_MODE`` env var):
+Modes (``AUTH_MODE`` setting; see ``backend/settings.py``, validated at startup):
 - ``none``    (default) — auth disabled; the reference CRUD stays open and the
               dependency yields an anonymous principal. Opt in by setting the env.
 - ``gateway`` — identity is read from a gateway-injected header
@@ -39,42 +39,22 @@ import binascii
 import hmac
 import json
 import logging
-import os
 from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import Depends, HTTPException, Request, status
 
 from your_service_name.backend.auth.principal import Principal
+from your_service_name.backend.settings import JWT_HASHLIB
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from your_service_name.backend.settings import Settings
+
 logger = logging.getLogger(__name__)
-
-# --- Configuration (all env-driven; sane template defaults) -------------------
-_AUTH_MODE_ENV: str = "AUTH_MODE"
-_GATEWAY_HEADER_ENV: str = "AUTH_USER_ID_HEADER"
-_ROLES_HEADER_ENV: str = "AUTH_ROLES_HEADER"
-# Env-var *name* constant (not a secret — the value is the string "AUTH_JWT_SECRET").
-_JWT_SECRET_ENV: str = "AUTH_JWT_SECRET"  # noqa: S105
-_JWT_ALGORITHM_ENV: str = "AUTH_JWT_ALGORITHM"
-_JWT_USER_ID_CLAIM_ENV: str = "AUTH_JWT_USER_ID_CLAIM"
-
-DEFAULT_GATEWAY_HEADER: str = "x-authenticated-user-id"
-DEFAULT_ROLES_HEADER: str = "x-authenticated-user-roles"
-DEFAULT_JWT_ALGORITHM: str = "HS256"
-DEFAULT_JWT_USER_ID_CLAIM: str = "sub"
 
 # A compact JWT has exactly three dot-separated segments: header.payload.signature.
 _JWT_SEGMENT_COUNT: int = 3
-
-# HMAC family only. RSA/ECDSA/`none` are deliberately rejected to avoid the
-# classic "alg confusion" attack (an attacker swapping alg to bypass the key).
-_ALLOWED_JWT_ALGS: frozenset[str] = frozenset({"HS256", "HS384", "HS512"})
-
-# JWT alg name → hashlib digest name (a JWT "HS256" is hashlib "sha256", not
-# the non-existent "hs256"). Single source of truth for signing/verifying.
-_JWT_HASHLIB: dict[str, str] = {"HS256": "sha256", "HS384": "sha384", "HS512": "sha512"}
 
 _AUTHORIZATION_PREFIX: str = "bearer "
 
@@ -98,9 +78,10 @@ def get_current_user(request: Request) -> Principal:
     """
     Resolve the principal for the current request.
 
-    The behaviour is selected by ``AUTH_MODE`` so the reference service ships with
-    auth *off* (open CRUD, existing flows intact) and an adopter opts in by setting
-    the env var — no code change required.
+    The behaviour is selected by the ``AUTH_MODE`` setting (read from
+    ``app.state.settings``) so the reference service ships with auth *off* (open CRUD,
+    existing flows intact) and an adopter opts in by setting the env var — no code
+    change required. Each mode's required settings are validated at startup.
 
     Parameters
     ----------
@@ -117,15 +98,12 @@ def get_current_user(request: Request) -> Principal:
     NotAuthenticatedError
         If the configured mode requires identity and none is present/valid.
     """
-    mode = (os.getenv(_AUTH_MODE_ENV) or "none").strip().lower()
-    if mode == "gateway":
-        return _principal_from_gateway(request)
-    if mode == "bearer":
-        return _principal_from_bearer(request)
-    if mode in ("", "none"):
-        return Principal(user_id="anonymous", identity_source="none")
-    msg = f"Unsupported AUTH_MODE: {mode!r}"
-    raise NotAuthenticatedError(msg)
+    settings: Settings = request.app.state.settings
+    if settings.AUTH_MODE == "gateway":
+        return _principal_from_gateway(request, settings)
+    if settings.AUTH_MODE == "bearer":
+        return _principal_from_bearer(request, settings)
+    return Principal(user_id="anonymous", identity_source="none")
 
 
 def require_roles(*required: str) -> Callable[[Principal], Principal]:
@@ -158,9 +136,9 @@ def require_roles(*required: str) -> Callable[[Principal], Principal]:
 # --- gateway mode -------------------------------------------------------------
 
 
-def _principal_from_gateway(request: Request) -> Principal:
+def _principal_from_gateway(request: Request, settings: Settings) -> Principal:
     """Resolve identity from a gateway-injected trusted header."""
-    header = os.getenv(_GATEWAY_HEADER_ENV) or DEFAULT_GATEWAY_HEADER
+    header = settings.AUTH_USER_ID_HEADER
     user_id = request.headers.get(header)
     if not user_id:
         msg = (
@@ -169,7 +147,7 @@ def _principal_from_gateway(request: Request) -> Principal:
         )
         raise NotAuthenticatedError(msg)
     roles: list[str] = []
-    roles_header = os.getenv(_ROLES_HEADER_ENV) or DEFAULT_ROLES_HEADER
+    roles_header = settings.AUTH_ROLES_HEADER
     raw_roles = request.headers.get(roles_header)
     if raw_roles:
         roles = [r.strip() for r in raw_roles.split(",") if r.strip()]
@@ -202,7 +180,7 @@ def _verify_hs(token: str, secret: bytes, alg: str) -> dict[str, Any]:
     """
     Verify an HMAC-signed JWT and return its payload.
 
-    Only the HMAC family is accepted (see ``_ALLOWED_JWT_ALGS``); the header ``alg``
+    Only the HMAC family is accepted (see ``ALLOWED_JWT_ALGS`` in settings); the header ``alg``
     must match the configured one, which defeats alg-confusion attacks.
     """
     parts = token.split(".")
@@ -216,7 +194,7 @@ def _verify_hs(token: str, secret: bytes, alg: str) -> dict[str, Any]:
         raise InvalidTokenError(error_message)
 
     signing_input = f"{parts[0]}.{parts[1]}".encode()
-    digest = _JWT_HASHLIB[alg]
+    digest = JWT_HASHLIB[alg]
     expected = hmac.new(secret, signing_input, digest).digest()
     try:
         provided = base64.urlsafe_b64decode(parts[2] + "=" * (-len(parts[2]) % 4))
@@ -230,7 +208,7 @@ def _verify_hs(token: str, secret: bytes, alg: str) -> dict[str, Any]:
     return _b64url_decode_json(parts[1])
 
 
-def _principal_from_bearer(request: Request) -> Principal:
+def _principal_from_bearer(request: Request, settings: Settings) -> Principal:
     """Resolve identity from a signed JWT bearer token."""
     authorization = request.headers.get("Authorization", "")
     if not authorization.lower().startswith(_AUTHORIZATION_PREFIX):
@@ -241,24 +219,23 @@ def _principal_from_bearer(request: Request) -> Principal:
         msg = "Empty Bearer token (AUTH_MODE=bearer)."
         raise NotAuthenticatedError(msg)
 
-    secret = os.getenv(_JWT_SECRET_ENV)
-    if not secret:
-        # Fail closed: misconfigured bearer mode must not silently allow access.
+    # Settings validation already refuses bearer mode without a secret; failing closed here
+    # covers a Settings built without validation.
+    if settings.AUTH_JWT_SECRET is None:
         msg = "AUTH_JWT_SECRET is not set (AUTH_MODE=bearer)."
         raise NotAuthenticatedError(msg)
 
-    alg = (os.getenv(_JWT_ALGORITHM_ENV) or DEFAULT_JWT_ALGORITHM).upper()
-    if alg not in _ALLOWED_JWT_ALGS:
-        msg = f"Unsupported JWT algorithm: {alg!r}."
-        raise NotAuthenticatedError(msg)
-
     try:
-        payload = _verify_hs(token, secret.encode(), alg)
+        payload = _verify_hs(
+            token,
+            settings.AUTH_JWT_SECRET.get_secret_value().encode(),
+            settings.AUTH_JWT_ALGORITHM,
+        )
     except InvalidTokenError as exc:
         msg = f"Invalid auth token: {exc}"
         raise NotAuthenticatedError(msg) from exc
 
-    claim = os.getenv(_JWT_USER_ID_CLAIM_ENV) or DEFAULT_JWT_USER_ID_CLAIM
+    claim = settings.AUTH_JWT_USER_ID_CLAIM
     user_id = payload.get(claim)
     if not user_id:
         msg = f"Auth token missing claim {claim!r}."

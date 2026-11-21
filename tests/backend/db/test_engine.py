@@ -3,7 +3,7 @@
 Tests for database engine module.
 
 Covers:
-- _resolve_database_url(): precedence (TEST_DATABASE_URL > DATABASE_URL > SQLite fallback)
+- _resolve_database_url(Settings()): precedence (TEST_DATABASE_URL > DATABASE_URL > SQLite fallback)
 - get_session(): yields session, commits on success, rolls back on exception
 - init_db() / close_db(): lifecycle management
 """
@@ -23,6 +23,14 @@ from your_service_name.backend.db.engine import (
     get_session,
     init_db,
 )
+from your_service_name.backend.settings import Settings
+
+
+def _app_with_settings() -> AsyncMock:
+    """A stand-in app whose ``state.settings`` is the real ``Settings`` built from the env."""
+    app = AsyncMock()
+    app.state.settings = Settings()
+    return app
 
 
 class TestResolveDatabaseUrl:
@@ -33,7 +41,7 @@ class TestResolveDatabaseUrl:
         monkeypatch.setenv("TEST_DATABASE_URL", "sqlite+aiosqlite:///test.db")
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@host/db")
 
-        url = _resolve_database_url()
+        url = _resolve_database_url(Settings())
 
         assert url == "sqlite+aiosqlite:///test.db"
 
@@ -42,7 +50,7 @@ class TestResolveDatabaseUrl:
         monkeypatch.delenv("TEST_DATABASE_URL", raising=False)
         monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@host/db")
 
-        url = _resolve_database_url()
+        url = _resolve_database_url(Settings())
 
         assert url == "postgresql+asyncpg://user:pass@host/db"
 
@@ -51,7 +59,7 @@ class TestResolveDatabaseUrl:
         monkeypatch.delenv("TEST_DATABASE_URL", raising=False)
         monkeypatch.delenv("DATABASE_URL", raising=False)
 
-        url = _resolve_database_url()
+        url = _resolve_database_url(Settings())
 
         assert url.startswith("sqlite+aiosqlite:///")
         assert "items.db" in url
@@ -61,7 +69,7 @@ class TestResolveDatabaseUrl:
         monkeypatch.delenv("TEST_DATABASE_URL", raising=False)
         monkeypatch.delenv("DATABASE_URL", raising=False)
 
-        url = _resolve_database_url()
+        url = _resolve_database_url(Settings())
 
         # Extract the path from the URL
         db_path_str = url.replace("sqlite+aiosqlite:///", "")
@@ -147,7 +155,7 @@ class TestDatabaseLifecycle:
         with patch(
             "your_service_name.backend.db.engine.run_migrations", new_callable=AsyncMock
         ) as mock_migrations:
-            mock_app = AsyncMock()
+            mock_app = _app_with_settings()
             await init_db(mock_app)
 
             mock_migrations.assert_called_once()
@@ -156,7 +164,7 @@ class TestDatabaseLifecycle:
     async def test_init_db_sets_initialized_flag(self) -> None:
         """init_db should set _db_initialized to True."""
         with patch("your_service_name.backend.db.engine.run_migrations", new_callable=AsyncMock):
-            mock_app = AsyncMock()
+            mock_app = _app_with_settings()
             await init_db(mock_app)
 
             assert engine_module._db_initialized is True
@@ -166,7 +174,7 @@ class TestDatabaseLifecycle:
         """close_db should dispose the engine and reset state."""
         # First initialize
         with patch("your_service_name.backend.db.engine.run_migrations", new_callable=AsyncMock):
-            mock_app = AsyncMock()
+            mock_app = _app_with_settings()
             await init_db(mock_app)
 
         # Then close

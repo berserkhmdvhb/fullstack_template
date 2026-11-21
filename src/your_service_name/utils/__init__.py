@@ -9,14 +9,13 @@ Responsibilities
 Subpackages & Modules
 ---------------------
 - `.validators` — Logging and configuration validators.
-- `.versioning` — API version resolution (environment + code default).
+- `.versioning_api` — API version allow-list and code default.
 
 Public API
 ----------
 Re-exported for convenience:
 
 - `LogLevel` — Enum of logging levels.
-- `get_api_version` — Resolve the HTTP API version.
 
 Operational
 -----------
@@ -25,15 +24,13 @@ Operational
 
 Usage
 -----
-    from your_service_name.utils import LogLevel, get_api_version
+    from your_service_name.utils import LogLevel
 
     level = LogLevel.resolve("debug")
-    api_v = get_api_version()  # -> "v1"
 """
 
 from __future__ import annotations
 
 from .validators import LogLevel
-from .versioning_api import get_api_version
 
-__all__ = ["LogLevel", "get_api_version"]
+__all__ = ["LogLevel"]

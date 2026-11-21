@@ -16,18 +16,17 @@ backend keyed by client IP, so it works regardless of how routes are nested.
 Usage
 -----
 from your_service_name.backend.middleware.rate_limiting import register_rate_limiting
-register_rate_limiting(app)
+register_rate_limiting(app, settings)
 
 Configuration
 -------------
-- ``RATE_LIMIT_DEFAULT``: limit string in ``limits`` format (e.g. ``100/minute``,
-  ``10/second``). Default ``100/minute``.
+- ``RATE_LIMIT_DEFAULT`` (a ``Settings`` field): limit string in ``limits`` format
+  (e.g. ``100/minute``, ``10/second``). Default ``100/minute``.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from typing import TYPE_CHECKING
 
 from limits import parse
@@ -35,6 +34,8 @@ from limits.storage import MemoryStorage
 from limits.strategies import FixedWindowRateLimiter
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+
+from your_service_name.backend.settings import DEFAULT_RATE_LIMIT
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -45,11 +46,9 @@ if TYPE_CHECKING:
     from starlette.responses import Response
     from starlette.types import ASGIApp
 
-logger = logging.getLogger(__name__)
+    from your_service_name.backend.settings import Settings
 
-# Default rate limit: 100 requests per minute per IP.
-# Override via RATE_LIMIT_DEFAULT env var (limits format, e.g. "200/minute", "10/second").
-_DEFAULT_LIMIT: str = os.getenv("RATE_LIMIT_DEFAULT", "100/minute")
+logger = logging.getLogger(__name__)
 
 # Liveness/readiness probes and the metrics endpoint are exempt from rate
 # limiting. Matched by *trailing path segment* so the exemption holds regardless
@@ -117,7 +116,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self,
         app: ASGIApp,
         *,
-        limit: str = _DEFAULT_LIMIT,
+        limit: str = DEFAULT_RATE_LIMIT,
         exempt_path_suffixes: tuple[str, ...] = _DEFAULT_EXEMPT_PATH_SUFFIXES,
     ) -> None:
         super().__init__(app)
@@ -143,7 +142,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-def register_rate_limiting(app: FastAPI) -> None:
+def register_rate_limiting(app: FastAPI, settings: Settings) -> None:
     """
     Configure and register the rate limiter on the FastAPI application.
 
@@ -156,14 +155,16 @@ def register_rate_limiting(app: FastAPI) -> None:
     ----------
     app : fastapi.FastAPI
         The application to configure.
+    settings : Settings
+        Source of ``RATE_LIMIT_DEFAULT`` (already validated).
 
     Notes
     -----
-    - Rate limit is controlled by ``RATE_LIMIT_DEFAULT`` environment variable.
+    - Rate limit is controlled by the ``RATE_LIMIT_DEFAULT`` setting.
     - Key: client IP address.
     - The 429 response is JSON (with a ``Retry-After`` header) for API consistency.
     """
-    limit = os.getenv("RATE_LIMIT_DEFAULT", _DEFAULT_LIMIT)
+    limit = settings.RATE_LIMIT_DEFAULT
     logger.info("Rate limiting enabled: %s per IP", limit)
     # Parse eagerly so a misconfigured limit fails at startup, not per request.
     _parse_limit(limit)

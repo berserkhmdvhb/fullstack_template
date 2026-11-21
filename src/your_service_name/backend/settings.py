@@ -42,9 +42,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_SQLITE_REL_PATH: Final[str] = "data/items.db"
 DEFAULT_RATE_LIMIT: Final[str] = "100/minute"
 
-# HMAC family only. RSA/ECDSA/`none` are deliberately rejected to avoid the classic
-# "alg confusion" attack (an attacker swapping alg to bypass the key).
-ALLOWED_JWT_ALGS: Final[frozenset[str]] = frozenset({"HS256", "HS384", "HS512"})
+# HMAC family only: JWT alg name -> hashlib digest name (a JWT "HS256" is hashlib "sha256").
+# RSA/ECDSA/`none` are deliberately rejected to avoid the classic "alg confusion" attack
+# (an attacker swapping alg to bypass the key).
+JWT_HASHLIB: Final[dict[str, str]] = {"HS256": "sha256", "HS384": "sha384", "HS512": "sha512"}
+ALLOWED_JWT_ALGS: Final[frozenset[str]] = frozenset(JWT_HASHLIB)
+
+PRODUCTION_ENVS: Final[frozenset[str]] = frozenset({"production", "prod"})
 
 AuthMode = Literal["none", "gateway", "bearer"]
 
@@ -211,6 +215,29 @@ class Settings(BaseSettings):
         description="PostgreSQL pool overflow; a non-positive or invalid value falls back "
         "to the default.",
     )
+
+    @property
+    def is_production(self) -> bool:
+        """True when ``ENV`` is ``production`` (or ``prod``), case-insensitive."""
+        return self.ENV.strip().lower() in PRODUCTION_ENVS
+
+    @property
+    def docs_url(self) -> str | None:
+        """Swagger UI path, or ``None`` when it is off."""
+        return (self.API_DOCS_URL if self.API_DOCS_URL is not None else "/docs") or None
+
+    @property
+    def openapi_url(self) -> str | None:
+        """OpenAPI JSON path, or ``None`` when it is off."""
+        return (self.OPENAPI_URL if self.OPENAPI_URL is not None else "/openapi.json") or None
+
+    @property
+    def database_url(self) -> str | None:
+        """The URL the engine and the migrations use: TEST_DATABASE_URL, else DATABASE_URL."""
+        for secret in (self.TEST_DATABASE_URL, self.DATABASE_URL):
+            if secret is not None and secret.get_secret_value():
+                return secret.get_secret_value()
+        return None
 
     # --- Validators: parsing --------------------------------------------------
 

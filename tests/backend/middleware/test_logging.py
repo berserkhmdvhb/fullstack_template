@@ -3,8 +3,8 @@
 Tests for RequestLoggingMiddleware.
 
 Covers:
-- LOG_REQUESTS=false: passes through without logging
-- LOG_REQUESTS=true: logs method, path, status, duration
+- log_requests=False (the default): passes through without logging
+- log_requests=True: logs method, path, status, duration
 - Skips paths in _SKIP_PATHS (/healthz)
 """
 
@@ -35,10 +35,10 @@ def mock_call_next() -> AsyncMock:
 
 @pytest.fixture
 def middleware() -> RequestLoggingMiddleware:
-    """Create a RequestLoggingMiddleware instance."""
+    """Create a RequestLoggingMiddleware with request logging on."""
     # RequestLoggingMiddleware requires an app argument
     mock_app = MagicMock()
-    return RequestLoggingMiddleware(app=mock_app)
+    return RequestLoggingMiddleware(app=mock_app, log_requests=True)
 
 
 class TestLoggingDisabled:
@@ -49,12 +49,8 @@ class TestLoggingDisabled:
     async def test_passes_through_without_logging(
         self,
         mock_call_next: AsyncMock,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Should pass through without logging when LOG_REQUESTS=false."""
-        monkeypatch.setenv("LOG_REQUESTS", "false")
-
-        # Recreate middleware to pick up new env var
+        """Should pass through without logging when log_requests is off (the default)."""
         mock_app = MagicMock()
         middleware_disabled = RequestLoggingMiddleware(app=mock_app)
 
@@ -76,26 +72,24 @@ class TestLoggingEnabled:
         middleware: RequestLoggingMiddleware,
         mock_call_next: AsyncMock,
     ) -> None:
-        """Should log request when LOG_REQUESTS=true."""
-        # Patch the module-level _LOG_REQUESTS variable directly
-        with patch("your_service_name.backend.middleware.logging._LOG_REQUESTS", new=True):
-            mock_request = MagicMock(spec=Request)
-            mock_request.method = "GET"
-            mock_request.url.path = "/api/test"
+        """Should log request when log_requests is on."""
+        mock_request = MagicMock(spec=Request)
+        mock_request.method = "GET"
+        mock_request.url.path = "/api/test"
 
-            with patch("your_service_name.backend.middleware.logging.logger") as mock_logger:
-                response = await middleware.dispatch(mock_request, mock_call_next)
+        with patch("your_service_name.backend.middleware.logging.logger") as mock_logger:
+            response = await middleware.dispatch(mock_request, mock_call_next)
 
-                mock_logger.info.assert_called_once()
-                call_args = mock_logger.info.call_args[0]
+            mock_logger.info.assert_called_once()
+            call_args = mock_logger.info.call_args[0]
 
-                # Check log format: METHOD /path STATUS duration
-                assert call_args[0] == "%s %s %s %.3fs"
-                assert call_args[1] == "GET"
-                assert call_args[2] == "/api/test"
-                assert call_args[3] == EXPECTED_STATUS_CODE
+            # Check log format: METHOD /path STATUS duration
+            assert call_args[0] == "%s %s %s %.3fs"
+            assert call_args[1] == "GET"
+            assert call_args[2] == "/api/test"
+            assert call_args[3] == EXPECTED_STATUS_CODE
 
-                assert response.status_code == EXPECTED_STATUS_CODE
+            assert response.status_code == EXPECTED_STATUS_CODE
 
 
 class TestSkipPaths:
@@ -108,21 +102,20 @@ class TestSkipPaths:
         mock_call_next: AsyncMock,
     ) -> None:
         """Should skip logging for /healthz."""
-        with patch("your_service_name.backend.middleware.logging._LOG_REQUESTS", new=True):
-            mock_request = MagicMock(spec=Request)
-            mock_request.method = "GET"
-            mock_request.url.path = "/healthz"
+        mock_request = MagicMock(spec=Request)
+        mock_request.method = "GET"
+        mock_request.url.path = "/healthz"
 
-            with patch("your_service_name.backend.middleware.logging.logger") as mock_logger:
-                response = await middleware.dispatch(mock_request, mock_call_next)
+        with patch("your_service_name.backend.middleware.logging.logger") as mock_logger:
+            response = await middleware.dispatch(mock_request, mock_call_next)
 
-                # Should not log
-                mock_logger.info.assert_not_called()
+            # Should not log
+            mock_logger.info.assert_not_called()
 
-                # Should still call next
-                mock_call_next.assert_called_once_with(mock_request)
+            # Should still call next
+            mock_call_next.assert_called_once_with(mock_request)
 
-                assert response.status_code == EXPECTED_STATUS_CODE
+            assert response.status_code == EXPECTED_STATUS_CODE
 
 
 class TestSkipPathsSet:

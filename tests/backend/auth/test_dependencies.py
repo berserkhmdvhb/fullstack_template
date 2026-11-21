@@ -9,7 +9,8 @@ Covers the three ``AUTH_MODE`` behaviours and the role-checking helper:
 - ``bearer`` → HMAC-signed JWT verified (alg-confusion rejected, bad/absent
   secret → 401); user id taken from the configured claim.
 - ``require_roles`` → 403 when a required role is missing, 200 otherwise.
-- An unsupported ``AUTH_MODE`` value fails closed with 401.
+- An unsupported ``AUTH_MODE`` value, a bearer mode without a secret, or a non-HMAC algorithm
+  is refused at startup (no app is built).
 
 These run against a minimal FastAPI app (no database) so they exercise the auth
 layer in isolation.
@@ -20,19 +21,19 @@ from __future__ import annotations
 import base64
 import hmac
 import json
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import Annotated, Any
 
+import pytest
 from fastapi import Depends, FastAPI, status
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from your_service_name.backend.auth import (
     Principal,
     get_current_user,
     require_roles,
 )
-
-if TYPE_CHECKING:
-    import pytest
+from your_service_name.backend.settings import Settings
 
 ME_PATH: str = "/me"
 ADMIN_PATH: str = "/admin"
@@ -84,8 +85,13 @@ def make_jwt(
 
 
 def _make_app() -> FastAPI:
-    """Minimal app exposing the principal (``/me``) and a role-gated route."""
+    """Minimal app exposing the principal (``/me``) and a role-gated route.
+
+    The settings are built from the environment at construction (as ``create_app`` does), so a
+    test that changes the environment builds a new app.
+    """
     app = FastAPI()
+    app.state.settings = Settings()
 
     @app.get(ME_PATH)
     def me(current_user: Annotated[Principal, Depends(get_current_user)]) -> dict[str, Any]:
@@ -198,12 +204,19 @@ class TestBearerMode:
             res = client.get(ME_PATH)
         assert res.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_missing_secret_fails_closed(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Bearer mode without AUTH_JWT_SECRET must NOT silently allow access."""
+    def test_missing_secret_is_refused_at_startup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Bearer mode without AUTH_JWT_SECRET must NOT silently allow access: no app at all."""
         monkeypatch.setenv("AUTH_MODE", "bearer")
         monkeypatch.delenv("AUTH_JWT_SECRET", raising=False)
-        with TestClient(_make_app()) as client:
-            res = client.get(ME_PATH)
+        with pytest.raises(ValidationError, match="AUTH_JWT_SECRET"):
+            _make_app()
+
+    def test_secret_missing_on_a_built_app_fails_closed(self) -> None:
+        """Defence in depth: settings built without validation still 401, never 200."""
+        app = _make_app()
+        app.state.settings = Settings.model_construct(AUTH_MODE="bearer", AUTH_JWT_SECRET=None)
+        with TestClient(app) as client:
+            res = client.get(ME_PATH, headers={"Authorization": "Bearer whatever"})
         assert res.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_alg_confusion_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -217,28 +230,28 @@ class TestBearerMode:
             res = client.get(ME_PATH, headers={"Authorization": f"Bearer {token}"})
         assert res.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_unsupported_algorithm_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_unsupported_algorithm_is_refused_at_startup(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A non-HMAC algorithm is refused outright (no key-confusion surface)."""
         monkeypatch.setenv("AUTH_MODE", "bearer")
         monkeypatch.setenv("AUTH_JWT_ALGORITHM", "none")
         monkeypatch.setenv("AUTH_JWT_SECRET", DEFAULT_SIGNING_KEY)
-        with TestClient(_make_app()) as client:
-            res = client.get(ME_PATH, headers={"Authorization": "Bearer whatever"})
-        assert res.status_code == status.HTTP_401_UNAUTHORIZED
+        with pytest.raises(ValidationError, match="AUTH_JWT_ALGORITHM"):
+            _make_app()
 
 
 # --- unsupported mode ---------------------------------------------------------
 
 
 class TestUnsupportedMode:
-    """An unknown AUTH_MODE value fails closed."""
+    """An unknown AUTH_MODE value is refused at startup."""
 
-    def test_unknown_mode_is_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A typo/garbage AUTH_MODE rejects protected requests with 401."""
+    def test_unknown_mode_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A typo/garbage AUTH_MODE fails app construction instead of 401-ing every request."""
         monkeypatch.setenv("AUTH_MODE", "ldap")
-        with TestClient(_make_app()) as client:
-            res = client.get(ME_PATH)
-        assert res.status_code == status.HTTP_401_UNAUTHORIZED
+        with pytest.raises(ValidationError, match="AUTH_MODE"):
+            _make_app()
 
 
 # --- role authorization -------------------------------------------------------

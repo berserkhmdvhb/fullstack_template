@@ -1,11 +1,16 @@
 # your-service-name — adaptable service template (see wiki/getting-started.md)
 from __future__ import annotations
 
-import pytest
+from typing import TYPE_CHECKING
+
 from fastapi import FastAPI, status
 from fastapi.testclient import TestClient
 
-from your_service_name.backend.main import _parse_origins, create_app
+from your_service_name.backend.main import create_app
+from your_service_name.backend.settings import Settings
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_create_app_defaults() -> None:
@@ -27,18 +32,18 @@ def test_lifespan_initializes_echo_service() -> None:
         assert hasattr(running_app.state, "echo_service")
 
 
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        (None, []),
-        ("", []),
-        (" https://a.com , https://b.com ", ["https://a.com", "https://b.com"]),
-        ("https://a.com,https://b.com", ["https://a.com", "https://b.com"]),
-        ("https://a.com,, https://b.com", ["https://a.com", "https://b.com"]),
-    ],
-)
-def test_parse_origins(raw: str | None, expected: list[str]) -> None:
-    assert _parse_origins(raw) == expected
+def test_create_app_stores_the_settings_it_was_given() -> None:
+    settings = Settings(API_TITLE="Custom Title")
+    app = create_app(settings)
+    assert app.state.settings is settings
+    assert app.title == "Custom Title"
+
+
+def test_create_app_builds_settings_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("API_TITLE", "From Env")
+    assert create_app().state.settings.API_TITLE == "From Env"
 
 
 def test_cors_star_removed_when_credentials_true(

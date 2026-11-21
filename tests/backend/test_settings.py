@@ -59,6 +59,20 @@ class TestParsing:
         assert Settings().CORS_ORIGINS == ["https://a.test", "https://b.test"]
         assert Settings().CORS_ALLOW_METHODS == ["GET", "POST"]
 
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("", []),
+            ("https://a.com,https://b.com", ["https://a.com", "https://b.com"]),
+            ("https://a.com,, https://b.com", ["https://a.com", "https://b.com"]),
+        ],
+    )
+    def test_origins_csv(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str, expected: list[str]
+    ) -> None:
+        monkeypatch.setenv("CORS_ORIGINS", raw)
+        assert expected == Settings().CORS_ORIGINS
+
     def test_blank_csv_methods_and_headers_use_defaults(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -103,6 +117,10 @@ class TestParsing:
         monkeypatch.setenv("API_VERSION", "v99")
         with pytest.raises(ValidationError, match="API_VERSION"):
             Settings()
+
+    def test_api_version_is_trimmed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("API_VERSION", "  v1  ")
+        assert Settings().API_VERSION == "v1"
 
     def test_bad_rate_limit_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("RATE_LIMIT_DEFAULT", "often")

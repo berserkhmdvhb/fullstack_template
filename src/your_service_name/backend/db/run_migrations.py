@@ -15,7 +15,7 @@ Operational:
 Usage
 -----
 from your_service_name.backend.db.run_migrations import run_migrations
-await run_migrations()
+await run_migrations(Settings())
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from alembic import command
 from alembic.config import Config
 
 from your_service_name.backend.db._constants import default_sqlite_url, project_root
+from your_service_name.backend.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -67,9 +68,10 @@ def _resolve_alembic_ini_path() -> str:
 _ALEMBIC_CFG_PATH_STR: str = _resolve_alembic_ini_path()
 
 
-async def run_migrations() -> None:
+async def run_migrations(settings: Settings) -> None:
     """
-    Run Alembic migrations programmatically.
+    Run Alembic migrations programmatically against ``settings.database_url`` (or the
+    SQLite fallback ``settings.SQLITE_PATH``).
 
     Notes
     -----
@@ -83,10 +85,10 @@ async def run_migrations() -> None:
 
     # Run alembic in a thread to avoid blocking the event loop.
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _run_alembic_sync, _ALEMBIC_CFG_PATH_STR)
+    await loop.run_in_executor(None, _run_alembic_sync, _ALEMBIC_CFG_PATH_STR, settings)
 
 
-def _run_alembic_sync(cfg_path: str) -> None:
+def _run_alembic_sync(cfg_path: str, settings: Settings) -> None:
     """
     Synchronous Alembic runner (executed in a thread pool).
 
@@ -94,6 +96,8 @@ def _run_alembic_sync(cfg_path: str) -> None:
     ----------
     cfg_path : str
         Path to alembic.ini.
+    settings : Settings
+        Validated settings (database URL / SQLite fallback path).
 
     Notes
     -----
@@ -114,11 +118,14 @@ def _run_alembic_sync(cfg_path: str) -> None:
     # Override sqlalchemy.url from environment if set (for test isolation); else
     # use the shared SQLite fallback (single source with engine.py) rather than
     # alembic.ini's static literal, so the app and migrations agree on the file.
-    db_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+    db_url = settings.database_url
     if db_url:
         cfg.set_main_option("sqlalchemy.url", db_url)
     else:
-        cfg.set_main_option("sqlalchemy.url", default_sqlite_url(project_root(Path(__file__))))
+        cfg.set_main_option(
+            "sqlalchemy.url",
+            default_sqlite_url(project_root(Path(__file__)), settings.SQLITE_PATH),
+        )
 
     # Ensure the parent directory exists for SQLite database files.
     _ensure_sqlite_dir(cfg, db_url)
@@ -175,4 +182,4 @@ if __name__ == "__main__":
     # reported "Complete" while the target Postgres schema stayed empty — and the
     # backend's lifespan `init_db` failure is swallowed (main.py), so /health
     # stayed green while every /items request 500'd on a missing table.
-    asyncio.run(run_migrations())
+    asyncio.run(run_migrations(Settings()))

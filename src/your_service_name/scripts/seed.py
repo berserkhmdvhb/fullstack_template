@@ -19,15 +19,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import os
 from pathlib import Path
 from typing import Final
 
-from sqlalchemy import text
+from sqlalchemy import make_url, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from your_service_name.backend.db._constants import default_sqlite_path, project_root
 from your_service_name.backend.db.models import Base, Item
+from your_service_name.backend.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +68,14 @@ def _resolve_database_url(explicit_url: str | None = None) -> str:
     if explicit_url:
         return explicit_url
 
-    url = os.getenv("DATABASE_URL") or os.getenv("TEST_DATABASE_URL")
-    if url:
-        return url
+    settings = Settings()
+    for secret in (settings.DATABASE_URL, settings.TEST_DATABASE_URL):
+        if secret is not None:
+            return secret.get_secret_value()
 
     # Fallback to SQLite — single source with engine.py / run_migrations.py (C2).
     root = project_root(Path(__file__))
-    db_path = default_sqlite_path(root)
+    db_path = default_sqlite_path(root, settings.SQLITE_PATH)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     return f"sqlite+aiosqlite:///{db_path}"
 
@@ -91,7 +92,7 @@ async def seed_database(*, reset: bool = False, database_url: str | None = None)
         Database URL to use (overrides environment variables).
     """
     db_url = _resolve_database_url(database_url)
-    logger.info("Using database: %s", db_url)
+    logger.info("Using database: %s", make_url(db_url).render_as_string(hide_password=True))
 
     # Create engine
     engine = create_async_engine(db_url, echo=False)

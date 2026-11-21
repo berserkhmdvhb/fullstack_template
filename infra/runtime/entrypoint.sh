@@ -375,8 +375,9 @@ run_migrations() {
   echo "🚀 Running database migrations ..."
   python -c "
 from your_service_name.backend.db.run_migrations import run_migrations
+from your_service_name.backend.settings import Settings
 import asyncio
-asyncio.run(run_migrations())
+asyncio.run(run_migrations(Settings()))
 " || {
     echo "[entrypoint] WARNING: Migration failed (may already be applied)." >&2
   }

@@ -24,6 +24,7 @@ from your_service_name.backend.middleware.rate_limiting import (
     _parse_limit,
     register_rate_limiting,
 )
+from your_service_name.backend.settings import Settings
 
 LIMIT_SPEC: str = "100/minute"
 LIMIT_AMOUNT: int = 100
@@ -119,13 +120,14 @@ class TestRateLimitEnforcement:
     def test_register_enforces_limit(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``register_rate_limiting`` mounts a middleware that actually throttles."""
         monkeypatch.setenv("RATE_LIMIT_DEFAULT", "2/minute")
+        settings = Settings()
         app = FastAPI()
 
         @app.get("/thing")
         def thing() -> dict[str, str]:
             return {"ok": "true"}
 
-        register_rate_limiting(app)
+        register_rate_limiting(app, settings)
 
         with TestClient(app) as client:
             assert client.get("/thing").status_code == status.HTTP_200_OK

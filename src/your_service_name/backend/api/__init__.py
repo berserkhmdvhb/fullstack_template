@@ -32,9 +32,9 @@ from typing import Protocol, cast
 from fastapi import APIRouter
 
 from your_service_name.utils.versioning_api import (
+    DEFAULT_API_VERSION,
     MSG_ERROR_UNSUPPORTED_VERSION,
     SUPPORTED_VERSIONS,
-    get_api_version,
 )
 
 
@@ -79,7 +79,7 @@ def _load_router(version: str, name: str) -> RouterModule:
     return cast("RouterModule", module)
 
 
-def build_api_router(prefix: str = "/api", version: str | None = None) -> APIRouter:
+def build_api_router(prefix: str = "/api", version: str = DEFAULT_API_VERSION) -> APIRouter:
     """
     Build a composite API router under a versioned prefix.
 
@@ -87,8 +87,8 @@ def build_api_router(prefix: str = "/api", version: str | None = None) -> APIRou
     ----------
     prefix : str, optional
         Base API prefix (e.g., "/api").
-    version : str or None, optional
-        Explicit API version. When `None`, resolve via environment or code default.
+    version : str, optional
+        API version (the `API_VERSION` setting); defaults to the code default.
 
     Returns
     -------
@@ -96,7 +96,7 @@ def build_api_router(prefix: str = "/api", version: str | None = None) -> APIRou
         Router with feature endpoints assembled under `prefix/version`.
     """
 
-    resolved: str = version or get_api_version()
+    resolved: str = version
     if resolved not in SUPPORTED_VERSIONS:
         raise ValueError(MSG_ERROR_UNSUPPORTED_VERSION.format(version=resolved))
 

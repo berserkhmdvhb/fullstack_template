@@ -4,12 +4,14 @@ import re
 from typing import TYPE_CHECKING, Final
 
 import pytest
+from pydantic import ValidationError
 
 from your_service_name.backend.api import build_api_router
+from your_service_name.backend.settings import Settings
 from your_service_name.utils.versioning_api import (
+    DEFAULT_API_VERSION,
     MSG_ERROR_UNSUPPORTED_VERSION,
     SUPPORTED_VERSIONS,
-    get_api_version,
 )
 
 if TYPE_CHECKING:
@@ -27,37 +29,33 @@ def test_build_api_router_includes_configured_version() -> None:
 
 
 @pytest.mark.integration
-def test_build_api_router_env_driven_version(monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    When no explicit version is given, the router should resolve the version
-    via the centralized resolver (environment first, then code default).
-    """
-    # Simulate an environment-provided API version
-    monkeypatch.setenv("API_VERSION", "v1")
-    resolved: str = get_api_version()
-    assert resolved in SUPPORTED_VERSIONS
-
-    api: APIRouter = build_api_router(prefix="/api", version=None)
-    assert api.prefix == f"/api/{resolved}"
-
-    # Clean up for subsequent tests
-    monkeypatch.delenv("API_VERSION", raising=False)
+def test_build_api_router_defaults_to_the_code_default() -> None:
+    """Without an explicit version the router mounts under the code default."""
+    api: APIRouter = build_api_router(prefix="/api")
+    assert api.prefix == f"/api/{DEFAULT_API_VERSION}"
 
 
 @pytest.mark.integration
-def test_build_api_router_empty_env_uses_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_settings_version_drives_the_router(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ``API_VERSION`` setting (env) is what ``create_app`` mounts the router under."""
+    monkeypatch.setenv("API_VERSION", "v1")
+    resolved: str = Settings().API_VERSION
+    assert resolved in SUPPORTED_VERSIONS
+
+    api: APIRouter = build_api_router(prefix="/api", version=resolved)
+    assert api.prefix == f"/api/{resolved}"
+
+
+@pytest.mark.integration
+def test_empty_api_version_uses_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    An empty API_VERSION env var is treated as "not set": the router resolves to
-    the code default ("v1") and mounts under /api/v1 rather than raising. This
-    guards the import-time path (backend/main.py), where CI sets API_VERSION="".
+    An empty API_VERSION env var is treated as "not set": the settings resolve to the
+    code default ("v1") rather than raising. This guards the import-time path
+    (backend/main.py), where CI sets API_VERSION="".
     """
     monkeypatch.setenv("API_VERSION", "")
 
-    api: APIRouter = build_api_router(prefix="/api", version=None)
-    assert api.prefix == "/api/v1"
-
-    # Clean up for subsequent tests
-    monkeypatch.delenv("API_VERSION", raising=False)
+    assert Settings().API_VERSION == DEFAULT_API_VERSION
 
 
 @pytest.mark.integration
@@ -88,25 +86,19 @@ def test_supported_versions_contract(
     """
     Contract check for ENV-based resolution against SUPPORTED_VERSIONS.
 
-    - If ENV provides a supported version, build_api_router() without an explicit
-      version should succeed and mount under /api/{candidate}.
-    - If ENV provides an unsupported version, build_api_router() should raise.
+    - If ENV provides a supported version, the settings accept it and the router mounts
+      under /api/{candidate}.
+    - If ENV provides an unsupported version, building the settings raises, naming it.
     """
-    # Ensure a clean slate
-    monkeypatch.delenv("API_VERSION", raising=False)
     monkeypatch.setenv("API_VERSION", candidate)
 
     if should_be_supported:
         assert candidate in SUPPORTED_VERSIONS
-        api: APIRouter = build_api_router(prefix="/api", version=None)
+        api: APIRouter = build_api_router(prefix="/api", version=Settings().API_VERSION)
         assert api.prefix == f"/api/{candidate}"
     else:
-        # For env-driven invalids, build_api_router(None) should raise
-        # because resolved version is not in SUPPORTED_VERSIONS.
         with pytest.raises(
-            ValueError, match=re.escape(MSG_ERROR_UNSUPPORTED_VERSION.format(version=candidate))
+            ValidationError,
+            match=re.escape(MSG_ERROR_UNSUPPORTED_VERSION.format(version=candidate)),
         ):
-            _ = build_api_router(prefix="/api", version=None)
-
-    # Cleanup
-    monkeypatch.delenv("API_VERSION", raising=False)
+            Settings()

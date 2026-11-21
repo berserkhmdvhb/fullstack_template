@@ -17,29 +17,30 @@ Public API
 Operational
 -----------
 - Concurrency: Async endpoints; lifespan uses `asynccontextmanager` for startup/shutdown.
-- Logging: Configured from `LOG_LEVEL` (environment); logs startup/shutdown events.
+- Logging: Configured from the `LOG_LEVEL` setting; logs startup/shutdown events.
+- Settings: every environment variable is read once, by `Settings` (see `backend/settings.py`),
+  validated at app creation, and stored on `app.state.settings`.
 
 Usage
 -----
 from your_service_name.backend.main import create_app
 app = create_app()  # use in tests or custom ASGI servers
+app = create_app(Settings(AUTH_MODE="gateway"))  # or pass explicit settings
 
 Notes
 -----
-- CORS origins are parsed from the `CORS_ORIGINS` environment variable (comma-separated).
+- CORS origins come from the `CORS_ORIGINS` setting (comma-separated).
 - Security headers are injected via `register_security_middleware`.
 - Rate limiting is configured via `register_rate_limiting` (per-IP, `limits`).
-- Request logging is opt-in via `LOG_REQUESTS` env var.
+- Request logging is opt-in via the `LOG_REQUESTS` setting.
 - DI initialization occurs inside `lifespan` to guarantee availability for request dependencies.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Final
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -56,22 +57,20 @@ from your_service_name.backend.middleware.rate_limiting import register_rate_lim
 from your_service_name.backend.middleware.security import register_security_middleware
 from your_service_name.backend.repositories.in_memory_echo import InMemoryEchoRepository
 from your_service_name.backend.services.echo_service import EchoService
+from your_service_name.backend.settings import Settings
 from your_service_name.utils.validators import LogLevel
-from your_service_name.utils.versioning_api import API_CONTRACT_VERSION, get_api_version
+from your_service_name.utils.versioning_api import API_CONTRACT_VERSION
 
 # --- Bootstrap (runs once, at import time = the process entrypoint) ----------
 
 
-def _use_json_logs() -> bool:
+def _use_json_logs(settings: Settings) -> bool:
     """Emit structured JSON logs when explicitly requested (``LOG_FORMAT=json``) or in
     production, where logs are shipped to a central system and must be machine-parseable."""
-    return os.getenv("LOG_FORMAT", "").lower() == "json" or os.getenv("ENV", "").lower() in {
-        "production",
-        "prod",
-    }
+    return settings.LOG_FORMAT.lower() == "json" or settings.is_production
 
 
-def _configure_logging() -> None:
+def _configure_logging(settings: Settings) -> None:
     """Configure the root logger exactly once per process.
 
     ``logging.basicConfig`` is idempotent — it only installs a handler when the root
@@ -84,10 +83,10 @@ def _configure_logging() -> None:
     """
     if logging.getLogger().handlers:
         return
-    log_level = LogLevel.resolve(os.getenv("LOG_LEVEL"))
+    log_level = LogLevel.resolve(settings.LOG_LEVEL)
     root = logging.getLogger()
     handler = logging.StreamHandler()
-    if _use_json_logs():
+    if _use_json_logs(settings):
         handler.setFormatter(JsonLogFormatter())
     else:
         handler.setFormatter(
@@ -106,60 +105,9 @@ def _configure_logging() -> None:
 
 # ``load_dotenv`` runs here — not in create_app() — so the .env is read once per process
 # rather than re-loaded (and re-shadowing monkeypatched test env) on every create_app()
-# call. It must precede the LOG_LEVEL / API_VERSION reads below.
+# call. It must precede ``Settings()``, which create_app() builds from the environment.
 load_dotenv()
-_configure_logging()
-_API_VERSION: Final[str] = get_api_version()
 logger = logging.getLogger(__name__)
-
-
-def _parse_csv(raw: str | None, default: list[str]) -> list[str]:
-    """
-    Parse a comma-separated list into a trimmed list of strings.
-
-    Parameters
-    ----------
-    raw : str or None
-        Raw comma-separated value (e.g. "a, b, c"). Empty/None → ``default``.
-    default : list[str]
-        Value to use when ``raw`` is empty or None.
-
-    Returns
-    -------
-    list[str]
-        Trimmed, non-empty entries.
-    """
-    if not raw or raw.strip() == "":
-        return list(default)
-    return [item.strip() for item in raw.split(",") if item.strip()]
-
-
-def _parse_origins(raw: str | None) -> list[str]:
-    """
-    Parse the ``CORS_ORIGINS`` env value into a list of origins.
-
-    Defaults to an **empty** list, i.e. same-origin only — the template ships
-    restrictive by default rather than reflecting every origin. Set
-    ``CORS_ORIGINS=https://app.example.com`` to allow a specific frontend.
-
-    Parameters
-    ----------
-    raw : str or None
-        Raw comma-separated origins (e.g., "https://a.com, https://b.com").
-
-    Returns
-    -------
-    list[str]
-        Origin strings, trimmed of whitespace (empty when unset).
-
-    Examples
-    --------
-    >>> _parse_origins(" https://a.com , https://b.com ")
-    ['https://a.com', 'https://b.com']
-    >>> _parse_origins(None)
-    []
-    """
-    return _parse_csv(raw, default=[])
 
 
 @asynccontextmanager
@@ -209,9 +157,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("API shutting down...")
 
 
-def create_app() -> FastAPI:
+def create_app(settings: Settings | None = None) -> FastAPI:
     """
     Construct and configure the FastAPI application.
+
+    Parameters
+    ----------
+    settings : Settings or None
+        Validated settings. ``None`` builds them from the environment (raising
+        ``pydantic.ValidationError`` listing every invalid variable); either way they are
+        stored once on ``app.state.settings``.
 
     Returns
     -------
@@ -223,16 +178,19 @@ def create_app() -> FastAPI:
     - If `CORS_ALLOW_CREDENTIALS=true`, `"*"` is removed from `allow_origins` per browser rules.
       Ensure you provide explicit origins when credentials are enabled.
     """
+    settings = settings if settings is not None else Settings()
+    _configure_logging(settings)
     app = FastAPI(
-        title=os.getenv("API_TITLE", "Backend Title"),
-        description=os.getenv("API_DESCRIPTION", "Minimal FastAPI backend"),
+        title=settings.API_TITLE,
+        description=settings.API_DESCRIPTION,
         version=API_CONTRACT_VERSION,
         # Interactive Swagger docs (/docs) use FastAPI's built-in page, which loads
         # Swagger UI from the jsDelivr CDN and inlines its init script. A strict CSP
         # would blank it, so the frontend admits that CDN origin + inline script ONLY
         # on /docs via a scoped CSP relaxation (see frontend/middleware.ts). /docs is
         # env-driven so it can be disabled (set API_DOCS_URL="" if desired).
-        docs_url=os.getenv("API_DOCS_URL", "/docs"),
+        docs_url=settings.docs_url,
+        openapi_url=settings.openapi_url,
         # ReDoc is intentionally left disabled (dropped): it has the same CDN +
         # inline-script CSP problem as /docs, and /docs alone covers interactive docs.
         redoc_url=None,
@@ -243,23 +201,19 @@ def create_app() -> FastAPI:
             {"name": "items", "description": "Item CRUD sample endpoints"},
         ],
     )
+    app.state.settings = settings
 
-    cors_origins = _parse_origins(os.getenv("CORS_ORIGINS"))
-    allow_credentials = os.getenv("CORS_ALLOW_CREDENTIALS", "false").lower() == "true"
+    cors_origins = list(settings.CORS_ORIGINS)
+    allow_credentials = settings.CORS_ALLOW_CREDENTIALS
     # If credentials are enabled, do NOT allow "*" (browser restriction).
     if allow_credentials and ("*" in cors_origins):
+        logger.warning("CORS_ORIGINS contains '*' with credentials enabled; dropping '*'.")
         cors_origins = [o for o in cors_origins if o != "*"]
 
     # Methods/headers are env-driven and default to an explicit, non-wildcard set
     # (never ["*"]) so the template does not over-permit cross-origin requests.
-    allow_methods = _parse_csv(
-        os.getenv("CORS_ALLOW_METHODS"),
-        default=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    )
-    allow_headers = _parse_csv(
-        os.getenv("CORS_ALLOW_HEADERS"),
-        default=["Authorization", "Content-Type", "X-Requested-With"],
-    )
+    allow_methods = settings.CORS_ALLOW_METHODS
+    allow_headers = settings.CORS_ALLOW_HEADERS
 
     app.add_middleware(
         CORSMiddleware,
@@ -270,11 +224,11 @@ def create_app() -> FastAPI:
         allow_headers=allow_headers,
     )
 
-    register_rate_limiting(app)
+    register_rate_limiting(app, settings)
     register_security_middleware(app)
 
-    # Optional request logging (controlled by LOG_REQUESTS env var).
-    app.add_middleware(RequestLoggingMiddleware)
+    # Optional request logging (controlled by the LOG_REQUESTS setting).
+    app.add_middleware(RequestLoggingMiddleware, log_requests=settings.LOG_REQUESTS)
 
     # Correlation id MUST be the outermost middleware so it scopes the id for every log emitted
     # while handling the request — including the request-logging middleware and route handlers.
@@ -282,7 +236,7 @@ def create_app() -> FastAPI:
     app.add_middleware(CorrelationIdMiddleware)
 
     # --- Router assembly under a canonical prefix --------------------------------
-    app.include_router(build_api_router(prefix="/api", version=_API_VERSION))
+    app.include_router(build_api_router(prefix="/api", version=settings.API_VERSION))
 
     # --- Prometheus metrics instrumentation ------------------------------------
     # Exposes /metrics endpoint for Prometheus scraping

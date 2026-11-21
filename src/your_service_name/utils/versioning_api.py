@@ -4,7 +4,6 @@ Resolve and validate the HTTP API version used to build route prefixes.
 
 Responsibilities
 ----------------
-- Provide a single, import-safe helper to determine the API version.
 - Centralize the allow-list of supported versions and the canonical error message.
 
 Public API
@@ -12,12 +11,11 @@ Public API
 - `SUPPORTED_VERSIONS`: Mapping of version -> tuple of router names.
 - `MSG_ERROR_UNSUPPORTED_VERSION`: Canonical error message for invalid versions.
 - `DEFAULT_API_VERSION`: Code-default version string.
-- `get_api_version`: Resolve the API version using env or the code default.
 
 Operational
 -----------
 - Concurrency: Safe; pure lookups and constants.
-- I/O: None (no file reads). Only reads from `os.environ`.
+- I/O: None.
 - Logging: None.
 
 Usage
@@ -26,11 +24,9 @@ Usage
         SUPPORTED_VERSIONS,
         MSG_ERROR_UNSUPPORTED_VERSION,
         DEFAULT_API_VERSION,
-        get_api_version,
     )
 
-    version = get_api_version()             # -> "v1"
-    prefix = f"/api/{version}"
+    prefix = f"/api/{DEFAULT_API_VERSION}"
 
 Notes
 -----
@@ -40,7 +36,6 @@ Notes
 
 from __future__ import annotations
 
-import os
 from typing import Final
 
 __all__ = [
@@ -48,7 +43,6 @@ __all__ = [
     "DEFAULT_API_VERSION",
     "MSG_ERROR_UNSUPPORTED_VERSION",
     "SUPPORTED_VERSIONS",
-    "get_api_version",
 ]
 
 # Single source of truth for API version policy
@@ -58,7 +52,8 @@ SUPPORTED_VERSIONS: Final[dict[str, tuple[str, ...]]] = {
 
 MSG_ERROR_UNSUPPORTED_VERSION: Final[str] = "[API] Unsupported API version requested: {version}"
 
-# Code-default used when environment does not specify a version
+# Code-default used when the `API_VERSION` setting is unset (the value is validated in
+# `your_service_name.backend.settings`)
 DEFAULT_API_VERSION: Final[str] = "v1"
 
 # OpenAPI / API *contract* version — the version of the API description (OpenAPI ``info.version``),
@@ -68,47 +63,3 @@ DEFAULT_API_VERSION: Final[str] = "v1"
 # churning on every commit, and from the routing path version (``DEFAULT_API_VERSION``, e.g. "v1")
 # so the contract can iterate (1.0.0 -> 1.1.0) under a stable path.
 API_CONTRACT_VERSION: Final[str] = "1.0.0"
-
-
-def get_api_version(env_key: str = "API_VERSION") -> str:
-    """
-    Resolve the HTTP API version in a single place (import-safe; no file I/O).
-
-    Resolution order
-    ----------------
-    1) Environment variable `API_VERSION` (if present and valid).
-    2) `DEFAULT_API_VERSION` (code default).
-
-    Parameters
-    ----------
-    env_key : str, optional
-        Environment variable name to probe. Defaults to `"API_VERSION"`.
-
-    Returns
-    -------
-    str
-        A version string like `"v1"`.
-
-    Raises
-    ------
-    ValueError
-        If an environment-provided version is not supported.
-
-    Notes
-    -----
-    - This function does **not** read `.env`; load that in your entrypoint or app bootstrap.
-    - Keep imports lightweight and side-effect free at module import time.
-    """
-    candidate = os.environ.get(env_key)
-    # Empty/whitespace env var is treated as "not set" → fall back to default.
-    # Only a non-empty value is validated against the allow-list.
-    if candidate is not None:
-        v = candidate.strip()
-        if v:
-            if v in SUPPORTED_VERSIONS:
-                return v
-            msg: Final[str] = MSG_ERROR_UNSUPPORTED_VERSION.format(version=v)
-            raise ValueError(msg)
-
-    # Absent or empty env var -> fallback to code default
-    return DEFAULT_API_VERSION

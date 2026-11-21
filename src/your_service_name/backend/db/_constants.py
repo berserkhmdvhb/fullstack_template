@@ -8,19 +8,16 @@ A concrete DB path duplicated across layers is exactly the "landmine for the nex
 adopter" Convention 3 forbids, so the relative path and the root-discovery rule
 live here once and every consumer reads them.
 
-The path is overridable with the ``SQLITE_PATH`` env var (relative to the project
+The path is overridable with the ``SQLITE_PATH`` setting (relative to the project
 root), so an adopter can retarget the fallback DB without touching code.
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Final
 
-# Default SQLite file, relative to the project root. Single source shared by
-# engine.py, run_migrations.py and seed.py (C2). Overridable via SQLITE_PATH.
-DEFAULT_SQLITE_REL_PATH: Final[str] = "data/items.db"
+from your_service_name.backend.settings import DEFAULT_SQLITE_REL_PATH
 
 # Root is the first ancestor holding the project marker files; walking up (rather
 # than counting ``..``) keeps the answer correct for modules at any package depth
@@ -43,12 +40,11 @@ def project_root(start: Path) -> Path:
     return cwd
 
 
-def default_sqlite_path(root: Path) -> Path:
-    """Absolute path to the default SQLite DB (``root / SQLITE_PATH``)."""
-    rel = os.getenv("SQLITE_PATH", DEFAULT_SQLITE_REL_PATH)
+def default_sqlite_path(root: Path, rel: str = DEFAULT_SQLITE_REL_PATH) -> Path:
+    """Absolute path to the default SQLite DB (``root / rel``; *rel* is ``SQLITE_PATH``)."""
     return (root / rel).resolve()
 
 
-def default_sqlite_url(root: Path) -> str:
+def default_sqlite_url(root: Path, rel: str = DEFAULT_SQLITE_REL_PATH) -> str:
     """Async-compatible SQLAlchemy URL for the default SQLite DB."""
-    return f"sqlite+aiosqlite:///{default_sqlite_path(root)}"
+    return f"sqlite+aiosqlite:///{default_sqlite_path(root, rel)}"

@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Final
@@ -45,12 +44,14 @@ from your_service_name.backend.db.run_migrations import run_migrations
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
+    from your_service_name.backend.settings import Settings
+
 logger = logging.getLogger(__name__)
 
 
-def _resolve_database_url() -> str:
+def _resolve_database_url(settings: Settings) -> str:
     """
-    Resolve the database URL from environment or fall back to SQLite.
+    Resolve the database URL from the settings or fall back to SQLite.
 
     Returns
     -------
@@ -59,16 +60,11 @@ def _resolve_database_url() -> str:
 
     Notes
     -----
-    - Reads `TEST_DATABASE_URL` env var first (for isolated test databases).
-    - Reads `DATABASE_URL` env var (for production/development).
+    - `TEST_DATABASE_URL` wins (isolated test databases), then `DATABASE_URL`
+      (production/development) — see ``Settings.database_url``.
     - Falls back to an absolute SQLite path relative to the project root when unset.
     """
-    # Test isolation: use a unique in-memory database per process.
-    test_url = os.getenv("TEST_DATABASE_URL")
-    if test_url:
-        return test_url
-
-    url = os.getenv("DATABASE_URL")
+    url = settings.database_url
     if url:
         return url
 
@@ -76,7 +72,7 @@ def _resolve_database_url() -> str:
     # regardless of the working directory (migrations run with cwd=alembic.ini dir).
     # Single source with run_migrations.py / seed.py (C2); SQLITE_PATH overrides.
     root = project_root(Path(__file__))
-    db_path = default_sqlite_path(root)
+    db_path = default_sqlite_path(root, settings.SQLITE_PATH)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info("DATABASE_URL not set; using SQLite fallback at %s", db_path)
     return f"sqlite+aiosqlite:///{db_path}"
@@ -88,34 +84,21 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 _db_initialized: bool = False
 
 
-def _int_env(name: str, default: int) -> int:
-    """Read a positive int env var, falling back to ``default`` on unset/garbage."""
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        logger.warning("Invalid int env var %s=%r; using %d", name, raw, default)
-        return default
-    return value if value > 0 else default
-
-
-def _engine_kwargs(url: str) -> dict[str, Any]:
+def _engine_kwargs(url: str, settings: Settings) -> dict[str, Any]:
     """
     Build ``create_async_engine`` kwargs: always ping the pool before use, and size the
-    pool from env for the real (PostgreSQL) tier. The SQLite fallback keeps SQLAlchemy's
+    pool from the settings for the real (PostgreSQL) tier. The SQLite fallback keeps SQLAlchemy's
     default pool — connection-pool tuning is a production-database concern, not a
     file-database one.
     """
     kwargs: dict[str, Any] = {"echo": False, "pool_pre_ping": True}
     if url.startswith("postgresql"):
-        kwargs["pool_size"] = _int_env("DB_POOL_SIZE", 10)
-        kwargs["max_overflow"] = _int_env("DB_MAX_OVERFLOW", 20)
+        kwargs["pool_size"] = settings.DB_POOL_SIZE
+        kwargs["max_overflow"] = settings.DB_MAX_OVERFLOW
     return kwargs
 
 
-def _get_engine() -> AsyncEngine:
+def _get_engine(settings: Settings) -> AsyncEngine:
     """
     Lazily initialize and return the async engine.
 
@@ -127,29 +110,10 @@ def _get_engine() -> AsyncEngine:
     # ruff: noqa: PLW0603 — Lazy initialization requires module-level state.
     global _engine, _session_factory
     if _engine is None:
-        url = _resolve_database_url()
-        _engine = create_async_engine(url, **_engine_kwargs(url))
+        url = _resolve_database_url(settings)
+        _engine = create_async_engine(url, **_engine_kwargs(url, settings))
         _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
     return _engine
-
-
-def _get_session_factory() -> async_sessionmaker[AsyncSession]:
-    """
-    Lazily initialize and return the session factory.
-
-    Returns
-    -------
-    async_sessionmaker[AsyncSession]
-        The SQLAlchemy async session factory.
-    """
-    _get_engine()  # Ensure engine is initialized.
-    if _session_factory is None:
-        msg = (
-            "Session factory not initialized after _get_engine(). "
-            "This indicates a lazy initialization failure."
-        )
-        raise RuntimeError(msg)
-    return _session_factory
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
@@ -199,7 +163,7 @@ _DB_INIT_BACKOFF_BASE_S: Final[float] = 1.0
 _DB_INIT_BACKOFF_MAX_S: Final[float] = 4.0
 
 
-async def _run_migrations_with_retry() -> None:
+async def _run_migrations_with_retry(settings: Settings) -> None:
     """
     Run Alembic migrations, retrying transient database-connection failures.
 
@@ -212,7 +176,7 @@ async def _run_migrations_with_retry() -> None:
     last_exc: Exception | None = None
     for attempt in range(1, _DB_INIT_MAX_ATTEMPTS + 1):
         try:
-            await run_migrations()
+            await run_migrations(settings)
         except Exception as exc:  # noqa: BLE001 — retry any DB connectivity/auth error.
             last_exc = exc
             if attempt >= _DB_INIT_MAX_ATTEMPTS:
@@ -235,14 +199,14 @@ async def _run_migrations_with_retry() -> None:
         raise last_exc
 
 
-async def init_db(_app: FastAPI) -> None:
+async def init_db(app: FastAPI) -> None:
     """
     Lifespan startup hook: run Alembic migrations (with retry) and initialize the engine.
 
     Parameters
     ----------
-    _app : FastAPI
-        The FastAPI application instance.
+    app : FastAPI
+        The application; its ``app.state.settings`` configures the engine and migrations.
 
     Raises
     ------
@@ -262,13 +226,14 @@ async def init_db(_app: FastAPI) -> None:
       (also used by tests via LifespanManager).
     """
     global _db_initialized
+    settings: Settings = app.state.settings
     logger.info(
         "Running database migrations (up to %d attempts)...",
         _DB_INIT_MAX_ATTEMPTS,
     )
-    await _run_migrations_with_retry()
+    await _run_migrations_with_retry(settings)
     # Initialize the module-level engine and session factory for request handling.
-    _get_engine()
+    _get_engine(settings)
     _db_initialized = True
     logger.info("Database migrations complete; engine ready.")
 

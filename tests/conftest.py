@@ -10,7 +10,7 @@ from asgi_lifespan import LifespanManager
 from fastapi import FastAPI
 
 from your_service_name.backend.main import create_app
-from your_service_name.utils.versioning_api import get_api_version
+from your_service_name.backend.settings import Settings
 
 TEST_BASE_URL: Final[str] = "http://test"
 
@@ -49,6 +49,6 @@ def api_base() -> str:
     """
     Base path for versioned API routes (e.g., "/api/v1"), resolved centrally.
     """
-    api_version: str = get_api_version()
+    api_version: str = Settings().API_VERSION
     base: Final[str] = f"/api/{api_version}"
     return base
