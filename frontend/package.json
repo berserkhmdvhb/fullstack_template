@@ -77,5 +77,10 @@
     "openapi-typescript": {
       "typescript": "$typescript"
     }
+  },
+  "allowScripts": {
+    "esbuild": false,
+    "unrs-resolver": false,
+    "fsevents": false
   }
 }
