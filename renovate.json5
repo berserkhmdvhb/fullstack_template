@@ -1,0 +1,141 @@
+// Renovate owns every version update in this repository (Dependabot is limited to security updates:
+// see .github/dependabot.yml). This file is inert until the Renovate GitHub App is installed on the repository.
+//
+// A Renovate pull request that bumps tools/pins.tsv or infra/security/config.yaml turns the `pins` check red
+// on purpose: a maintainer runs `make pins-refresh` (checksums and hashed locks) and pushes. No bot writes
+// checksums. The expected flow is in wiki/security.md. Keep this file to comments and plain JSON
+// (quoted keys, no trailing commas): a test reads it with the standard library.
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests", "docker:pinDigests"],
+  "timezone": "UTC",
+
+  // A release must be 7 days old before a pull request is opened; the pending check blocks any earlier merge.
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+
+  "customManagers": [
+    {
+      // tools/pins.tsv, rows whose url is a GitHub release asset or tag archive. Renovate replaces every occurrence of
+      // the version inside the matched text, so the version column and the url move together. The match stops before
+      // the sha256 column, which is not touched (make pins-refresh fills it in). (?m) because `^` must match at each line.
+      "customType": "regex",
+      "description": "tools/pins.tsv: GitHub-hosted tools",
+      "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
+      "matchStrings": [
+        "(?m)^(?<depName>[a-z0-9-]+)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://github\\.com/(?<packageName>[^/\\t]+/[^/\\t]+)/(?:releases/download|archive/refs/tags)/[^\\t]+)\\t"
+      ],
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "tools/pins.tsv: helm 3 and 4 (get.helm.sh)",
+      "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
+      "matchStrings": [
+        "(?m)^(?<depName>helm[34])\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://get\\.helm\\.sh/[^\\t]+)\\t"
+      ],
+      "datasourceTemplate": "github-releases",
+      "packageNameTemplate": "helm/helm",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "tools/pins.tsv: kubectl (dl.k8s.io)",
+      "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
+      "matchStrings": [
+        "(?m)^(?<depName>kubectl)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://dl\\.k8s\\.io/[^\\t]+)\\t"
+      ],
+      "datasourceTemplate": "github-tags",
+      "packageNameTemplate": "kubernetes/kubernetes",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "tools/pins.tsv: Node.js (nodejs.org)",
+      "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
+      "matchStrings": [
+        "(?m)^(?<depName>node)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://nodejs\\.org/[^\\t]+)\\t"
+      ],
+      "datasourceTemplate": "node-version",
+      "packageNameTemplate": "node"
+    },
+    {
+      // Python tools (url uv:<package>): only the version column changes; make pins-refresh regenerates the hashed lock.
+      // The `python` row is not a package: it is disabled below and bumped by hand.
+      "customType": "regex",
+      "description": "tools/pins.tsv: Python tools from PyPI",
+      "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
+      "matchStrings": [
+        "(?m)^(?<depName>[a-z0-9-]+)\\t(?<currentValue>[0-9][^\\t]*)\\tany\\tuv:(?<packageName>[^\\t]+)\\t-"
+      ],
+      "datasourceTemplate": "pypi"
+    },
+    {
+      // A line `# renovate: datasource=<datasource> depName=<package>` directly above `<key>: <version>` (config.yaml's
+      // tool versions, and any version that is still inline in a workflow).
+      "customType": "regex",
+      "description": "Annotated versions in infra/security/config.yaml and the workflows",
+      "managerFilePatterns": ["/^infra/security/config\\.yaml$/", "/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)\\n\\s*[A-Za-z_-]+: [\"']?(?<currentValue>v?[0-9][^\\s\"']*)"
+      ]
+    },
+    {
+      // `repository:tag@sha256:...` anywhere in a chart values file or in config.yaml (the DAST image).
+      "customType": "regex",
+      "description": "Image digests in values files and config.yaml",
+      "managerFilePatterns": ["/(^|/)values[^/]*\\.ya?ml$/", "/^infra/security/config\\.yaml$/"],
+      "matchStrings": [
+        "(?<depName>[a-z0-9][\\w.-]*(?:/[\\w.-]+)+):(?<currentValue>[\\w][\\w.-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+
+  "packageRules": [
+    {
+      // Minor and patch updates (and digest refreshes) arrive together, once a week. Majors fall outside this rule,
+      // so each one is its own pull request.
+      "description": "Weekly group for minor and patch updates",
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
+      "groupName": "minor and patch updates",
+      "schedule": ["before 6am on monday"]
+    },
+    {
+      "description": "Major updates: one pull request each, never grouped",
+      "matchUpdateTypes": ["major"],
+      "groupName": null,
+      "addLabels": ["major"]
+    },
+    {
+      "description": "Tell the reviewer why pin drift is red",
+      "matchFileNames": ["tools/pins.tsv", "infra/security/config.yaml"],
+      "prBodyNotes": ["The `pins` check is red until `make pins-refresh` has written the vendor checksums and the hashed locks. Run it and push."]
+    },
+    {
+      // Spec section 11: Helm 3 is only kept to prove the chart still renders on 3.x.
+      "description": "helm3 stays on 3.x",
+      "matchDepNames": ["helm3"],
+      "allowedVersions": "<4"
+    },
+    {
+      // The frontend's engines field is >=22 <23 until the frontend upgrade.
+      "description": "node stays on 22.x",
+      "matchDepNames": ["node"],
+      "allowedVersions": "<23"
+    },
+    {
+      "description": "The python row names an interpreter, not a PyPI package",
+      "matchDepNames": ["python"],
+      "enabled": false
+    },
+    {
+      // Version-skew policy: kubectl stays within one minor of the cluster; change the pin when the cluster moves.
+      "description": "kubectl follows the cluster, not the latest release",
+      "matchDepNames": ["kubectl"],
+      "matchUpdateTypes": ["minor", "major"],
+      "enabled": false
+    }
+  ]
+}

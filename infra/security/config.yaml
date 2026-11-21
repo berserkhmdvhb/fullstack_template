@@ -11,26 +11,34 @@ output:
 # Bump here; the CI jobs and the scripts read these via cfg() (needs yq).
 # Any one may be overridden at runtime via its <TOOL>_VERSION variable.
 tools:
+  # renovate: datasource=github-releases depName=sigstore/cosign
   cosign: v3.1.4
+  # renovate: datasource=github-releases depName=anchore/syft
   syft: v1.55.0
+  # renovate: datasource=github-releases depName=anchore/grype
   grype: v0.121.3
+  # renovate: datasource=github-releases depName=anchore/grant
   grant: v0.6.8
   # OSV-Scanner: source/lockfile SCA + known-malicious (OSV.dev MAL-*). Checksum-verified
   # static binary (tools-install.sh). Reads resolved lockfiles (npm package-lock.json,
   # requirements.txt, poetry.lock…); PEP 621 pyproject.toml declarations are NOT parsed,
   # so pip_audit remains the Python known-CVE SCA (see wiki/supply-chain-tooling-assessment.md).
+  # renovate: datasource=github-releases depName=google/osv-scanner
   osv-scanner: v2.7.0
   # SBOM quality + NTIA compliance scoring (interlynk-io/sbomqs). Checksum-verified static
   # binary (tools-install.sh). It ASSESSES the SBOM you already produced (completeness,
   # NTIA minimum elements) — a report-only quality grade, not a scanner that discovers CVEs.
+  # renovate: datasource=github-releases depName=interlynk-io/sbomqs
   sbomqs: v2.1.3
   # CycloneDX sbom-utility: schema-validate + query the SBOM (CycloneDX/SPDX). Report-only;
   # validates the SBOM artifact you already produced. The project publishes only a per-asset
   # .md5 (tools-install.sh verifies it). See wiki/supply-chain-tooling-assessment.md.
+  # renovate: datasource=github-releases depName=CycloneDX/sbom-utility
   sbom-utility: v0.19.2
   # Kubescape: K8s workload/posture scan against NSA-CISA + MITRE frameworks.
   # Checksum-verified Go static binary (tools-install.sh; a dedicated `kubescape`
   # case). The one K8s hardening axis — Checkov covers the IaC *policy* side.
+  # renovate: datasource=github-releases depName=kubescape/kubescape
   kubescape: v4.0.20
 
 # ---------- Python (pip) toolchain ----------
@@ -40,11 +48,13 @@ tools:
 tools_pip:
   # GuardDog: proactive typosquat + malware heuristics on DIRECT deps (PyPI + npm).
   # Installed inline in the malware_heuristic_scan job (the pip_audit pattern).
+  # renovate: datasource=pypi depName=guarddog
   guarddog: 3.2.0
   # Checkov: IaC misconfiguration scan (Terraform / CloudFormation / K8s / Helm).
   # Pip-installed (the guarddog pattern): integrity is via the PINNED VERSION
   # (reproducible wheel + PyPI's hash), not a release checksum, so it lives here
   # OUTSIDE the checksum-verified .tools map. Installed inline in the iac_scan job.
+  # renovate: datasource=pypi depName=checkov
   checkov: 3.2.341
 
 # ---------- DAST ----------
