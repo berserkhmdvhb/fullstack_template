@@ -102,6 +102,12 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 | `SQLITE_PATH` | str | `data/items.db` | SQLite fallback file, relative to the project root. | Ignored: SQLite is refused. |
 | `DB_POOL_SIZE` | int | `10` | PostgreSQL connection pool size; a non-positive or invalid value falls back to the default. | — |
 | `DB_MAX_OVERFLOW` | int | `20` | PostgreSQL pool overflow; a non-positive or invalid value falls back to the default. | — |
+| `DB_CONNECT_TIMEOUT_SECONDS` | int | `10` | PostgreSQL connect timeout in seconds (asyncpg `timeout`); a non-positive or invalid value falls back to the default. | — |
+| `DB_STATEMENT_TIMEOUT_MS` | int | `30000` | PostgreSQL `statement_timeout` in milliseconds, for the app connections only (migrations set none); a non-positive or invalid value falls back to the default. | — |
+| `DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` | int | `60000` | PostgreSQL `idle_in_transaction_session_timeout` in milliseconds, for the app connections only; a non-positive or invalid value falls back to the default. | — |
+| `DB_MIGRATION_LOCK_TIMEOUT_MS` | int | `10000` | PostgreSQL `lock_timeout` in milliseconds for the migration run, so a migration waiting on a busy table fails instead of blocking traffic; a non-positive or invalid value falls back to the default. | — |
+| `DB_SSLMODE` | one of `disable`, `require`, `verify-ca`, `verify-full` | `disable` | PostgreSQL TLS: `disable`, `require` (encrypt, no verification), `verify-ca` (verify the CA, not the hostname) or `verify-full` (CA and hostname). | `disable` and `require` are refused unless the database host is loopback (a Cloud SQL Auth Proxy sidecar). |
+| `DB_SSLROOTCERT` | str | (unset) | Path to the CA file that verifies the server for `verify-ca` and `verify-full`; unset uses the system trust store. | — |
 
 <!-- END GENERATED -->
 

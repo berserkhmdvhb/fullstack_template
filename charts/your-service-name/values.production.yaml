@@ -32,6 +32,11 @@ config:
   ENV: production
   DEBUG: "false"
   LOG_LEVEL: WARNING
+  # TLS to the managed database. Production refuses disable/require unless the DB host is loopback
+  # (a Cloud SQL Auth Proxy sidecar, which encrypts itself: set externalDatabase.host to 127.0.0.1
+  # and DB_SSLMODE to "disable"). Set DB_SSLROOTCERT to a mounted CA file, or leave it unset to
+  # trust the image's system store. See wiki/database.md.
+  DB_SSLMODE: verify-full
   # An auth mode is REQUIRED in production: with ENV=production the backend refuses to start on
   # AUTH_MODE=none. Choose one (oidc or cloudflare-access for
   # production; gateway and bearer are reference modes; see wiki/security.md), for example:

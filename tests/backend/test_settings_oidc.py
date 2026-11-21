@@ -28,7 +28,11 @@ def _oidc(**over: Any) -> Settings:  # noqa: ANN401
 
 def _prod(**over: Any) -> Settings:  # noqa: ANN401
     return _oidc(
-        ENV="production", DATABASE_URL=POSTGRES_URL, ALLOWED_HOSTS="api.example.com", **over
+        ENV="production",
+        DATABASE_URL=POSTGRES_URL,
+        DB_SSLMODE="verify-full",
+        ALLOWED_HOSTS="api.example.com",
+        **over,
     )
 
 
@@ -150,5 +154,10 @@ def test_cf_team_domain_is_lowercased_not_refused() -> None:
 
 
 def test_cf_production_accepts_the_mode_without_allow_anonymous() -> None:
-    s = _cf(ENV="production", DATABASE_URL=POSTGRES_URL, ALLOWED_HOSTS="api.example.com")
+    s = _cf(
+        ENV="production",
+        DATABASE_URL=POSTGRES_URL,
+        DB_SSLMODE="verify-full",
+        ALLOWED_HOSTS="api.example.com",
+    )
     assert s.AUTH_MODE == "cloudflare-access"

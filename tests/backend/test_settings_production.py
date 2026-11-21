@@ -28,6 +28,7 @@ def _production(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
     base = {
         "ENV": "production",
         "DATABASE_URL": POSTGRES_URL,
+        "DB_SSLMODE": "verify-full",
         "AUTH_MODE": "gateway",
         "ALLOWED_HOSTS": "api.example.com",
     }
@@ -58,6 +59,7 @@ class TestAllowedHostsRule:
             Settings(
                 ENV="production",
                 DATABASE_URL=SecretStr(POSTGRES_URL),
+                DB_SSLMODE="verify-full",
                 AUTH_MODE="gateway",
                 ALLOWED_HOSTS=[],
             )
@@ -300,6 +302,7 @@ class TestDocs:
             Settings(
                 ENV="production",
                 DATABASE_URL=SecretStr(POSTGRES_URL),
+                DB_SSLMODE="verify-full",
                 AUTH_MODE="gateway",
                 ALLOWED_HOSTS=["api.example.com"],
             )
@@ -313,6 +316,7 @@ class TestDocs:
             Settings(
                 ENV="production",
                 DATABASE_URL=SecretStr(POSTGRES_URL),
+                DB_SSLMODE="verify-full",
                 AUTH_MODE="gateway",
                 ALLOWED_HOSTS=["api.example.com"],
                 ALLOW_PRODUCTION_DOCS=True,

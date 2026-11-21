@@ -31,6 +31,8 @@ from urllib.parse import urlsplit
 from limits import parse as parse_rate_limit
 from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 from your_service_name.utils.versioning_api import (
     DEFAULT_API_VERSION,
@@ -116,6 +118,8 @@ _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
     "LOG_LEVEL",
     "DATABASE_URL",
     "TEST_DATABASE_URL",
+    "DB_SSLMODE",
+    "DB_SSLROOTCERT",
     "LOG_REQUESTS",
     "CORS_ALLOW_CREDENTIALS",
     "ALLOW_ANONYMOUS",
@@ -123,6 +127,24 @@ _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
     "TRUST_CF_CONNECTING_IP",
     "MAX_REQUEST_BODY_BYTES",
 )
+
+
+def _is_loopback_database(url: str) -> bool:
+    """True when the URL names no host (a socket) or a loopback one: nothing leaves the Pod."""
+    if not url.strip() or url.strip().lower().startswith("sqlite"):
+        return True  # refused on its own; no second message
+    try:
+        host = make_url(url).host
+    except ArgumentError:
+        return False
+    if not host:
+        return True
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host.strip("[]")).is_loopback
+    except ValueError:
+        return False
 
 
 class Settings(BaseSettings):
@@ -382,6 +404,42 @@ class Settings(BaseSettings):
         "to the default.",
     )
 
+    DB_CONNECT_TIMEOUT_SECONDS: int = Field(
+        default=10,
+        description="PostgreSQL connect timeout in seconds (asyncpg `timeout`); a non-positive "
+        "or invalid value falls back to the default.",
+    )
+    DB_STATEMENT_TIMEOUT_MS: int = Field(
+        default=30000,
+        description="PostgreSQL `statement_timeout` in milliseconds, for the app connections "
+        "only (migrations set none); a non-positive or invalid value falls back to the default.",
+    )
+    DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: int = Field(
+        default=60000,
+        description="PostgreSQL `idle_in_transaction_session_timeout` in milliseconds, for the "
+        "app connections only; a non-positive or invalid value falls back to the default.",
+    )
+    DB_MIGRATION_LOCK_TIMEOUT_MS: int = Field(
+        default=10000,
+        description="PostgreSQL `lock_timeout` in milliseconds for the migration run, so a "
+        "migration waiting on a busy table fails instead of blocking traffic; a non-positive "
+        "or invalid value falls back to the default.",
+    )
+    DB_SSLMODE: Literal["disable", "require", "verify-ca", "verify-full"] = Field(
+        default="disable",
+        description="PostgreSQL TLS: `disable`, `require` (encrypt, no verification), "
+        "`verify-ca` (verify the CA, not the hostname) or `verify-full` (CA and hostname).",
+        json_schema_extra={
+            "production": "`disable` and `require` are refused unless the database host is "
+            "loopback (a Cloud SQL Auth Proxy sidecar)."
+        },
+    )
+    DB_SSLROOTCERT: str | None = Field(
+        default=None,
+        description="Path to the CA file that verifies the server for `verify-ca` and "
+        "`verify-full`; unset uses the system trust store.",
+    )
+
     @property
     def is_production(self) -> bool:
         """True when ``ENV`` is ``production`` (or ``prod``), case-insensitive."""
@@ -467,7 +525,15 @@ class Settings(BaseSettings):
             )
             raise ValueError(msg) from exc
 
-    @field_validator("DB_POOL_SIZE", "DB_MAX_OVERFLOW", mode="before")
+    @field_validator(
+        "DB_POOL_SIZE",
+        "DB_MAX_OVERFLOW",
+        "DB_CONNECT_TIMEOUT_SECONDS",
+        "DB_STATEMENT_TIMEOUT_MS",
+        "DB_IDLE_IN_TRANSACTION_TIMEOUT_MS",
+        "DB_MIGRATION_LOCK_TIMEOUT_MS",
+        mode="before",
+    )
     @classmethod
     def _positive_int_or_default(cls, value: object, info: ValidationInfo) -> object:
         """Unset, garbage or non-positive falls back to the default (with a warning)."""
@@ -481,6 +547,11 @@ class Settings(BaseSettings):
         if not cls._is_blank(value):
             logger.warning("Invalid %s; using %s", info.field_name, default)
         return default
+
+    @field_validator("DB_SSLMODE", mode="before")
+    @classmethod
+    def _normalise_sslmode(cls, value: object) -> object:
+        return value.strip().lower() if isinstance(value, str) else value
 
     @field_validator("AUTH_MODE", mode="before")
     @classmethod
@@ -600,8 +671,8 @@ class Settings(BaseSettings):
             problems.append(f"{source_name} {why}")
         return problems
 
-    def _production_problems(self) -> list[str]:
-        """The checks that apply only when ENV is production."""
+    def _database_problems(self) -> list[str]:
+        """The database checks that apply only when ENV is production."""
         problems: list[str] = []
 
         url = self.DATABASE_URL.get_secret_value() if self.DATABASE_URL is not None else ""
@@ -610,11 +681,24 @@ class Settings(BaseSettings):
                 "DATABASE_URL: SQLite (or no database) is refused in production; set DATABASE_URL "
                 "to a PostgreSQL URL"
             )
+        if self.DB_SSLMODE in ("disable", "require") and not _is_loopback_database(url):
+            problems.append(
+                f"DB_SSLMODE={self.DB_SSLMODE} sends database traffic unverified; set "
+                "verify-full (or verify-ca) with DB_SSLROOTCERT, or point DATABASE_URL at a "
+                "loopback proxy (a Cloud SQL Auth Proxy sidecar)"
+            )
         if self.TEST_DATABASE_URL is not None:
             problems.append(
                 "TEST_DATABASE_URL: test-only, and it takes precedence over DATABASE_URL; "
                 "unset it in production"
             )
+        return problems
+
+    def _production_problems(self) -> list[str]:
+        """The checks that apply only when ENV is production."""
+        problems: list[str] = []
+
+        problems += self._database_problems()
 
         origins = self.CORS_ORIGINS
         if self.CORS_ALLOW_CREDENTIALS and not origins:

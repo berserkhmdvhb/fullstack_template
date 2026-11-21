@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from your_service_name.backend.db._constants import default_sqlite_path, project_root
+from your_service_name.backend.db.connect import app_connect_args
 from your_service_name.backend.db.run_migrations import run_migrations
 
 if TYPE_CHECKING:
@@ -86,15 +87,15 @@ _db_initialized: bool = False
 
 def _engine_kwargs(url: str, settings: Settings) -> dict[str, Any]:
     """
-    Build ``create_async_engine`` kwargs: always ping the pool before use, and size the
-    pool from the settings for the real (PostgreSQL) tier. The SQLite fallback keeps SQLAlchemy's
-    default pool — connection-pool tuning is a production-database concern, not a
-    file-database one.
+    Build ``create_async_engine`` kwargs: always ping the pool before use; for the real
+    (PostgreSQL) tier also size the pool and set the timeouts and TLS (``db/connect.py``). The
+    SQLite fallback keeps SQLAlchemy's default pool and takes no connect arguments.
     """
     kwargs: dict[str, Any] = {"echo": False, "pool_pre_ping": True}
     if url.startswith("postgresql"):
         kwargs["pool_size"] = settings.DB_POOL_SIZE
         kwargs["max_overflow"] = settings.DB_MAX_OVERFLOW
+        kwargs["connect_args"] = app_connect_args(settings)
     return kwargs
 
 
