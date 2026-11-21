@@ -63,11 +63,12 @@ def test_it_is_a_reusable_workflow_with_empty_top_permissions() -> None:
 
 def test_job_order_is_build_sbom_gate_sign() -> None:
     jobs = _jobs()
-    assert list(jobs) == ["build", "sbom", "grype", "sign-attest"]
+    assert list(jobs) == ["build", "sbom", "grype", "image-checks", "sign-attest"]
     assert "needs" not in jobs["build"]
     assert jobs["sbom"]["needs"] == "build"
     assert jobs["grype"]["needs"] == "sbom"
-    assert set(jobs["sign-attest"]["needs"]) == {"build", "sbom", "grype"}
+    assert jobs["image-checks"]["needs"] == "build"
+    assert set(jobs["sign-attest"]["needs"]) == {"build", "sbom", "grype", "image-checks"}
 
 
 def test_only_the_signing_job_holds_packages_write_with_id_token_write() -> None:
@@ -222,7 +223,7 @@ def test_login_token_goes_through_with_not_run() -> None:
             assert step["with"]["username"] == "${{ github.actor }}"
             assert step["with"]["password"] == "${{ secrets.GITHUB_TOKEN }}"  # noqa: S105 — a workflow expression, not a credential
         assert not re.search(r"secrets\.|GITHUB_TOKEN|docker login", _runs(job)), name
-    assert seen == 3  # noqa: PLR2004 — build, sbom and sign-attest
+    assert seen == 4  # noqa: PLR2004 — build, sbom, image-checks and sign-attest
 
 
 def test_digest_verify_stops_the_job_on_a_mismatch() -> None:

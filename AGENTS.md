@@ -37,8 +37,9 @@ Adapt the placeholder before running the app for real:
    doesn't restate. [`CONVENTIONS.md`](./CONVENTIONS.md#3-one-source-of-truth-single-source--dry)
 4. **Config-driven, not hard-coded** — ports/hosts/URLs come from env / `.env` / `values.<env>.yaml`.
    [`CONVENTIONS.md`](./CONVENTIONS.md#4-config-driven-not-hard-coded)
-5. **Image ops (build/sign/attest/digest-resolve) run on `main` and `v*` tags only, never in a pull request.** A PR
-   author must not be able to forge the supply-chain chain. [`CONVENTIONS.md`](./CONVENTIONS.md#5-image-level-ops-run-on-main-and-release-tags-only)
+5. **Image ops (push/sign/attest/digest-resolve) run on `main` and `v*` tags only, never in a pull request.** A PR
+   author must not be able to forge the supply-chain chain. (A PR may build an image locally to check it: no
+   push, login, secret or cache.) [`CONVENTIONS.md`](./CONVENTIONS.md#5-image-level-ops-run-on-main-and-release-tags-only)
 6. **Never edit the eight frozen `infra/security/*.sh` scripts** — `_helpers.sh`, `sbom-generate.sh`,
    `scan-vulnerabilities.sh`, `scan-licenses.sh`, `generate-vex.sh`, `check-ci-hardening.sh`,
    `tools-install.sh`, `verify-image-digest.sh` — new supply-chain logic goes under

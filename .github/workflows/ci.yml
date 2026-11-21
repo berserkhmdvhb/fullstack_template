@@ -28,6 +28,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       pins: ${{ steps.filter.outputs.pins }}
+      images: ${{ steps.filter.outputs.images }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -40,7 +41,7 @@ jobs:
         run: |
           # Everything runs on main, on tags and on a manual run; only pull requests are filtered.
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            printf '%s\n' backend=true frontend=true pins=true >> "$GITHUB_OUTPUT"
+            printf '%s\n' backend=true frontend=true pins=true images=true >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
@@ -59,6 +60,12 @@ jobs:
             echo "pins=true" >> "$GITHUB_OUTPUT"
           else
             echo "pins=false" >> "$GITHUB_OUTPUT"
+          fi
+          # What the three Dockerfiles copy in, the Dockerfiles themselves and the check script.
+          if grep -Eq '^(Dockerfile\.|\.dockerignore|src/|pyproject\.toml|uv\.lock|alembic\.ini|README\.md|LICENSE|VERSION|frontend/|infra/nginx/|\.github/|scripts/|tools/)' <<<"$changed"; then
+            echo "images=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "images=false" >> "$GITHUB_OUTPUT"
           fi
 
   backend:
@@ -235,16 +242,87 @@ jobs:
         run: |
           "$RUNNER_TEMP/zizmor/bin/zizmor" .github/
 
+  # Blocking on pull requests. Plans the image matrix with the same helper the release uses; the images job below
+  # builds each image locally and checks its structure. A push to main and a v* tag skip both: the release build
+  # (reusable-build.yml) checks the pushed image by digest instead.
+  image-plan:
+    name: Plan the image checks
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.images == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The helper imports PyYAML and this job has no setup-python; a hashed venv supplies it.
+      - name: Install PyYAML for the matrix helper
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pyyaml"
+          "$RUNNER_TEMP/pyyaml/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pyyaml.txt
+      - name: Render the matrix
+        id: plan
+        run: |
+          matrix="$("$RUNNER_TEMP/pyyaml/bin/python" .github/scripts/container_matrix.py --matrix | head -n 1)"
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+
+  # Blocking on pull requests: build each image into the local daemon (no push, no registry login, no secrets, no
+  # build cache, so a pull request can never write what a release build reads), then run scripts/ci/image-checks.sh
+  # --strict: numeric non-root user, no shell in the distroless images, a passing HEALTHCHECK, real labels.
+  images:
+    name: Image checks (${{ matrix.id }})
+    needs: [changes, image-plan]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.images == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.image-plan.outputs.matrix) }}
+    env:
+      IMAGE_ID: ${{ matrix.id }}
+      IMAGE_REF: image-checks-pr/${{ matrix.id }}:pr
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The same build arguments as the release build: the matrix's own, plus the label values.
+      - name: Build the image locally
+        env:
+          ENTRY: ${{ toJSON(matrix) }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          CONTEXT: ${{ matrix.context }}
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+          VCS_REF: ${{ github.sha }}
+          VCS_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          created="$(TZ=UTC git show -s --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ "${VCS_REF}")"
+          args=()
+          while IFS= read -r arg; do args+=(--build-arg "${arg}"); done \
+            < <(jq -r '(.build_args // {}) | to_entries[] | "\(.key)=\(.value)"' <<<"${ENTRY}")
+          args+=(--build-arg "SOURCE_URL=${SOURCE_URL}" --build-arg "VCS_REF=${VCS_REF}" \
+            --build-arg "VCS_BRANCH=${VCS_BRANCH}" --build-arg "BUILD_DATE=${created}")
+          docker buildx build --load --file "${DOCKERFILE}" --tag "${IMAGE_REF}" "${args[@]}" "${CONTEXT}"
+      - name: Check the image
+        run: bash scripts/ci/image-checks.sh --strict "${IMAGE_ID}" "${IMAGE_REF}"
+
   # The one required status check. Path-filtered jobs that are skipped and the matrix legs of the reusable
   # workflows have no stable check names, so the branch ruleset requires this job instead (see
   # wiki/github-repository-settings.md). Only backend, frontend, live and pins may be skipped, and only on a pull
-  # request (their path filter); everything else (api-compat included) must succeed, and so must `changes`, or the filter never ran.
+  # request (their path filter); image-plan and images may be skipped on any event (they run on pull requests
+  # only, behind the images path filter), but never fail; everything else (api-compat included) must succeed, and so must `changes`, or the filter never ran.
   # `live` is advisory on pull requests, so its result is ignored there instead of relying on how
   # continue-on-error surfaces through a called workflow.
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, chart, backend, frontend, live, security, repo, hadolint, api-compat, workflows, pins]
+    needs: [changes, chart, backend, frontend, live, security, repo, hadolint, api-compat, workflows, pins, image-plan, images]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -258,6 +336,7 @@ jobs:
           bad="$(jq -r --arg ev "$EVENT_NAME" 'to_entries[] | .key as $k | .value.result as $r
             | select(
                 if $k == "live" and $ev == "pull_request" then false
+                elif ($k == "image-plan" or $k == "images") then ($r != "success" and $r != "skipped")
                 elif ($k == "backend" or $k == "frontend" or $k == "pins") and $ev == "pull_request" then ($r != "success" and $r != "skipped")
                 else $r != "success" end)
             | "\($k)=\($r)"' <<<"$NEEDS")"

@@ -244,6 +244,26 @@ def test_pull_request_paths_map_to_outputs(
     }
 
 
+@pytest.mark.parametrize(
+    ("path", "images"),
+    [
+        ("Dockerfile.backend", True),
+        ("src/your_service_name/main.py", True),
+        ("frontend/app/page.tsx", True),
+        ("infra/nginx/nginx.conf", True),
+        ("scripts/ci/image-checks.sh", True),
+        ("uv.lock", True),
+        ("wiki/ci-cd.md", False),
+        ("tests/scripts/image-checks.bats", False),
+        ("charts/values.yaml", False),
+    ],
+)
+def test_pull_request_paths_map_to_the_images_output(
+    tmp_path: Path, path: str, *, images: bool
+) -> None:
+    assert _run_filter(tmp_path, "pull_request", [path])["images"] == str(images).lower()
+
+
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch"])
 def test_main_tags_and_dispatch_force_every_output(tmp_path: Path, event: str) -> None:
     """A push covers both main and v* tags; neither is filtered."""
@@ -251,12 +271,13 @@ def test_main_tags_and_dispatch_force_every_output(tmp_path: Path, event: str) -
         "backend": "true",
         "frontend": "true",
         "pins": "true",
+        "images": "true",
     }
 
 
 def test_filter_outputs_match_the_declared_outputs() -> None:
     declared = set(workflow("ci.yml")["jobs"]["changes"]["outputs"])
-    assert declared == {"backend", "frontend", "pins"}
+    assert declared == {"backend", "frontend", "pins", "images"}
 
 
 def test_integration_job_uploads_its_report_only_on_failure() -> None:

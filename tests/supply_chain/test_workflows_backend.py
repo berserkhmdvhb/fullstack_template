@@ -197,6 +197,7 @@ WRITE_ALLOWLIST = {
 # The only non-contents read grants: (workflow, job, permission, level).
 READ_ALLOWLIST = {
     ("reusable-build.yml", "sbom", "packages", "read"),
+    ("reusable-build.yml", "image-checks", "packages", "read"),
     ("security.yml", "codeql", "actions", "read"),
     ("ci.yml", "security", "actions", "read"),
     ("dast.yml", "dast", "actions", "read"),

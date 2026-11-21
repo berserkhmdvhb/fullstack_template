@@ -219,12 +219,56 @@ jobs:
           path: ${{ env.SEC_OUTPUT_DIR }}/grype/
           retention-days: 90
 
-  # Signs only what passed the gate: needs the blocking grype scan of every image. The certificate
+  # Blocking: pulls each pushed image by its verified digest (never a tag) and runs the structure checks
+  # (scripts/ci/image-checks.sh --strict). sign-attest needs it, so an image that fails is never signed.
+  # The build is single-platform today; a multi-platform build must run this check once per platform,
+  # on a runner of that architecture, against that platform's own manifest digest.
+  image-checks:
+    name: Image checks (${{ matrix.id }})
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read  # pull the image from ghcr.io
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.matrix) }}
+    env:
+      IMAGE_ID: ${{ matrix.id }}
+      REPOSITORY: ${{ matrix.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: digest-${{ matrix.id }}
+          path: parts
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull the image by digest and check it
+        run: |
+          set -euo pipefail
+          DIGEST="$(sed -n "s/^[A-Z0-9_]*_IMAGE_DIGEST=//p" "parts/${IMAGE_ID}.digest.env")"
+          if [[ ! "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::no valid digest for ${IMAGE_ID}: ${DIGEST}"
+            exit 1
+          fi
+          docker pull "${REPOSITORY}@${DIGEST}"
+          bash scripts/ci/image-checks.sh --strict "${IMAGE_ID}" "${REPOSITORY}@${DIGEST}"
+          echo "- image checks passed for \`${REPOSITORY}@${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  # Signs only what passed the gate: needs the blocking grype scan and the image checks of every image. The certificate
   # identity is this workflow, because a keyless certificate issued in a called workflow names it
   # (job_workflow_ref); wiki/security.md has the verify commands.
   sign-attest:
     name: Sign and attest (${{ matrix.id }})
-    needs: [build, sbom, grype]
+    needs: [build, sbom, grype, image-checks]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
