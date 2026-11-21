@@ -154,6 +154,31 @@ class TestProductionTlsRule:
     def test_a_loopback_host_may_disable_tls(self, host: str) -> None:
         assert _production("disable", host).DB_SSLMODE == "disable"
 
+    @pytest.mark.parametrize(
+        "tail",
+        [
+            "@/app?host=db.internal.example",
+            "@/app?host=127.0.0.1&host=db.internal.example",
+            "@/app",
+            "@:5432/app",
+        ],
+    )
+    @pytest.mark.parametrize("mode", ["disable", "require"])
+    def test_a_url_hiding_the_host_fails_closed(self, mode: str, tail: str) -> None:
+        with pytest.raises(ValueError, match="DB_SSLMODE"):
+            _production_url(mode, f"postgresql+asyncpg://app:fake{tail}")
+
+    @pytest.mark.parametrize(
+        "tail",
+        [
+            "@/app?host=/cloudsql/proj:region:inst",
+            "@/app?host=127.0.0.1",
+            "@/app?host=localhost&host=/var/run/db",
+        ],
+    )
+    def test_a_query_host_that_is_a_socket_or_loopback_is_allowed(self, tail: str) -> None:
+        assert _production_url("disable", f"postgresql+asyncpg://app:fake{tail}")
+
     def test_outside_production_disable_is_fine(self) -> None:
         settings = _s(DATABASE_URL=SecretStr(PG_URL), DB_SSLMODE="disable")
         assert settings.DB_SSLMODE == "disable"
@@ -167,3 +192,27 @@ def _production(mode: str, host: str) -> Settings:
         ALLOWED_HOSTS=["api.example.com"],
         DB_SSLMODE=mode,
     )
+
+
+def _production_url(mode: str, url: str) -> Settings:
+    return _s(
+        ENV="production",
+        DATABASE_URL=SecretStr(url),
+        AUTH_MODE="gateway",
+        ALLOWED_HOSTS=["api.example.com"],
+        DB_SSLMODE=mode,
+    )
+
+
+@pytest.mark.parametrize("query", ["ssl=require", "sslmode=verify-full", "ssl=true&x=1"])
+@pytest.mark.parametrize("env", ["dev", "production"])
+def test_tls_in_the_database_url_conflicts_with_db_sslmode(env: str, query: str) -> None:
+    url = f"postgresql+asyncpg://app:fake@127.0.0.1:5432/app?{query}"
+    with pytest.raises(ValueError, match="DB_SSLMODE") as excinfo:
+        _s(
+            ENV=env,
+            DATABASE_URL=SecretStr(url),
+            AUTH_MODE="gateway",
+            ALLOWED_HOSTS=["api.example.com"],
+        )
+    assert "fake" not in str(excinfo.value)

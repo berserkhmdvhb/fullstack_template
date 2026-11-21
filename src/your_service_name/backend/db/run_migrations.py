@@ -33,16 +33,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import ssl
 from pathlib import Path
 from typing import Any, Final
 from urllib.parse import quote
 
+import asyncpg
 from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from sqlalchemy import Connection, pool
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import ArgumentError
+from sqlalchemy.exc import ArgumentError, InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from your_service_name.backend.db import schema
@@ -142,13 +144,38 @@ async def _read_revision(settings: Settings, url: str) -> str | None:
         await engine.dispose()
 
 
+# Errors that mean "the database is not accepting connections yet".
+_TRANSIENT_ASYNCPG: Final = (
+    asyncpg.PostgresConnectionError,
+    asyncpg.CannotConnectNowError,
+    asyncpg.TooManyConnectionsError,
+)
+
+
+def _is_connection_error(exc: BaseException) -> bool:
+    """True for a network-level failure worth retrying; False for anything a retry cannot fix.
+
+    Never retried: authentication failures, TLS certificate errors, a missing or unreadable CA
+    file, Alembic's own errors (for example several ``alembic_version`` rows) and anything else.
+    """
+    if isinstance(exc, (OperationalError, InterfaceError)):
+        original = exc.orig
+        return original is not None and (
+            _is_connection_error(original)
+            or (original.__cause__ is not None and _is_connection_error(original.__cause__))
+        )
+    if isinstance(exc, (ssl.SSLError, FileNotFoundError, PermissionError)):
+        return False
+    return isinstance(exc, (OSError, TimeoutError, *_TRANSIENT_ASYNCPG))
+
+
 async def _read_revision_with_retry(settings: Settings, url: str) -> str | None:
-    """`_read_revision`, retrying a failed connection a bounded number of times."""
+    """`_read_revision`, retrying a refused or timed-out connection a bounded number of times."""
     for attempt in range(1, _DB_INIT_MAX_ATTEMPTS + 1):
         try:
             return await _read_revision(settings, url)
         except Exception as exc:  # any connect or auth error: retry, then give up
-            if attempt >= _DB_INIT_MAX_ATTEMPTS:
+            if attempt >= _DB_INIT_MAX_ATTEMPTS or not _is_connection_error(exc):
                 raise
             delay = min(_DB_INIT_BACKOFF_BASE_S * 2 ** (attempt - 1), _DB_INIT_BACKOFF_MAX_S)
             logger.warning(

@@ -129,22 +129,43 @@ _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
 )
 
 
+def _is_local_host(host: str) -> bool:
+    """A unix socket path, ``localhost`` or a loopback address."""
+    host = host.strip("[]")
+    if host.startswith("/") or host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def _is_loopback_database(url: str) -> bool:
-    """True when the URL names no host (a socket) or a loopback one: nothing leaves the Pod."""
+    """True when every host the URL names is local: nothing leaves the Pod.
+
+    Fails closed: a URL that names no host at all counts as remote, because libpq and asyncpg
+    would then fall back to ``PGHOST`` or defaults that Settings cannot see. The asyncpg
+    ``?host=`` query form (one or several entries) is read too.
+    """
     if not url.strip() or url.strip().lower().startswith("sqlite"):
         return True  # refused on its own; no second message
     try:
-        host = make_url(url).host
+        parsed = make_url(url)
     except ArgumentError:
         return False
-    if not host:
-        return True
-    if host.lower() == "localhost":
-        return True
+    query_host = parsed.query.get("host", ())
+    hosts = [parsed.host] if parsed.host else []
+    hosts += [query_host] if isinstance(query_host, str) else list(query_host)
+    return bool(hosts) and all(_is_local_host(h) for h in hosts)
+
+
+def _tls_in_url(url: str) -> bool:
+    """True when a database URL carries its own ``ssl`` or ``sslmode`` query option."""
     try:
-        return ipaddress.ip_address(host.strip("[]")).is_loopback
-    except ValueError:
+        query = make_url(url).query
+    except ArgumentError:
         return False
+    return "ssl" in query or "sslmode" in query
 
 
 class Settings(BaseSettings):
@@ -613,6 +634,15 @@ class Settings(BaseSettings):
         credentials). Runs after the per-field parsing above, so it sees typed values.
         """
         problems = self._auth_problems()
+        for name, secret in (
+            ("DATABASE_URL", self.DATABASE_URL),
+            ("TEST_DATABASE_URL", self.TEST_DATABASE_URL),
+        ):
+            if secret is not None and _tls_in_url(secret.get_secret_value()):
+                problems.append(
+                    f"{name}: carries ssl or sslmode in its query, which conflicts with "
+                    "DB_SSLMODE; remove it from the URL and set DB_SSLMODE (and DB_SSLROOTCERT)"
+                )
         if self.is_production:
             problems += self._production_problems()
         if problems:
@@ -684,8 +714,9 @@ class Settings(BaseSettings):
         if self.DB_SSLMODE in ("disable", "require") and not _is_loopback_database(url):
             problems.append(
                 f"DB_SSLMODE={self.DB_SSLMODE} sends database traffic unverified; set "
-                "verify-full (or verify-ca) with DB_SSLROOTCERT, or point DATABASE_URL at a "
-                "loopback proxy (a Cloud SQL Auth Proxy sidecar)"
+                "verify-full (or verify-ca) with DB_SSLROOTCERT, or name a loopback or unix-socket "
+                "host explicitly in DATABASE_URL (a Cloud SQL Auth Proxy sidecar); a URL with no "
+                "host is refused because PGHOST or a default would decide"
             )
         if self.TEST_DATABASE_URL is not None:
             problems.append(

@@ -26,6 +26,7 @@ from alembic import context
 from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from your_service_name.backend.db.migrations_render import render_item
 from your_service_name.backend.db.models import Base
 
 # Alembic Config object
@@ -53,6 +54,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        render_item=render_item,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -73,6 +75,7 @@ def _do_run_migrations(connection: Connection) -> None:
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
+        render_item=render_item,
     )
 
     with context.begin_transaction():

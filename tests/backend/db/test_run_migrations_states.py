@@ -6,12 +6,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import ssl
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 from alembic import command
+from alembic.util.exc import CommandError
 
 from tests.utils.migration_scripts import make_script_dir, revision_of, stamp
 from your_service_name.backend.db import run_migrations as runner
@@ -159,3 +161,85 @@ async def test_connect_failures_are_retried_a_bounded_number_of_times(
     assert "attempt 1/3" in caplog.text
     assert "SECRETPW" not in caplog.text
     assert "SECRETPW" not in str(excinfo.value)
+
+
+async def _attempts_with(
+    monkeypatch: pytest.MonkeyPatch, error: BaseException
+) -> tuple[list[int], BaseException]:
+    attempts: list[int] = []
+
+    class Boom:
+        def connect(self) -> Boom:
+            attempts.append(1)
+            raise error
+
+        async def dispose(self) -> None: ...
+
+    async def no_sleep(_delay: float) -> None: ...
+
+    monkeypatch.setattr(runner, "_create_engine", lambda *_a, **_k: Boom())
+    monkeypatch.setattr(asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(runner, "_DB_INIT_MAX_ATTEMPTS", 3)
+    with pytest.raises(RuntimeError) as excinfo:
+        await runner.run_migrations(Settings())
+    return attempts, excinfo.value
+
+
+def _wrapped(orig: BaseException) -> BaseException:
+    from sqlalchemy.exc import OperationalError  # noqa: PLC0415
+
+    return OperationalError("SELECT 1", {}, orig)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ConnectionRefusedError("refused"),
+        TimeoutError("timed out"),
+        OSError("unreachable"),
+        _wrapped(ConnectionRefusedError("refused")),
+        _wrapped(OSError("down")),
+    ],
+)
+async def test_connection_class_errors_are_retried(
+    monkeypatch: pytest.MonkeyPatch, error: BaseException
+) -> None:
+    attempts, _ = await _attempts_with(monkeypatch, error)
+    assert len(attempts) == 3  # noqa: PLR2004
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ssl.SSLCertVerificationError("certificate verify failed"),
+        FileNotFoundError("no CA file"),
+        _wrapped(ValueError("password authentication failed for user")),
+        CommandError("several rows"),
+        ValueError("anything else"),
+    ],
+)
+async def test_other_errors_fail_at_once_without_retry(
+    monkeypatch: pytest.MonkeyPatch, error: BaseException
+) -> None:
+    attempts, _ = await _attempts_with(monkeypatch, error)
+    assert len(attempts) == 1
+
+
+async def test_asyncpg_authentication_failure_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncpg  # noqa: PLC0415
+
+    attempts, _ = await _attempts_with(
+        monkeypatch, asyncpg.InvalidPasswordError("password authentication failed")
+    )
+    assert len(attempts) == 1
+
+
+async def test_asyncpg_connection_errors_are_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncpg  # noqa: PLC0415
+
+    attempts, _ = await _attempts_with(
+        monkeypatch, asyncpg.CannotConnectNowError("the database system is starting up")
+    )
+    assert len(attempts) == 3  # noqa: PLR2004
