@@ -1,8 +1,12 @@
-"""Correlation-id (``X-Request-Id``) ASGI middleware.
+"""Correlation (``X-Request-Id``) and trace (``traceparent``) ASGI middleware.
 
-Reads the inbound ``X-Request-Id`` header (or generates one when the caller sends none) and makes
-it the active correlation id for the request's context, so every log line emitted while handling
-the request carries it (see :mod:`your_service_name.backend.logging.correlation`).
+Reads the inbound ``X-Request-Id`` header (keeping it only when it is at most 64 characters of
+``[A-Za-z0-9._-]``, otherwise generating one) and makes it the active correlation id for the
+request's context, so every log line emitted while handling the request carries it (see
+:mod:`your_service_name.backend.logging.correlation`). The id in use is echoed on the response.
+
+A valid W3C ``traceparent`` is parsed the same way (an invalid or absent one is ignored): its trace
+id lands on every log line. No trace id is ever generated here.
 
 This is a *pure* ASGI middleware — not a ``BaseHTTPMiddleware`` — precisely so the correlation id is
 set in the same context as the entire downstream handling (routers, services, the request-logging
@@ -14,17 +18,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from starlette.datastructures import Headers
+from starlette.datastructures import Headers, MutableHeaders
 
 from your_service_name.backend.logging.correlation import (
     HEADER_NAME,
+    TRACEPARENT_HEADER,
     get_request_id,
+    parse_traceparent,
     reset_request_id,
+    reset_trace_context,
     set_request_id,
+    set_trace_context,
 )
 
 if TYPE_CHECKING:
-    from starlette.types import ASGIApp, Receive, Scope, Send
+    from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
 class CorrelationIdMiddleware:
@@ -39,11 +47,28 @@ class CorrelationIdMiddleware:
             await self.app(scope, receive, send)
             return
 
-        token = set_request_id(Headers(scope=scope).get(HEADER_NAME))
-        # The scope outlives the context variable (reset below), and the catch-all 500 handler runs
-        # outside this middleware: leave the id on the scope's shared ``state`` for it.
-        scope.setdefault("state", {})["request_id"] = get_request_id()
+        headers = Headers(scope=scope)
+        token = set_request_id(headers.get(HEADER_NAME))
+        request_id = get_request_id()
+        # Exactly one traceparent header counts; a repeated one is ambiguous and ignored.
+        values = headers.getlist(TRACEPARENT_HEADER)
+        trace = parse_traceparent(values[0]) if len(values) == 1 else None
+        trace_token = set_trace_context(trace)
+        # The scope outlives the context variables (reset below), and the catch-all 500 handler runs
+        # outside this middleware: leave the ids on the scope's shared ``state`` for it.
+        state = scope.setdefault("state", {})
+        state["request_id"] = request_id
+        state["trace_context"] = trace
+        state["trace_id"] = trace.trace_id if trace else None
+
+        async def send_with_id(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                message.setdefault("headers", [])
+                MutableHeaders(scope=message)[HEADER_NAME] = request_id
+            await send(message)
+
         try:
-            await self.app(scope, receive, send)
+            await self.app(scope, receive, send_with_id)
         finally:
+            reset_trace_context(trace_token)
             reset_request_id(token)

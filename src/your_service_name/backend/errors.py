@@ -24,9 +24,13 @@ from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from your_service_name.backend.logging.correlation import (
+    HEADER_NAME,
     get_request_id,
+    get_trace_id,
     reset_request_id,
+    reset_trace_context,
     set_request_id,
+    set_trace_context,
 )
 
 if TYPE_CHECKING:
@@ -81,7 +85,7 @@ def request_ids(scope: Scope) -> tuple[str, str | None]:
     variables are already reset. Inside the correlation middleware the context variables answer.
     """
     state: Mapping[str, Any] = scope.get("state") or {}
-    return (state.get("request_id") or get_request_id(), state.get("trace_id"))
+    return (state.get("request_id") or get_request_id(), state.get("trace_id") or get_trace_id())
 
 
 def problem_response(
@@ -141,11 +145,15 @@ def _unhandled(request: Request, exc: Exception) -> JSONResponse:
     # Outside the correlation middleware the context variable is reset: restore it for the log line.
     request_id, _ = request_ids(request.scope)
     token = set_request_id(request_id)
+    trace_token = set_trace_context(request.scope.get("state", {}).get("trace_context"))
     try:
         logger.error("Unhandled exception", exc_info=exc)
     finally:
+        reset_trace_context(trace_token)
         reset_request_id(token)
-    return problem_response(request.scope, _SERVER_ERROR, _GENERIC_500)
+    return problem_response(
+        request.scope, _SERVER_ERROR, _GENERIC_500, headers={HEADER_NAME: request_id}
+    )
 
 
 def _describe(code: int, ref: str) -> dict[str, Any]:

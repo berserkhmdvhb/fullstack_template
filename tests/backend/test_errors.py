@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 from starlette.middleware import Middleware
 
 from your_service_name.backend.auth.dependencies import NotAuthenticatedError
+from your_service_name.backend.logging.correlation import RequestIdFilter
 from your_service_name.backend.main import create_app
 from your_service_name.backend.middleware.correlation import CorrelationIdMiddleware
 from your_service_name.backend.settings import Settings
@@ -183,3 +185,40 @@ def test_unhandled_exception_is_logged_with_the_request_id(
         client.get("/mw-boom", headers={"X-Request-Id": "log-me"})
     record = next(r for r in caplog.records if r.getMessage() == "Unhandled exception")
     assert record.exc_info is not None
+
+
+TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+
+def test_problem_carries_the_trace_id_when_the_caller_sent_one(client: TestClient) -> None:
+    body = _assert_problem(client.get("/nope", headers={"traceparent": TRACEPARENT}), 404, "/nope")
+    assert body["trace_id"] == "4bf92f3577b34da6a3ce929d0e0e4736"
+    assert "trace_id" not in client.get("/nope").json()
+
+
+def test_500_from_inside_a_middleware_keeps_the_ids_and_echoes_the_request_id(
+    client: TestClient,
+) -> None:
+    res = client.get("/mw-boom", headers={"X-Request-Id": "r-1", "traceparent": TRACEPARENT})
+    body = _assert_problem(res, 500, "/mw-boom")
+    assert (body["request_id"], body["trace_id"]) == ("r-1", "4bf92f3577b34da6a3ce929d0e0e4736")
+    assert res.headers["x-request-id"] == "r-1"
+
+
+def test_the_500_log_line_carries_both_ids(client: TestClient) -> None:
+    seen: list[tuple[str, str | None]] = []
+
+    class _Grab(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            RequestIdFilter().filter(record)
+            seen.append((getattr(record, "request_id", ""), getattr(record, "trace_id", None)))
+            return True
+
+    log = logging.getLogger("your_service_name.backend.errors")
+    flt = _Grab()
+    log.addFilter(flt)
+    try:
+        client.get("/mw-boom", headers={"X-Request-Id": "r-2", "traceparent": TRACEPARENT})
+    finally:
+        log.removeFilter(flt)
+    assert seen == [("r-2", "4bf92f3577b34da6a3ce929d0e0e4736")]
