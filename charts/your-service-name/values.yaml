@@ -186,7 +186,9 @@ waf:
   # Seconds Envoy keeps an idle upstream connection to the backend before closing it. It MUST stay
   # below the backend's keep-alive (BACKEND_KEEPALIVE_TIMEOUT, 75 s in infra/backend/run_backend.sh),
   # or Envoy can reuse a connection Uvicorn just closed and return a 502. Envoy's own default is
-  # one hour, which is why it is set explicitly. A test compares the two.
+  # one hour, which is why it is set explicitly. A test compares the two. The same rule holds on
+  # the default path: ingress-nginx's `upstream-keepalive-timeout` (default 60 s) must stay below
+  # the backend keep-alive too; raising it past that causes intermittent 502s.
   upstreamIdleTimeoutSeconds: 60
   resources:
     requests: {cpu: 100m, memory: 128Mi}

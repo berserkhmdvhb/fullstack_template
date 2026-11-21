@@ -218,7 +218,7 @@ rate limiter and the request logs see one value. Uvicorn's own proxy-header hand
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `TRUSTED_PROXY_CIDRS` | empty | The cloudflared and gateway Pod ranges of your cluster (comma-separated IPv4/IPv6 CIDRs). An invalid entry stops startup. |
+| `TRUSTED_PROXY_CIDRS` | empty | The cloudflared and gateway Pod ranges of your cluster (comma-separated IPv4/IPv6 CIDRs). An invalid entry stops startup, and so does one with host bits set (`10.1.2.3/8`): write the network form, `10.0.0.0/8`. |
 | `TRUST_CF_CONNECTING_IP` | `false` | Believe `CF-Connecting-IP` from a trusted peer. Set it only in the Tunnel edge mode. |
 
 Rules, in order:
@@ -226,8 +226,9 @@ Rules, in order:
 1. A peer that is missing, is not an IP, or is **not** in `TRUSTED_PROXY_CIDRS`: the peer is the
    client, and every forwarding header is ignored. A client cannot forge its own address.
 2. A trusted peer with `TRUST_CF_CONNECTING_IP` on and a `CF-Connecting-IP` holding exactly one valid
-   IP: that IP. Cloudflare overwrites the header at its edge; in the other edge modes nothing does,
-   so trusting it would let anyone forge it.
+   IP (a repeated or comma-separated value does not count): that IP. Cloudflare
+   [sends this header on traffic from its edge](https://developers.cloudflare.com/fundamentals/reference/http-headers/);
+   in the other edge modes nothing sets it, so trusting it would let anyone forge it.
 3. Otherwise a trusted peer's `X-Forwarded-For` is read **from the right**, skipping trusted hops;
    the first untrusted valid IP is the client. A value that is not an IP stops the walk at the last
    trusted hop, never at something left of it. If every entry is trusted, the leftmost is used.
@@ -242,6 +243,44 @@ but coarse. Set the ranges for your cluster (`values.yaml`, `config:`); producti
 
 The **edge rate limit** (Cloudflare, or the Ingress annotations above) is the first line of defence;
 this per-IP limit is the second.
+
+### What the trusted proxies must do
+
+The backend believes a trusted peer's headers, so every trusted hop has to **overwrite or append** to
+`X-Forwarded-For`, never pass a client-supplied value through unchanged. The
+resolver reads the header from the right, so an appended entry cannot be forged, but a client value
+passed through as the only entry could. Claims below are the vendors' own; check them against the
+versions you run.
+
+- **ingress-nginx.** With `use-forwarded-headers` at its default (`false`) it ignores incoming
+  `X-Forwarded-*` headers and fills them from the request it sees, which is safe. When it is `true`,
+  it passes the incoming headers on, and `proxy-real-ip-cidr` (default `0.0.0.0/0`) defines which
+  address is your external load balancer: at the default, any client counts as one. Narrow
+  `proxy-real-ip-cidr` to the real upstream load balancer, or enable `compute-full-forwarded-for`,
+  which appends the remote address and leaves the application to apply its own trusted list (this
+  resolver). [ConfigMap reference](https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/configmap/).
+  Its `upstream-keepalive-timeout` (default 60 s) must also stay below the backend keep-alive
+  (`BACKEND_KEEPALIVE_TIMEOUT`, 75 s): raising it past that causes intermittent 502s.
+- **Envoy (the WAF).** Without `use_remote_address` (the chart's setting) Envoy runs in a transparent
+  mode and does not modify `X-Forwarded-For`, and it trusts a downstream `X-Forwarded-Proto` only when
+  `xff_num_trusted_hops` is non-zero; at zero it overwrites the header with `http` or `https` from its
+  own connection. The chart sets `xff_num_trusted_hops: 1`, so the ingress's value reaches the backend.
+  That is safe only because ingress-nginx in front has already set the headers: **nothing but the
+  ingress may reach the WAF Pod.**
+  [Envoy header reference](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_conn_man/headers).
+- **Trusting a range trusts every Pod in it.** A Pod inside `TRUSTED_PROXY_CIDRS` can send any
+  `X-Forwarded-For` and be believed, so a [NetworkPolicy](#networkpolicy) must limit the backend port
+  to the gateway Pods (and `cloudflared`), and nothing else may be in the trusted range.
+- **`CF-Connecting-IP` is safe only when `cloudflared` is the only way in.** If the ingress or the
+  backend is reachable any other way, a client sends its own header and is believed.
+
+Per edge mode:
+
+| Edge mode | `TRUSTED_PROXY_CIDRS` | `TRUST_CF_CONNECTING_IP` |
+|-----------|-----------------------|--------------------------|
+| **Ingress** (the chart's default) | The ingress controller's Pod range, plus the WAF's (Envoy) when `waf.enabled`. | `false` |
+| **Tunnel** (Cloudflare Tunnel) | The same, plus `cloudflared`'s Pod range if it targets the backend Service directly. | `true`, with `cloudflared` the only way in |
+| **Google** load balancer / GKE Gateway | The Google front end that is the peer (its request source ranges are listed in the [load balancer documentation](https://cloud.google.com/load-balancing/docs/https)), **and the load balancer's own address**: the balancer appends `CLIENT_IP, LOAD_BALANCER_IP`, so without that address trusted every client resolves to it. | `false` |
 
 ---
 
