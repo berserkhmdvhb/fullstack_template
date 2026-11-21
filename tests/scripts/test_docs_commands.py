@@ -18,11 +18,7 @@ def _docs() -> list[Path]:
         text=True,
         check=True,
     ).stdout
-    return [
-        ROOT / name
-        for name in out.splitlines()
-        if not name.startswith((".superpowers", "wiki/plans"))
-    ]
+    return [ROOT / name for name in out.splitlines()]
 
 
 def test_no_doc_creates_a_job_from_a_job() -> None:
