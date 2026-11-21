@@ -711,7 +711,7 @@
     },
     "/api/v1/healthz": {
       "get": {
-        "description": "Return a bare health status for uptime/proxy monitors (e.g., a Kubernetes\nliveness probe or the NGINX Ingress Controller health check).\n\nReturns\n-------\nHealthStatus\n    A payload containing `status=\"ok\"`.\n\nNotes\n-----\n- This endpoint is intentionally minimal for fast checks by load balancers.",
+        "description": "Return a bare health status for uptime/proxy monitors (e.g., a Kubernetes\nliveness probe or an edge health check).\n\nReturns\n-------\nHealthStatus\n    A payload containing `status=\"ok\"`.\n\nNotes\n-----\n- This endpoint is intentionally minimal for fast checks by load balancers.",
         "operationId": "healthz_api_v1_healthz_get",
         "responses": {
           "200": {
