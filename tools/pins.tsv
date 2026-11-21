@@ -21,7 +21,9 @@
 # uv verifies that download with its built-in checksums, which is accepted here.
 # Node: the Active LTS (26.x). This row is the one source: frontend/.nvmrc, frontend/.node-version, the builder
 # images in Dockerfile.frontend and Dockerfile.nginx, the runtime image major, engines.node and packageManager
-# (the npm bundled with this Node) are each locked to it by tests/supply_chain/test_frontend_image.py.
+# are each locked to it by tests/supply_chain/test_frontend_image.py. packageManager names the npm bundled with
+# this Node; frontend/scripts/check-npm-version.mjs fails every frontend CI job and both image builds if the npm
+# that runs differs.
 #
 # Adding darwin-arm64: copy each linux-amd64 row, set platform to darwin-arm64, point the url at the
 # vendor's darwin/arm64 asset, take its sha256 from the same vendor checksum file, and add the

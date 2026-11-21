@@ -16,6 +16,10 @@ runs:
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: ${{ steps.pin.outputs.node-version }}
+    - name: Check the npm version
+      shell: bash
+      working-directory: frontend
+      run: node scripts/check-npm-version.mjs
     # Restored everywhere, saved only from a push to main (never from a pull request or a tag).
     - id: npm-cache
       shell: bash

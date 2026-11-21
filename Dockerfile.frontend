@@ -19,7 +19,10 @@ ENV NODE_ENV=production \
 
 # Install dependencies (devDeps included — see note above)
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --include=dev
+COPY frontend/scripts/check-npm-version.mjs ./scripts/
+# Fail the build when the image's npm is not the one package.json's packageManager names.
+RUN node scripts/check-npm-version.mjs \
+ && npm ci --include=dev
 
 # Copy source and build
 COPY frontend/ ./

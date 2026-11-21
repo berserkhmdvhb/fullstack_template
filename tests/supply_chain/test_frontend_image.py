@@ -30,7 +30,9 @@ def test_the_nginx_frontend_builder_is_the_pinned_node_version() -> None:
     nginx = (ROOT / "Dockerfile.nginx").read_text(encoding="utf-8")
     match = re.search(r"^FROM (\S+) AS frontend-builder$", nginx, re.MULTILINE)
     assert match
-    assert match[1].startswith(f"node:{_pinned_node_version()}-trixie-slim@sha256:")
+    tag = re.fullmatch(r"node:([\d.]+)-trixie-slim@sha256:[0-9a-f]{64}", match[1])
+    assert tag, "the nginx frontend-builder must be node:<version>-trixie-slim pinned by digest"
+    assert tag[1] == _pinned_node_version()
 
 
 def test_the_version_files_and_engines_follow_the_pin() -> None:
@@ -57,3 +59,16 @@ def test_the_runtime_is_the_pinned_nodejs_major_pinned_by_digest() -> None:
     assert re.fullmatch(
         rf"gcr\.io/distroless/nodejs{major}-debian\d+@sha256:[0-9a-f]{{64}}", _stage("runtime")
     )
+
+
+def test_every_npm_runner_checks_the_package_manager_version() -> None:
+    """CI and both image builds run check-npm-version.mjs; it needs no Node here, only the calls."""
+    action = (ROOT / ".github/actions/setup-frontend/action.yml").read_text(encoding="utf-8")
+    assert "node scripts/check-npm-version.mjs" in action
+    assert action.index("node scripts/check-npm-version.mjs") < action.index("npm ci")
+    for name in ("Dockerfile.frontend", "Dockerfile.nginx"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert "COPY frontend/scripts/check-npm-version.mjs" in text, name
+        assert text.index("node scripts/check-npm-version.mjs") < text.index("&& npm ci"), name
+    package = json.loads((ROOT / "frontend/package.json").read_text(encoding="utf-8"))
+    assert re.fullmatch(r"npm@\d+\.\d+\.\d+", package["packageManager"])

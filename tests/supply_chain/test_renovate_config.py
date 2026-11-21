@@ -110,6 +110,20 @@ def test_every_name_based_rule_is_scoped_to_the_pin_file() -> None:
             assert rule.get("matchFileNames") == ["tools/pins.tsv"], rule["description"]
 
 
+def test_the_node_cap_covers_every_manager_that_tracks_node_and_follows_the_pin() -> None:
+    rule = next(r for r in renovate()["packageRules"] if r.get("matchPackageNames") == ["node"])
+    assert {"custom.regex", "nvm", "nodenv", "dockerfile"} <= set(rule["matchManagers"])
+    assert rule["groupName"] == "node"
+    major = (
+        next(r for r in PINS.splitlines() if r.startswith("node\t")).split("\t")[1].split(".")[0]
+    )
+    cap = re.fullmatch(r"/(.+)/", rule["allowedVersions"])
+    assert cap
+    assert re.search(cap[1], f"{major}.1.2")
+    assert re.search(cap[1], f"{major}.1.2-trixie-slim")
+    assert not re.search(cap[1], f"{int(major) + 1}.0.0")
+
+
 def test_the_split_values_format_is_matched_once_a_digest_is_set() -> None:
     values = (ROOT / "charts" / "your-service-name" / "values.yaml").read_text(encoding="utf-8")
     manager = next(

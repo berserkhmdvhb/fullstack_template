@@ -22,6 +22,8 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
+    // Node 25+ has its own global localStorage (undefined without --localstorage-file) that shadows the DOM's.
+    execArgv: ['--no-experimental-webstorage'],
     globals: true,
     setupFiles: ['./src/test/setup.tsx'],
     include: ['**/*.{test,spec}.{ts,tsx}'],
