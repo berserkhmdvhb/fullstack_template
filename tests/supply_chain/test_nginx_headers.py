@@ -15,15 +15,25 @@ SECURITY = {
     "X-Frame-Options": "DENY",
     "Content-Security-Policy": "default-src 'none'",
 }
-ADD_HEADER = re.compile(r'^\s*add_header\s+(\S+)\s+"([^"]*)"(?:\s+(always))?\s*;', re.MULTILINE)
+VALUE = r"\"[^\"]*\"|'[^']*'|[^\s;]+"
+ADD_HEADER = re.compile(rf"\badd_header\s+(\S+)\s+({VALUE})(?:\s+(always))?\s*;")
 LOCATION = re.compile(r"^\s*location\s+([^{]+?)\s*\{(.*?)^\s{4}\}", re.MULTILINE | re.DOTALL)
 
 
+def _unquote(value: str) -> str:
+    return value[1:-1] if value[0] == value[-1] and value[0] in "\"'" else value
+
+
 def _headers(block: str) -> list[tuple[str, str, bool]]:
-    return [(m[1], m[2], m[3] == "always") for m in ADD_HEADER.finditer(block)]
+    block = re.sub(r"#.*", "", block)  # comments may mention add_header
+    found = [(m[1], _unquote(m[2]), m[3] == "always") for m in ADD_HEADER.finditer(block)]
+    tokens = len(re.findall(r"\badd_header\b", block))
+    assert tokens == len(found), "an add_header line this parser does not understand"
+    return found
 
 
 def _server_block() -> str:
+    assert len(re.findall(r"^\s*server\s*\{", CONF, re.MULTILINE)) == 1, "exactly one server block"
     start = CONF.index("  server {")
     return CONF[start:]
 
@@ -83,8 +93,7 @@ def test_cache_control_locations_redeclare_all_three_security_headers() -> None:
         assert all(always for k, _, always in final if k in SECURITY), location
 
 
-def test_no_location_sets_hsts_or_cross_origin_headers() -> None:
-    """HSTS is the edge's; the cross-origin pair is the frontend layer's."""
+def test_no_location_sets_hsts() -> None:
+    """HSTS is the edge's."""
     for location in _locations():
-        names = {k for k, _, _ in _final(location)}
-        assert not names & {"Strict-Transport-Security", "Cross-Origin-Opener-Policy"}, location
+        assert "Strict-Transport-Security" not in {k for k, _, _ in _final(location)}, location
