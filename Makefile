@@ -3,7 +3,7 @@
     ruff-format ruff-format-check ruff-lint ruff-lint-fix mypy-check \
     openapi-gen openapi-drift-check \
     shellcheck tools tools-dry-run \
-    check-all check-all-dry \
+    check-all check-all-dry precommit \
     test test-unit test-integration test-e2e test-live test-file test-file-function test-fast \
     test-coverage test-coverage-xml test-cov-html test-coverage-rep test-coverage-file \
     check-updates check-toml \
@@ -60,6 +60,7 @@ help::
 	@echo "  shellcheck               Lint all tracked shell scripts (*.sh + *.bats) with ShellCheck"
 	@echo "  check-all                Run dev tool drift check + format + lint + mypy"
 	@echo "  check-all-dry            Same as above but without auto-format (format-check)"
+	@echo "  precommit                Run every pre-commit hook on all files (pinned pre-commit, no network)"
 	@echo "  openapi-gen              Regenerate openapi.json + TS types from the backend single source"
 	@echo "  openapi-drift-check      Fail if committed openapi.json / types.gen.d.ts is stale (CI mirror)"
 	@echo ""
@@ -259,6 +260,11 @@ dev-tools-upgrade:
 
 check-all: dev-tools-outdated ruff-format ruff-lint-fix mypy-check
 check-all-dry: dev-tools-outdated ruff-format-check ruff-lint mypy-check
+
+# The hooks in .pre-commit-config.yaml, run by the pinned pre-commit (tools/pins.tsv).
+precommit:
+	@test -x .tools/bin/pre-commit || { echo "pre-commit not found; run: scripts/tools.sh install pre-commit" >&2; exit 1; }
+	.tools/bin/pre-commit run --all-files
 
 # -------------------------------------------------------------------
 # Tests

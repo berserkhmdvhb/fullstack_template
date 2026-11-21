@@ -1,0 +1,68 @@
+# Run with `make precommit` (all files) or `pre-commit install` (on every commit).
+# Every hook is a local one that calls the tool CI uses, so each version has one source: the
+# project venv (pyproject.toml), the frontend lockfile, or tools/pins.tsv via scripts/tools.sh.
+# A missing tool fails with the command that installs it. Nothing here needs the network.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format --check
+        entry: scripts/ci/hook-run.sh ruff make -s ruff-format-check
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: ruff
+        name: ruff check
+        entry: scripts/ci/hook-run.sh ruff make -s ruff-lint
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: prettier
+        name: prettier --check
+        entry: scripts/ci/hook-run.sh npm npm --prefix frontend run format-check
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: eslint
+        name: eslint
+        entry: scripts/ci/hook-run.sh npm npm --prefix frontend run lint
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: shellcheck
+        name: shellcheck
+        entry: scripts/ci/hook-run.sh shellcheck bash scripts/ci/shell-lint.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: hadolint
+        name: hadolint
+        entry: scripts/ci/hook-run.sh hadolint scripts/ci/hadolint.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+      # The staged diff only: the full-history scan stays in the security workflow.
+      - id: gitleaks
+        name: gitleaks (staged changes)
+        entry: scripts/ci/hook-run.sh gitleaks gitleaks git --pre-commit --staged --redact --no-banner
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: actionlint
+        name: actionlint
+        entry: scripts/ci/hook-run.sh actionlint actionlint
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: yamllint-values
+        name: yamllint (chart values)
+        entry: scripts/ci/hook-run.sh yamllint scripts/ci/yamllint-values.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: placeholder-leftovers
+        name: placeholder leftovers
+        entry: scripts/ci/check-placeholder-leftovers.sh
+        language: system
+        pass_filenames: false
+        always_run: true
