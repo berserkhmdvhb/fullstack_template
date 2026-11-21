@@ -236,6 +236,7 @@ gh attestation verify oci://ghcr.io/<owner>/<repo>/<image>@sha256:<digest> --rep
 ```
 
 The release run runs the same `cosign verify` after signing, and fails if it does not pass.
+The hardening lint's `provenance` check is enforced: it fails when `reusable-build.yml` loses its sign, verify or attest steps. The comments in `infra/security/check-ci-hardening.sh` that call provenance a SKIP predate this.
 Pin to a tag or to `main` with `--certificate-identity-regexp` only when you accept every ref.
 
 ---

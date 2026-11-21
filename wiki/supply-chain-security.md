@@ -38,7 +38,7 @@ of them (see [Citations](#citations)). The template's controls map onto those st
 | **Source code** | Your repo, commits, CI definition | injected code, secret leakage, a tampered CI config | CodeQL, gitleaks, the workflow hardening lint |
 | **Materials / dependencies** | Third-party packages | typosquats, compromised / malicious deps | OSV-Scanner, GuardDog |
 | **Build / CI pipeline** | The reproducible build | a compromised builder or pipeline step | buildx on GitHub-hosted runners, SHA-pinned actions, pinned + checksum-verified tools, `main` and `v*` gating |
-| **Artifacts** | Built images + their metadata | impersonation / drift, known CVEs, license risk | SBOM (Syft), Grype, grant, digest-pin (image signing / SLSA provenance *not delivered yet*) |
+| **Artifacts** | Built images + their metadata | impersonation / drift, known CVEs, license risk | SBOM (Syft), Grype, grant, digest-pin, keyless image signing, SLSA provenance and SBOM attestations |
 | **Deployment & distribution** | Registries, clusters, runtime | an unsigned or drifted image actually running | digest-pin, admission *(roadmap)*, VEX actuation |
 
 ```mermaid
@@ -56,7 +56,7 @@ No single control covers every stage, so the template runs a **layered (defense-
 each layer covers a different target or detection model. The building blocks it leans on — an
 **SBOM**, **OpenVEX**, **digest-pin**, and the **NIST SSDF** process framework — are the same ones
 the CNCF guidance maps onto these stages. (**SLSA** provenance and **Sigstore** keyless signing are
-part of that model too, but are **not delivered yet** — see
+part of that model too and are delivered: see
 [Delivered vs roadmap](#delivered-vs-roadmap).)
 
 ## The NIST SSDF umbrella
@@ -68,7 +68,7 @@ the whole SDLC**:
 | Group | Meaning | Where the template's controls land |
 |---|---|---|
 | **PO — Prepare** the organization | Profiles, secure dev environments / tooling, policy, training | *forward work* (process level) |
-| **PS — Protect** the software | Source / artifact integrity, least privilege, immutable artifacts | digest-pin, `main` and `v*` gating (image signing *not delivered yet*) |
+| **PS — Protect** the software | Source / artifact integrity, least privilege, immutable artifacts | digest-pin, keyless image signing, `main` and `v*` gating |
 | **PW — Produce** well-secured software | Secure design / coding, code review, dev-time vuln scanning | SAST, the quality gates (ruff / mypy / tests) |
 | **RV — Respond** to vulnerabilities | Response process, disclosure, coordination | OpenVEX, SBOM-consumption / fixable-CVE SLA *(roadmap)* |
 
@@ -122,8 +122,8 @@ row holds this repo's *how*.
 | Concept | What it is | Why it matters here | Deep doc |
 |---|---|---|---|
 | **SBOM** | A machine-readable inventory of a product's components ("list of ingredients"). Two leading standards: **SPDX** (ISO/IEC 5962) and **CycloneDX** (ECMA-424); this template emits **CycloneDX** via Syft. | You can't reason about what's in an image without an inventory; the SBOM is the input to vulnerability + license scanning and to VEX. | [`containerization.md`](./containerization.md) |
-| **SLSA provenance** | A signed attestation of *how* an artifact was built. SLSA v1.2 defines a **Build track at L0–L3 (no L4)** plus a **Source track**; hermetic / reproducible builds are a future direction, not a current requirement. | Provenance lets you verify an image was built where you think it was — the basis for admission enforcement. **Not delivered yet** (arrives in a later change); see [ROADMAP](./ROADMAP-supply-chain.md). | [`containerization.md`](./containerization.md) |
-| **Sigstore keyless signing** | cosign signs with an **ephemeral** key; **Fulcio** issues a short-lived certificate bound to the signer's OIDC identity; **Rekor** records the event in an append-only transparency log. The signature is then **enforced-verified** against the project's issuer + identity. | A signature proves the image came from this project's pipeline; keyless means no long-lived signing key to leak. **Not delivered yet** (no signing stage). | [`containerization.md`](./containerization.md) |
+| **SLSA provenance** | A signed attestation of *how* an artifact was built. SLSA v1.2 defines a **Build track at L0–L3 (no L4)** plus a **Source track**; hermetic / reproducible builds are a future direction, not a current requirement. | Provenance lets you verify an image was built where you think it was — the basis for admission enforcement. **Delivered**: `actions/attest-build-provenance` per image digest; see [Verifying an image](./security.md#verifying-an-image). | [`containerization.md`](./containerization.md) |
+| **Sigstore keyless signing** | cosign signs with an **ephemeral** key; **Fulcio** issues a short-lived certificate bound to the signer's OIDC identity; **Rekor** records the event in an append-only transparency log. The signature is then **enforced-verified** against the project's issuer + identity. | A signature proves the image came from this project's pipeline; keyless means no long-lived signing key to leak. **Delivered**: `sign-attest` in `reusable-build.yml`; identity and verification in [Verifying an image](./security.md#verifying-an-image). | [`containerization.md`](./containerization.md) |
 | **Digest-pin** | Referencing an image by its immutable `repository@sha256:…` digest, **captured** at build — never floated on a mutable `:latest` / `:main` tag. | Guarantees what you deploy is byte-identical to what you signed / attested / vetted (zero-trust promotion). | [`ci-cd.md`](./ci-cd.md) |
 | **OpenVEX** | A VEX (Vulnerability Exploitability eXchange) statement **complements** the SBOM by asserting whether a product is *affected* by a CVE — statuses: `not_affected`, `affected`, `fixed`, `under_investigation`. It complements — does not replace — the SBOM or signing. | Turns scanner noise into an actionable "this CVE is not exploitable here", so fixable ones get prioritised. | [`ci-cd.md`](./ci-cd.md) |
 | **Typosquat / malicious dep** | A look-alike package name (e.g. `0requests`) that is malicious. SCA matches *known CVEs* and **misses** these at ingest; the OpenSSF **malicious-packages** corpus (OSV `MAL-*`) and heuristic tools catch them. | The #1 rising supply-chain vector; a single malicious dep runs in your build. | [`supply-chain-tooling-assessment.md`](./supply-chain-tooling-assessment.md) |
@@ -143,8 +143,8 @@ intentional overlaps are in the [tooling assessment](./supply-chain-tooling-asse
 | ~~**matcher** (`malware_scan`)~~ | — | **Retired.** Known-`MAL-*` coverage now comes from **OSV-Scanner**; the hand-rolled matcher was removed. | — | — | — | — |
 | **GuardDog** (`security.yml` / `advisory`, leg `guarddog`) | typosquat / heuristic | **direct** deps (PyPI + npm) | proactive heuristic | advisory | pull requests, `main`, tags | [`supply-chain-tooling-assessment.md`](./supply-chain-tooling-assessment.md) |
 | **CodeQL, gitleaks, dependency review** (`security.yml`) | code analysis, secrets, new vulnerable or disallowed-licence dependencies | source | static analysis, secret rules, advisory DB | **gate** (dependency review on pull requests only) | pull requests, `main`, tags | [`ci-cd.md`](./ci-cd.md) |
-| ~~**cosign** (signing, provenance)~~ | — | **Not delivered yet.** Image signing and SLSA provenance arrive as GitHub attestations in a later change. | — | — | — | [`ROADMAP-supply-chain.md`](./ROADMAP-supply-chain.md) |
-| **Digest verify** (`release.yml` / `build`, `digests`) | digest-pin + verify | image | immutable `sha256` | **gate** | `main` and `v*` tags only | [`containerization.md`](./containerization.md) |
+| **cosign + GitHub attestations** (`reusable-build.yml` / `sign-attest`) | signing, provenance, SBOM attestation | image digest | Sigstore (Fulcio, Rekor), GitHub OIDC | **gate** (the run fails if `cosign verify` fails) | `main` and `v*` tags only | [`security.md`](./security.md#verifying-an-image) |
+| **Digest verify** (`reusable-build.yml` / `build`, `release.yml` / `digests`) | digest-pin + verify | image | immutable `sha256` | **gate** | `main` and `v*` tags only | [`containerization.md`](./containerization.md) |
 | **OpenVEX** (`release.yml` / `vex`) | VEX (`not_affected` / `fixed`) | shipped digest | exploitability assertion | advisory document | `main` and `v*` tags only | [`ci-cd.md`](./ci-cd.md) |
 | **Workflow hardening** (`ci.yml` / `workflows`) | lints the repo's own workflows | `.github/` | hardening lint, actionlint, zizmor | **gate** | pull requests, `main`, tags | [`ci-cd.md`](./ci-cd.md) |
 
@@ -159,9 +159,8 @@ intentional overlaps are in the [tooling assessment](./supply-chain-tooling-asse
 
 Everything in the control table above is **delivered**, and the image-touching jobs run only on
 `main` and `v*` tags (a pull request author can never resolve a production digest). Image **signing +
-SLSA provenance are *not delivered yet*** — they arrive as GitHub attestations in a later
-change, and head the dependency-ordered roadmap in
-[`ROADMAP-supply-chain.md`](./ROADMAP-supply-chain.md). The rest of what is **not** implemented yet —
+SLSA provenance are delivered** too (see [Verifying an image](./security.md#verifying-an-image)). What is **not** implemented yet, in
+[`ROADMAP-supply-chain.md`](./ROADMAP-supply-chain.md) —
 cryptographic **admission enforcement** (Kyverno), a **distroless** backend base, OpenSSF Scorecard,
 and the SBOM-consumption / VEX-actuation loop — is that same roadmap. Together they cover the known gaps: signing, provenance and admission, malicious dependencies, the CI's own
 supply chain, and the adjacent runtime and cluster items.
@@ -177,7 +176,7 @@ root; they write to the same `output/security/` shape the pipeline consumes.
 | `devsec.sh osv` | `advisory`, leg `osv` |
 | `devsec.sh malware-heuristic` | `advisory`, leg `guarddog` |
 | `devsec.sh audit` | `pip-audit` |
-| ~~`devsec.sh sign`~~ | — (not delivered yet: image signing / attestation) |
+| ~~`devsec.sh sign`~~ | — (signing runs only in `reusable-build.yml`, never locally) |
 | `devsec.sh vex` | `vex` (release) |
 
 > Image-level subcommands (`sbom`, `vex`) need a built, pushed image and registry

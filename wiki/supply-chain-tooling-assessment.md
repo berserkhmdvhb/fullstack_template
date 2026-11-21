@@ -39,7 +39,7 @@ should be **retired**, not stacked. The sections below mark each overlap accordi
 | CVE audit — JS | **npm audit** job (advisory) | locked graph | npm advisory DB | known-CVE |
 | SCA (built-in) | the old platform-built-in **Dependency-Scanning** (now GitHub dependency review) | source | platform advisory DB / NVD | known-CVE |
 | License | **grant** (`grant_license_scan`) | image SBOM | license DB | policy |
-| Signing / provenance | **cosign** + SLSA *(now parked — removed)* | image | Sigstore | verification |
+| Signing / provenance | **cosign** + GitHub attestations *(delivered: `reusable-build.yml`)* | image | Sigstore | verification |
 | **Malicious / typosquat** | **OSV-Scanner** (`osv` leg) | manifests | OSV `MAL-*` | **known-bad list** |
 
 Two observations drive everything below:
@@ -61,7 +61,7 @@ Two observations drive everything below:
 | 0 Inventory | Syft | SBOM | image | produces the component list | — |
 | 1 Known-CVE SCA | **Grype** (image) **+ OSV-Scanner (lockfile/source)** | CVE matching | **image** vs **lockfile** | **different target + different data source (OSV.dev)** → complementary (the sources' "run both, diff the results") | Grype: tag-gated; OSV-Scanner: advisory |
 | 2 Malicious / typosquat | **OSV-Scanner (known `MAL-*`)** **+ GuardDog (heuristic)** | malicious/typosquat | manifests / direct deps | **different model**: known-bad list (OSV `MAL-*`) vs proactive heuristic | OSV-Scanner: advisory; GuardDog: advisory |
-| 3 Provenance | cosign + SLSA *(now parked — removed)* | signing / digest-pin | image | integrity | hard |
+| 3 Provenance | cosign + GitHub attestations *(delivered: `reusable-build.yml`)* | signing / digest-pin | image | integrity | hard |
 
 The two *intentional* overlaps are both justified:
 - **Grype ↔ OSV-Scanner** — same concern (CVE), but Grype scans the *built image*

@@ -51,7 +51,7 @@ agent/
   GitHub Actions).
 - **Not here:** the project work records. The plans / review that recorded how *this* template was
   brought up to its supply-chain standard (digest-pin, OpenVEX, typosquat/malicious-dep detection, CI
-  self-check; keyless signing + SLSA provenance since parked) and CI/CD standard (digest-pin / distribution
+  self-check; keyless signing + SLSA provenance since delivered in `reusable-build.yml`) and CI/CD standard (digest-pin / distribution
   integrity)
   were working artifacts, not part of the transfer bundle. The delivered docs live in `wiki/`
   (incl. `wiki/supply-chain-tooling-assessment.md`, the tooling decision record); the jobs in

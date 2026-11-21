@@ -16,7 +16,8 @@ the supply-chain and CI/CD pipeline practices this template aims for — and why
 
 | Control | Job(s) | Stage | Where documented |
 |---------|--------|-------|------------------|
-| Immutable digest-pin | `release.yml` `build` / `digests` → `scripts/ci/deploy-verify.sh` | release / deploy | [`wiki/ci-cd.md`](./ci-cd.md) |
+| Immutable digest-pin | `reusable-build.yml` `build`, `release.yml` `digests` → `scripts/ci/deploy-verify.sh` | release / deploy | [`wiki/ci-cd.md`](./ci-cd.md) |
+| Keyless signing, SLSA provenance, SBOM attestation | `reusable-build.yml` `sign-attest` | release | [`wiki/security.md`](./security.md#verifying-an-image) |
 | OpenVEX (`not_affected` / `fixed_version`) | `release.yml` `vex` | release | [`wiki/security.md`](./security.md) |
 | Typosquat / malicious-dep detection | `security.yml` `advisory` leg `osv` (OSV-Scanner `MAL-*`) | security | [`wiki/security.md`](./security.md) |
 | CI's-own-supply-chain self-check | `ci.yml` `workflows` (hardening lint, actionlint, zizmor) | ci | [`wiki/security.md`](./security.md) |
@@ -25,38 +26,23 @@ Everything in this table runs on **`main` and `v*` tags only** for the image-tou
 (`vex`) — a pull request author can never resolve a production digest. The source-level checks
 (`osv`, `workflows`) also run on pull requests for fast feedback.
 
-> **Image signing + SLSA provenance are NOT delivered here yet.** The old pipeline signed keylessly
-> with cosign and attested SLSA in-toto provenance, then parked both; the GitHub release workflow
-> ships no signing or attestation stage yet. A later change delivers
-> them as GitHub artifact attestations. They head the roadmap below
-> (item `0`) because the image-touching work depends on them. An adopter that needs signed /
-> provenanced images before then adds them to `release.yml` — see
-> [`containerization.md`](./containerization.md).
+> **Image signing + SLSA provenance are delivered** (item `0`): `reusable-build.yml` signs every image
+> digest keyless and attaches provenance and SBOM attestations. Admission enforcement (item `1`) is
+> what is still missing, so nothing yet *refuses* an unsigned image at runtime.
 
 ---
 
-## 0. Keyless cosign signing + SLSA provenance — *parked*
+## 0. Keyless cosign signing + SLSA provenance — *delivered*
 
-The template previously delivered **keyless cosign signing** (`cosign:sign`) and **SLSA in-toto
-provenance** (`cosign:attest`) on protected refs (Fulcio + Rekor,
-enforced-verify pinned to the project's OIDC issuer + identity). Both were **parked** — the jobs,
-`infra/security/sign-images.sh` / `attest-provenance.sh`, and the SLSA predicate template were
-removed, and the CI self-check now surfaces its `slsa-provenance` control as a roadmap SKIP rather
-than a false GREEN. This template therefore ships **no signed or provenanced images**.
+`reusable-build.yml` (called by `release.yml` on `main` and `v*` tags only) signs each image digest
+keyless with the pinned cosign after the blocking Grype gate, verifies the signature against the
+workflow identity, and attaches a SLSA build-provenance attestation and a CycloneDX SBOM attestation
+(`push-to-registry`). A pull request never reaches it. The hardening lint's `image-push-isolation`
+and `provenance` checks keep it that way. The certificate identity and the manual verification are
+in [`security.md`](./security.md#verifying-an-image).
 
-Why it is parked:
-
-- Signing / provenance only buy what **admission enforces**: without a cluster policy
-  that *denies* unsigned / un-provenanced pods (item `1`), a build-time signature is assurance the
-  runtime never checks — a structural hole. With admission itself deferred, the build-time control
-  is low-leverage for the template's Compose / `main` flavour.
-- Keyless signing needs a **Fulcio-trusted OIDC issuer** (`COSIGN_OIDC_ISSUER`) and a registry that
-  stores and propagates signatures — a project / infra setup, not a service-repo edit.
-- It is **`main` and `v*` only** by design (a pull request author must never mint a signature), so it adds CI
-  surface the minimal template does not yet need.
-
-To deliver it: add signing and attestation jobs to `release.yml` (each declaring `id-token: write` and
-`attestations: write`), and pin the tooling in `infra/security/config.yaml`. The self-check's `slsa-provenance` control then grades it PASS again.
+Signing and provenance only buy what **admission enforces**: until a cluster policy *denies*
+unsigned pods (item `1`), the build-time signature is assurance the runtime never checks.
 
 See [`wiki/supply-chain-security.md`](./supply-chain-security.md).
 
@@ -64,7 +50,7 @@ See [`wiki/supply-chain-security.md`](./supply-chain-security.md).
 
 ## 1. Kubernetes admission (Kyverno) — *roadmap*
 
-**Depends on:** keyless cosign signing + SLSA provenance (parked — item `0`).
+**Depends on:** keyless cosign signing + SLSA provenance (delivered — item `0`).
 
 Add a **Kyverno** admission policy that *denies* a pod unless its image is **signed** and carries
 an **SLSA provenance attestation** (verify at admission time, not just at build time). This closes
@@ -101,20 +87,14 @@ See the container-hardening notes in [`wiki/security.md`](./security.md).
 
 ## 3. CI-hardening controls — *surfaced, not waved*
 
-The CI self-check (`infra/security/check-ci-hardening.sh`) grades five controls. Two are not simply
-satisfied in-repo and are surfaced as **SKIP** (neither a false GREEN nor a gate-blocking RED):
+The CI self-check (`infra/security/check-ci-hardening.sh`) grades, among others:
 
-- **SLSA provenance (`slsa-provenance`).** Surfaced as roadmap because image signing + provenance
-  are **not delivered yet** (item `0`) — there is no attestation for the control to detect, so it SKIPs rather
-  than falsely GREENing off a prose mention. Delivering the attestations makes it
-  PASS again. The build-level workload identity (binding the image build to a GitHub OIDC token,
-  so provenance is workload-attested "toward L3") is delivered with them.
+- **SLSA provenance (`provenance`).** Graded for real: when `release.yml` calls `reusable-build.yml`, that workflow must sign, verify after signing, and attest provenance and the SBOM with `push-to-registry`. The build-level workload identity (the GitHub OIDC token) binds the image to the build.
 - **Environment-scoped secrets.** On GitHub, secrets are scoped to an Environment and gated by its
   deployment rules; that is a repository setting, set by `scripts/github-settings.sh` and checked by
   the `environment-for-secrets` lint, not by repo YAML alone.
 
-The self-check gates RED only on a real regression of a *verifiable* control; the not-verifiable
-control neither passes nor fails the gate.
+The self-check goes RED on a real regression of a control it can verify in the YAML.
 
 ---
 
@@ -181,12 +161,12 @@ flowchart LR
     subgraph Delivered["Delivered (baseline)"]
         V["build + digests<br/>digest-pin"]
         X["vex<br/>OpenVEX"]
+        S["sign-attest<br/>signatures + attestations"]
         M["osv<br/>MAL-*"] & H["workflows<br/>hardening lint"]
     end
 
     subgraph Roadmap["Roadmap"]
-        S["Keyless signing<br/>(attestation)"] --> A["SLSA provenance<br/>(attestation)"]
-        K["Kyverno admission<br/>(depends on S + A)"]
+        K["Kyverno admission<br/>(enforces the delivered signatures)"]
         D["Distroless backend base"]
         I["OIDC build identity"]
         P["environment-scoped secrets<br/>(repository setting)"]

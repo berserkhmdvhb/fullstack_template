@@ -240,7 +240,7 @@ Beyond the built-in scanners, the pipeline hardens its own supply chain:
 
 See [`wiki/security.md`](wiki/security.md), [`wiki/containerization.md`](wiki/containerization.md)
 and [`wiki/ci-cd.md`](wiki/ci-cd.md). What is intentionally **not** yet implemented (Kyverno
-admission, distroless backend, signing and provenance until their phase lands) is tracked
+admission, distroless backend) is tracked
 in [`wiki/ROADMAP-supply-chain.md`](wiki/ROADMAP-supply-chain.md).
 
 ---

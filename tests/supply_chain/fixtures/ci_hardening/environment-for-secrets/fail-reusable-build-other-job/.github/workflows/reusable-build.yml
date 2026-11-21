@@ -1,0 +1,20 @@
+name: B
+on: workflow_call
+permissions: {}
+jobs:
+  sign-attest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write  # keyless signing: exempt by file and job id
+    steps:
+      - run: echo sign
+  other:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write  # not exempt: only the sign-attest job is
+    steps:
+      - run: echo other

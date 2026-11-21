@@ -170,6 +170,6 @@ The template used to run on GitLab CI (`ci/*.yml`). Every old job key is mapped 
 | `dast_scan` | `dast.yml` / `dast` | advisory -> advisory | |
 | `ci:hardening-selfcheck` (in the docs, not in the YAML) | `ci.yml` / `workflows` | blocking -> blocking | hardening lint plus actionlint and zizmor |
 | `malware_scan` (retired in the old tree) | retired | n/a | replaced by OSV-Scanner `MAL-*` |
-| `cosign:sign`, `cosign:attest` (parked in the old tree) | retired | n/a | delivered as GitHub attestations in a later change |
+| `cosign:sign`, `cosign:attest` | `reusable-build.yml` / `sign-attest` | blocking -> blocking | `main` and `v*` only; GitHub attestations |
 | `publish_sbom_registry` (removed) | retired | n/a | the package registry has no GitHub equivalent |
 | self-hosted runner for `live` | retired | n/a | GitHub-hosted runners |

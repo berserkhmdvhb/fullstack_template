@@ -101,8 +101,8 @@ under `infra/security/local/` — the eight shared `infra/security/*.sh` scripts
 - You want to add/extend a supply-chain scanner → use the `add-supply-chain-scanner` skill
   (`agent/skills/add-supply-chain-scanner`), which encodes this exact invariant.
 
-**Why.** The supply-chain chain (signing → SLSA provenance → digest-pin — the first two parked in
-this template) only has integrity if a PR author cannot forge any link in it. Depth:
+**Why.** The supply-chain chain (signing → SLSA provenance → digest-pin, all delivered in
+`reusable-build.yml`) only has integrity if a PR author cannot forge any link in it. Depth:
 [`wiki/security.md`](wiki/security.md), [`wiki/containerization.md`](wiki/containerization.md).
 
 ## 6. Version comes from Git, never from a literal

@@ -363,3 +363,10 @@ def test_pyyaml_lock_matches_every_other_pyyaml_pin() -> None:
             continue
         assert other.split()[0] == "pyyaml==6.0.3", path.name
         assert hashes(other) == hashes(lock), path.name
+
+
+def test_only_the_sign_attest_job_is_exempt_from_the_environment_rule() -> None:
+    root = FIXTURES / "environment-for-secrets" / "fail-reusable-build-other-job"
+    out = run_lint(root).stdout
+    flagged = re.findall(r"environment-for-secrets job (\S+) ", out)
+    assert flagged == ["other"], out

@@ -34,6 +34,7 @@ import yaml
 
 USAGE_ERROR = 2
 REUSABLE_BUILD = ".github/workflows/reusable-build.yml"
+SIGNING_JOB = "sign-attest"
 _REUSABLE_REF = "./" + REUSABLE_BUILD
 _CLOUD_LOGIN_REF = (
     "./.github/workflows/deploy.yml"  # its caller grants id-token for the cloud login
@@ -516,9 +517,8 @@ def check_environment_for_secrets(doc: Doc) -> list[Finding]:
         if "environment" in job:
             continue
         reasons = _job_secret_reasons(job, top_idtoken=top_idtoken)
-        if doc.name.endswith(
-            REUSABLE_BUILD
-        ):  # keyless signing mints a Sigstore certificate, no cloud secret
+        # Keyless signing needs no cloud credential; only this one job is exempt.
+        if doc.name.endswith(REUSABLE_BUILD) and job_id == SIGNING_JOB:
             reasons = [r for r in reasons if r != "id-token: write"]
         if reasons:
             found.append(

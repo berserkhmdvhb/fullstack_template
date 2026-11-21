@@ -16,7 +16,7 @@ Per-service Dockerfiles, buildx builds in GitHub Actions, container runtime, and
 - [Image Tags](#image-tags)
 - [Health Check](#health-check)
 - [Build Helpers](#build-helpers)
-- [Digest-Pin (signing & provenance parked)](#digest-pin-signing--provenance-not-delivered-yet)
+- [Digest-Pin, signing & provenance](#digest-pin-signing--provenance)
 - [Kubernetes Deployment](#kubernetes-deployment)
 
 ---
@@ -253,33 +253,34 @@ docker compose down     # Stop all services
 
 ---
 
-## Digest-Pin (signing & provenance not delivered yet)
+## Digest-Pin, signing & provenance
 
-Once the images are built and pushed, the pipeline adds supply-chain controls around them. **Immutable digest-pin is delivered**; **keyless signing and SLSA provenance
-are *not delivered yet*** — they arrive as GitHub attestations in a later change, so for now this template ships no signed or provenanced images. The pipeline
+Once the images are built and pushed, the pipeline adds supply-chain controls around them. **Immutable digest-pin, keyless signing and SLSA provenance are delivered**. The pipeline
 mechanics are in [`wiki/ci-cd.md`](./ci-cd.md); what follows is the what/why of what *is*
-delivered, plus the note on signing.
+delivered, plus signing.
 
 ```mermaid
 flowchart LR
-    Build["release.yml build<br/>(3 images)"] --> Verify["digest check<br/>digest-*.env artifacts"]
+    Build["reusable-build.yml build<br/>(3 images)"] --> Verify["digest check<br/>digest-*.env artifacts"]
+    Verify --> Sign["sign + attest<br/>after the Grype gate"]
     Verify --> Digest["digest-pin<br/>deploy-verify.sh"]
 ```
 
-### Image signing & SLSA provenance — *not delivered yet*
+### Image signing & SLSA provenance
 
-The old pipeline signed images keylessly with **cosign** (Fulcio + Rekor) and attached a **SLSA v1.2**
-in-toto provenance attestation, then parked both. The GitHub release workflow does not sign yet
-(`provenance: false` on the build step). A later change delivers both as
-GitHub artifact attestations, signed with the workflow's OIDC identity, and verified against it.
+After the blocking Grype gate, the `sign-attest` job of `reusable-build.yml` signs each image digest
+keyless with cosign (Fulcio + Rekor), verifies the signature, and attaches a SLSA build-provenance
+attestation and a CycloneDX SBOM attestation as GitHub artifact attestations. The signing identity
+is the workflow's OIDC identity; the certificate identity and the commands to verify an image are in
+[Verifying an image](./security.md#verifying-an-image).
 
 Signing / provenance only buy what **admission enforces**; until admission (Kyverno)
 exists, a build-time signature is assurance the runtime never checks. The hardening lint's
-`provenance` control reports a SKIP rather than a false GREEN until then.
+`provenance` check fails if the signing and attestation steps go missing.
 
 ### Immutable Digest-Pin
 
-- The `build` job resolves each built image's immutable manifest digest, checks it against the
+- The `build` job (in `reusable-build.yml`) resolves each built image's immutable manifest digest, checks it against the
   registry, and records `<ID>_IMAGE_DIGEST=sha256:…` — **captured**, never floated on a mutable
   `:latest` / `:main` tag. The `digests` job merges them.
 - **Consuming** that digest at deploy time is the **helm** flavour's job: every deploy job pins
@@ -289,8 +290,8 @@ exists, a build-time signature is assurance the runtime never checks. The harden
   a verification aid, not admission enforcement.
 - The OpenVEX document (the `vex` job) also pins the product by the captured digest.
 
-> **Roadmap** (not yet implemented): **keyless signing + SLSA provenance** (not delivered yet — see
-> above), Kyverno admission to *enforce* signed/provenanced images at deploy time, a distroless
+> **Roadmap** (not yet implemented): Kyverno admission to *enforce* the delivered
+> signatures and provenance at deploy time, a distroless
 > backend base. See
 > [`wiki/ROADMAP-supply-chain.md`](./ROADMAP-supply-chain.md).
 
