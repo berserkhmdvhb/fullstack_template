@@ -265,13 +265,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # --- Prometheus metrics instrumentation ------------------------------------
     # Exposes /metrics endpoint for Prometheus scraping
-    # The endpoint serves the Prometheus text format; document it next to the JSON that FastAPI
-    # documents by default (dropping the JSON entry would break the published contract).
-    Instrumentator().instrument(app).expose(
-        app,
-        endpoint=METRICS_PATH,
-        responses={200: {"content": {"text/plain": {"schema": {"type": "string"}}}}},
-    )
+    # An operational scrape endpoint (Prometheus text format), not part of the API contract:
+    # kept out of the OpenAPI document, so the document, the contract tests and the oasdiff gate
+    # cover the API only.
+    Instrumentator().instrument(app).expose(app, endpoint=METRICS_PATH, include_in_schema=False)
 
     # /docs is provided by FastAPI's built-in Swagger page (docs_url above); its
     # /openapi.json is already mounted by the routers, so no extra wiring is needed.
