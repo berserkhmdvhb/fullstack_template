@@ -83,6 +83,6 @@ def test_the_envoy_config_leaves_the_trusted_hops_at_the_default() -> None:
 WRAP_WIDTH = 100
 
 
-def test_the_values_file_comments_stay_within_the_wrap_width() -> None:
+def test_no_line_of_the_values_file_runs_past_the_wrap_width() -> None:
     lines = (CHART / "values.yaml").read_text(encoding="utf-8").splitlines()
     assert [n for n, ln in enumerate(lines, 1) if len(ln) > WRAP_WIDTH] == []

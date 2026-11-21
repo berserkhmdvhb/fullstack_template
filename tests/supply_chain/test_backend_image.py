@@ -58,7 +58,7 @@ def test_the_image_keeps_its_other_hardening() -> None:
 
 def test_there_is_no_pip_at_all_which_is_stronger_than_a_pinned_pip() -> None:
     # The distroless runtime ships no pip, so the old "pip>=25.3" pin is not needed any more.
-    assert "pip" not in re.sub(r"\bpip-audit\b", "", _stage_text("runtime"))
+    assert not re.search(r"\bpip\b", re.sub(r"\bpip-audit\b", "", _stage_text("runtime")))
 
 
 def test_code_and_config_copies_are_root_owned_and_only_the_writable_dirs_are_chowned() -> None:

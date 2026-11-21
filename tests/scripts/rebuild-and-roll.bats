@@ -49,5 +49,6 @@ STUB
 
 @test "the frontend image is still verified with its own interpreter, passed with -e" {
   run bash "$SCRIPT" --dry-run --no-docker-env --only frontend
+  [ "$status" -eq 0 ]
   [[ "$output" == *"--entrypoint /nodejs/bin/node your-service-name-frontend:dev -e "* ]]
 }

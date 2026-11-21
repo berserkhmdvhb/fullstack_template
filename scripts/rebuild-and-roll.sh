@@ -82,8 +82,9 @@ run_shell() {                     # shell snippet run on the HOST (kubectl exec 
 #
 # The interpreter defaults to sh but is overridable per service (services.yaml
 # `verify_entrypoint`): a shell-less runtime image has no /bin/sh to exec, so its snippet
-# runs through the image's own interpreter: `-c` for Python (the backend), `-e` for Node
-# (the frontend): `docker run --entrypoint <ep> <image> -c|-e '<snippet>'`.
+# runs through the image's own interpreter: `docker run --entrypoint <ep> <image> -c|-e '<snippet>'`.
+# The flag follows the entrypoint's basename: `sh` and `python*` get `-c`, any other entrypoint
+# (Node, the frontend) gets `-e`. So `bash` as a verify_entrypoint would get `-e`: use `sh`.
 run_in_image() {                  # $1 image  $2 snippet  $3 entrypoint (default sh)
   local image="$1" snippet="$2" entrypoint="${3:-sh}" flag="-e"
   case "${entrypoint##*/}" in sh | python*) flag="-c" ;; esac

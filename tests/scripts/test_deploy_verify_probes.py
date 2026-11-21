@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import http.server
+import os
 import shutil
 import subprocess
 import sys
@@ -44,6 +45,23 @@ def base() -> Iterator[str]:
     server.shutdown()
 
 
+def node_or_skip(node: str, ci: str | None) -> str:
+    """The Node binary; a missing one fails on CI (a hosted runner ships Node) and skips locally."""
+    if Path(node).exists():
+        return node
+    if ci:
+        pytest.fail("node is missing on CI: the frontend probe would go untested")
+    pytest.skip("no node on this machine")
+
+
+def test_a_missing_node_fails_on_ci_and_skips_locally() -> None:
+    with pytest.raises(pytest.fail.Exception):
+        node_or_skip("/nonexistent/node", "true")
+    with pytest.raises(pytest.skip.Exception):
+        node_or_skip("/nonexistent/node", None)
+    assert node_or_skip(sys.executable, "true") == sys.executable
+
+
 CASES = [("/ok", 0), ("/boom", 1), ("/missing", 1), ("/redirect", 1)]
 
 
@@ -57,12 +75,12 @@ def test_the_backend_probe_treats_only_a_2xx_as_healthy_and_does_not_follow_a_re
     assert (run.returncode == 0) == (code == 0)
 
 
-@pytest.mark.skipif(not Path(NODE).exists(), reason="no node on this machine")
 @pytest.mark.parametrize(("path", "code"), CASES)
 def test_the_frontend_probe_treats_only_a_2xx_as_healthy_and_does_not_follow_a_redirect(
     base: str, path: str, code: int
 ) -> None:
-    run = subprocess.run([NODE, "-e", _probe("NODE_PROBE"), base + path], check=False, timeout=20)
+    node = node_or_skip(NODE, os.environ.get("CI"))
+    run = subprocess.run([node, "-e", _probe("NODE_PROBE"), base + path], check=False, timeout=20)
     assert (run.returncode == 0) == (code == 0)
 
 
