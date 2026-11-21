@@ -20,7 +20,7 @@
 #   health_path  endpoint hit to confirm the component is serving
 #   probe_tool   how to speak HTTP from *inside* the pod. curl is NOT in every
 #                base image, so pick per service:
-#                  python -> the backend (its venv's interpreter; no curl, no shell)
+#                  python -> the backend (its venv's interpreter; no curl, starts no shell)
 #                  curl  -> an image that ships curl
 #                  wget  -> nginx:alpine (busybox wget)
 #                  node  -> node:*-slim frontend (global fetch, no curl)

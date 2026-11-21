@@ -216,7 +216,7 @@ build_probe() {                       # $1 tool  $2 port  $3 path  → echo snip
     # Dockerfile HEALTHCHECK relies on (Dockerfile.frontend line 94).
     node) echo "/nodejs/bin/node -e \"fetch('${url}').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"" ;;
     curl) echo "curl -fsS --max-time 5 '${url}'" ;;
-    # the backend image has no curl and no shell: its own interpreter (a non-2xx raises)
+    # the backend image has no curl and starts no shell: its own interpreter (a non-2xx raises)
     python) echo "/app/.venv/bin/python -c \"import urllib.request; urllib.request.urlopen('${url}', timeout=5)\"" ;;
     *)    die "unknown probe_tool '${tool}' (use curl | wget | node | python)" ;;
   esac

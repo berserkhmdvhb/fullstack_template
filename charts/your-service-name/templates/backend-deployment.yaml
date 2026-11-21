@@ -122,7 +122,7 @@ spec:
           lifecycle:
             preStop:
               exec:
-                # Let the LB drain before SIGTERM. Python, because the image has no shell or sleep.
+                # Let the LB drain before SIGTERM. Python, so no shell is started.
                 command: ["/app/.venv/bin/python", "-c", "import time; time.sleep(5)"]
           volumeMounts:
             - name: tmp

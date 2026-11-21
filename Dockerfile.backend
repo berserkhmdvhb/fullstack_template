@@ -107,7 +107,7 @@ COPY --chmod=644 alembic.ini /app/alembic.ini
 # belong to the app user.
 RUN mkdir -p /app/logs /app/data && chown appuser:appuser /app/logs /app/data
 
-# Healthcheck: a Python probe (no curl, no shell); it uses HTTPS when HEALTHCHECK_SCHEME=https
+# Healthcheck: a Python probe (no curl, starts no shell); it uses HTTPS when HEALTHCHECK_SCHEME=https
 ARG HEALTHCHECK_SCHEME=http
 ENV HEALTHCHECK_SCHEME="${HEALTHCHECK_SCHEME:-http}"
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \

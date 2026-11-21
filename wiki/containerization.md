@@ -74,7 +74,7 @@ FROM python:3.12-slim AS runtime
 LABEL org.opencontainers.image.title="Your Service Name"
 LABEL org.opencontainers.image.version="${VERSION}"
 
-RUN apt-get install -y libsqlite3-0 libpq5 tini ca-certificates   # no bash, no curl
+RUN apt-get install -y libsqlite3-0 libpq5 tini ca-certificates   # installs no bash and no curl
 RUN useradd -m -u 10001 appuser
 COPY --from=builder /app/.venv /app/.venv   # root-owned: the app user cannot rewrite its code
 ENV PATH="/app/.venv/bin:$PATH"
@@ -95,7 +95,7 @@ CMD ["/app/.venv/bin/python", "-m", "your_service_name.backend.serve"]
 - **Non-root user** — runs as `appuser` (UID 10001)
 - **Tini init** — proper PID 1 for signal handling
 - **Health check** — a stdlib Python probe (`python -m your_service_name.backend.healthcheck`) of `/healthz`, with a 4 s timeout; it reads `HEALTHCHECK_SCHEME`, `BACKEND_PORT` and `API_VERSION`, and treats a redirect or a TLS failure as unhealthy
-- **Launcher** — `python -m your_service_name.backend.serve` starts Uvicorn in-process (no shell, no curl); see [Environment Variables](./environment-variables.md)
+- **Launcher** — `python -m your_service_name.backend.serve` starts Uvicorn in-process (no shell is started, no curl); see [Environment Variables](./environment-variables.md)
 - **Migrations** — run by the chart's Job (and compose's `migrate` service) with `python -m your_service_name.backend.db.run_migrations`; the image ships no shell script
 
 ---

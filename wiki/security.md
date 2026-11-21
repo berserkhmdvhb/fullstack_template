@@ -61,7 +61,7 @@ flowchart TB
         NonRoot["Non-root user"]
         Tini["Tini init"]
         Minimal["Minimal base image"]
-        NoShell["No curl or bash in the backend"]
+        NoShell["No curl; no shell started in the backend"]
     end
 
     Edge --> App --> K8s --> CI --> Container
@@ -550,7 +550,7 @@ ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
 - Only necessary runtime packages installed
 - No build tools in runtime image (build happens in separate stage)
 - Apt cache cleaned after install
-- The backend image has **no `curl` and no `bash`**: its command (`python -m your_service_name.backend.serve`) and its HEALTHCHECK (`python -m your_service_name.backend.healthcheck`, standard library only) are Python, and no shell script is copied in. That shrinks what an attacker who reaches the container can use
+- The backend image installs **no `curl` and no `bash`** and starts no shell. The base image itself still ships `sh` and `bash`, so do not count a shell-free image as a control (for example against `kubectl exec`). Its command (`python -m your_service_name.backend.serve`) and its HEALTHCHECK (`python -m your_service_name.backend.healthcheck`, standard library only) are Python, and no shell script is copied in. That removes `curl` and the scripts from what an attacker who reaches the container can use
 
 ### Installed Runtime Packages
 

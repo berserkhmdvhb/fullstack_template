@@ -90,7 +90,7 @@ services:
 
 | tool | image | why |
 | --- | --- | --- |
-| `python` | the backend image | no curl and no shell: the venv's own interpreter |
+| `python` | the backend image | no curl, starts no shell: the venv's own interpreter |
 | `curl` | an image that ships curl | curl is installed |
 | `wget` | `nginx:*-alpine` | busybox `wget` |
 | `node` | `node:*-slim` (frontend) | global `fetch`, no curl |
