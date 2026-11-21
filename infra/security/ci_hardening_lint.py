@@ -652,34 +652,6 @@ RELEASE_ACTIONS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 }
 
 
-def _release_docs(docs: list[Doc]) -> list[Doc]:
-    """The docs reachable from release.yml through called workflows and local composite actions."""
-    by_name = {d.name: d for d in docs}
-    root = next((d for d in docs if d.name.endswith(RELEASE_ROOT)), None)
-    if root is None:
-        return []
-    prefix = root.name[: -len(RELEASE_ROOT)]
-    reached: dict[str, Doc] = {}
-    todo = [root]
-    while todo:
-        doc = todo.pop()
-        if doc.name in reached:
-            continue
-        reached[doc.name] = doc
-        refs = [str(j.get("uses", "")) for _, j in doc.jobs()]
-        refs += [str(st.get("uses", "")) for st in doc.steps()]
-        for ref in refs:
-            ref = ref.strip().removeprefix("./").rstrip("/")  # noqa: PLW2901
-            if ref.startswith(".github/workflows/"):
-                names = [prefix + ref]
-            elif ref.startswith(".github/actions/"):
-                names = [f"{prefix}{ref}/action.yml", f"{prefix}{ref}/action.yaml"]
-            else:
-                continue
-            todo += [by_name[n] for n in names if n in by_name]
-    return list(reached.values())
-
-
 def _action_problem(ref: str, with_: Any) -> str | None:
     """Why an external action may not run on the release path, or None."""
     name = ref.split("@", maxsplit=1)[0].strip().lower()
@@ -702,30 +674,127 @@ def _action_problem(ref: str, with_: Any) -> str | None:
     return None
 
 
-def _step_cache(step: LDict) -> str | None:
-    """What cache this step reads or writes, or None."""
-    ref = str(step.get("uses", "")).strip()
-    with_ = step.get("with")
+_REMOTE_REF = re.compile(
+    r"(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+)(?P<path>(?:/[^@\s/][^@\s]*)?)@(?P<rev>\S+)"
+)
+_LOCAL_WORKFLOW = re.compile(r"\.github/workflows/[^/]+\.ya?ml")
+
+# The forms a `uses:` can take, and what the release path does with each:
+#   remote-action          owner/repo@ref            must be in RELEASE_ACTIONS
+#   remote-subdir-action   owner/repo/path@ref       must be in RELEASE_ACTIONS (owner/repo/path)
+#   remote-workflow        owner/repo/.github/workflows/x.yml@ref
+#                          refused: its caching cannot be seen
+#   local-workflow         ./.github/workflows/x.yml, at job level
+#                          followed
+#   local-action           ./.github/actions/<name>  followed, only if it is a composite
+#   docker                 docker://image            refused: its caching cannot be seen
+#   refused                everything else, with the reason: a local action outside
+#                          .github/actions/ (including ./), a missing, runs-less or non-composite
+#                          action file, a workflow used as a step, an action used as a job, an
+#                          unparsable reference.
+# Nothing is accepted by default: a reference is allowed only by matching a form above.
+
+
+def _local_action_docs(path: str, prefix: str, by_name: dict[str, Doc]) -> list[Doc]:
+    names = (f"{prefix}{path}/action.yml", f"{prefix}{path}/action.yaml")
+    return [by_name[n] for n in names if n in by_name]
+
+
+def _classify_local(  # noqa: PLR0911
+    ref: str, *, job: bool, prefix: str, by_name: dict[str, Doc]
+) -> tuple[str, str | None]:
+    path = ref.removeprefix("./").strip("/") if ref != "." else ""
+    if ".." in path.split("/"):
+        return "refused", f"{ref} climbs out of the repository"
+    if _LOCAL_WORKFLOW.fullmatch(path):
+        if not job:
+            return "refused", f"{ref} is a workflow used as a step"
+        return "local-workflow", None  # a missing file is another check's finding
+    if job:
+        return "refused", f"{ref} is not a reusable workflow under .github/workflows/"
+    if not path.startswith(".github/actions/"):
+        return (
+            "refused",
+            f"{ref} is a local action outside .github/actions/, which the lint does not read",
+        )
+    found = _local_action_docs(path, prefix, by_name)
+    if not found:
+        return "refused", f"{ref} has no action.yml to read"
+    runs = found[0].data.get("runs")
+    if not isinstance(runs, LDict):
+        return "refused", f"{ref} has no runs: block, so its steps cannot be checked"
+    if str(runs.get("using", "")).strip().lower() != "composite":
+        return (
+            "refused",
+            f"{ref} is a {runs.get('using')} action; only composite actions can be checked",
+        )
+    return "local-action", None
+
+
+def classify_uses(  # noqa: PLR0911
+    ref: str, with_: Any, *, job: bool, prefix: str, by_name: dict[str, Doc]
+) -> tuple[str, str | None]:
+    """The form of a `uses:` on the release path, and why it is refused (None if allowed)."""
+    ref = ref.strip()
+    if not ref:
+        return "refused", "an empty uses: reference"
     if ref.startswith("docker://"):
         return (
-            f"{ref.split('@', maxsplit=1)[0]} is a container step; the lint cannot see its caching"
+            "docker",
+            f"{ref.split('@', maxsplit=1)[0]} is a container; the lint cannot see its caching",
         )
-    if ref and not ref.startswith("./"):
-        problem = _action_problem(ref, with_)
-        if problem:
-            return problem
-    # Backstop for every step: no cache text at all on the release path, whatever the action.
+    if ref == "." or ref.startswith("./"):
+        return _classify_local(ref, job=job, prefix=prefix, by_name=by_name)
+    match = _REMOTE_REF.fullmatch(ref)
+    if not match or ".." in match["path"].split("/"):
+        return "refused", f"{ref!r} is not a reference the lint understands"
+    path = match["path"].strip("/")
+    if path.startswith(".github/workflows/"):
+        return "remote-workflow", f"{ref} is a remote workflow; the lint cannot verify its caching"
+    if job:
+        return "refused", f"{ref} is an action used as a job"
+    form = "remote-subdir-action" if path else "remote-action"
+    return form, _action_problem(ref, with_)
+
+
+def _release_docs(docs: list[Doc]) -> list[Doc]:
+    """The docs reachable from release.yml through called workflows and composite actions."""
+    by_name = {d.name: d for d in docs}
+    root = next((d for d in docs if d.name.endswith(RELEASE_ROOT)), None)
+    if root is None:
+        return []
+    prefix = root.name[: -len(RELEASE_ROOT)]
+    reached: dict[str, Doc] = {}
+    todo = [root]
+    while todo:
+        doc = todo.pop()
+        if doc.name in reached:
+            continue
+        reached[doc.name] = doc
+        for ref, job in [(str(j.get("uses", "")), True) for _, j in doc.jobs()] + [
+            (str(st.get("uses", "")), False) for st in doc.steps()
+        ]:
+            form, problem = classify_uses(ref, None, job=job, prefix=prefix, by_name=by_name)
+            if problem is None and form in ("local-workflow", "local-action"):
+                path = ref.strip().removeprefix("./").strip("/")
+                todo += (
+                    [d for n, d in by_name.items() if n == prefix + path]
+                    if form == "local-workflow"
+                    else _local_action_docs(path, prefix, by_name)
+                )
+    return list(reached.values())
+
+
+def _scan_texts(step: LDict) -> bool:
+    """Backstop for every step, whatever the action: no cache text at all on the release path.
+    This is deliberately blunt and fails closed. A legitimate future use of these words (for
+    example `outputs: type=registry` for an export) needs a narrow, reviewed exemption here, not
+    the removal of the scan."""
+    with_ = step.get("with")
     texts = [str(step.get("run", ""))]
     if isinstance(with_, LDict):
         texts += list(_scalars(with_))
-    return "a build cache type or flag" if any(_CACHE_WORDS.search(t) for t in texts) else None
-
-
-def _local_target_missing(ref: str, prefix: str, names: set[str]) -> bool:
-    ref = ref.strip().removeprefix("./").rstrip("/")
-    if not ref.startswith(".github/actions/"):
-        return False
-    return not {f"{prefix}{ref}/action.yml", f"{prefix}{ref}/action.yaml"} & names
+    return any(_CACHE_WORDS.search(t) for t in texts)
 
 
 def check_no_release_cache(docs: list[Doc]) -> list[Finding]:
@@ -734,31 +803,27 @@ def check_no_release_cache(docs: list[Doc]) -> list[Finding]:
         return []
     root = next(d for d in reached if d.name.endswith(RELEASE_ROOT))
     prefix = root.name[: -len(RELEASE_ROOT)]
-    names = {d.name for d in docs}
+    by_name = {d.name: d for d in docs}
     found: list[Finding] = []
 
     def add(doc: Doc, line: int, what: str) -> None:
         found.append(Finding(doc.name, line, "no-release-cache", f"{what}: {NO_CACHE_REASON}"))
 
     for doc in reached:
-        for _, job in doc.jobs():
-            ref = str(job.get("uses", "")).strip()
-            if ref and not ref.startswith("./"):
-                add(
-                    doc, job.line, f"{ref} is a remote workflow; the lint cannot verify its caching"
+        holders = [(j, True) for _, j in doc.jobs()] + [(st, False) for st in doc.steps()]
+        for holder, is_job in holders:
+            if "uses" in holder:
+                _, problem = classify_uses(
+                    str(holder["uses"]),
+                    holder.get("with"),
+                    job=is_job,
+                    prefix=prefix,
+                    by_name=by_name,
                 )
-        runs = doc.data.get("runs")
-        if isinstance(runs, LDict) and str(runs.get("using", "")).strip().lower() != "composite":
-            add(
-                doc,
-                1,
-                f"{doc.name} is a {runs.get('using')} action; only composites can be checked",
-            )
-        for step in doc.steps():
-            if _local_target_missing(str(step.get("uses", "")), prefix, names):
-                add(doc, step.line, f"{step.get('uses')} has no readable action.yml")
-            if what := _step_cache(step):
-                add(doc, step.line, what)
+                if problem:
+                    add(doc, holder.line, problem)
+            if not is_job and _scan_texts(holder):
+                add(doc, holder.line, "a build cache type or flag")
     return found
 
 

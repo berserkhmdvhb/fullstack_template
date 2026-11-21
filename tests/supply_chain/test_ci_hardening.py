@@ -418,3 +418,81 @@ def test_the_release_path_is_derived_from_the_call_graph() -> None:
     finally:
         sys.path.remove(str(LINTER.parent))
     assert reached == RELEASE_CLOSURE
+
+
+def _classify(
+    tmp_path: Path, ref: str, *, job: bool, with_: object = None
+) -> tuple[str, str | None]:
+    actions = tmp_path / ".github" / "actions"
+    for name, body in {
+        "comp": "runs:\n  using: composite\n  steps: []\n",
+        "node": "runs:\n  using: node24\n  main: i.js\n",
+        "docker": "runs:\n  using: docker\n  image: Dockerfile\n",
+        "norun": "name: x\n",
+    }.items():
+        (actions / name).mkdir(parents=True, exist_ok=True)
+        (actions / name / "action.yml").write_text(body, encoding="utf-8")
+    wf = tmp_path / ".github" / "workflows"
+    wf.mkdir(parents=True, exist_ok=True)
+    (wf / "release.yml").write_text("on: push\njobs: {}\n", encoding="utf-8")
+    (wf / "reusable-x.yml").write_text("on: workflow_call\njobs: {}\n", encoding="utf-8")
+    sys.path.insert(0, str(LINTER.parent))
+    try:
+        import ci_hardening_lint  # noqa: PLC0415
+
+        docs, _ = ci_hardening_lint.gather(tmp_path)
+        result: tuple[str, str | None] = ci_hardening_lint.classify_uses(
+            ref, with_, job=job, prefix="", by_name={d.name: d for d in docs}
+        )
+        return result
+    finally:
+        sys.path.remove(str(LINTER.parent))
+
+
+SHA40 = "a" * 40
+CLASSIFY_ROWS = [
+    # (reference, job level, form, refusal fragment or None)
+    (f"actions/checkout@{SHA40}", False, "remote-action", None),
+    (f"Actions/Checkout@{SHA40}", False, "remote-action", None),
+    (f"actions/cache@{SHA40}", False, "remote-action", "is a cache"),
+    (f"example/unknown@{SHA40}", False, "remote-action", "not in RELEASE_ACTIONS"),
+    (f"github/codeql-action/upload-sarif@{SHA40}", False, "remote-subdir-action", None),
+    (f"GitHub/CodeQL-Action/Upload-SARIF@{SHA40}", False, "remote-subdir-action", None),
+    (f"example/repo/sub/dir@{SHA40}", False, "remote-subdir-action", "not in RELEASE_ACTIONS"),
+    (f"o/r/.github/workflows/x.yml@{SHA40}", True, "remote-workflow", "remote workflow"),
+    (f"o/r@{SHA40}", True, "refused", "action used as a job"),
+    ("./.github/workflows/reusable-x.yml", True, "local-workflow", None),
+    ("./.github/workflows/reusable-x.yml", False, "refused", "workflow used as a step"),
+    ("./.github/actions/comp", False, "local-action", None),
+    ("./.github/actions/comp", True, "refused", "not a reusable workflow"),
+    ("./.github/actions/node", False, "refused", "only composite"),
+    ("./.github/actions/docker", False, "refused", "only composite"),
+    ("./.github/actions/norun", False, "refused", "no runs: block"),
+    ("./.github/actions/ghost", False, "refused", "no action.yml"),
+    ("./tools/x", False, "refused", "outside .github/actions/"),
+    ("./tools/c", False, "refused", "outside .github/actions/"),
+    ("./", False, "refused", "outside .github/actions/"),
+    (".", False, "refused", "outside .github/actions/"),
+    ("./.github/actions/../../tools/x", False, "refused", "climbs out"),
+    ("docker://alpine@sha256:" + "e" * 64, False, "docker", "container"),
+    ("not a valid reference", False, "refused", "not a reference the lint understands"),
+    ("owner/repo", False, "refused", "not a reference the lint understands"),
+    ("", False, "refused", "empty"),
+]
+
+
+@pytest.mark.parametrize(("ref", "job", "form", "refusal"), CLASSIFY_ROWS)
+def test_every_uses_form_is_classified_or_refused(
+    tmp_path: Path,
+    ref: str,
+    job: bool,  # noqa: FBT001
+    form: str,
+    refusal: str | None,
+) -> None:
+    got_form, got_refusal = _classify(tmp_path, ref, job=job)
+    assert got_form == form
+    if refusal is None:
+        assert got_refusal is None
+    else:
+        assert got_refusal is not None
+        assert refusal in got_refusal
