@@ -289,20 +289,29 @@ alembic downgrade -1
 
 ## Middleware Stack
 
-Middleware wraps all requests in this order:
+Middleware wraps all requests in this order, outermost first (`create_app` in `main.py`):
 
-```mermaid
-flowchart TB
-    Req["Incoming Request"] --> RateLimit["Rate Limiter<br/>(limits)<br/>Per-IP throttling"]
-    RateLimit --> Security["Security Middleware<br/>CORS, headers"]
-    Security --> Logging["Request Logging<br/>Method, path, status, duration"]
-    Logging --> Prometheus["Prometheus Metrics<br/>(instrumentator)"]
-    Prometheus --> App["FastAPI Application"]
-    App --> Res["Outgoing Response"]
-```
+1. `ClientIpMiddleware`: resolves the real client address first, so everything below sees one value
+2. `CorrelationIdMiddleware`: scopes the `X-Request-Id` for every log line
+3. `RequestLoggingMiddleware`: method, path, status, duration and client (opt-in via `LOG_REQUESTS`)
+4. security headers
+5. `RateLimitMiddleware`: per-client-IP throttling
+6. `CORSMiddleware`
+
+The Prometheus instrumentator (`/metrics`) is added last, so it wraps the whole stack from outside. It
+only records metrics and does not read the client address.
 
 | Middleware | File | Purpose |
 |-----------|------|---------|
+| Client IP | `middleware/client_ip.py` | Rewrites the client address from a trusted proxy's headers; the trust rules are in [Client IP](security.md#client-ip) |
+| Correlation | `middleware/correlation.py` | `X-Request-Id` correlation id for the request's logs |
+| Logging | `middleware/logging.py` | Request/response logging (opt-in via `LOG_REQUESTS`) |
+| Security | `middleware/security.py` | Security headers |
+| Rate Limiting | `middleware/rate_limiting.py` | Per-IP request throttling (enforced in-middleware via `limits`) |
+| CORS | `main.py` | CORS configuration from the `CORS_*` settings |
+| Prometheus | `main.py` | Metrics exposition at `/metrics` for ServiceMonitor |
+
+-----------|------|---------|
 | Rate Limiting | `middleware/rate_limiting.py` | Per-IP request throttling (enforced in-middleware via `limits`) |
 | Security | `middleware/security.py` | CORS configuration, security headers |
 | Logging | `middleware/logging.py` | Request/response logging (opt-in via `LOG_REQUESTS`) |
