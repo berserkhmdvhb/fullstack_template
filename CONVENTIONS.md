@@ -85,19 +85,19 @@ ports vary, via the Ingress and the per-env values. Depth:
 
 ## 5. Image-level ops run on main and release tags only
 
-**Rule.** Building, signing, attesting, and digest-resolving container images are **gated to `main`
+**Rule.** Pushing, signing, attesting, and digest-resolving container images are **gated to `main`
 and `v*` tags**: they run in the release workflow, **never in a pull request**.
-A PR author can never sign an image or resolve a production digest. The one exception is the `images` job
-in `ci.yml`: it builds each image into the runner's local daemon only, to check its structure, with no
-push, registry login, secret or build cache. New supply-chain logic goes
+A PR author can never sign an image or resolve a production digest. A PR job may still build images into
+the local daemon only, to check them: it holds a `contents: read` token and does no push, registry login,
+secret or build cache. New supply-chain logic goes
 under `infra/security/local/` — the eight shared `infra/security/*.sh` scripts are **frozen** (`_helpers.sh`, `sbom-generate.sh`,
 `scan-vulnerabilities.sh`, `scan-licenses.sh`, `generate-vex.sh`, `check-ci-hardening.sh`,
 `tools-install.sh`, `verify-image-digest.sh`; see
 [`wiki/security.md`](wiki/security.md)).
 
 **Smell → fix.**
-- A new job that signs/attests/pushes an image, or builds one with a login, a secret or a cache, runs on
-  every PR → move it into `release.yml`, or gate
+- A new job that pushes/signs/attests an image, or builds one with a login, a secret, a cache or a write token,
+  runs on every PR → move it into `release.yml`, or gate
   it with an `if:` on a push to `main` / a `v*` tag.
 - You edited `infra/security/*.sh` to add a scanner → put the scanner under `infra/security/local/`
   and add a pin in `infra/security/config.yaml` instead.

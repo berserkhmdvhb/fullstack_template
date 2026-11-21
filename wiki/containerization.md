@@ -169,7 +169,7 @@ CMD ["nginx", "-g", "daemon off;"]
 
 ## Image builds in CI
 
-The release workflow builds the three images with `docker/build-push-action` (buildx) on a GitHub-hosted runner, only on a push to `main` or a `v*` tag. No Docker-in-Docker, no privileged runner:
+The release workflow builds the three images with `docker/build-push-action` (buildx) on a GitHub-hosted runner, only on a push to `main` or a `v*` tag (a pull request builds locally, without pushing, to check the images). No Docker-in-Docker, no privileged runner:
 
 ```mermaid
 flowchart TB
@@ -211,7 +211,7 @@ Each failure prints an `::error::` line (an unhealthy container also prints its 
 
 - **Pull request:** the `images` job in [`ci.yml`](../.github/workflows/ci.yml) builds each image locally with the release build's arguments and runs the script with `--strict`. It has no registry login, push, secret or cache.
 - **Release:** the `image-checks` job in [`reusable-build.yml`](../.github/workflows/reusable-build.yml) pulls each pushed image by its digest and runs the script with `--strict`; `sign-attest` needs it, so an image that fails is never signed. A multi-platform build must run it once per platform.
-- **Locally:** `make image-checks` builds the images with throwaway tags (label values set locally, so `--strict` holds), runs the script and removes them; `make image-checks IDS="backend nginx"` limits it. It needs docker and the pinned yq (`scripts/tools.sh install yq`).
+- **Locally:** `make image-checks` builds the images with throwaway tags (label values set locally, so `--strict` holds), runs the script and removes them; `make image-checks IDS="backend nginx"` limits it. It needs docker, jq and the project venv (PyYAML); it builds with the manifest's own build arguments, as CI does.
 
 ---
 

@@ -81,7 +81,7 @@ sufficient on their own.
 
 The controls run in two tranches, split by **ref**. Source-level scans read committed files, so they
 run on **every pull request** (fast feedback) and on `main`. Image-level scans need a built, pushed
-image, so they run in the release workflow on **`main` and `v*` tags only**, never in a pull request.
+image, so they run in the release workflow on **`main` and `v*` tags only**, never in a pull request (a pull request only builds an image locally to check its structure).
 A **gate** (blocking) fails the run and sits behind the required `CI OK` check or fails the release;
 an **advisory** control turns findings into a warning and never blocks.
 

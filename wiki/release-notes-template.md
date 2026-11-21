@@ -52,6 +52,6 @@
 - **Before upgrading:** review `charts/your-service-name/values.<env>.yaml` — `values.schema.json` now rejects unknown keys and bad values at `helm lint` / `helm template` time
 
 ### Supply Chain
-- Container images are built / signed / pushed / scanned on `main` and `v*` tags only — never in a pull request
+- Container images are pushed / signed / attested / scanned on `main` and `v*` tags only — never in a pull request (a pull request only builds them into its local daemon to check them)
 - SBOM + VEX are published automatically on the tag pipeline; images are signed keyless and carry SLSA provenance and SBOM attestations (public repositories; see wiki/security.md)
 - No frozen `infra/security/*.sh` scripts edited; new supply-chain logic lives under `infra/security/local/`

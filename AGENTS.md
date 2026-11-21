@@ -38,12 +38,12 @@ Adapt the placeholder before running the app for real:
 4. **Config-driven, not hard-coded** — ports/hosts/URLs come from env / `.env` / `values.<env>.yaml`.
    [`CONVENTIONS.md`](./CONVENTIONS.md#4-config-driven-not-hard-coded)
 5. **Image ops (push/sign/attest/digest-resolve) run on `main` and `v*` tags only, never in a pull request.** A PR
-   author must not be able to forge the supply-chain chain. (A PR may build an image locally to check it: no
+   author must not be able to forge the supply-chain chain. (A PR job may build into the local daemon only: `contents: read`, no
    push, login, secret or cache.) [`CONVENTIONS.md`](./CONVENTIONS.md#5-image-level-ops-run-on-main-and-release-tags-only)
 6. **Never edit the eight frozen `infra/security/*.sh` scripts** — `_helpers.sh`, `sbom-generate.sh`,
    `scan-vulnerabilities.sh`, `scan-licenses.sh`, `generate-vex.sh`, `check-ci-hardening.sh`,
    `tools-install.sh`, `verify-image-digest.sh` — new supply-chain logic goes under
-   `infra/security/local/`. (They were edited once, as a one-time re-baseline, to remove the old CI vendor coupling, and once more for a VEX correctness fix in `generate-vex.sh`; both were one-time, owner-approved edits and the rule is unchanged.) Add/extend a scanner via the `add-supply-chain-scanner` skill.
+   `infra/security/local/`. (They were edited once, as a one-time re-baseline, to remove the old CI vendor coupling, once for a VEX correctness fix in `generate-vex.sh`, and once more in `generate-vex.sh` to pass scanner-derived JSON to jq through files instead of command-line arguments, because a large report exceeded the argument limit; each was a one-time, owner-approved edit and the rule is unchanged.) Add/extend a scanner via the `add-supply-chain-scanner` skill.
 7. **No secrets in code, tests, docs, examples, or CI YAML** — and no real internal URLs / project
    IDs (redact them). CI's secret-template check and gitleaks fail the run on a leak.
 8. **Version comes from Git tags (`setuptools_scm`) — never hard-code `__version__`.**
@@ -54,7 +54,7 @@ Adapt the placeholder before running the app for real:
 - **Leftover `your_service_name`** in a new file/path/doc — the placeholder must stay a placeholder.
 - **Hard-coded ports/hosts** (`:8000`, `localhost`) in code or CI — read them from the env var.
 - **Editing the eight frozen `infra/security/*.sh` scripts** (incl. `_helpers.sh`) to add a scanner — use `infra/security/local/`.
-- **Putting a build/sign/attest CI job in a PR run** — gate it to `main` and `v*` tags.
+- **Putting a push/sign/attest CI job in a PR run** — gate it to `main` and `v*` tags. (The `images` check job builds into the local daemon only and must stay on pull requests; gating it away drops the gate silently.)
 - **A secret or real internal URL in the diff** — redact; CI will block it (gitleaks, the secret-template check).
 - **A doc cross-link that doesn't resolve** — verify links before opening the PR.
 - **`make test` ≠ unit-only here** — it runs unit + integration + e2e; `make test-unit` is unit only.

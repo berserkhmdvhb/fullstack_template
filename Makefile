@@ -236,7 +236,7 @@ openapi-drift-check:
 SHELLCHECK ?= shellcheck
 
 # Build the images with throwaway tags and run the structure checks CI runs on a pull request (strict),
-# then remove them. IDS="backend nginx" limits it. Needs docker and the pinned yq.
+# then remove them. IDS="backend nginx" limits it. Needs docker, jq and the project venv.
 image-checks:
 	bash scripts/ci/image-checks-local.sh $(IDS)
 

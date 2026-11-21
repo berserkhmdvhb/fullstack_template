@@ -61,7 +61,7 @@ These are enforced by the gates and the pipeline, not by politeness:
    (a hard-coded name, a fixed port, a real URL) is a regression. [`CONVENTIONS.md`](./CONVENTIONS.md#1-the-service-name-is-a-placeholder-never-a-literal).
 2. **One source of truth per fact** — never duplicate a command, version, or path.
    [`CONVENTIONS.md`](./CONVENTIONS.md#3-one-source-of-truth-single-source--dry).
-3. **Image ops are gated to `main` and `v*` tags** — build/sign/attest/digest-resolve never run in a pull request.
+3. **Image ops are gated to `main` and `v*` tags** — push/sign/attest/digest-resolve never run in a pull request (a PR job may only build into the local daemon: `contents: read`, no push, login, secret or cache).
    [`CONVENTIONS.md`](./CONVENTIONS.md#5-image-level-ops-run-on-main-and-release-tags-only).
 4. **No secrets** — not in code, tests, docs, examples, or CI YAML. Real internal URLs and project
    IDs are redacted. [`wiki/security.md`](wiki/security.md) (secret scanning runs in CI via
@@ -150,7 +150,7 @@ actions under `.github/actions/`, so each concern stays in one file.
 and the two invariants that keep the template sound:
 
 - **Never edit the eight frozen `infra/security/*.sh` scripts** (incl. `_helpers.sh`) — new scanner logic goes under
-  `infra/security/local/`.
+  `infra/security/local/`. (`AGENTS.md` records the owner-approved one-time edits.)
 - **Checksum-verified installs only** (never `curl | bash`); a failed install degrades to an honest
   `SKIPPED`, never a false green.
 
@@ -218,7 +218,7 @@ The workflows are `ci` (the quality gate, ending in the required `CI OK` check),
   secret-template check, the chart lint and the workflow hardening lint.
 - Tests run per layer on pull requests, on pushes to `main` and on tags; `live` is advisory on
   pull requests and blocking on `main` and tags.
-- Image build/sign/attest run only on pushes to `main` and `v*` tags — never in a pull request.
+- Image push/sign/attest run only on pushes to `main` and `v*` tags — never in a pull request. A pull request builds images into the local daemon only, to check them (`images`).
 - Depth (workflows, jobs, gates, the job map): [`wiki/ci-cd.md`](wiki/ci-cd.md),
   [`wiki/security.md`](wiki/security.md).
 
@@ -238,7 +238,7 @@ Correctness / conventions
 - [ ] No hard-coded service name / port / URL — placeholder + env-driven (CONVENTIONS.md).
 - [ ] No duplicated source of truth (command / version / path has one home).
 - [ ] Helm/chart changes are per-env values only; no pinned image tags by hand.
-- [ ] No image build/sign/attest job runs on this PR (`main` and `v*` tags only).
+- [ ] No image push/sign/attest job runs on this PR (`main` and `v*` tags only); a local-build check job has no login, secret or cache.
 - [ ] Did NOT edit the eight frozen infra/security/*.sh scripts (incl. `_helpers.sh`; local/ only).
 
 Gates

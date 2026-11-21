@@ -13,7 +13,7 @@ the merge and an advisory one never does.
   `guarddog`, `checkov`, `kubescape` (and `pip-audit`, which is its own job).
 - **B. Image-based, `main` and `v*` tags only.** A job in `release.yml` that works
   by the digest the `build` job verified (`sbom`, `grype`, `grant`, `vex`). Image
-  operations never run in a pull request.
+  operations (push, sign, attest, digest resolution) never run in a pull request.
 
 A new supply-chain *scanner* is almost always archetype A. Use B only when the
 scanner must consume a built image digest.
@@ -97,7 +97,7 @@ checksum CLIs; `.tools_pip` pip tools) and `.output.base`.
 - **Source-level jobs** run on pull requests (fast feedback), on `main` and tags,
   weekly, and by hand. No `if:` limits them to a ref.
 - **Image jobs** are in `release.yml`, which triggers only on a push to `main` or a
-  `v*` tag. A pull request never builds or scans an image.
+  `v*` tag. A pull request never pushes, scans or signs an image (the `images` job only builds one into the local daemon to check it).
 - **Advisory** = findings become `::warning` and a summary line; only a tool error
   fails; never a required check; the job name ends in `(advisory)`.
 - **Blocking** = fails on findings; reachable from the `CI OK` gate.
