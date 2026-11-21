@@ -33,10 +33,10 @@ from typing import Any
 import yaml
 
 PROVENANCE_ENABLED = (
-    False  # Task 2.1 switches this on, which turns the provenance check into a gate.
+    False  # Switch on once release.yml signs and attests images; the provenance check then gates.
 )
 USAGE_ERROR = 2
-PROVENANCE_SKIP = "SKIP provenance: phase 2 (Task 2.1)"
+PROVENANCE_SKIP = "SKIP provenance: not enforced yet (set PROVENANCE_ENABLED once release.yml attests)"
 
 _SHA_REF = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 _VERSION_COMMENT = re.compile(r"#\s*v\d+(\.\d+)*\S*\s*$")

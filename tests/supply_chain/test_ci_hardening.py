@@ -132,7 +132,10 @@ def test_findings_print_as_file_line_id_message() -> None:
 
 def test_provenance_is_a_skip_that_never_fails() -> None:
     result = run_lint(FIXTURES / "provenance" / "fail")
-    assert "SKIP provenance: phase 2 (Task 2.1)" in result.stdout
+    assert (
+        "SKIP provenance: not enforced yet (set PROVENANCE_ENABLED once release.yml attests)"
+        in result.stdout
+    )
     assert "provenance" not in {m["check"] for m in FINDING.finditer(result.stdout)}
 
 
@@ -167,7 +170,9 @@ def test_json_report_is_valid_and_matches_the_exit_code() -> None:
     assert bad.returncode == 1
     doc = json.loads(bad.stdout)
     assert doc["status"] == "red"
-    assert doc["skipped"] == ["SKIP provenance: phase 2 (Task 2.1)"]
+    assert doc["skipped"] == [
+        "SKIP provenance: not enforced yet (set PROVENANCE_ENABLED once release.yml attests)"
+    ]
     assert (
         json.loads(run_lint(FIXTURES / "all-good" / "pass", "--json").stdout)["status"] == "green"
     )

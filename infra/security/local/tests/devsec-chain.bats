@@ -1,16 +1,15 @@
 #!/usr/bin/env bats
 # -----------------------------------------------------------------------------
 # devsec-chain.bats — unit tests for devsec.sh's scan chain + fail policy
-# (Task 5): cmd_sbom/vuln/license/vex/audit/ci_hardening + cmd_all, and
-# the CI-mirroring gate — STOP steps (sbom/vuln/vex/ci-hardening) halt
+# cmd_sbom/vuln/license/vex/audit/ci_hardening + cmd_all, and the CI-mirroring gate — STOP steps (sbom/vuln/vex/ci-hardening) halt
 # the chain and fail the gate; REPORT steps (license/audit) warn and continue.
 #
 # TDD: written first and run RED (`sbom`..`all` dispatch to _not_implemented, so
 # the chain never runs and the exit code / order is wrong), then GREEN once the
 # scan chain lands. The chain mutates the system and shells out to the eight CI
-# scripts, so — like Task-3's cmd_tools — we drive it via `bash "$SCRIPT" all`
-# in a subprocess with a controlled PATH: the six scanners are stubbed on PATH
-# to RECORD their name (so the test never runs a real scan) and to exit with a
+# scripts, so — like cmd_tools — we drive it via `bash "$SCRIPT" all`
+# in a subprocess with a controlled PATH: every scanner is stubbed (see
+# _setup_chain), so the test never runs a real scan, and the CI-script stubs exit with a
 # per-step code the test controls via <NAME>_EXIT. Each case gets a fresh temp
 # dir, so module state and PATH never bleed between cases.
 # -----------------------------------------------------------------------------
@@ -26,9 +25,10 @@ setup() {
 # (sbom, vuln, license, vex, ci-hardening) append their name to run.log and exit
 # ${<NAME>_EXIT:-0}; the five advisory scanners (osv, malware-heuristic, iac, k8s,
 # dast) write a GREEN report.json and exit 0 without logging. Failing curl, wget,
-# docker, sudo, pip, pip3 and uv stubs make any unstubbed step fail loudly instead of
-# touching the network or the system. It points devsec.sh's *_SH vars at the stubs, give it a ready scan.env (so cmd_all skips the Docker build) and an
-# empty REPO_ROOT (so the report-only audit skips: no tool / no lockfile). The
+# docker, sudo, pip, pip3 and uv stubs fail when an unstubbed step reaches for the network
+# or the system; _chain_report downgrades that failure to a warning, so the structural
+# test at the end of this file is the real guard. It points devsec.sh's *_SH vars at the
+# stubs, gives it a ready scan.env (so cmd_all skips the Docker build) and an empty REPO_ROOT (so the report-only audit skips: no tool / no lockfile). The
 # five <NAME>_EXIT vars default to 0, so a case that sets none gets an all-green
 # chain; a case overrides the ones it needs.
 _setup_chain() {
@@ -166,7 +166,7 @@ EOF
 @test "every scanner the chain runs is stubbed by _setup_chain" {
   _setup_chain
   local vars var
-  vars="$(sed -n '/^cmd_all()/,/^}/p' "$SCRIPT" | grep -o '"\$[A-Z_]*_SH"' | tr -d '"$' | sort -u)"
+  vars="$(sed -n '/^cmd_all()/,/^}/p' "$SCRIPT" | grep -oE '\$\{?[A-Z0-9_]+_SH\}?' | tr -d '{}$' | sort -u)"
   [ -n "$vars" ]
   for var in $vars; do
     [[ "${!var}" == "$BATS_TEST_TMPDIR/bin/"* ]] || { echo "$var is not stubbed: ${!var:-unset}"; return 1; }
