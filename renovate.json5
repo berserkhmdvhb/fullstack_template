@@ -133,7 +133,9 @@
       "description": "uv.lock maintenance: no release timestamp to wait for (uv's exclude-newer holds the 7 days)",
       "matchManagers": ["pep621"],
       "matchUpdateTypes": ["lockFileMaintenance"],
-      "minimumReleaseAge": null
+      "minimumReleaseAge": null,
+      // Without a release timestamp the default timestamp-required behaviour holds the update; uv's exclude-newer still enforces the 7 days in the lock.
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
     },
     {
       // The uv pin in tools/pins.tsv and the uv image tag in Dockerfile.backend must stay equal (a test checks it),

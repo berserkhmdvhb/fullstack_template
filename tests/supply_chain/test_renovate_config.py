@@ -162,4 +162,6 @@ def test_uv_lock_maintenance_is_not_blocked_by_the_release_age_check() -> None:
     assert rule["matchManagers"] == ["pep621"]
     assert "minimumReleaseAge" in rule
     assert rule["minimumReleaseAge"] is None
+    # An update with no release timestamp is held by the default timestamp-required behaviour.
+    assert rule["minimumReleaseAgeBehaviour"] == "timestamp-optional"
     assert renovate()["minimumReleaseAge"] == "7 days"
