@@ -60,12 +60,19 @@ def build_storage(url: str, timeout: float) -> Storage:
         # Imported here: with the default memory storage ``redis`` is never loaded.
         from limits.aio.storage import RedisStorage  # noqa: PLC0415
 
-        return RedisStorage(
-            url,
-            implementation="redispy",
-            socket_timeout=timeout,
-            socket_connect_timeout=timeout,
-        )
+        try:
+            return RedisStorage(
+                url,
+                implementation="redispy",
+                socket_timeout=timeout,
+                socket_connect_timeout=timeout,
+            )
+        except Exception:  # noqa: BLE001, S110 — see below: nothing of it may be kept
+            pass
+        # Raised outside the handler: ``limits`` puts the whole URL (password included) in its
+        # errors, and even ``from None`` leaves it reachable as ``__context__``.
+        msg = "RATE_LIMIT_STORAGE could not be configured"
+        raise ValueError(msg)
     msg = "RATE_LIMIT_STORAGE must start with memory://, redis://, rediss:// or redis+unix://"
     raise ValueError(msg)
 

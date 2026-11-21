@@ -248,7 +248,11 @@ client; see the `limits` documentation, "Async Storage"). Counter keys start wit
 Redis, and the CSP report limit has its own namespace. Anything else is refused at startup, and the
 URL never appears in a log or an error. In production a plaintext `redis://` URL is refused unless
 every host is loopback (use `rediss://`, a unix socket, or `memory://`), the same rule as the
-database TLS. In the chart the URL comes from the app Secret (`RATE_LIMIT_STORAGE` in
+database TLS, and a `rediss://` query that switches verification off (`ssl_cert_reqs` other
+than `required`, `ssl_check_hostname=false`) is refused too (`ssl_ca_certs` and `ssl_ca_path` stay
+allowed for a private CA). `redis://` and `rediss://` URLs need an explicit port (`:6379`) and
+`redis+unix://` a socket path and no host; a URL the storage cannot parse is refused at startup
+without the URL in the message. In the chart the URL comes from the app Secret (`RATE_LIMIT_STORAGE` in
 `secrets.existingSecret`), never from `config:`; allow the egress to Redis (port 6379) with
 `backend.networkPolicy.extraEgress`.
 

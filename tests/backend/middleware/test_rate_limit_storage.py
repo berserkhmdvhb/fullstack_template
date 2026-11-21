@@ -13,6 +13,7 @@ import pytest
 from fastapi import FastAPI
 from limits import parse
 from limits.aio.storage import MemoryStorage, RedisStorage
+from pydantic import SecretStr
 
 from your_service_name.backend.middleware.rate_limiting import (
     RateLimitMiddleware,
@@ -166,3 +167,27 @@ class TestBuildStorage:
         with pytest.raises(ValueError, match="RATE_LIMIT_STORAGE") as caught:
             build_storage(url, 0.2)
         assert "fake-password" not in str(caught.value)
+
+
+class TestNoUrlLeak:
+    def test_a_storage_that_cannot_be_built_never_carries_the_url(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from your_service_name.backend.main import create_app  # noqa: PLC0415
+
+        secret = "S3cret-fake-not-real"  # noqa: S105
+        settings = Settings()
+        # A URL Settings accepts but the storage refuses: swap it in after validation.
+        object.__setattr__(
+            settings, "RATE_LIMIT_STORAGE", SecretStr(f"redis://:{secret}@127.0.0.1:6379x")
+        )
+        with pytest.raises(ValueError, match="could not be configured") as caught:
+            create_app(settings)
+        error: BaseException | None = caught.value
+        while error is not None:
+            assert secret not in str(error)
+            assert secret not in repr(error)
+            error = error.__cause__ or error.__context__
+        assert caught.value.__cause__ is None
+        assert caught.value.__context__ is None
+        assert secret not in caplog.text

@@ -26,7 +26,7 @@ import ipaddress
 import logging
 import re
 from typing import Annotated, Final, Literal
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from limits import parse as parse_rate_limit
 from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
@@ -177,19 +177,37 @@ def _is_local_host(host: str) -> bool:
 
 
 def rate_limit_storage_problem(url: str) -> str | None:
-    """Why ``url`` is no usable ``RATE_LIMIT_STORAGE``, or ``None``; the reason never echoes it."""
+    """Why ``url`` is no usable ``RATE_LIMIT_STORAGE``, or ``None``; the reason never echoes it.
+
+    ``limits`` needs ``host:port`` for ``redis``/``rediss`` and refuses anything else with an
+    error that names the whole URL (password included), so everything it needs is checked here.
+    """
     try:
         parts = urlsplit(url)
         host = parts.hostname
+        port = parts.port
     except ValueError:
-        return "is not a valid URL"
+        return "is not a valid URL (check the host and that the port is a number up to 65535)"
     if parts.scheme not in RATE_LIMIT_STORAGE_SCHEMES:
         return "must start with memory://, redis://, rediss:// or redis+unix://"
-    if parts.scheme in ("redis", "rediss") and not host:
-        return "must name the Redis host"
-    if parts.scheme == "redis+unix" and not parts.path:
-        return "must name the socket path"
+    if parts.scheme in ("redis", "rediss"):
+        if not host:
+            return "must name the Redis host"
+        if port is None:
+            return "must include the port, for example redis://host:6379"
+    if parts.scheme == "redis+unix" and (not parts.path or host):
+        return "must be redis+unix:///path/to/socket (a socket path and no host)"
     return None
+
+
+def _unverified_redis_tls(url: str) -> bool:
+    """True when a ``rediss://`` query switches certificate or hostname verification off."""
+    query = parse_qs(urlsplit(url).query)
+    certs = [v.lower() for v in query.get("ssl_cert_reqs", [])]
+    hostname = [v.lower() for v in query.get("ssl_check_hostname", [])]
+    return any(v != "required" for v in certs) or any(
+        v in ("false", "0", "no", "off") for v in hostname
+    )
 
 
 def _is_loopback_storage(url: str) -> bool:
@@ -905,6 +923,13 @@ class Settings(BaseSettings):
         problems: list[str] = []
 
         problems += self._database_problems()
+
+        if _unverified_redis_tls(self.RATE_LIMIT_STORAGE.get_secret_value()):
+            problems.append(
+                "RATE_LIMIT_STORAGE: the rediss:// query turns certificate or hostname "
+                "verification off (ssl_cert_reqs other than required, ssl_check_hostname=false); "
+                "remove it (ssl_ca_certs or ssl_ca_path name a private CA)"
+            )
 
         storage = self.RATE_LIMIT_STORAGE.get_secret_value()
         if urlsplit(storage).scheme == "redis" and not _is_loopback_storage(storage):

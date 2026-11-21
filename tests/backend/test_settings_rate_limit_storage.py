@@ -118,3 +118,53 @@ def test_production_accepts_tls_unix_loopback_and_memory(
 def test_outside_production_plaintext_remote_is_fine(monkeypatch: pytest.MonkeyPatch) -> None:
     _set(monkeypatch, RATE_LIMIT_STORAGE="redis://cache.internal:6379")
     Settings()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"rediss://:{PASSWORD}@cache.example:6379x",
+        f"rediss://:{PASSWORD}@cache.example:70000",
+        f"redis://:{PASSWORD}@localhost/0",
+        f"rediss://:{PASSWORD}@cache.example",
+        f"redis+unix://:{PASSWORD}@cache.example/var/run/redis.sock",
+    ],
+)
+def test_urls_the_storage_cannot_parse_are_refused_without_the_password(
+    monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    _set(monkeypatch, RATE_LIMIT_STORAGE=url)
+    with pytest.raises(ValidationError) as caught:
+        Settings()
+    assert "RATE_LIMIT_STORAGE" in str(caught.value)
+    assert PASSWORD not in str(caught.value)
+
+
+def test_a_missing_port_says_to_add_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set(monkeypatch, RATE_LIMIT_STORAGE="redis://localhost/0")
+    with pytest.raises(ValidationError, match=r":6379"):
+        Settings()
+
+
+@pytest.mark.parametrize(
+    "query", ["ssl_cert_reqs=none", "ssl_cert_reqs=optional", "ssl_check_hostname=false"]
+)
+def test_production_refuses_unverified_tls(monkeypatch: pytest.MonkeyPatch, query: str) -> None:
+    _set(monkeypatch, **PROD, RATE_LIMIT_STORAGE=f"rediss://cache.example.com:6380/0?{query}")
+    with pytest.raises(ValidationError, match="RATE_LIMIT_STORAGE"):
+        Settings()
+
+
+@pytest.mark.parametrize(
+    "query", ["ssl_cert_reqs=required", "ssl_ca_certs=/etc/ca.pem", "ssl_check_hostname=true"]
+)
+def test_production_allows_verified_tls_options(
+    monkeypatch: pytest.MonkeyPatch, query: str
+) -> None:
+    _set(monkeypatch, **PROD, RATE_LIMIT_STORAGE=f"rediss://cache.example.com:6380/0?{query}")
+    Settings()
+
+
+def test_outside_production_unverified_tls_is_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set(monkeypatch, RATE_LIMIT_STORAGE="rediss://cache.example.com:6380/0?ssl_cert_reqs=none")
+    Settings()
