@@ -77,6 +77,26 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    # PostgreSQL 16 like the chart's in-cluster database (charts: postgresql.image), pinned by digest: the newest
+    # 16.x alpine release that was at least 7 days old when pinned. Renovate updates it (github-actions manager,
+    # "service" dependencies); Dependabot does not read workflow service images.
+    # The password is a throwaway literal for this ephemeral container, which listens on the runner only; it
+    # protects nothing and is not a secret.
+    services:
+      postgres:
+        image: postgres:16.15-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
+        env:
+          POSTGRES_PASSWORD: ci-throwaway-not-a-secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # TEST_DATABASE_URL takes precedence over DATABASE_URL (Settings); tests/conftest.py selects PostgreSQL from it.
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:ci-throwaway-not-a-secret@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -110,6 +130,26 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    # PostgreSQL 16 like the chart's in-cluster database (charts: postgresql.image), pinned by digest: the newest
+    # 16.x alpine release that was at least 7 days old when pinned. Renovate updates it (github-actions manager,
+    # "service" dependencies); Dependabot does not read workflow service images.
+    # The password is a throwaway literal for this ephemeral container, which listens on the runner only; it
+    # protects nothing and is not a secret.
+    services:
+      postgres:
+        image: postgres:16.15-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
+        env:
+          POSTGRES_PASSWORD: ci-throwaway-not-a-secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # TEST_DATABASE_URL takes precedence over DATABASE_URL (Settings); tests/conftest.py selects PostgreSQL from it.
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:ci-throwaway-not-a-secret@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

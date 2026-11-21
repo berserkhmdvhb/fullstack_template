@@ -34,6 +34,7 @@ def test_init_db_has_no_migration_path() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.sqlite_only
 async def test_startup_creates_no_tables(app: FastAPI) -> None:
     url = Settings().database_url
     assert url

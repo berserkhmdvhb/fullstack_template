@@ -11,7 +11,6 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Final
 
 import httpx
@@ -35,12 +34,8 @@ ITEMS_PATH: Final[str] = f"{API_BASE}/items"
 
 
 @pytest.fixture
-def app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FastAPI:
+def app() -> FastAPI:
     """Create a fresh FastAPI app with lifespan (runs DB migrations)."""
-    # Use a file-based SQLite database for test isolation (avoids PostgreSQL dependency).
-    # File-based ensures migrations and queries use the same database.
-    db_path = tmp_path / "test.db"
-    monkeypatch.setenv("TEST_DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
     return create_app()
 
 

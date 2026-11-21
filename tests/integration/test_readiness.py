@@ -28,7 +28,7 @@ OK = 200
 UNAVAILABLE = 503
 TWO = [("0001", None), ("0002", "0001")]
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.sqlite_only]
 
 
 @pytest.fixture(autouse=True)

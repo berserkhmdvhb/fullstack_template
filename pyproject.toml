@@ -161,13 +161,16 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 # No --maxfail: show the FULL failure surface instead of stopping at the first
 # failure (a suite that fails 10 ways should report all 10, not hide 9).
-addopts = "-v -m 'not integration and not e2e and not live' --ignore=tests/manual"
+addopts = "-v -m 'not integration and not e2e and not live and not contract' --ignore=tests/manual"
 pythonpath = ["src"]
 asyncio_mode = "auto"
 markers = [
   "integration: hermetic tests wiring multiple internal components (no real external IO)",
   "e2e: end-to-end tests through the public API, with network/LLM edges stubbed",
-  "live: tests that require a running external backend server"
+  "live: tests that require a running external backend server",
+  "contract: Schemathesis property tests from the OpenAPI document (make test-contract)",
+  "postgres_only: needs PostgreSQL (TEST_DATABASE_URL); skipped on SQLite",
+  "sqlite_only: edits a SQLite database file directly; skipped on PostgreSQL"
 ]
 filterwarnings = [
   # NOTE: PytestUnhandledThreadExceptionWarning is deliberately NOT ignored — an

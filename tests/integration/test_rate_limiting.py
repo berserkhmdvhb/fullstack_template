@@ -12,7 +12,6 @@ Marked with ``@pytest.mark.integration`` — runs the full ``create_app`` stack.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from pathlib import Path
 
 import httpx
 import pytest
@@ -28,12 +27,9 @@ METRICS_PATH: str = "/metrics"
 
 
 @pytest.fixture
-async def client(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> AsyncGenerator[httpx.AsyncClient]:
+async def client(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[httpx.AsyncClient]:
     """Full app under a low default limit, with lifespan (DB + middleware)."""
     monkeypatch.setenv("RATE_LIMIT_DEFAULT", "3/minute")
-    monkeypatch.setenv("TEST_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'test.db'}")
     app: FastAPI = create_app()
     async with LifespanManager(app):
         transport = httpx.ASGITransport(app=app)

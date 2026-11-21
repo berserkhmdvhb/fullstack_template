@@ -1,7 +1,6 @@
 # your-service-name — adaptable service template (see wiki/getting-started.md)
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Final
 
 import httpx
@@ -14,19 +13,11 @@ from your_service_name.backend.main import create_app
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_security_headers_present(
-    api_base: str,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+async def test_security_headers_present(api_base: str) -> None:
     """
     Security middleware injects standard headers on responses.
     HSTS is only set for HTTPS requests (tested separately).
     """
-    monkeypatch.setenv(
-        "TEST_DATABASE_URL",
-        f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
-    )
     app = create_app()
 
     async with (
@@ -52,18 +43,10 @@ async def test_security_headers_present(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_security_headers_https(
-    api_base: str,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+async def test_security_headers_https(api_base: str) -> None:
     """
     Security middleware sets HSTS header for HTTPS requests.
     """
-    monkeypatch.setenv(
-        "TEST_DATABASE_URL",
-        f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
-    )
     app = create_app()
 
     async with (
@@ -87,7 +70,6 @@ async def test_security_headers_https(
 async def test_cors_origins_and_credentials(
     monkeypatch: pytest.MonkeyPatch,
     api_base: str,
-    tmp_path: Path,
 ) -> None:
     """
     When CORS_ALLOW_CREDENTIALS=true, '*' must be removed; Starlette reflects
@@ -95,10 +77,6 @@ async def test_cors_origins_and_credentials(
     """
     monkeypatch.setenv("CORS_ORIGINS", "https://a.test, https://b.test, *")
     monkeypatch.setenv("CORS_ALLOW_CREDENTIALS", "true")
-    monkeypatch.setenv(
-        "TEST_DATABASE_URL",
-        f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
-    )
 
     # create_app() reads CORS_ORIGINS + CORS_ALLOW_CREDENTIALS from env.
     app = create_app()
@@ -129,7 +107,6 @@ async def test_cors_origins_and_credentials(
 async def test_cors_default_same_origin(
     monkeypatch: pytest.MonkeyPatch,
     api_base: str,
-    tmp_path: Path,
 ) -> None:
     """
     With ``CORS_ORIGINS`` unset the service is same-origin-restrictive: it does
@@ -139,10 +116,6 @@ async def test_cors_default_same_origin(
     origin; an adopter opts in via ``CORS_ORIGINS``.)
     """
     monkeypatch.delenv("CORS_ORIGINS", raising=False)
-    monkeypatch.setenv(
-        "TEST_DATABASE_URL",
-        f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
-    )
 
     app = create_app()
 

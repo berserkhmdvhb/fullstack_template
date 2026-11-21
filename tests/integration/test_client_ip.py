@@ -7,13 +7,11 @@ import ipaddress
 import logging
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from pathlib import Path
 
 import httpx
 import pytest
 from asgi_lifespan import LifespanManager
 from fastapi import status
-from pydantic import SecretStr
 
 from your_service_name.backend.main import create_app
 from your_service_name.backend.settings import Settings
@@ -28,13 +26,12 @@ Connect = Callable[[str], AbstractAsyncContextManager[httpx.AsyncClient]]
 
 
 @pytest.fixture
-async def connect(tmp_path: Path) -> AsyncGenerator[Connect]:
+async def connect() -> AsyncGenerator[Connect]:
     """A client factory: ``connect(peer)`` talks to one app as if from TCP peer ``peer``."""
     settings = Settings(
         RATE_LIMIT_DEFAULT="2/minute",
         LOG_REQUESTS=True,
         TRUSTED_PROXY_CIDRS=[ipaddress.ip_network("10.0.0.0/8")],
-        TEST_DATABASE_URL=SecretStr(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"),
     )
     app = create_app(settings)
 

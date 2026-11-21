@@ -311,7 +311,7 @@ precommit:
 # clears the default "not integration and not e2e and not live" marker filter
 # so the integration/e2e layers actually run (unit tests are unmarked).
 test:
-	$(PYTHON) -m pytest tests/ -o addopts="" -m "not live" -v
+	$(PYTHON) -m pytest tests/ -o addopts="" -m "not live and not contract" -v
 
 # Unit layer only — the historical `test` behaviour AND the coverage gate.
 # Relies on the default addopts marker filter ("not integration and not e2e and
