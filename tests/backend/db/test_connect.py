@@ -216,3 +216,22 @@ def test_tls_in_the_database_url_conflicts_with_db_sslmode(env: str, query: str)
             ALLOWED_HOSTS=["api.example.com"],
         )
     assert "fake" not in str(excinfo.value)
+
+
+async def test_bound_values_never_reach_a_database_error() -> None:
+    """``hide_parameters`` keeps parameter values out of an error's text (and so the 500 log)."""
+    from sqlalchemy import text  # noqa: PLC0415
+    from sqlalchemy.exc import DBAPIError  # noqa: PLC0415
+    from sqlalchemy.ext.asyncio import create_async_engine  # noqa: PLC0415
+
+    kwargs = _engine_kwargs(SQLITE_URL, _s())
+    assert kwargs["hide_parameters"] is True
+    engine = create_async_engine("sqlite+aiosqlite://", **kwargs)
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("CREATE TABLE t (a TEXT NOT NULL)"))
+            with pytest.raises(DBAPIError) as caught:
+                await conn.execute(text("INSERT INTO t (a) VALUES (:a), (NULL)"), {"a": "zq-bound"})
+    finally:
+        await engine.dispose()
+    assert "zq-bound" not in str(caught.value)

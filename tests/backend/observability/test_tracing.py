@@ -147,6 +147,78 @@ class TestServerSpans:
 
 
 @pytest.mark.usefixtures("migrated_db")
+class TestCaptureAndExclusion:
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_REQUEST",
+            "OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_RESPONSE",
+        ],
+    )
+    async def test_the_environment_cannot_switch_header_capture_on(
+        self, exporter: InMemorySpanExporter, monkeypatch: pytest.MonkeyPatch, name: str
+    ) -> None:
+        monkeypatch.setenv(name, ".*")
+        app = create_app(_settings())
+        await _run(app, "GET", "/api/v1/items", headers={"X-Probe": "zq-secret-zq"})
+        spans = _spans(exporter, app)
+        assert spans
+        assert not [k for s in spans for k in (s.attributes or {}) if "header" in k]
+        assert "zq-secret-zq" not in _values(spans)
+
+    @pytest.mark.parametrize(
+        "path", ["/api/v1/items/metrics", "/x/health", "/api/v1/items/healthz"]
+    )
+    async def test_only_the_exact_probe_paths_are_excluded(
+        self, exporter: InMemorySpanExporter, path: str
+    ) -> None:
+        app = create_app(_settings())
+        await _run(app, "GET", path)
+        assert [s for s in _spans(exporter, app) if s.kind == SpanKind.SERVER]
+
+    async def test_the_probe_with_a_query_is_still_excluded(
+        self, exporter: InMemorySpanExporter
+    ) -> None:
+        app = create_app(_settings())
+        await _run(app, "GET", "/api/v1/healthz?x=1")
+        assert _spans(exporter, app) == []
+
+
+class TestProcessWideState:
+    @pytest.mark.usefixtures("migrated_db")
+    async def test_a_second_app_keeps_its_database_spans_after_the_first_shuts_down(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        second_exporter = InMemorySpanExporter()
+        exporters = iter([InMemorySpanExporter(), second_exporter])
+        monkeypatch.setattr(tracing, "build_exporter", lambda _settings: next(exporters))
+        from your_service_name.backend.logging import correlation  # noqa: PLC0415
+
+        first, second = create_app(_settings()), create_app(_settings())
+        async with LifespanManager(first):
+            pass  # the first app starts and shuts down; the second is built but not started yet
+        assert correlation._span_ids_provider is not None
+        async with LifespanManager(second):
+            transport = httpx.ASGITransport(app=second)
+            async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+                response = await client.post("/api/v1/items", json={"name": "zq-two"})
+            assert response.status_code == httpx.codes.CREATED
+            spans = _spans(second_exporter, second)
+        assert any(s.kind == SpanKind.CLIENT for s in spans)
+        assert [s for s in spans if s.kind == SpanKind.SERVER]
+        assert correlation._span_ids_provider is None
+
+    @pytest.mark.usefixtures("exporter")
+    def test_the_w3c_propagator_is_set_whatever_the_environment_says(self) -> None:
+        from opentelemetry import propagate  # noqa: PLC0415
+        from opentelemetry.propagators.composite import CompositePropagator  # noqa: PLC0415
+
+        propagate.set_global_textmap(CompositePropagator([]))
+        create_app(_settings())
+        assert propagate.get_global_textmap().fields == {"traceparent", "tracestate"}
+
+
+@pytest.mark.usefixtures("migrated_db")
 class TestSampling:
     async def test_ratio_zero_drops_new_traces(self, exporter: InMemorySpanExporter) -> None:
         app = create_app(_settings(ratio=0))

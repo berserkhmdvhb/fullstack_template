@@ -68,3 +68,55 @@ def test_parse_header_list() -> None:
     assert parse_header_list("a=b, c = d=e ,") == {"a": "b", "c": "d=e"}
     with pytest.raises(ValueError, match="name=value"):
         parse_header_list("=x")
+
+
+PROD = {
+    "ENV": "production",
+    "DATABASE_URL": "postgresql+asyncpg://u:p@db.example:5432/app",
+    "DB_SSLMODE": "verify-full",
+    "ALLOWED_HOSTS": "api.example.com",
+    "AUTH_MODE": "gateway",
+    "TRACING_ENABLED": "true",
+}
+
+
+@pytest.mark.parametrize(
+    "endpoint", ["http://collector.monitoring.svc:4318", "http://10.0.0.5:4318"]
+)
+def test_production_refuses_headers_to_a_plaintext_remote_collector(
+    monkeypatch: pytest.MonkeyPatch, endpoint: str
+) -> None:
+    for name, value in PROD.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", f"authorization={FAKE_HEADER}")
+    with pytest.raises(ValidationError, match="OTEL_EXPORTER_OTLP_HEADERS") as caught:
+        Settings()
+    assert FAKE_HEADER not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "headers"),
+    [
+        ("https://collector.example.com:4318", "authorization=x"),
+        ("http://127.0.0.1:4318", "authorization=x"),
+        ("http://localhost:4318", "authorization=x"),
+        ("http://collector.monitoring.svc:4318", None),
+    ],
+)
+def test_production_allows_tls_loopback_or_no_headers(
+    monkeypatch: pytest.MonkeyPatch, endpoint: str, headers: str | None
+) -> None:
+    for name, value in PROD.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
+    if headers:
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", headers)
+    Settings()
+
+
+def test_outside_production_headers_over_http_are_fine(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRACING_ENABLED", "true")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "a=b")
+    Settings()

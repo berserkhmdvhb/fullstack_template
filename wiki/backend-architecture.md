@@ -341,11 +341,17 @@ Opt-in OpenTelemetry tracing over OTLP/HTTP (`observability/tracing.py`). Off by
 
 - **What is traced.** One server span per request (the FastAPI/ASGI instrumentation) and one client
   span per database statement (the SQLAlchemy instrumentation, on the app engine). The probes and
-  `/metrics` (`paths.exempt_paths`, the one list) are never traced, and a database call outside a
-  traced request (a probe's `SELECT 1`) starts no trace.
+  `/metrics` (`paths.exempt_paths`, the one list; matched as exact paths, so a route that merely ends
+  in `/metrics` is traced) are never traced, and a database call outside a traced request (a
+  probe's `SELECT 1`) starts no trace. Only a server span may start a trace: a future background
+  worker's own root span would be dropped, so give it a sampler that admits that span kind (edit
+  `_server_roots_only` in `observability/tracing.py`).
 - **What is not captured.** No request or response header, no body, no query string (it is removed
   from the span's URL attributes), no SQL parameter value (the statement text keeps its
-  placeholders) and no SQL comment.
+  placeholders; the app engine runs with `hide_parameters`, so an error's text has none either) and
+  no SQL comment. The environment cannot switch header capture on. A database error's own message
+  (for example a unique-key `DETAIL` naming the value) can still reach the logs and the trace
+  backend, so treat the collector as holding the same class of data as the logs.
 - **Sampling.** `ParentBased(TraceIdRatioBased(TRACING_SAMPLE_RATIO))`: a caller's `traceparent`
   sampled flag is honoured, so a client can force the recording of its own requests (the rate limit
   bounds that), and the ratio decides for new traces.
@@ -359,18 +365,24 @@ Opt-in OpenTelemetry tracing over OTLP/HTTP (`observability/tracing.py`). Off by
   `outgoing_trace_headers()` then forwards the active span as the parent. With tracing off the ids
   are the inbound `traceparent`'s, as before. See [Logging](operations-runbook.md#log-correlation--tracing).
 
-Every value above is passed explicitly to the SDK constructors. The SDK and the instrumentations
-still read these standard variables themselves, which the template leaves to the operator:
-`OTEL_SDK_DISABLED`; the span limits (`OTEL_SPAN_*_LIMIT`, `OTEL_ATTRIBUTE_*_LIMIT`); the exporter's
-TLS files (`OTEL_EXPORTER_OTLP_CERTIFICATE`, `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE`,
-`OTEL_EXPORTER_OTLP_CLIENT_KEY`, and their `*_TRACES_*` forms) and its `*_TRACES_ENDPOINT` /
-`*_TRACES_HEADERS` overrides; `OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_*` (setting those makes
-the instrumentation record headers, against the rule above); and `OTEL_SEMCONV_STABILITY_OPT_IN`.
-`OTEL_RESOURCE_ATTRIBUTES` is not read. FastAPI's own telemetry is switched off in `create_app`.
+Every value above is passed explicitly to the SDK constructors, the propagator is set in code to W3C
+Trace Context (the correlation middleware parses the same header, so `OTEL_PROPAGATORS` changes
+nothing) and header capture is pinned off. The SDK and the exporter still read these standard
+variables themselves, which the template leaves to the operator: `OTEL_SDK_DISABLED`; the span
+limits (`OTEL_SPAN_*_LIMIT`, `OTEL_ATTRIBUTE_*_LIMIT`); the exporter's TLS files
+(`OTEL_EXPORTER_OTLP_CERTIFICATE`, `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE`,
+`OTEL_EXPORTER_OTLP_CLIENT_KEY`, and their `*_TRACES_*` forms) and its `*_TRACES_HEADERS` override;
+and `OTEL_SEMCONV_STABILITY_OPT_IN`. `OTEL_RESOURCE_ATTRIBUTES` is not read. FastAPI's own
+telemetry is switched off in `create_app`.
 
-The SQLAlchemy instrumentation declares support for SQLAlchemy below 2.1 although the locked 2.1
-release works with it; the code skips the version check and a test runs the real path against the
-lock. Re-check this when either package is updated.
+In production `OTEL_EXPORTER_OTLP_HEADERS` with an `http://` endpoint to a non-loopback host is
+refused (the credentials would travel in cleartext, like Redis and the database); `http://` without
+headers to an in-cluster collector stays allowed.
+
+Database spans use the SQLAlchemy instrumentation's per-engine `EngineTracer` directly (its public
+entry point is a process-wide singleton and checks SQLAlchemy < 2.1, while the locked 2.1 release
+works): the listeners live on the app engine, so two traced apps in one process each keep their
+spans. A test runs the real path against the lock; re-check it when the package is updated.
 
 In the chart: `observability.tracing.*` (and `backend.networkPolicy.extraEgress` to reach the
 collector on 4318). See [Security](security.md#rate-limiting) for the Redis rate-limit storage that

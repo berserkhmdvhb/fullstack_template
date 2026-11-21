@@ -918,11 +918,30 @@ class Settings(BaseSettings):
             )
         return problems
 
+    def _tracing_problems(self) -> list[str]:
+        """The tracing checks that apply only when ENV is production."""
+        endpoint = self.OTEL_EXPORTER_OTLP_ENDPOINT
+        if (
+            self.OTEL_EXPORTER_OTLP_HEADERS is not None
+            and endpoint
+            and urlsplit(endpoint).scheme == "http"
+            and not _is_local_host(urlsplit(endpoint).hostname or "")
+        ):
+            msg = (
+                "OTEL_EXPORTER_OTLP_HEADERS would travel in cleartext to the http:// collector; "
+                "use an https:// endpoint, a loopback host, or drop the headers (plain http:// "
+                "to an in-cluster collector without headers is allowed)"
+            )
+            return [msg]
+        return []
+
     def _production_problems(self) -> list[str]:
         """The checks that apply only when ENV is production."""
         problems: list[str] = []
 
         problems += self._database_problems()
+
+        problems += self._tracing_problems()
 
         if _unverified_redis_tls(self.RATE_LIMIT_STORAGE.get_secret_value()):
             problems.append(

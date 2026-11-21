@@ -92,7 +92,9 @@ def _engine_kwargs(url: str, settings: Settings) -> dict[str, Any]:
     (PostgreSQL) tier also size the pool and set the timeouts and TLS (``db/connect.py``). The
     SQLite fallback keeps SQLAlchemy's default pool and takes no connect arguments.
     """
-    kwargs: dict[str, Any] = {"echo": False, "pool_pre_ping": True}
+    # hide_parameters: a failing statement's error (and so the 500 log and any trace) never carries
+    # the bound values.
+    kwargs: dict[str, Any] = {"echo": False, "pool_pre_ping": True, "hide_parameters": True}
     if url.startswith("postgresql"):
         kwargs["pool_size"] = settings.DB_POOL_SIZE
         kwargs["max_overflow"] = settings.DB_MAX_OVERFLOW

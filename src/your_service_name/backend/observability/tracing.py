@@ -64,6 +64,8 @@ _QUEUE_SIZE: Final[int] = 2048
 _BATCH_SIZE: Final[int] = 512
 _SCHEDULE_DELAY_MS: Final[int] = 5000
 _TRACES_PATH: Final[str] = "/v1/traces"
+#: A regular expression that matches nothing (a negative lookahead of the empty string).
+_NO_HEADERS: Final[list[str]] = ["(?!)"]
 #: Span attributes that can hold the URL (and so a query string), across semantic conventions.
 _URL_ATTRIBUTES: Final[tuple[str, ...]] = ("http.url", "url.full", "http.target", "url.query")
 
@@ -118,9 +120,14 @@ def _server_roots_only(inner: Sampler) -> Sampler:
 
 
 def _excluded_urls(settings: Settings) -> str:
-    """Comma-separated regexes for the instrumentation: the exact exempt paths, query allowed."""
+    """Comma-separated regexes for the instrumentation: the exact exempt paths, query allowed.
+
+    The instrumentation runs ``re.search`` on ``scheme://host/path``, so each pattern is anchored
+    after the host: a route that merely ends in ``/metrics`` is an ordinary, traced route.
+    """
     return ",".join(
-        re.escape(path) + r"(\?.*)?$" for path in sorted(paths.exempt_paths(settings.API_VERSION))
+        r"^[a-z]+://[^/]*" + re.escape(path) + r"(\?.*)?$"
+        for path in sorted(paths.exempt_paths(settings.API_VERSION))
     )
 
 
@@ -149,39 +156,41 @@ def _active_span_ids() -> tuple[str, str, str] | None:
     return format(ctx.trace_id, "032x"), format(ctx.span_id, "016x"), format(ctx.trace_flags, "02x")
 
 
+_active_handles = 0
+_handles_lock = threading.Lock()
+
+
 @dataclass
 class TracingHandle:
     """What the lifespan needs: instrument the database engine, flush and stop the exporter."""
 
     provider: TracerProvider
-    _sqlalchemy_instrumented: bool = False
+    _stopped: bool = False
 
     def instrument_engine(self, engine: Engine) -> None:
-        """Trace the app engine's statements (text only; no parameters, no SQL commenter)."""
-        from opentelemetry.instrumentation.sqlalchemy import (  # noqa: PLC0415
-            SQLAlchemyInstrumentor,
-        )
+        """Trace the app engine's statements (text only; no parameters, no SQL commenter).
 
-        # ``skip_dep_check``: the instrumentation declares SQLAlchemy < 2.1 although the locked
-        # 2.1 releases work with it; the test below runs the real path against the lock.
-        SQLAlchemyInstrumentor().instrument(
-            engine=engine,
-            tracer_provider=self.provider,
-            enable_commenter=False,
-            skip_dep_check=True,
-        )
-        self._sqlalchemy_instrumented = True
+        The instrumentation's own entry point is a process-wide singleton (a second app would get
+        no spans, or the first app's provider), so the per-engine tracer it is built on is used
+        directly: the listeners live on this engine and go with it.
+        """
+        from opentelemetry import metrics  # noqa: PLC0415
+        from opentelemetry.instrumentation.sqlalchemy.engine import EngineTracer  # noqa: PLC0415
+
+        usage = metrics.get_meter(__name__).create_up_down_counter("db.client.connections.usage")
+        tracer = self.provider.get_tracer(__name__)
+        EngineTracer(tracer, engine, usage, enable_commenter=False)  # type: ignore[no-untyped-call]
 
     def shutdown(self) -> None:
         """Flush the queue and stop the exporter, giving up after ``SHUTDOWN_TIMEOUT_SECONDS``."""
-        if self._sqlalchemy_instrumented:
-            from opentelemetry.instrumentation.sqlalchemy import (  # noqa: PLC0415
-                SQLAlchemyInstrumentor,
-            )
-
-            SQLAlchemyInstrumentor().uninstrument()
-            self._sqlalchemy_instrumented = False
-        set_span_ids_provider(None)
+        global _active_handles  # noqa: PLW0603 — counts the traced apps of this process
+        if self._stopped:
+            return
+        self._stopped = True
+        with _handles_lock:
+            _active_handles -= 1
+            if _active_handles <= 0:
+                set_span_ids_provider(None)  # the last traced app leaving clears the hook
         worker = threading.Thread(target=self.provider.shutdown, daemon=True)
         worker.start()
         worker.join(SHUTDOWN_TIMEOUT_SECONDS)
@@ -192,10 +201,14 @@ class TracingHandle:
 def install_tracing(app: FastAPI, settings: Settings) -> TracingHandle:
     """Build the provider and instrument ``app``; one call per process (per ``create_app``)."""
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # noqa: PLC0415
+    from opentelemetry.propagate import set_global_textmap  # noqa: PLC0415
     from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
     from opentelemetry.sdk.trace import TracerProvider  # noqa: PLC0415
     from opentelemetry.sdk.trace.export import BatchSpanProcessor  # noqa: PLC0415
     from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased  # noqa: PLC0415
+    from opentelemetry.trace.propagation.tracecontext import (  # noqa: PLC0415
+        TraceContextTextMapPropagator,
+    )
 
     provider = TracerProvider(
         sampler=_server_roots_only(ParentBased(TraceIdRatioBased(settings.TRACING_SAMPLE_RATIO))),
@@ -216,9 +229,20 @@ def install_tracing(app: FastAPI, settings: Settings) -> TracingHandle:
         tracer_provider=provider,
         excluded_urls=_excluded_urls(settings),
         server_request_hook=_strip_query,
+        # The instrumentation uses ``argument or environment``: an empty list would let
+        # OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_* switch capture on. A pattern that matches
+        # no header name keeps it off whatever the environment says.
+        http_capture_headers_server_request=_NO_HEADERS,
+        http_capture_headers_server_response=_NO_HEADERS,
         exclude_spans=["receive", "send"],
     )
-    set_span_ids_provider(_active_span_ids)
+    # W3C Trace Context, as the correlation middleware parses it: OTEL_PROPAGATORS must not change
+    # how the inbound header is read.
+    set_global_textmap(TraceContextTextMapPropagator())
+    global _active_handles  # noqa: PLW0603 — counts the traced apps of this process
+    with _handles_lock:
+        _active_handles += 1
+        set_span_ids_provider(_active_span_ids)
     handle = TracingHandle(provider)
     app.state.tracing = handle
     logger.info(
