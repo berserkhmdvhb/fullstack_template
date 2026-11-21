@@ -7,9 +7,10 @@
 # local adaptation lives under infra/security/local/ (this file included).
 #
 # This file holds the orchestrator skeleton, the local build coordinates, tool provisioning,
-# the local build + scan.env, and the scan chain + fail policy. It boots, sources the shared runtime, derives the GitHub
-# Actions variables (GITHUB_*) from the local git repo, layers the local registry/project/tag
-# on top (from the gitignored .env.local), and dispatches to subcommands.
+# the local build + scan.env, and the scan chain + fail policy. It boots and sources the
+# shared runtime. It derives the GitHub Actions variables (GITHUB_*) from the local git
+# repo, layers the local registry/project/tag on top (from the gitignored .env.local), and
+# dispatches to subcommands.
 # bootstrap/build/tools + the sbom/vuln/osv/malware-heuristic/license/vex/audit/
 # ci-hardening scan chain and `all` are implemented here. `clean` removes the
 # regenerable local security artifacts (the scan output tree + the stray
@@ -134,7 +135,7 @@ _selftest_env() {
 
 # ---------- local build coordinates ---------------------------------
 # Where the local image registry / project / tag come from, so the build step
-# (a later task) knows what to tag. Two layers: derive_ci_env gives the git->CI
+# knows what to tag. Two layers: derive_ci_env gives the git->CI
 # coordinates; then .env.local (gitignored, per-developer, never committed) may
 # override the registry and project. Everything here is source-safe and pure, so
 # the bats tests can source this file and call the resolvers directly.

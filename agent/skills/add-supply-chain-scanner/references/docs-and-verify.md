@@ -69,8 +69,8 @@ Run all four; a scanner is done only when all are green.
   GREEN/RED/SKIPPED and the process exits 0; for a gate scanner confirm a finding
   makes `./devsec.sh all` stop the chain and fail the `summary` gate.
 
-Record delivered verification as `VERIFIED:` lines in the plan ledger
-(`.superpowers/sdd/PLAN-<name>/progress.md`): pytest N/N, bats N/N, shellcheck
+Record delivered verification as `VERIFIED:` lines in your plan or
+progress log, if you keep one: pytest N/N, bats N/N, shellcheck
 clean, and a real `devsec.sh` run with the observed exit code / `report.json`
 status — mirroring the existing ledgers.
 

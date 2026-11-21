@@ -48,8 +48,8 @@ Answer these before writing code; they select the branches below:
 
 0. **Read the pattern, not just this file.** Skim `references/script-side.md`
    (anatomy of a scanner script + its bats test) so you mirror the real shape
-   instead of inventing one. If a plan/ledger exists for this work
-   (`.superpowers/sdd/PLAN-*/progress.md`), resume from it — record every ruling
+   instead of inventing one. If you keep a plan or progress log for this
+   work (your task tracker, a progress file), resume from it — record every ruling
    there, not in your own memory.
 
 1. **Pin the version in `infra/security/config.yaml`.** Checksum binary → add a

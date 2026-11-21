@@ -284,7 +284,7 @@ def _writes_to_github_path(line: str, bin_dir: str) -> bool:
     [
         ('echo "$RUNNER_TEMP/v/bin" >> "$GITHUB_PATH"', "$RUNNER_TEMP/v/bin", True),
         ('echo "${RUNNER_TEMP}/v/bin" >> "$GITHUB_PATH"', "$RUNNER_TEMP/v/bin", True),
-        ('echo "$RUNNER_TEMP/v/bin" >> "${GITHUB_PATH}"', "$RUNNER_TEMP/v/bin", True),
+        ('echo "${RUNNER_TEMP}/x/bin" >> "$GITHUB_PATH"', "$RUNNER_TEMP/x/bin", True),
         ('echo "$PWD/.tools/bin" >> "$GITHUB_PATH"', "$RUNNER_TEMP/v/bin", False),
     ],
 )
