@@ -1,0 +1,44 @@
+"""The versions `wiki/admission-control.md` states must equal tools/pins.tsv."""
+
+from __future__ import annotations
+
+import re
+
+import pytest
+
+from tests.supply_chain._workflows import REPO
+
+DOC = (REPO / "wiki" / "admission-control.md").read_text(encoding="utf-8")
+
+
+def pin(tool: str) -> str:
+    for line in (REPO / "tools" / "pins.tsv").read_text(encoding="utf-8").splitlines():
+        cols = line.split("\t")
+        if cols[0] == tool:
+            return cols[1]
+    pytest.fail(f"{tool} is not in tools/pins.tsv")
+
+
+def table_version(label: str) -> str:
+    m = re.search(rf"^\| {re.escape(label)}[^|]*\| ([0-9][^ |]*) \|", DOC, re.MULTILINE)
+    assert m, f"the version table has no row for {label}"
+    return m.group(1)
+
+
+def test_cosign_version_matches_pins() -> None:
+    assert table_version("cosign") == pin("cosign")
+
+
+def test_kyverno_cli_version_matches_pins() -> None:
+    assert table_version("Kyverno CLI") == pin("kyverno")
+
+
+def test_in_cluster_minor_matches_cli_minor() -> None:
+    m = re.search(r"^\| Kyverno in the cluster \| (\d+\.\d+)\.x", DOC, re.MULTILINE)
+    assert m, "the version table has no in-cluster Kyverno row"
+    assert pin("kyverno").startswith(m.group(1) + ".")
+
+
+def test_links_to_the_single_identity_section() -> None:
+    assert "./security.md#verifying-an-image" in DOC
+    assert "reusable-build.yml@" not in DOC
