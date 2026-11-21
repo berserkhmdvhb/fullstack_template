@@ -23,6 +23,7 @@ Design
 from __future__ import annotations
 
 import logging
+import re
 from typing import Annotated, Final, Literal
 
 from limits import parse as parse_rate_limit
@@ -49,6 +50,9 @@ JWT_HASHLIB: Final[dict[str, str]] = {"HS256": "sha256", "HS384": "sha384", "HS5
 ALLOWED_JWT_ALGS: Final[frozenset[str]] = frozenset(JWT_HASHLIB)
 
 PRODUCTION_ENVS: Final[frozenset[str]] = frozenset({"production", "prod"})
+
+# A bare origin: scheme://host[:port], no path, query or trailing slash.
+_BARE_ORIGIN: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://[^/?#\s]+$")
 
 AuthMode = Literal["none", "gateway", "bearer"]
 
@@ -223,13 +227,19 @@ class Settings(BaseSettings):
 
     @property
     def docs_url(self) -> str | None:
-        """Swagger UI path, or ``None`` when it is off."""
-        return (self.API_DOCS_URL if self.API_DOCS_URL is not None else "/docs") or None
+        """Swagger UI path, or ``None`` when it is off (the default in production)."""
+        default = "/docs" if self._docs_on_by_default else ""
+        return (self.API_DOCS_URL if self.API_DOCS_URL is not None else default) or None
 
     @property
     def openapi_url(self) -> str | None:
-        """OpenAPI JSON path, or ``None`` when it is off."""
-        return (self.OPENAPI_URL if self.OPENAPI_URL is not None else "/openapi.json") or None
+        """OpenAPI JSON path, or ``None`` when it is off (the default in production)."""
+        default = "/openapi.json" if self._docs_on_by_default else ""
+        return (self.OPENAPI_URL if self.OPENAPI_URL is not None else default) or None
+
+    @property
+    def _docs_on_by_default(self) -> bool:
+        return not self.is_production or self.ALLOW_PRODUCTION_DOCS
 
     @property
     def database_url(self) -> str | None:
@@ -317,16 +327,73 @@ class Settings(BaseSettings):
     # --- Validators: cross-field ----------------------------------------------
 
     @model_validator(mode="after")
-    def _auth_mode_has_what_it_needs(self) -> Settings:
-        """Validate at startup what a mode needs, instead of failing the first request."""
+    def _check_configuration(self) -> Settings:
+        """Refuse an invalid configuration, listing every problem in one message.
+
+        Each problem names the variable and the fix, and never echoes a value (they may carry
+        credentials). Runs after the per-field parsing above, so it sees typed values.
+        """
+        problems = self._auth_problems()
+        if self.is_production:
+            problems += self._production_problems()
+        if problems:
+            raise ValueError("invalid configuration:\n" + "\n".join(f"  - {p}" for p in problems))
+        return self
+
+    def _auth_problems(self) -> list[str]:
+        """What each AUTH_MODE needs, checked at startup instead of at the first request."""
+        problems: list[str] = []
         if self.AUTH_MODE == "bearer":
-            problems: list[str] = []
             if self.AUTH_JWT_SECRET is None or not self.AUTH_JWT_SECRET.get_secret_value():
                 problems.append("AUTH_JWT_SECRET is required when AUTH_MODE=bearer; set it")
             if self.AUTH_JWT_ALGORITHM not in ALLOWED_JWT_ALGS:
                 problems.append(
                     "AUTH_JWT_ALGORITHM must be one of " + ", ".join(sorted(ALLOWED_JWT_ALGS))
                 )
-            if problems:
-                raise ValueError("; ".join(problems))
-        return self
+        return problems
+
+    def _production_problems(self) -> list[str]:
+        """The checks that apply only when ENV is production."""
+        problems: list[str] = []
+
+        url = self.database_url
+        if url is None or url.strip().lower().startswith("sqlite"):
+            problems.append(
+                "DATABASE_URL: SQLite (or no database) is refused in production; set DATABASE_URL "
+                "to a PostgreSQL URL, and unset TEST_DATABASE_URL, which takes precedence"
+            )
+
+        origins = self.CORS_ORIGINS
+        if self.CORS_ALLOW_CREDENTIALS and not origins:
+            problems.append(
+                "CORS_ORIGINS: empty while CORS_ALLOW_CREDENTIALS=true; list the allowed "
+                "origins or set CORS_ALLOW_CREDENTIALS=false"
+            )
+        if self.CORS_ALLOW_CREDENTIALS and "*" in origins:
+            problems.append(
+                "CORS_ORIGINS: '*' with CORS_ALLOW_CREDENTIALS=true; list the allowed origins "
+                "or set CORS_ALLOW_CREDENTIALS=false"
+            )
+        if any(o != "*" and not _BARE_ORIGIN.match(o) for o in origins):
+            problems.append(
+                "CORS_ORIGINS: every origin must be a bare scheme://host[:port], with no path "
+                "and no trailing slash"
+            )
+
+        if self.AUTH_MODE == "none" and not self.ALLOW_ANONYMOUS:
+            problems.append(
+                "AUTH_MODE=none serves every endpoint anonymously; set AUTH_MODE to gateway or "
+                "bearer, or set ALLOW_ANONYMOUS=true to accept that explicitly"
+            )
+
+        if not self.ALLOW_PRODUCTION_DOCS:
+            problems += [
+                f"{name}: documentation is off in production; leave it unset (or empty), or set "
+                "ALLOW_PRODUCTION_DOCS=true to serve it"
+                for name, value in (
+                    ("API_DOCS_URL", self.API_DOCS_URL),
+                    ("OPENAPI_URL", self.OPENAPI_URL),
+                )
+                if value
+            ]
+        return problems
