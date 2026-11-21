@@ -35,6 +35,10 @@ import yaml
 USAGE_ERROR = 2
 REUSABLE_BUILD = ".github/workflows/reusable-build.yml"
 SIGNING_JOB = "sign-attest"
+# Publishing Scorecard results needs id-token: write (OIDC) and no cloud credential; the action's
+# workflow restrictions allow no environment-free job but this one.
+SCORECARD_WORKFLOW = ".github/workflows/scorecard.yml"
+SCORECARD_JOB = "analysis"
 _REUSABLE_REF = "./" + REUSABLE_BUILD
 _CLOUD_LOGIN_REF = (
     "./.github/workflows/deploy.yml"  # its caller grants id-token for the cloud login
@@ -568,6 +572,9 @@ def check_environment_for_secrets(doc: Doc) -> list[Finding]:
         reasons = _job_secret_reasons(job, top_idtoken=top_idtoken)
         # Keyless signing needs no cloud credential; only this one job is exempt.
         if doc.name.endswith(REUSABLE_BUILD) and job_id == SIGNING_JOB:
+            reasons = [r for r in reasons if r != "id-token: write"]
+        # Publishing Scorecard results (OIDC, no cloud credential): only this one job is exempt.
+        if doc.name.endswith(SCORECARD_WORKFLOW) and job_id == SCORECARD_JOB:
             reasons = [r for r in reasons if r != "id-token: write"]
         if reasons:
             found.append(

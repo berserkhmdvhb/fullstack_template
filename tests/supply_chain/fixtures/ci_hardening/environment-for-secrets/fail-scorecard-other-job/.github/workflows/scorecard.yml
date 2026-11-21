@@ -1,0 +1,20 @@
+name: S
+on: [push]
+permissions: {}
+jobs:
+  analysis:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write  # publishing results: exempt by file and job id
+    steps:
+      - run: echo scan
+  other:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write  # not exempt: only the analysis job is
+    steps:
+      - run: echo other

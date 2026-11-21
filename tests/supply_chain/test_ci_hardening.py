@@ -380,6 +380,13 @@ def test_only_the_sign_attest_job_is_exempt_from_the_environment_rule() -> None:
     assert flagged == ["other"], out
 
 
+def test_only_the_scorecard_analysis_job_is_exempt_in_scorecard_yml() -> None:
+    root = FIXTURES / "environment-for-secrets" / "fail-scorecard-other-job"
+    out = run_lint(root).stdout
+    flagged = re.findall(r"environment-for-secrets job (\S+) ", out)
+    assert flagged == ["other"], out
+
+
 def test_a_pull_request_caller_of_the_reusable_build_is_flagged() -> None:
     out = run_lint(FIXTURES / "image-push-isolation" / "fail-caller-pull-request").stdout
     assert "pull_request" in out
