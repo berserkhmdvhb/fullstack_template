@@ -372,6 +372,19 @@ repo_security() {
   if ((TEMPLATE)); then api PATCH "/repos/$REPO" '{"is_template": true}'; fi
 }
 
+# --- the breaking-change label (read by the api-compat job; wiki/api-lifecycle.md): https://docs.github.com/en/rest/issues/labels ---
+LABEL_NAME="breaking-change"
+labels() {
+  local have payload
+  payload="$(jq -nc --arg n "$LABEL_NAME" '{name: $n, color: "b60205", description: "A deliberate breaking change to the API contract; lets the oasdiff gate pass"}')"
+  have="$(get "/repos/$REPO/labels/$LABEL_NAME")"
+  if [[ -n "$have" ]]; then
+    api PATCH "/repos/$REPO/labels/$LABEL_NAME" "$payload"
+  else
+    api POST "/repos/$REPO/labels" "$payload"
+  fi
+}
+
 secrets_list() {
   cat >&2 <<'LIST'
 # Secrets are never set by this script. Set by hand (Settings -> Environments, or gh secret set --env):
@@ -395,6 +408,7 @@ main_ruleset
 tag_ruleset
 for e in "${ENVS[@]}"; do environment "$e"; done
 variables
+labels
 secrets_list
 if ((${#SKIPS[@]})); then
   echo "# SKIPPED (${#SKIPS[@]}):" >&2

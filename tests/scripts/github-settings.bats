@@ -38,7 +38,7 @@ if [[ "$method" == GET ]]; then
   elif [[ "$path" == /repos/o/r ]]; then echo '{"private":false,"default_branch":"main"}'
   elif [[ "$path" == */environments/production ]]; then echo '{"protection_rules":[{"type":"required_reviewers","reviewers":[{"reviewer":{"login":"o"}}]}]}'
   elif [[ "$path" == */actions/runners ]]; then echo '{"total_count":0,"runners":[]}'
-  elif [[ "$path" == */variables/* ]]; then echo "gh: Not Found (HTTP 404)" >&2; exit 1
+  elif [[ "$path" == */variables/* || "$path" == */labels/* ]]; then echo "gh: Not Found (HTTP 404)" >&2; exit 1
   else echo '{}'; fi
 fi
 STUB
@@ -360,6 +360,7 @@ mutating() { grep -cE '^gh (api )?-X (POST|PUT|PATCH|DELETE)|^gh api -X (POST|PU
 applied_state() {
   echo '[{"id":7,"name":"main"},{"id":8,"name":"release-tags"}]' > "$STUB_DIR/_repos_o_r_rulesets"
   echo '{"id":7}' > "$STUB_DIR/_repos_o_r_rulesets_7"
+  echo '{"name":"breaking-change"}' > "$STUB_DIR/_repos_o_r_labels_breaking-change"
   for v in DEPLOY_ENABLED SERVICE_NAME RELEASE_APP_ID; do echo "{\"name\":\"$v\"}" > "$STUB_DIR/_repos_o_r_actions_variables_$v"; done
   echo '{"name":"GCP_DEPLOYER_SA"}' > "$STUB_DIR/_repos_o_r_environments_dev_variables_GCP_DEPLOYER_SA"
   echo '{"name":"GCP_DEPLOYER_SA"}' > "$STUB_DIR/_repos_o_r_environments_production_variables_GCP_DEPLOYER_SA"
@@ -381,6 +382,7 @@ applied_state() {
   grep -q 'gh api -X PUT .*/rulesets/8' "$LOG"
   grep -q 'gh api -X PATCH .*/actions/variables/SERVICE_NAME' "$LOG"
   grep -q 'gh api -X PATCH .*/environments/dev/variables/GCP_DEPLOYER_SA' "$LOG"
+  grep -q 'gh api -X PATCH .*/repos/o/r/labels/breaking-change' "$LOG"
   [ "$(count 'gh api -X POST')" -eq 0 ]
   [ "$(count 'gh api -X DELETE')" -eq 0 ]
 }
@@ -450,4 +452,22 @@ applied_state() {
   run "$SCRIPT" --repo o/r --vars-file "$VARS" --apply
   [ "$status" -eq 3 ]
   [[ "$output" == *"Dependabot alerts"* && "$output" == *"Dependabot security updates"* ]]
+}
+
+@test "the breaking-change label is created when missing, in dry run (with --diff) and under --apply" {
+  run "$SCRIPT" --repo o/r --vars-file "$VARS" --diff
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"DRY-RUN POST /repos/o/r/labels"* ]]
+  [[ "$output" == *'"name":"breaking-change"'* ]]
+  run "$SCRIPT" --repo o/r --vars-file "$VARS" --apply
+  grep -q 'gh api -X POST .*/repos/o/r/labels' "$LOG"
+  grep -q 'BODY {"name":"breaking-change"' "$LOG"
+}
+
+@test "an existing breaking-change label is updated in place, never duplicated" {
+  echo '{"name":"breaking-change"}' > "$STUB_DIR/_repos_o_r_labels_breaking-change"
+  run "$SCRIPT" --repo o/r --vars-file "$VARS" --apply
+  [ "$status" -eq 0 ]
+  grep -q 'gh api -X PATCH .*/repos/o/r/labels/breaking-change' "$LOG"
+  [ "$(count 'gh api -X POST .*/repos/o/r/labels')" -eq 0 ]
 }
