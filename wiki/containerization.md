@@ -107,7 +107,7 @@ CMD ["/app/infra/backend/run_backend.sh"]
 FROM node:26-trixie-slim@sha256:... AS builder
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --include=dev
+RUN npm ci --include=dev --ignore-scripts
 COPY frontend/ ./
 RUN npm run openapi-gen && npx next build
 

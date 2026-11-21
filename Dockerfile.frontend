@@ -17,12 +17,13 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
-# Install dependencies (devDeps included — see note above)
+# Install dependencies (devDeps included — see note above). `--ignore-scripts`: no dependency install script
+# runs (policy and exceptions: wiki/frontend-deployment.md).
 COPY frontend/package.json frontend/package-lock.json ./
 COPY frontend/scripts/check-npm-version.mjs ./scripts/
 # Fail the build when the image's npm is not the one package.json's packageManager names.
 RUN node scripts/check-npm-version.mjs \
- && npm ci --include=dev
+ && npm ci --include=dev --ignore-scripts
 
 # Copy source and build
 COPY frontend/ ./

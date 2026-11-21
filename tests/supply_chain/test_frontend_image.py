@@ -74,6 +74,15 @@ def test_every_npm_runner_checks_the_package_manager_version() -> None:
     assert re.fullmatch(r"npm@\d+\.\d+\.\d+", package["packageManager"])
 
 
+def test_every_npm_runner_ignores_dependency_install_scripts() -> None:
+    """The install is `npm ci --ignore-scripts` everywhere; allowScripts in package.json records the policy."""
+    action = (ROOT / ".github/actions/setup-frontend/action.yml").read_text(encoding="utf-8")
+    assert re.search(r"^\s+run: npm ci --ignore-scripts$", action, re.MULTILINE)
+    for name in ("Dockerfile.frontend", "Dockerfile.nginx"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert "&& npm ci --include=dev --ignore-scripts\n" in text, name
+
+
 def test_the_healthcheck_probes_the_frontends_own_health_route() -> None:
     health = re.search(r"^HEALTHCHECK [^\n]*\\\n[^\n]*", DOCKERFILE, re.MULTILINE)
     assert health
