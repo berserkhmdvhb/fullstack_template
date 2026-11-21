@@ -20,7 +20,7 @@ It ensures:
 - **Consistent Architecture**: Backend (FastAPI), Frontend (Next.js 15), NGINX Ingress gateway
 - **Kubernetes Deployment**: Helm chart with per-env values (dev/qa/production/local), HPA, PDB, NetworkPolicy
 - **Developer Experience**: Makefile shortcuts, run scripts, `.env` support, local K8s via kind/minikube
-- **Code Quality & Security**: Ruff, Mypy, Pytest, CodeQL, gitleaks, supply-chain (digest-pin, typosquat scan, OpenVEX, CI self-check; image signing + SLSA provenance *parked*)
+- **Code Quality & Security**: Ruff, Mypy, Pytest, CodeQL, gitleaks, supply-chain (digest-pin, typosquat scan, OpenVEX, CI self-check; keyless image signing + SLSA provenance)
 - **Containerization**: Docker, Podman, buildx builds
 - **Observability**: Prometheus ServiceMonitor, structured logging, health probes
 - **Adaptation**: Script for renaming the service easily and safely with dry-run and backups
@@ -206,7 +206,7 @@ flowchart TB
 Defined in `.github/workflows/`; the full map is in [`wiki/ci-cd.md`](wiki/ci-cd.md).
 
 *   **ci** → backend (`ruff`, `mypy`, unit on Python 3.12 and 3.13, integration, e2e), frontend (`eslint`, `prettier`, `tsc`, build, Vitest, Playwright config), chart lint, live suites, security scans, workflow hardening; the required check is **`CI OK`**
-*   **release** (`main` and `v*` tags only) → **buildx** build & push, immutable digest check, SBOM, Grype (blocking), licence check, OpenVEX; keyless signing and SLSA provenance arrive in a later change
+*   **release** (`main` and `v*` tags only) → **buildx** build & push, immutable digest check, SBOM, Grype (blocking), licence check, OpenVEX; then keyless signing and SLSA provenance attestations, by digest
 *   **deploy** → Helm `upgrade --install` by digest + migration hook + verify + smoke test, with a rollback to the recorded revision; `deploy-ops` rolls back by hand
 *   **security** → CodeQL, gitleaks, dependency review, `pip-audit`, OSV-Scanner, GuardDog, Checkov, Kubescape, and a ZAP baseline (`dast`)
 
@@ -218,9 +218,10 @@ Defined in `.github/workflows/`; the full map is in [`wiki/ci-cd.md`](wiki/ci-cd
 
 Beyond the built-in scanners, the pipeline hardens its own supply chain:
 
-- **Image signing + provenance** — keyless signing and SLSA provenance as GitHub attestations are
-  delivered in a later change; until then images are digest-pinned
-  and unsigned. See [`wiki/ROADMAP-supply-chain.md`](wiki/ROADMAP-supply-chain.md).
+- **Image signing + provenance** — every image that passes the Grype gate is signed keyless and
+  carries SLSA provenance and SBOM attestations; verify one by hand as described in
+  [`wiki/security.md`](wiki/security.md#verifying-an-image). Admission enforcement is on
+  [`wiki/ROADMAP-supply-chain.md`](wiki/ROADMAP-supply-chain.md).
 - **Immutable digest-pin** — the release workflow captures each built image's immutable manifest
   digest (`<ID>_IMAGE_DIGEST=sha256:…`, never a mutable `:latest` / `:main`) and verifies it against
   the registry. The **helm** deploy jobs pin the image by that digest and `scripts/ci/deploy-verify.sh`

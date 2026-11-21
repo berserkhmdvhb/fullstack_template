@@ -18,7 +18,7 @@ Git tag policy, the release workflow, GitHub release notes, Kubernetes deploymen
 
 ## Overview
 
-Releases are triggered by **Git tags**. A `v*` tag runs [`release.yml`](../.github/workflows/release.yml): it computes the version from the tag, builds and pushes the three images, verifies their digests, scans them, and deploys to Kubernetes by digest. The quality gate ([`ci.yml`](../.github/workflows/ci.yml)) runs on the same tag.
+Releases are triggered by **Git tags**. A `v*` tag runs [`release.yml`](../.github/workflows/release.yml): it computes the version from the tag, builds and pushes the three images, verifies their digests, scans them, signs and attests them, attaches the SBOMs, the VEX document and the licence report to a draft GitHub Release, and deploys to Kubernetes by digest. The quality gate ([`ci.yml`](../.github/workflows/ci.yml)) runs on the same tag.
 
 ```mermaid
 flowchart LR
@@ -67,12 +67,11 @@ When a `v*` tag is pushed, `ci.yml` and `release.yml` both run:
 flowchart TB
     Tag["git tag v1.2.3<br/>git push origin v1.2.3"] --> CI["ci.yml<br/>quality gate, CI OK"]
     Tag --> Plan["plan<br/>version + image matrix"]
-    Plan --> Build["build<br/>build + push 3 images, verify digest"]
-    Build --> Dig["digests"]
-    Dig --> Sbom["sbom"]
-    Sbom --> Grype["grype (blocking)"]
-    Grype --> Deploy["deploy.yml<br/>dev, qa, production by digest"]
-    Dig --> Vex["vex, grant (advisory)"]
+    Plan --> Img["images (reusable-build.yml)<br/>build + push, sbom, grype (blocking), sign + attest"]
+    Img --> Dig["digests"]
+    Dig --> Deploy["deploy.yml<br/>dev, qa, production by digest"]
+    Img --> Vex["vex, grant (advisory)"]
+    Vex --> Assets["release-assets<br/>v* tags: draft release"]
     Deploy --> Done["Release complete"]
 ```
 
@@ -83,6 +82,8 @@ flowchart TB
 | **Grype scan** | blocking | blocking |
 | **Image tags** | immutable `<version>-main-<sha>` | immutable `<version>-prod-<sha>` plus `latest` |
 | **Deploy** | `dev`, then `qa` (when `DEPLOY_ENABLED` is `true`) | + `production`, behind the environment's reviewer |
+
+On a `v*` tag, `release-assets` creates the GitHub Release for the tag as a **draft** and uploads the SBOMs, the OpenVEX document and the licence report to it. The workflow never publishes it: edit the notes and publish by hand once the run is green (immutable releases reject assets added after publication, so the draft must be complete first; if the release is already published the job fails with a message). To check a released image, see [Verifying an image](./security.md#verifying-an-image).
 
 A pull request never reaches `release.yml`: no image is built, pushed, signed or deployed from one.
 

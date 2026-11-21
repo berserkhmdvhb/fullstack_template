@@ -215,6 +215,29 @@ gate-vs-advisory, and pull-request-vs-release ref scope — lives on the dedicat
 [`supply-chain-tooling-assessment.md`](./supply-chain-tooling-assessment.md). This
 section no longer restates them — read those pages for the detail.
 
+### Verifying an image
+
+Every image the release workflow pushes is signed keyless (Sigstore, no key to keep) and carries a
+SLSA build-provenance attestation and a CycloneDX SBOM attestation, all stored next to the image in
+`ghcr.io`. Only images that passed the blocking Grype gate are signed. The signing certificate names
+the reusable workflow that ran, not `release.yml`, because a keyless certificate issued inside a
+called workflow carries that workflow's ref.
+
+The certificate identity is `https://github.com/<owner>/<repo>/.github/workflows/reusable-build.yml@<ref>`
+(`<ref>` is `refs/heads/main` or `refs/tags/v1.2.3`), the issuer is
+`https://token.actions.githubusercontent.com`. Verify by digest, with cosign 3 or newer:
+
+```bash
+cosign verify ghcr.io/<owner>/<repo>/<image>@sha256:<digest> \
+  --certificate-identity "https://github.com/<owner>/<repo>/.github/workflows/reusable-build.yml@refs/tags/v1.2.3" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-github-workflow-sha <commit sha of the release>
+gh attestation verify oci://ghcr.io/<owner>/<repo>/<image>@sha256:<digest> --repo <owner>/<repo>
+```
+
+The release run runs the same `cosign verify` after signing, and fails if it does not pass.
+Pin to a tag or to `main` with `--certificate-identity-regexp` only when you accept every ref.
+
 ---
 
 ## Container Security

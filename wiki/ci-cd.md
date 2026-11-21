@@ -42,7 +42,8 @@ flowchart LR
 | [`reusable-live.yml`](../.github/workflows/reusable-live.yml) | called by `ci` | The full stack, then the backend live suite and the Playwright suite |
 | [`reusable-chart.yml`](../.github/workflows/reusable-chart.yml) | called by `ci` and `deploy` | Helm lint and render for every values file |
 | [`security.yml`](../.github/workflows/security.yml) | called by `ci`; weekly schedule; manual | `codeql`, `dependency-review`, `gitleaks`, `pip-audit`, and the `advisory` matrix (`osv`, `guarddog`, `checkov`, `kubescape`) |
-| [`release.yml`](../.github/workflows/release.yml) | push to `main` and `v*` | `plan`, `build` (build, push, verify the digest), `digests`, `sbom`, `grype`, `grant`, `vex`, then `deploy` |
+| [`release.yml`](../.github/workflows/release.yml) | push to `main` and `v*` | `plan`, `images` (calls `reusable-build.yml`), `digests`, `grant`, `vex`, `release-assets` (`v*` tags), then `deploy` |
+| [`reusable-build.yml`](../.github/workflows/reusable-build.yml) | called by `release` | `build` (build, push, verify the digest), `sbom`, `grype` (blocking gate), `sign-attest` |
 | [`deploy.yml`](../.github/workflows/deploy.yml) | called by `release` | `helm-checks`, `deploy-notice` (the skip notice), then `deploy-dev`, `deploy-qa`, `deploy-production` |
 | [`deploy-ops.yml`](../.github/workflows/deploy-ops.yml) | manual | `rollback`, `history`, `cleanup` (a report) and `check` on one environment |
 | [`dast.yml`](../.github/workflows/dast.yml) | after `Release` succeeds; manual | The ZAP baseline against the backend image just pushed |
@@ -71,12 +72,13 @@ SARIF from the scanners goes to code scanning with `continue-on-error`, so a rep
 
 ## Image operations
 
-Build, push, sign, attest and digest resolution happen only in [`release.yml`](../.github/workflows/release.yml), on a push to `main` or a `v*` tag, never in a pull request. A pull request builds images locally for kind and never pushes.
+Build, push, sign, attest and digest resolution happen only in [`reusable-build.yml`](../.github/workflows/reusable-build.yml), called by [`release.yml`](../.github/workflows/release.yml) on a push to `main` or a `v*` tag, never in a pull request. A pull request builds images locally for kind and never pushes.
 
 1. `plan` renders the image matrix and the version (`.github/scripts/container_matrix.py`, manifest `.github/container-images.yml`).
-2. `build` builds and pushes each image to `ghcr.io/<owner>/<repo>/<id>` with `docker/build-push-action`, then checks that the registry digest equals the build digest.
-3. `digests` merges the per-image digests; `sbom`, `grype`, `grant` and `vex` all work by digest.
-4. Signing and provenance attestations are delivered in a later change; until then the release ships digest-pinned, unsigned images.
+2. `images` calls `reusable-build.yml`, which is the only workflow that may push, sign or attest an image (the hardening lint enforces it). Its `build` job pushes each image to `ghcr.io/<owner>/<repo>/<id>` with `docker/build-push-action` and checks that the registry digest equals the build digest.
+3. `sbom` and `grype` (the blocking gate) work by digest. `sign-attest` runs only after the gate: it signs each digest keyless with the pinned cosign, runs `cosign verify` against the workflow identity, then adds the provenance and SBOM attestations (`push-to-registry`). The identity and how to verify by hand are in [Security](./security.md#verifying-an-image).
+4. `digests` merges the per-image digests; `grant`, `vex` and `deploy` run after `images`, so nothing deploys unless the gate passed and the images are signed.
+5. On a `v*` tag `release-assets` puts the SBOMs, the OpenVEX document and the licence report on a **draft** GitHub Release (created with `--verify-tag`, never published by the workflow).
 
 Tags: the immutable `<version>-<channel>-<sha>` on every release run, plus `latest` on a `v*` tag. See [Containerization](./containerization.md) and [Releasing](./releasing.md).
 
@@ -99,7 +101,7 @@ Setup of the cloud side: [GKE cluster setup](./gke-cluster-setup.md), [Cloudflar
 | pip (`setup-backend`) | `pip-<os>-<python>-<hash of pyproject.toml>` | a push to `main` only |
 | npm (`setup-frontend`) | `npm-<os>-<node>-<hash of frontend/package-lock.json>` | a push to `main` only |
 | dev tools (`.tools/`) | `tools-<os>-<hash of tools/pins.tsv>` | a push to `main` only |
-| image layers | the GitHub Actions cache, scoped per image id | `release.yml` (`mode=max`) |
+| image layers | the GitHub Actions cache, scoped per image id | `reusable-build.yml` (`mode=max`) |
 
 Pull requests and tags restore caches and never save them, so a pull request cannot poison what `main` restores.
 
@@ -143,8 +145,8 @@ The template used to run on GitLab CI (`ci/*.yml`). Every old job key is mapped 
 | `frontend:e2e-validate` (alias `frontend:e2e`) | `reusable-frontend.yml` / `playwright-list` | advisory (manual) -> blocking | validates the Playwright config |
 | `frontend:live` | `reusable-live.yml` / `live` | advisory (manual) -> advisory on pull requests, blocking on `main` and tags | now automatic, merged into the one live job |
 | `compute-version` | `release.yml` / `plan` | blocking -> blocking | `.github/scripts/container_matrix.py` |
-| `docker:build-push` | `release.yml` / `build` | blocking -> blocking | `main` and `v*` only |
-| `verify:registry` | `release.yml` / `build` (digest step) and `digests` | blocking -> blocking | |
+| `docker:build-push` | `reusable-build.yml` / `build` | blocking -> blocking | `main` and `v*` only |
+| `verify:registry` | `reusable-build.yml` / `build` (digest step) and `release.yml` / `digests` | blocking -> blocking | |
 | `helm:lint` | `reusable-chart.yml` / `chart` (called by `ci` and `deploy`) | blocking on MRs -> blocking | |
 | `.deploy` (template), `deploy:dev`, `deploy:qa` (alias `deploy:k8s`) | `deploy.yml` / `deploy-dev`, `deploy-qa` | blocking -> blocking, only when `DEPLOY_ENABLED` is `true` | |
 | `deploy:production` (alias `deploy:k8s`) | `deploy.yml` / `deploy-production` | manual -> required reviewer on the `production` environment | `v*` tag only |
@@ -161,8 +163,8 @@ The template used to run on GitLab CI (`ci/*.yml`). Every old job key is mapped 
 | `malware_heuristic_scan` | `security.yml` / `advisory`, leg `guarddog` | advisory -> advisory | |
 | `iac_scan` | `security.yml` / `advisory`, leg `checkov` | advisory -> advisory | |
 | `k8s_scan` | `security.yml` / `advisory`, leg `kubescape` | advisory -> advisory | |
-| `sbom_consolidated` | `release.yml` / `sbom` | blocking -> blocking | by digest, never on pull requests |
-| `grype_scan` | `release.yml` / `grype` | blocking on protected refs -> blocking | threshold from `config.yaml` |
+| `sbom_consolidated` | `reusable-build.yml` / `sbom` | blocking -> blocking | by digest, never on pull requests |
+| `grype_scan` | `reusable-build.yml` / `grype` | blocking on protected refs -> blocking | threshold from `config.yaml` |
 | `grant_license_scan` | `release.yml` / `grant` | advisory -> advisory | |
 | `vex:generate` | `release.yml` / `vex` | advisory -> advisory | |
 | `dast_scan` | `dast.yml` / `dast` | advisory -> advisory | |
