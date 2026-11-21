@@ -101,6 +101,13 @@ config:
   LOG_DIR: /app/logs
   LOG_REQUESTS: "false"
   RATE_LIMIT_DEFAULT: 100/minute
+  # Client IP: set TRUSTED_PROXY_CIDRS to the cloudflared and gateway Pod ranges of YOUR cluster
+  # (comma-separated CIDRs; Pod CIDRs are cluster-specific, so none is guessed here). Empty trusts
+  # no forwarding header and the TCP peer is the client, so behind a proxy every client then shares
+  # one rate-limit bucket. Set TRUST_CF_CONNECTING_IP "true" only in the Cloudflare Tunnel edge
+  # mode, where Cloudflare overwrites the header; elsewhere a client could forge it.
+  TRUSTED_PROXY_CIDRS: ""
+  TRUST_CF_CONNECTING_IP: "false"
 
 # ---- Secret (app) -> DB_USER / DB_PASSWORD / STATS_PASS -------------------
 # Dev/local defaults only. Production leaves these empty and supplies them via
@@ -176,6 +183,11 @@ waf:
   wasmImage: "ghcr.io/corazawaf/wasm-plugins/coraza:latest"
   service:
     port: 8080
+  # Seconds Envoy keeps an idle upstream connection to the backend before closing it. It MUST stay
+  # below the backend's keep-alive (BACKEND_KEEPALIVE_TIMEOUT, 75 s in infra/backend/run_backend.sh),
+  # or Envoy can reuse a connection Uvicorn just closed and return a 502. Envoy's own default is
+  # one hour, which is why it is set explicitly. A test compares the two.
+  upstreamIdleTimeoutSeconds: 60
   resources:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {cpu: 500m, memory: 512Mi}

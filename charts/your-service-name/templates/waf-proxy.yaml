@@ -124,6 +124,16 @@ spec:
                 clusters:
                   - name: backend
                     type: STRICT_DNS
+                    # Close idle upstream connections BEFORE the backend's keep-alive does
+                    # (values.yaml: waf.upstreamIdleTimeoutSeconds), so Envoy never reuses a
+                    # connection Uvicorn has just closed.
+                    typed_extension_protocol_options:
+                      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+                        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+                        common_http_protocol_options:
+                          idle_timeout: {{ .Values.waf.upstreamIdleTimeoutSeconds }}s
+                        explicit_http_config:
+                          http_protocol_options: {}
                     load_assignment:
                       cluster_name: backend
                       endpoints:
