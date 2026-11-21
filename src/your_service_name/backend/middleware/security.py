@@ -31,8 +31,8 @@ Notes
   - `Cross-Origin-Resource-Policy: same-origin` (blocks other origins reading the
     JSON body via e.g. `<script>`/`<img>` — defense-in-depth beyond CORS)
 - HSTS (`Strict-Transport-Security`) is only appropriate when the service is
-  guaranteed to be accessed exclusively via HTTPS (e.g., TLS terminated at the
-  NGINX Ingress Controller). Enable with caution.
+  guaranteed to be accessed exclusively via HTTPS (e.g., TLS terminated at
+  the edge). Enable with caution.
 """
 
 from __future__ import annotations
@@ -90,7 +90,7 @@ async def _security_headers_dispatch(request: Request, call_next: Dispatch) -> R
     response.headers.setdefault("Referrer-Policy", "no-referrer")
 
     # Defense-in-depth: harden the response even when the service is served
-    # without the NGINX edge. `Permissions-Policy` disables powerful browser
+    # without an edge in front. `Permissions-Policy` disables powerful browser
     # features; `Cross-Origin-Resource-Policy: same-origin` stops other origins
     # from embedding/reading the JSON body (e.g. via <img>/<script>), complementing
     # CORS. setdefault() so an explicit upstream header is never clobbered.

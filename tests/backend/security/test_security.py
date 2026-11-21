@@ -40,7 +40,7 @@ def test_security_headers_default_present() -> None:
         assert r.headers["X-Frame-Options"] == "DENY"
         assert r.headers["Referrer-Policy"] == "no-referrer"
         # Defense-in-depth defaults (set via setdefault, so API-friendly even
-        # without an NGINX edge): disable powerful features; block cross-origin
+        # without an edge in front): disable powerful features; block cross-origin
         # embedding/reading of the JSON body.
         assert r.headers["Permissions-Policy"] == "camera=(), microphone=(), geolocation=()"
         assert r.headers["Cross-Origin-Resource-Policy"] == "same-origin"

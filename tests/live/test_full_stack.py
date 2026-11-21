@@ -5,13 +5,13 @@ Live tests for the full stack exercised through a single public edge.
 Covers:
 - Health, docs, OpenAPI spec, security headers
 - Echo roundtrip, items CRUD
-- Against a deployed public reverse-proxy edge (in production, the NGINX
-  Ingress Controller) when one is explicitly targeted via PUBLIC_PORT.
+- Against a deployed public reverse-proxy edge (in production, the
+  Gateway API edge) when one is explicitly targeted via PUBLIC_PORT.
 
 These tests need one public port that routes "/", "/api/*", "/docs" and
 "/api/healthz". In the CI ``live`` job (``entrypoint.sh --mode all``) that port is the
 Next.js frontend, which serves the pages and proxies the API and the docs; the job
-sets PUBLIC_PORT to it. nginx there is static-only (see ``test_header_set.py``).
+sets PUBLIC_PORT to it. It also serves its own static files (see ``test_header_set.py``).
 The suite is skipped, with that reason, unless PUBLIC_PORT is set (see the
 ``_require_public_edge`` fixture); set it to run against a deployed edge.
 """
@@ -42,8 +42,8 @@ def _public_url() -> str:
 def _require_public_edge() -> None:
     """Skip this suite unless a public edge is explicitly targeted.
 
-    Edge routing is a deployment-infrastructure concern (the NGINX Ingress
-    Controller in production); the hermetic CI job does not provision one. Skip
+    Edge routing is a deployment-infrastructure concern (the Gateway API edge
+    in production); the hermetic CI job does not provision one. Skip
     rather than fail against a non-existent port, and run when an edge is
     configured via PUBLIC_PORT (optionally PUBLIC_HOST).
     """

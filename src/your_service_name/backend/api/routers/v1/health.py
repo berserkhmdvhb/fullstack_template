@@ -107,7 +107,7 @@ async def health_check() -> JSONResponse:
 async def healthz() -> HealthStatus:
     """
     Return a bare health status for uptime/proxy monitors (e.g., a Kubernetes
-    liveness probe or the NGINX Ingress Controller health check).
+    liveness probe or an edge health check).
 
     Returns
     -------
