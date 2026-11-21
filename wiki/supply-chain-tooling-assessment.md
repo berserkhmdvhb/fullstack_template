@@ -189,6 +189,6 @@ wasteful overlaps are retired rather than stacked.
   via `tools-install.sh`.
 - **GuardDog:** direct deps only, PyPI + npm, pull requests, `main` and tags, `--rules
   typosquatting`, SARIF → code scanning, **advisory** (a `::warning`, never a required check).
-- **Left as-is by this assessment:** Syft, grant, cosign/SLSA (cosign signing + SLSA provenance
-  were later **parked** — removed from the pipeline), and the eight `infra/security/*.sh` scripts.
+- **Left as-is by this assessment:** Syft, grant, cosign/SLSA (signing and provenance were later
+  delivered in `reusable-build.yml` as cosign plus GitHub attestations), and the eight `infra/security/*.sh` scripts.
   Grype stays (image layer). Trivy remains available but unadopted (option C).

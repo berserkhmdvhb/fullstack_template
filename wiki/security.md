@@ -231,13 +231,32 @@ The certificate identity is `https://github.com/<owner>/<repo>/.github/workflows
 cosign verify ghcr.io/<owner>/<repo>/<image>@sha256:<digest> \
   --certificate-identity "https://github.com/<owner>/<repo>/.github/workflows/reusable-build.yml@refs/tags/v1.2.3" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-github-workflow-repository <owner>/<repo> \
   --certificate-github-workflow-sha <commit sha of the release>
-gh attestation verify oci://ghcr.io/<owner>/<repo>/<image>@sha256:<digest> --repo <owner>/<repo>
+gh attestation verify oci://ghcr.io/<owner>/<repo>/<image>@sha256:<digest> \
+  --repo <owner>/<repo> \
+  --signer-workflow <owner>/<repo>/.github/workflows/reusable-build.yml
 ```
+
+Identity plus issuer is **not enough**. Any repository can call a public reusable workflow, and the
+certificate of such a call carries the same workflow identity as ours, so only the repository claim
+(certificate extension OID 1.3.6.1.4.1.57264.1.5, the workflow repository, or the newer Source
+Repository URI extension) tells a foreign signer from this repository. Every verifier must check it:
+`--certificate-github-workflow-repository` above, and the admission policy added later has to
+require the same claim. `--signer-workflow` does the same for `gh attestation verify`, which would
+otherwise accept any workflow in the repository.
 
 The release run runs the same `cosign verify` after signing, and fails if it does not pass.
 The hardening lint's `provenance` check is enforced: it fails when `reusable-build.yml` loses its sign, verify or attest steps. The comments in `infra/security/check-ci-hardening.sh` that call provenance a SKIP predate this.
-Pin to a tag or to `main` with `--certificate-identity-regexp` only when you accept every ref.
+Pin to a tag or to `main` with `--certificate-identity-regexp` only when you accept every ref, and
+keep the repository claim in that case too.
+
+**Private repositories.** Artifact attestations (provenance and SBOM) are available only for public
+repositories or on GitHub Enterprise Cloud. The release workflow therefore attests only when the
+repository is public or the variable `ATTESTATIONS_ENABLED` is `true`; otherwise a warning and a
+summary line say so. Signing always runs. Keyless signing also writes the repository name, the
+workflow ref and the commit to the public Rekor transparency log, so a private repository's name
+becomes visible there. See [What a private repository needs](./platform-setup.md#what-a-private-repository-needs).
 
 ---
 

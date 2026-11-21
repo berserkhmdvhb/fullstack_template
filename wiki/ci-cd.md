@@ -77,8 +77,8 @@ Build, push, sign, attest and digest resolution happen only in [`reusable-build.
 1. `plan` renders the image matrix and the version (`.github/scripts/container_matrix.py`, manifest `.github/container-images.yml`).
 2. `images` calls `reusable-build.yml`, which is the only workflow that may push, sign or attest an image (the hardening lint enforces it). Its `build` job pushes each image to `ghcr.io/<owner>/<repo>/<id>` with `docker/build-push-action` and checks that the registry digest equals the build digest.
 3. `sbom` and `grype` (the blocking gate) work by digest. `sign-attest` runs only after the gate: it signs each digest keyless with the pinned cosign, runs `cosign verify` against the workflow identity, then adds the provenance and SBOM attestations (`push-to-registry`). The identity and how to verify by hand are in [Security](./security.md#verifying-an-image).
-4. `digests` merges the per-image digests; `grant`, `vex` and `deploy` run after `images`, so nothing deploys unless the gate passed and the images are signed.
-5. On a `v*` tag `release-assets` puts the SBOMs, the OpenVEX document and the licence report on a **draft** GitHub Release (created with `--verify-tag`, never published by the workflow).
+4. Every `reusable-build.yml` job refuses to run unless the caller's event is a push to `main` or a `v*` tag. `digests` merges the per-image digests; `grant`, `vex` and `deploy` run after `images`, so nothing deploys unless the gate passed and the images are signed.
+5. `grant` and `vex` now start only after `images` succeeded, so a release that fails the gate leaves no licence or VEX evidence (by design). On a `v*` tag `release-assets` puts the SBOMs, the OpenVEX document and the licence report on a **draft** GitHub Release (created with `--verify-tag`, never published by the workflow).
 
 Tags: the immutable `<version>-<channel>-<sha>` on every release run, plus `latest` on a `v*` tag. See [Containerization](./containerization.md) and [Releasing](./releasing.md).
 

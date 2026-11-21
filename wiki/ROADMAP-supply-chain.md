@@ -89,7 +89,7 @@ See the container-hardening notes in [`wiki/security.md`](./security.md).
 
 The CI self-check (`infra/security/check-ci-hardening.sh`) grades, among others:
 
-- **SLSA provenance (`provenance`).** Graded for real: when `release.yml` calls `reusable-build.yml`, that workflow must sign, verify after signing, and attest provenance and the SBOM with `push-to-registry`. The build-level workload identity (the GitHub OIDC token) binds the image to the build.
+- **SLSA provenance (`provenance`).** Graded for real: when any workflow calls `reusable-build.yml`, that workflow must sign, verify after signing, and attest provenance and the SBOM with `push-to-registry`. The build-level workload identity (the GitHub OIDC token) binds the image to the build.
 - **Environment-scoped secrets.** On GitHub, secrets are scoped to an Environment and gated by its
   deployment rules; that is a repository setting, set by `scripts/github-settings.sh` and checked by
   the `environment-for-secrets` lint, not by repo YAML alone.

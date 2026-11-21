@@ -15,7 +15,7 @@
 # ci-hardening scan chain and `all` are implemented here. `clean` removes the
 # regenerable local security artifacts (the scan output tree + the stray
 # repo-root scan.env), never source, .env.local, or the images themselves.
-# (Image signing + SLSA attestation are ROADMAP for this template — no cosign —
+# (Image signing + SLSA attestation run only in CI, in reusable-build.yml — no cosign —
 #  so the sign/attest subcommands are intentionally absent.)
 #
 # Public subcommands:
@@ -235,8 +235,8 @@ _bootstrap() {
 # tools-install.sh — NEVER curl|bash. docker/git/jq/yq are checked only
 # (developer-managed, not provisioned here); syft/grype/grant are the ones we
 # install. Versions are pinned, never floating, so a local run matches what CI
-# installs. (Image signing/attestation via cosign is ROADMAP for this template —
-# see wiki/supply-chain-security.md — so cosign is not provisioned here.)
+# installs. (Image signing/attestation via cosign runs only in CI, in reusable-build.yml,
+# so cosign is not provisioned here.)
 
 # REQUIRED_TOOLS — every tool the local security steps need, in check order.
 REQUIRED_TOOLS=(syft grype grant jq yq docker git)

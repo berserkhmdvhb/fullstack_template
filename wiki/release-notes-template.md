@@ -53,5 +53,5 @@
 
 ### Supply Chain
 - Container images are built / signed / pushed / scanned on `main` and `v*` tags only — never in a pull request
-- SBOM + VEX are published automatically on the tag pipeline; image signing / SLSA provenance is on the roadmap
+- SBOM + VEX are published automatically on the tag pipeline; images are signed keyless and carry SLSA provenance and SBOM attestations (public repositories; see wiki/security.md)
 - No frozen `infra/security/*.sh` scripts edited; new supply-chain logic lives under `infra/security/local/`

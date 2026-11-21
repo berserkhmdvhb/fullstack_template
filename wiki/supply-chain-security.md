@@ -135,8 +135,8 @@ intentional overlaps are in the [tooling assessment](./supply-chain-tooling-asse
 
 | Control (CI job) | Covers / purpose | Target | Model | Gate / advisory | Runs on | Deep doc |
 |---|---|---|---|---|---|---|
-| **Syft** (`release.yml` / `sbom`) | SBOM inventory | built image | inventory | — (produces the SBOM) | `main` and `v*` tags | [`containerization.md`](./containerization.md) |
-| **Grype** (`release.yml` / `grype`) | known-CVE SCA | image SBOM | known-CVE (Grype DB / GHSA) | **gate** (threshold `policy.fail_level` in `infra/security/config.yaml`) | `main` and `v*` tags | [`ci-cd.md`](./ci-cd.md) |
+| **Syft** (`reusable-build.yml` / `sbom`) | SBOM inventory | built image | inventory | — (produces the SBOM) | `main` and `v*` tags | [`containerization.md`](./containerization.md) |
+| **Grype** (`reusable-build.yml` / `grype`) | known-CVE SCA | image SBOM | known-CVE (Grype DB / GHSA) | **gate** (threshold `policy.fail_level` in `infra/security/config.yaml`) | `main` and `v*` tags | [`ci-cd.md`](./ci-cd.md) |
 | **grant** (`release.yml` / `grant`) | licence compliance | image SBOM | policy | advisory | `main` and `v*` tags | [`ci-cd.md`](./ci-cd.md) |
 | **pip-audit** (`security.yml` / `pip-audit`) | Python known-CVE SCA | installed venv | known-CVE (PyPI advisory DB + OSV) | advisory | pull requests, `main`, tags | [`ci-cd.md`](./ci-cd.md) |
 | **OSV-Scanner** (`security.yml` / `advisory`, leg `osv`) | SCA + known-malicious | lockfiles / source (npm + `MAL-*`) | known-CVE + `MAL-*` (OSV.dev) | advisory | pull requests, `main`, tags | [`ci-cd.md`](./ci-cd.md) |
