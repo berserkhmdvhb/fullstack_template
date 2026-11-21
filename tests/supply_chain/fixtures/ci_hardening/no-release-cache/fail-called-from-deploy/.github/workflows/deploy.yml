@@ -1,0 +1,8 @@
+name: D
+on: workflow_call
+permissions: {}
+jobs:
+  d:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-prep.yml

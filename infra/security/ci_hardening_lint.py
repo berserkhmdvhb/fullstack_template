@@ -691,7 +691,8 @@ def _action_problem(ref: str, with_: Any) -> str | None:
             "and add it to the table in ci_hardening_lint.py"
         )
     must_be_false, must_be_absent = RELEASE_ACTIONS[name]
-    values = with_ if isinstance(with_, LDict) else LDict(0)
+    # Action inputs are case-insensitive, so are the keys here.
+    values = {str(k).lower(): v for k, v in (with_.items() if isinstance(with_, LDict) else [])}
     for key in must_be_false:
         if str(values.get(key, "")).strip().lower() != "false":
             return f"{name} caches by default: set `{key}: false`"
@@ -705,21 +706,60 @@ def _step_cache(step: LDict) -> str | None:
     """What cache this step reads or writes, or None."""
     ref = str(step.get("uses", "")).strip()
     with_ = step.get("with")
-    if ref and not ref.startswith(("./", "docker://")):
-        return _action_problem(ref, with_)
+    if ref.startswith("docker://"):
+        return (
+            f"{ref.split('@', maxsplit=1)[0]} is a container step; the lint cannot see its caching"
+        )
+    if ref and not ref.startswith("./"):
+        problem = _action_problem(ref, with_)
+        if problem:
+            return problem
+    # Backstop for every step: no cache text at all on the release path, whatever the action.
     texts = [str(step.get("run", ""))]
     if isinstance(with_, LDict):
         texts += list(_scalars(with_))
     return "a build cache type or flag" if any(_CACHE_WORDS.search(t) for t in texts) else None
 
 
+def _local_target_missing(ref: str, prefix: str, names: set[str]) -> bool:
+    ref = ref.strip().removeprefix("./").rstrip("/")
+    if not ref.startswith(".github/actions/"):
+        return False
+    return not {f"{prefix}{ref}/action.yml", f"{prefix}{ref}/action.yaml"} & names
+
+
 def check_no_release_cache(docs: list[Doc]) -> list[Finding]:
-    return [
-        Finding(doc.name, step.line, "no-release-cache", f"{what}: {NO_CACHE_REASON}")
-        for doc in _release_docs(docs)
-        for step in doc.steps()
-        if (what := _step_cache(step))
-    ]
+    reached = _release_docs(docs)
+    if not reached:
+        return []
+    root = next(d for d in reached if d.name.endswith(RELEASE_ROOT))
+    prefix = root.name[: -len(RELEASE_ROOT)]
+    names = {d.name for d in docs}
+    found: list[Finding] = []
+
+    def add(doc: Doc, line: int, what: str) -> None:
+        found.append(Finding(doc.name, line, "no-release-cache", f"{what}: {NO_CACHE_REASON}"))
+
+    for doc in reached:
+        for _, job in doc.jobs():
+            ref = str(job.get("uses", "")).strip()
+            if ref and not ref.startswith("./"):
+                add(
+                    doc, job.line, f"{ref} is a remote workflow; the lint cannot verify its caching"
+                )
+        runs = doc.data.get("runs")
+        if isinstance(runs, LDict) and str(runs.get("using", "")).strip().lower() != "composite":
+            add(
+                doc,
+                1,
+                f"{doc.name} is a {runs.get('using')} action; only composites can be checked",
+            )
+        for step in doc.steps():
+            if _local_target_missing(str(step.get("uses", "")), prefix, names):
+                add(doc, step.line, f"{step.get('uses')} has no readable action.yml")
+            if what := _step_cache(step):
+                add(doc, step.line, what)
+    return found
 
 
 def check_timeouts(doc: Doc) -> list[Finding]:

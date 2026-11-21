@@ -1,0 +1,6 @@
+name: C
+description: x
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/mid
