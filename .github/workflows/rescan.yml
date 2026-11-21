@@ -1,0 +1,141 @@
+name: Re-scan
+
+# Weekly vulnerability re-scan of the images that are actually running (the latest successful
+# deployment of each environment) and of the latest release, by digest. A new critical or high
+# finding opens or updates an issue labelled `vuln`; nothing is closed automatically. Findings are
+# reported, so the run is green; it fails only when collecting or scanning fails.
+# Three jobs, each with its own grant: collect reads the GitHub API, scan reads the registry, report
+# writes issues and has no registry access.
+on:
+  schedule:
+    - cron: "41 5 * * 3"
+  workflow_dispatch:
+
+permissions: {}
+
+# A literal prefix, never ${{ github.workflow }}. A second run waits, so an issue is never opened twice.
+concurrency:
+  group: rescan
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: Find the digests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # the scripts, and the release assets
+      actions: read # the release run artifacts that hold the digests
+      deployments: read # which commit each environment runs
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      count: ${{ steps.matrix.outputs.count }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Collect the digests from deployments and the latest release
+        run: python3 scripts/rescan_collect.py rescan-input
+      - name: Render the scan matrix
+        id: matrix
+        run: |
+          set -euo pipefail
+          echo "matrix=$(jq -c '{include: [.images[] | {id, digest, short, repository, vex}]}' rescan-input/digests.json)" >> "$GITHUB_OUTPUT"
+          echo "count=$(jq '.images | length' rescan-input/digests.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rescan-input
+          path: rescan-input/
+          retention-days: 30
+
+  scan:
+    name: Grype (${{ matrix.id }} ${{ matrix.short }})
+    needs: collect
+    if: ${{ needs.collect.outputs.count != '0' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read # the scanner pin, the grype config and the install script
+      packages: read # pull the image from ghcr.io
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.collect.outputs.matrix) }}
+    env:
+      IMAGE_REPOSITORY: ${{ matrix.repository }}
+      IMAGE_DIGEST: ${{ matrix.digest }}
+      IMAGE_SHORT: ${{ matrix.short }}
+      VEX_FILE: ${{ matrix.vex }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rescan-input
+          path: rescan-input
+      - name: Install grype
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bin"
+          bash infra/security/tools-install.sh grype "$(yq -r '.tools.grype' infra/security/config.yaml)" "${RUNNER_TEMP}/bin"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
+      # The VEX statements are the ones the release shipped for this digest. grype exits 2 when it
+      # finds something at the config's fail-on severity; that is a finding, not an error.
+      - name: Scan the digest
+        env:
+          GRYPE_REGISTRY_AUTH_AUTHORITY: ghcr.io
+          GRYPE_REGISTRY_AUTH_USERNAME: ${{ github.actor }}
+          GRYPE_REGISTRY_AUTH_PASSWORD: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p findings
+          vex=()
+          if [[ -n "${VEX_FILE}" ]]; then
+            vex=(--vex "rescan-input/${VEX_FILE}")
+          fi
+          rc=0
+          grype "registry:${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" -c infra/security/grype.yaml "${vex[@]}" \
+            -o json --file "findings/${IMAGE_SHORT}.json" || rc=$?
+          if (( rc != 0 && rc != 2 )) || ! jq -e '.matches' "findings/${IMAGE_SHORT}.json" > /dev/null; then
+            echo "::error::grype failed on ${IMAGE_REPOSITORY}@${IMAGE_DIGEST} (exit ${rc})"
+            exit 1
+          fi
+          echo "- \`${IMAGE_REPOSITORY}@${IMAGE_DIGEST}\`: $(jq '.matches | length' "findings/${IMAGE_SHORT}.json") finding(s), VEX: ${VEX_FILE:-none}" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: findings-${{ matrix.short }}
+          path: findings/
+          retention-days: 30
+
+  # Runs after a partial scan too, so one failed image does not hide the findings of the others.
+  report:
+    name: Open or update the issues
+    needs: [collect, scan]
+    if: ${{ !cancelled() && needs.collect.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # the report script
+      issues: write # create the vuln label, open and update issues, add comments
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rescan-input
+          path: rescan-input
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: findings-*
+          merge-multiple: true
+          path: findings
+      - name: Report the findings
+        run: |
+          mkdir -p findings
+          python3 scripts/rescan_report.py rescan-input/digests.json findings

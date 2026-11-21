@@ -149,6 +149,8 @@ WRITE_ALLOWLIST = {
     ("deploy.yml", "deploy-qa", "id-token"),
     ("deploy.yml", "deploy-production", "id-token"),
     ("deploy-ops.yml", "ops", "id-token"),
+    # The weekly re-scan: only its report job writes, and only issues.
+    ("rescan.yml", "report", "issues"),
 }
 
 
@@ -160,6 +162,9 @@ READ_ALLOWLIST = {
     ("dast.yml", "dast", "actions", "read"),
     ("dast.yml", "dast", "packages", "read"),
     ("scorecard.yml", "analysis", "actions", "read"),
+    ("rescan.yml", "collect", "actions", "read"),
+    ("rescan.yml", "collect", "deployments", "read"),
+    ("rescan.yml", "scan", "packages", "read"),
 }
 
 

@@ -173,7 +173,7 @@ def test_release_assets_upload_the_sbom_vex_licence_report_and_the_digests() -> 
     }
     assert names == {"sbom-*", "vex", "grant-report", "image-digests"}
     text = _runs(job)
-    # The digests and the image references outlive the 90-day artifact: the weekly re-scan reads them.
+    # The digests and image references outlive the 90-day artifact; the weekly re-scan reads them.
     needles = ("cdx.json", "openvex.json", "license.grant.json", "licence-summary.json")
     for needle in (*needles, "image-digests.env", "scan.env"):
         assert needle in text, needle
