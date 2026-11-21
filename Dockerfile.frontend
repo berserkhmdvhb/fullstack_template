@@ -5,7 +5,7 @@
 #################################
 # STAGE 1: Build
 #################################
-FROM node:22.23.4-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS builder
+FROM node:22.23.5-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS builder
 
 WORKDIR /app
 
@@ -43,7 +43,7 @@ RUN test -f .next/standalone/server.js \
 # STAGE 2: Runtime
 ############################
 # Distroless runtime: gcr.io/distroless/nodejs22-debian13 bundles a pinned Node.js
-# (22.23.4, matching the builder) and its shared libs and nothing else — no shell,
+# (22.23.5, matching the builder) and its shared libs and nothing else — no shell,
 # no package manager, no npm. So npm's bundled deps (brace-expansion, ip-address,
 # pacote, sigstore, …) are never present (zero CVEs from them) and the surface is
 # smaller than even a hand-trimmed slim base. The debian13/trixie variant is used
@@ -58,7 +58,7 @@ RUN test -f .next/standalone/server.js \
 # backend uses (10001) for a consistent k8s runAsUser — distroless bases run any
 # numeric UID. Node is PID 1 here (no tini); Node 22 terminates on SIGTERM, which is
 # fine for the stateless frontend (add a preStop hook if you need a graceful drain).
-FROM gcr.io/distroless/nodejs22-debian13@sha256:74224b87e0ca49c53adcc9b475d13f4080a10eea5ab2fdd4684e5094accd4041 AS runtime
+FROM gcr.io/distroless/nodejs22-debian13@sha256:af2e7dd3017037b3ba73238b818c7273f3b4349c005f8bd1454b78d580fe7e37 AS runtime
 
 # ---- Metadata ----
 ARG VERSION=0.0.0
