@@ -21,6 +21,7 @@ case "$1" in
     [[ -n "${STUB_HISTORY-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
     echo "$STUB_HISTORY" ;;
   upgrade) exit "${STUB_UPGRADE_RC:-0}" ;;
+  get) printf -- '---\nkind: Job\nmetadata:\n  name: svc-migrate-r2\n  labels:\n    app.kubernetes.io/component: migration\n' ;;
 esac
 STUB
   cat > "$B/kubectl" <<'STUB'
@@ -28,8 +29,9 @@ STUB
 echo "kubectl $*" >> "$LOG"
 case "$*" in
   *port-forward*) exec sleep 30 ;;
-  *"get job"*"succeeded"*) echo "svc-migrate-r2||4|True" ;;
-  *"get job"*) echo "svc-migrate-r2" ;;
+  *"get job -l"*) printf '%s\n' "${STUB_LEFTOVER-}" | awk -F'|' '$1=="svc" {print $2"|"$3}' ;;
+  *"get job svc-migrate-r2"*jsonpath*) echo "svc-migrate-r2||4|True" ;;
+  *"get job"*) echo "job summary" ;;
   *logs*) echo "migration log" ;;
 esac
 STUB
@@ -118,8 +120,37 @@ STUB
 @test "a failed upgrade prints the newest migration job's status and logs, then fails" {
   STUB_UPGRADE_RC=1 run bash "$SCRIPT"
   [ "$status" -ne 0 ]
-  grep -q "kubectl .*get job .*app.kubernetes.io/instance=svc" "$LOG"
+  grep -q "helm get manifest svc -n svc-dev" "$LOG"
   grep -q "kubectl .*logs -l job-name=svc-migrate-r2 --tail" "$LOG"
+}
+
+@test "a first install deletes a leftover Failed migration job of this release before installing" {
+  STUB_HISTORY="" STUB_LEFTOVER=$'svc|svc-migrate-r1|True' run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"svc-migrate-r1"* ]]
+  grep -q "kubectl delete job svc-migrate-r1 -n svc-dev" "$LOG"
+  [ "$(grep -n "delete job" "$LOG" | head -1 | cut -d: -f1)" -lt "$(grep -n "helm upgrade" "$LOG" | head -1 | cut -d: -f1)" ]
+}
+
+@test "a first install with no leftover job deletes nothing" {
+  STUB_HISTORY="" STUB_LEFTOVER=$'svc|svc-migrate-r1|' run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  run grep -q "delete job" "$LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "an upgrade deletes no migration job" {
+  STUB_LEFTOVER=$'svc|svc-migrate-r1|True' run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  run grep -q "delete job" "$LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "another release's failed job is never deleted on a first install" {
+  STUB_HISTORY="" STUB_LEFTOVER=$'other|other-migrate-r1|True' run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  run grep -q "delete job" "$LOG"
+  [ "$status" -ne 0 ]
 }
 
 @test "a non-sha256 digest is refused before any helm upgrade" {

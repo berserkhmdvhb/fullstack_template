@@ -22,7 +22,10 @@ echo "$args" >> "${STUB_LOG:-/dev/null}"
 comp() { sed -n 's/.*app.kubernetes.io\/component=\([a-z-]*\).*/\1/p' <<<"$args"; }
 case "$args" in
   *"get secret"*) printf '%s\n' "${STUB_RELEASE-secret/sh.helm.release.v1.rel.v3}" ;;
-  *"get job"*) printf '%s\n' "${STUB_JOBS-}" | awk 'NF{print "job-r1|"$0}' ;;
+  *"get job"*)
+    [[ -z "${STUB_KUBECTL_FAIL-}" ]] || { echo "connection refused" >&2; exit 1; }
+    if [[ -n "${STUB_JOBS-}" ]]; then printf 'job-r1|%s\n' "$STUB_JOBS"
+    else echo 'Error from server (NotFound): jobs.batch "job-r1" not found' >&2; exit 1; fi ;;
   *"get pods"*containerStatuses*)
     c="$(comp)"; c="${c//-/_}"; v="STUB_IMAGES_${c^^}"
     printf '%s\n' "${!v-}" ;;
@@ -34,7 +37,12 @@ case "$args" in
   *) echo "stub kubectl: unexpected: $args" >&2; exit 99 ;;
 esac
 STUB
-  chmod +x "$BATS_TEST_TMPDIR/bin/kubectl"
+  cat > "$BATS_TEST_TMPDIR/bin/helm" <<'STUB'
+#!/usr/bin/env bash
+[[ -z "${STUB_NO_RELEASE-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
+printf -- '---\nkind: Job\nmetadata:\n  name: job-r1\n  labels:\n    app.kubernetes.io/component: migration\n'
+STUB
+  chmod +x "$BATS_TEST_TMPDIR/bin/kubectl" "$BATS_TEST_TMPDIR/bin/helm"
   export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
   export STUB_LOG="$BATS_TEST_TMPDIR/kubectl.log"
   export STUB_JOBS="1||"
@@ -84,12 +92,22 @@ STUB
   [[ "$output" == *"ERROR: migration job failed"* ]]
 }
 
-@test "check 2 looks only at the newest migration job (older revisions' Jobs stay until their TTL)" {
-  STUB_JOBS=$'|1|True\n1||' run bash "$SCRIPT"
+@test "check 2 reads the job named in the release manifest" {
+  run bash "$SCRIPT"
   [ "$status" -eq 0 ]
-  STUB_JOBS=$'1||\n|1|True' run bash "$SCRIPT"
+  grep -q "get job job-r1" "$STUB_LOG"
+}
+
+@test "check 2 fails clearly when kubectl itself fails, instead of aborting" {
+  STUB_KUBECTL_FAIL=1 run bash "$SCRIPT"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: migration job failed"* ]]
+  [[ "$output" == *"ERROR: migration job lookup failed"* ]]
+}
+
+@test "check 2 fails when the release manifest cannot be read" {
+  STUB_NO_RELEASE=1 run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: migration job lookup failed"* ]]
 }
 
 @test "check 2 fails on a job with the Failed condition" {

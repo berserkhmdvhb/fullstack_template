@@ -3,7 +3,7 @@
 #
 # Checks (the first failure exits 1):
 #   1. the release is `deployed` (its newest Helm release Secret has status=deployed)
-#   2. the newest migration Job (one per release revision), if any, completed
+#   2. the migration Job named in the release manifest (one per revision), if it still exists, completed
 #   3. every pod of the service is Running (or Succeeded)
 #   4. every pod of each component runs the expected image DIGEST (the pod's imageID)
 #   5. the backend and frontend health routes answer (kubectl exec, no ingress needed)
@@ -58,8 +58,11 @@ found="$("${K[@]}" get secret -l "owner=helm,name=${RELEASE},status=deployed" -o
 echo "release deployed"
 
 echo "== Check 2: Migration Job =="
-# One Job per release revision stays until its TTL; only the newest one of THIS release is this deploy's.
-migs="$(migration_job_status "$NAMESPACE" "$RELEASE" | cut -d'|' -f2-)"
+# One Job per release revision stays until its TTL; this deploy's is the one the release manifest names.
+mig_rc=0
+migs="$(migration_job_status "$NAMESPACE" "$RELEASE")" || mig_rc=$?
+(( mig_rc == 0 )) || fail "migration job lookup failed: $migs"
+migs="${migs#*|}"
 if [[ -z "$migs" ]]; then
   echo "no migration job (cleaned up after its TTL): ok"
 else

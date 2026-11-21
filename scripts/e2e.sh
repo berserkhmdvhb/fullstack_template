@@ -295,8 +295,9 @@ check_deployments() {
 check_migration() {
   lib_sep "verify: migration (per-revision Job)"
   # The migration is a plain Job named <fullname>-migrate-r<revision>, not a Helm hook, and k8s-env.sh
-  # deploys without --wait: `helm status` = deployed says nothing about it. Find the NEWEST migration
-  # Job of this release (scripts/ci/migration-job-lib.sh), wait for its Complete condition, fail on Failed.
+  # deploys without --wait: `helm status` = deployed says nothing about it. Take the Job the release
+  # manifest names (scripts/ci/migration-job-lib.sh), wait for its Complete condition, fail on Failed
+  # or on any lookup error (recorded, not an abort).
   local timeout="${MIGRATION_WAIT_SECONDS:-300}" msg rc=0
   msg="$(migration_job_wait "${NAMESPACE}" "${HELM_RELEASE}" "${timeout}")" || rc=$?
   case "${rc}" in
