@@ -132,9 +132,24 @@ def test_the_images_job_passes_the_release_build_arguments_from_the_matrix() -> 
 def test_the_plan_job_renders_the_matrix_with_the_helper_and_the_images_job_uses_it() -> None:
     assert "container_matrix.py --matrix" in _runs(_ci()["image-plan"])
     assert (
-        _ci()["images"]["strategy"]["matrix"] == "${{ fromJSON(needs.image-plan.outputs.matrix) }}"
+        _ci()["images"]["strategy"]["matrix"]
+        == "${{ fromJSON(needs.image-plan.outputs.platform_matrix) }}"
     )
     assert _ci()["image-plan"]["if"] == _ci()["images"]["if"]
+
+
+def test_pull_requests_build_linux_amd64_only_whatever_the_variable_says() -> None:
+    plan = _ci()["image-plan"]
+    step = next(s for s in plan["steps"] if s.get("id") == "plan")
+    assert step["env"] == {"BUILD_ARM64": "false"}  # a fixed value, never vars.BUILD_ARM64
+    assert "vars." not in _text(plan)
+    assert plan["outputs"]["platform_matrix"] == "${{ steps.plan.outputs.platform_matrix }}"
+    job = _ci()["images"]
+    assert job["runs-on"] == "${{ matrix.runner }}"
+    build = next(s for s in job["steps"] if "SOURCE_URL" in s.get("env", {}))
+    assert build["env"]["PLATFORM"] == "${{ matrix.platform }}"
+    assert '--platform "${PLATFORM}"' in build["run"]
+    assert "vars." not in _text(job)
 
 
 def test_every_new_third_party_action_is_pinned() -> None:
@@ -182,6 +197,8 @@ def test_the_release_check_pulls_by_digest_and_checks_strictly() -> None:
     runs = _runs(job)
     assert job["needs"] == "build"
     assert job["if"] == RELEASE_IF
+    assert job["runs-on"] == "${{ matrix.runner }}"  # the container runs natively, per platform
+    assert job["strategy"]["matrix"] == "${{ fromJSON(inputs.platform_matrix) }}"
     assert '"${REPOSITORY}@${DIGEST}"' in runs
     assert "docker pull" in runs
     assert "scripts/ci/image-checks.sh --strict" in runs
@@ -206,7 +223,7 @@ def test_the_release_check_has_the_digest_from_the_build_artifact() -> None:
     job = _release()["image-checks"]
     assert any(
         str(s.get("uses", "")).startswith("actions/download-artifact@")
-        and s["with"]["name"] == "digest-${{ matrix.id }}"
+        and s["with"]["name"] == "platform-${{ matrix.id }}.${{ matrix.slug }}"
         for s in job["steps"]
     )
     assert "sha256:[0-9a-f]{64}" in _runs(job)

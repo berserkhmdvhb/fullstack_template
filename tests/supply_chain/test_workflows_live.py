@@ -89,9 +89,19 @@ def test_no_proxy_workarounds_anywhere() -> None:
 
 
 def test_every_workflow_job_runs_on_the_hosted_image() -> None:
+    # The per-platform jobs take their runner from the manifest's platform-to-runner map.
+    from_manifest = {
+        ("ci.yml", "images"),
+        ("reusable-build.yml", "build"),
+        ("reusable-build.yml", "image-checks"),
+    }
     for path in WORKFLOWS.glob("*.yml"):
         for name, job in workflow(path.name)["jobs"].items():
-            if "uses" not in job:
+            if "uses" in job:
+                continue
+            if (path.name, name) in from_manifest:
+                assert job["runs-on"] == "${{ matrix.runner }}", f"{path.name}:{name}"
+            else:
                 assert job["runs-on"] == "ubuntu-24.04", f"{path.name}:{name}"
 
 

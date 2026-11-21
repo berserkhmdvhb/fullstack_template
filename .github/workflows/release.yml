@@ -27,6 +27,8 @@ jobs:
       contents: read
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      platform_matrix: ${{ steps.plan.outputs.platform_matrix }}
+      arm64: ${{ steps.plan.outputs.arm64 }}
       version: ${{ steps.plan.outputs.version }}
       channel: ${{ steps.plan.outputs.channel }}
       image_tag: ${{ steps.plan.outputs.image_tag }}
@@ -40,9 +42,12 @@ jobs:
         run: |
           python3 -m venv "$RUNNER_TEMP/pyyaml"
           "$RUNNER_TEMP/pyyaml/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pyyaml.txt
-      # The helper writes version, channel, image_tag and immutable to GITHUB_OUTPUT; the matrix JSON is its stdout.
+      # The helper writes version, channel, image_tag, immutable, platform_matrix and arm64 to GITHUB_OUTPUT; the image matrix JSON is its stdout.
+      # The repository variable BUILD_ARM64 turns the native arm64 builds on; unset builds linux/amd64 only.
       - name: Render the matrix and the version
         id: plan
+        env:
+          BUILD_ARM64: ${{ vars.BUILD_ARM64 }}
         run: |
           matrix="$("$RUNNER_TEMP/pyyaml/bin/python" .github/scripts/container_matrix.py --matrix)"
           echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
@@ -51,6 +56,11 @@ jobs:
             echo
             echo "- ref: \`${GITHUB_REF_NAME}\` (${GITHUB_REF_TYPE}), commit \`${GITHUB_SHA::7}\`"
             echo "- images: $(jq -r '[.include[].id] | join(", ")' <<<"${matrix}")"
+            if [[ "${BUILD_ARM64}" == "true" ]]; then
+              echo "- arm64: built natively on arm64 runners and merged into one index per image"
+            else
+              echo "- arm64 skipped: the repository variable BUILD_ARM64 is not 'true' (linux/amd64 only)"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   # Build, scan and sign: the reusable workflow holds every image permission, so the grant is the union of its jobs.
@@ -66,6 +76,7 @@ jobs:
     uses: ./.github/workflows/reusable-build.yml
     with:
       matrix: ${{ needs.plan.outputs.matrix }}
+      platform_matrix: ${{ needs.plan.outputs.platform_matrix }}
       image_tag: ${{ needs.plan.outputs.image_tag }}
       immutable: ${{ needs.plan.outputs.immutable }}
 
@@ -125,8 +136,16 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: sbom-*
-          merge-multiple: true
-          path: ${{ env.SEC_OUTPUT_DIR }}/sbom
+          path: sbom-artifacts
+      # One SBOM per image and platform, each named like its artifact: <id>.<platform>.image.sbom.cdx.json.
+      - name: Gather the SBOMs
+        run: |
+          set -euo pipefail
+          mkdir -p "${SEC_OUTPUT_DIR}/sbom"
+          for file in sbom-artifacts/*/*.cdx.json; do
+            name="$(basename "$(dirname "${file}")")"
+            cp "${file}" "${SEC_OUTPUT_DIR}/sbom/${name#sbom-}.image.sbom.cdx.json"
+          done
       - name: Install grant
         run: |
           mkdir -p "${RUNNER_TEMP}/bin"
@@ -172,8 +191,18 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: grype-*
-          merge-multiple: true
-          path: ${{ env.SEC_OUTPUT_DIR }}/grype
+          path: grype-artifacts
+      # The statements are pinned by the index digest, so the per-platform findings of an image become one report.
+      - name: Merge the per-platform Grype reports
+        run: |
+          set -euo pipefail
+          mkdir -p "${SEC_OUTPUT_DIR}/grype"
+          while IFS= read -r report; do
+            jq -s '{
+              matches: (map(.matches) | add | unique_by([.vulnerability.id, .artifact.name, .artifact.version, .artifact.type])),
+              ignoredMatches: (map(.ignoredMatches // []) | add | unique_by([.vulnerability.id, .artifact.name, .artifact.version, .artifact.type]))
+            }' grype-artifacts/*/"${report}" > "${SEC_OUTPUT_DIR}/grype/${report}"
+          done < <(find grype-artifacts -name '*.image.vuln.grype.json' -printf '%f\n' | LC_ALL=C sort -u)
       - name: Generate the VEX document
         run: |
           bash infra/security/generate-vex.sh "${SEC_OUTPUT_DIR}" scan.env image-digests.env
@@ -221,7 +250,6 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: sbom-*
-          merge-multiple: true
           path: assets/sbom
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -238,7 +266,12 @@ jobs:
       - name: Collect the assets
         run: |
           mkdir release-assets
-          cp assets/sbom/*.cdx.json assets/vex/openvex.json assets/grant/*.license.grant.json release-assets/
+          # One SBOM per image and platform, named after its artifact (the per-platform files share a name).
+          for file in assets/sbom/*/*.cdx.json; do
+            name="$(basename "$(dirname "${file}")")"
+            cp "${file}" "release-assets/${name#sbom-}.image.sbom.cdx.json"
+          done
+          cp assets/vex/openvex.json assets/grant/*.license.grant.json release-assets/
           cp assets/grant/summary.json release-assets/licence-summary.json
           cp assets/digests/image-digests.env assets/digests/scan.env release-assets/
       - name: Upload to the draft release

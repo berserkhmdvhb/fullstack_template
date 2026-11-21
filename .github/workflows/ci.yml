@@ -255,6 +255,7 @@ jobs:
       contents: read
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      platform_matrix: ${{ steps.plan.outputs.platform_matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -264,8 +265,11 @@ jobs:
         run: |
           python3 -m venv "$RUNNER_TEMP/pyyaml"
           "$RUNNER_TEMP/pyyaml/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pyyaml.txt
+      # A pull request checks linux/amd64 only, whatever vars.BUILD_ARM64 says; the release path checks arm64 natively.
       - name: Render the matrix
         id: plan
+        env:
+          BUILD_ARM64: "false"
         run: |
           matrix="$("$RUNNER_TEMP/pyyaml/bin/python" .github/scripts/container_matrix.py --matrix | head -n 1)"
           echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
@@ -277,13 +281,13 @@ jobs:
     name: Image checks (${{ matrix.id }})
     needs: [changes, image-plan]
     if: github.event_name == 'pull_request' && needs.changes.outputs.images == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     permissions:
       contents: read
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.image-plan.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.image-plan.outputs.platform_matrix) }}
     env:
       IMAGE_ID: ${{ matrix.id }}
       IMAGE_REF: image-checks-pr/${{ matrix.id }}:pr
@@ -297,6 +301,7 @@ jobs:
           ENTRY: ${{ toJSON(matrix) }}
           DOCKERFILE: ${{ matrix.dockerfile }}
           CONTEXT: ${{ matrix.context }}
+          PLATFORM: ${{ matrix.platform }}
           SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
           VCS_REF: ${{ github.sha }}
           VCS_BRANCH: ${{ github.ref_name }}
@@ -308,7 +313,7 @@ jobs:
             < <(jq -r '(.build_args // {}) | to_entries[] | "\(.key)=\(.value)"' <<<"${ENTRY}")
           args+=(--build-arg "SOURCE_URL=${SOURCE_URL}" --build-arg "VCS_REF=${VCS_REF}" \
             --build-arg "VCS_BRANCH=${VCS_BRANCH}" --build-arg "BUILD_DATE=${created}")
-          docker buildx build --load --file "${DOCKERFILE}" --tag "${IMAGE_REF}" "${args[@]}" "${CONTEXT}"
+          docker buildx build --load --platform "${PLATFORM}" --file "${DOCKERFILE}" --tag "${IMAGE_REF}" "${args[@]}" "${CONTEXT}"
       - name: Check the image
         run: bash scripts/ci/image-checks.sh --strict "${IMAGE_ID}" "${IMAGE_REF}"
 

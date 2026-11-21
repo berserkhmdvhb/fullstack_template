@@ -68,7 +68,8 @@ def test_images_job_calls_the_reusable_build_with_the_union_of_its_permissions()
         "id-token": "write",
         "attestations": "write",
     }
-    assert set(job["with"]) == {"matrix", "image_tag", "immutable"}
+    assert set(job["with"]) == {"matrix", "platform_matrix", "image_tag", "immutable"}
+    assert job["with"]["platform_matrix"] == "${{ needs.plan.outputs.platform_matrix }}"
 
 
 def test_step_running_jobs_hold_no_registry_or_signing_grant() -> None:
@@ -288,3 +289,37 @@ def test_no_comment_sits_at_column_zero_inside_the_jobs_mapping() -> None:
     lines = (WORKFLOWS / "release.yml").read_text(encoding="utf-8").splitlines()
     start = lines.index("jobs:")
     assert not [ln for ln in lines[start:] if ln.startswith("#")]
+
+
+def test_the_plan_takes_the_arm64_switch_from_the_repository_variable_and_says_when_it_skips() -> (
+    None
+):
+    job = _jobs()["plan"]
+    step = next(s for s in job["steps"] if s.get("id") == "plan")
+    assert step["env"] == {"BUILD_ARM64": "${{ vars.BUILD_ARM64 }}"}
+    assert {"platform_matrix", "arm64"} <= set(job["outputs"])
+    assert "arm64 skipped" in step["run"]
+    assert "BUILD_ARM64" in step["run"]
+    assert "${{" not in step["run"]
+
+
+def test_per_platform_sboms_are_gathered_under_unique_names_for_grant_and_the_release() -> None:
+    for name in ("grant", "release-assets"):
+        job = _jobs()[name]
+        (down,) = [
+            s
+            for s in _uses(job, "actions/download-artifact@")
+            if s["with"].get("pattern") == "sbom-*"
+        ]
+        assert "merge-multiple" not in down["with"], name  # per-platform files share a name
+        assert "${name#sbom-}" in _runs(job), name
+
+
+def test_vex_merges_the_per_platform_grype_reports_per_image() -> None:
+    job = _jobs()["vex"]
+    (down,) = [
+        s for s in _uses(job, "actions/download-artifact@") if s["with"].get("pattern") == "grype-*"
+    ]
+    assert "merge-multiple" not in down["with"]
+    runs = _runs(job)
+    assert runs.index("unique_by") < runs.index("generate-vex.sh")

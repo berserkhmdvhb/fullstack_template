@@ -165,6 +165,7 @@ def test_every_workflow_has_permissions_and_concurrency() -> None:
 # The only write grants any workflow job may hold: (workflow, job, permission).
 WRITE_ALLOWLIST = {
     ("reusable-build.yml", "build", "packages"),
+    ("reusable-build.yml", "merge", "packages"),
     ("reusable-build.yml", "grype", "security-events"),
     # Keyless signing and attestations: the reusable build workflow and its caller (the union).
     ("reusable-build.yml", "sign-attest", "packages"),
@@ -226,7 +227,14 @@ def test_no_job_grants_write() -> None:
                 assert (path.name, name, perm) in WRITE_ALLOWLIST, (path.name, name, perm)
             if "uses" not in job:
                 assert isinstance(job["timeout-minutes"], int), (path.name, name)
-                assert job["runs-on"] == "ubuntu-24.04", (path.name, name)
+                # The per-platform jobs take their runner from the manifest's runners map.
+                native = (path.name, name) in {
+                    ("ci.yml", "images"),
+                    ("reusable-build.yml", "build"),
+                    ("reusable-build.yml", "image-checks"),
+                }
+                expected = "${{ matrix.runner }}" if native else "ubuntu-24.04"
+                assert job["runs-on"] == expected, (path.name, name)
 
 
 def test_checkout_does_not_persist_credentials() -> None:
