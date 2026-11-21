@@ -362,7 +362,9 @@ def test_pyyaml_lock_matches_every_other_pyyaml_pin() -> None:
         m = re.search(r"^pyyaml==(\S+) \\\n((?:[ \t]+--hash=\S+(?: \\)?\n?)+)", text, re.MULTILINE)
         return (m.group(1), set(re.findall(r"sha256:[0-9a-f]{64}", m.group(2)))) if m else None
 
-    lock = block((REPO / "tools/requirements/pyyaml.txt").read_text())
+    pyyaml_text = (REPO / "tools/requirements/pyyaml.txt").read_text()
+    assert re.findall(r"^([A-Za-z0-9_.-]+)==", pyyaml_text, re.MULTILINE) == ["pyyaml"]
+    lock = block(pyyaml_text)
     assert lock
     assert lock[1]
     for path in sorted((REPO / "tools/requirements").glob("*.txt")):

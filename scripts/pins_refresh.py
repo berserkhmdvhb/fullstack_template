@@ -24,12 +24,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import astuple, dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -328,9 +330,31 @@ def sha_from_yq(text: str, order: str, asset: str) -> str:
     fail(f"no SHA-256 for {asset} in the vendor checksums")
 
 
+def url_problem(url: str) -> str | None:
+    """Why a vendor url is not a plain https url (a prefix match needs one), or None."""
+    parts = urllib.parse.urlsplit(url)
+    plain = (
+        parts.scheme == "https"
+        and parts.netloc == parts.hostname
+        and not parts.query
+        and not parts.fragment
+        and not any(c in url for c in "%?#\\")
+        and posixpath.normpath(parts.path) == parts.path
+        and "//" not in parts.path
+    )
+    return None if plain else "not a plain https url (userinfo, port, query, fragment, %, .. or //)"
+
+
 def check_prefix(pin: Pin) -> None:
     prefix = SOURCES[pin.name][2]
-    if not (pin.url == prefix if prefix.startswith("uv:") else pin.url.startswith(prefix)):
+    if prefix.startswith("uv:"):
+        ok = pin.url == prefix
+    else:
+        why = url_problem(pin.url)
+        if why:
+            fail(f"{pin.name}: url is {why}")
+        ok = pin.url.startswith(prefix)
+    if not ok:
         fail(f"{pin.name}: url is not under the expected vendor prefix {prefix}")
 
 
@@ -390,21 +414,52 @@ def problem(pin: Pin) -> str | None:
     return None if vendor == pin.sha256 else f"recorded {pin.sha256}, vendor {vendor}"
 
 
+ENTRY_LINE = re.compile(r"([A-Za-z0-9_.-]+)==(\S+) \\")
+HASH_LINE = re.compile(r"\s+--hash=sha256:([0-9a-f]{64})(?: \\)?")
+
+
+def parse_lock_lines(text: str) -> tuple[dict[str, tuple[str, set[str]]], list[str]]:
+    """Every `name==version` of a hash-pinned lock with its hashes, and the lines that fit no entry.
+
+    uv writes one layout; anything else (an index option, a one-line requirement, `-r`, a URL) is
+    reported, because `uv pip install -r` would honour it while the checks below would not see it.
+    """
+    entries: dict[str, tuple[str, set[str]]] = {}
+    problems: list[str] = []
+    current = ""
+    for number, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        entry, hashed = ENTRY_LINE.fullmatch(line), HASH_LINE.fullmatch(line)
+        if entry:
+            current = norm(entry[1])
+            entries[current] = (entry[2], set())
+        elif hashed and current:
+            entries[current][1].add(hashed[1])
+        else:
+            kind = "option" if stripped.startswith("-") and not hashed else "unparsed"
+            problems.append(f"line {number}: {kind} line {stripped[:60]!r}")
+    problems += [f"{n} {v}: no hashes" for n, (v, h) in entries.items() if not h]
+    if not entries:
+        problems.append("no hash-pinned entries")
+    return entries, problems
+
+
 def lock_entries(text: str) -> dict[str, tuple[str, set[str]]]:
-    """Every `name==version` of a hash-pinned lock with its hashes."""
-    entries = re.finditer(
-        r"^([A-Za-z0-9_.-]+)==(\S+) \\\n((?:[ \t]+--hash=sha256:[0-9a-f]{64}(?: \\)?\n?)+)",
-        text,
-        re.MULTILINE,
-    )
-    return {norm(m[1]): (m[2], set(HEX64.findall(m[3]))) for m in entries}
+    return parse_lock_lines(text)[0]
+
+
+def lock_syntax_problems(text: str) -> list[str]:
+    return parse_lock_lines(text)[1]
 
 
 def lock_problems(path: Path) -> list[str]:
     """Recorded hashes must be on PyPI for that version, and those files 7+ days old."""
-    found = []
+    text = path.read_text()
+    found = lock_syntax_problems(text)
     cutoff = utcnow() - MIN_AGE
-    for name, (version, hashes) in sorted(lock_entries(path.read_text()).items()):
+    for name, (version, hashes) in sorted(lock_entries(text).items()):
         files = json.loads(fetch(f"https://pypi.org/pypi/{name}/{version}/json"))["urls"]
         published = {f["digests"]["sha256"] for f in files}
         if hashes - published:
@@ -442,14 +497,20 @@ def compile_command(lock: Path, constraints: Path, now: datetime) -> list[str]:
         "-c",
         str(constraints),
         "-o",
-        str(lock),
+        lock.name,  # relative: run from the lock's directory, so no absolute path reaches the file
         "-",
     ]
 
 
 def tidy_annotations(text: str) -> str:
-    """Drop uv's `-c <temp path>` source from the `# via` lines (no churn in a regenerated lock)."""
-    text = re.sub(r"^ +#   -c \S+\n", "", text, flags=re.MULTILINE)
+    """Remove uv's `-c`/`-r <absolute path>` sources from the `# via` lines.
+
+    Those paths belong to the machine that ran uv (a temp file, a scratch dir): they must never be
+    committed, and dropping them keeps a regenerated lock identical to the committed one.
+    """
+    text = re.sub(r"^ +# via -[cr] /\S*\n", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^ +#   -[cr] /\S*\n", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^ +# via\n(?! +#   )", "", text, flags=re.MULTILINE)
     return re.sub(
         r"^( +)# via\n +#   (\S[^\n]*)\n(?! +#   )", r"\1# via \2\n", text, flags=re.MULTILINE
     )
@@ -468,10 +529,14 @@ def regenerate_lock(pin: Pin) -> None:
         result = subprocess.run(  # noqa: S603
             compile_command(lock, constraint_file, utcnow()),
             input=f"{pin.url.removeprefix('uv:')}=={pin.version}\n", text=True, check=False,
+            cwd=lock.parent,
         )  # fmt: skip
     if result.returncode:
         fail(f"uv pip compile failed for {pin.name}")
-    lock.write_text(tidy_annotations(lock.read_text()))
+    tidy = tidy_annotations(lock.read_text())
+    if re.search(r"^\s*#.*\s-[rc]\s+/", tidy, re.MULTILINE):
+        fail(f"{pin.name}: the regenerated lock still names an absolute path")
+    lock.write_text(tidy)
 
 
 # When the checker itself changes, every row is checked: a row diff would hide a broken checker.

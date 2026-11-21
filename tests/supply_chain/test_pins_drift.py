@@ -64,6 +64,7 @@ def test_row_shape(row: list[str]) -> None:
         assert sha == "-"
         return
     assert version in url, f"{name}: version {version} is not in its url"
+    assert pr.url_problem(url) is None, f"{name}: {pr.url_problem(url)}"
     assert SHA.fullmatch(sha), f"{name}: sha256 is not 64 hex"
 
 
@@ -594,7 +595,7 @@ def test_the_regeneration_command_is_the_documented_one_with_a_cutoff() -> None:
     assert " ".join(c for c in cmd if c != "--quiet").startswith(documented)
     assert cmd[cmd.index("--exclude-newer") + 1] == "2026-11-14T12:00:00Z"
     assert cmd[cmd.index("-c") + 1] == "c.txt"
-    assert cmd[cmd.index("-o") + 1] == "lock.txt"
+    assert cmd[cmd.index("-o") + 1] == "lock.txt"  # relative to the lock's directory
     assert "--upgrade" not in cmd
     assert "--no-annotate" not in cmd
 
@@ -608,7 +609,7 @@ def test_regeneration_constrains_pyyaml_and_writes_only_where_told(
     def fake_run(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
         constraint = Path(cmd[cmd.index("-c") + 1]).read_text()
         calls.append((cmd, str(kw["input"]), constraint))
-        Path(cmd[cmd.index("-o") + 1]).write_text("zizmor==1.2.3\n")
+        (Path(str(kw["cwd"])) / cmd[cmd.index("-o") + 1]).write_text("zizmor==1.2.3\n")
         return subprocess.CompletedProcess(cmd, 0)
 
     monkeypatch.setattr(pr.subprocess, "run", fake_run)
@@ -616,7 +617,7 @@ def test_regeneration_constrains_pyyaml_and_writes_only_where_told(
     (cmd, stdin, constraint) = calls[0]
     assert stdin == "zizmor==1.2.3\n"
     assert constraint.strip() == "pyyaml==6.0.3"
-    assert cmd[cmd.index("-o") + 1] == str(tmp_path / "reqs" / "zizmor.txt")
+    assert cmd[cmd.index("-o") + 1] == "zizmor.txt"
 
 
 # --- --base selection ---
@@ -781,3 +782,133 @@ def test_only_the_files_a_lock_records_are_age_checked(
     problems = pr.lock_problems(path)
     assert len(problems) == 1
     assert "7 days" in problems[0]
+
+
+# --- round 2: unparsed lock lines, URL normalisation, host paths ---
+
+GOOD_LOCK = _lock("zizmor", "1.0.0", ["1" * 64, "2" * 64])
+
+
+def test_a_well_formed_lock_has_no_syntax_problems_and_the_real_locks_too() -> None:
+    assert pr.lock_syntax_problems(GOOD_LOCK) == []
+    commented = GOOD_LOCK.replace("\n", "\n    # via yamale\n", 1)
+    assert pr.lock_syntax_problems("# note\n\n" + commented) == []
+    for path in sorted(REQS.glob("*.txt")):
+        assert pr.lock_syntax_problems(path.read_text()) == [], path.name
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "--extra-index-url https://evil.example/simple\n",
+        "--index-url https://evil.example/simple\n",
+        "-f https://evil.example/wheels\n",
+        "-r other.txt\n",
+        "-c constraints.txt\n",
+        "--trusted-host evil.example\n",
+        f"foo==1 --hash=sha256:{'3' * 64}\n",
+        "foo>=1\n",
+        "git+https://evil.example/foo.git\n",
+    ],
+)
+def test_any_unparsed_or_option_line_in_a_lock_is_drift(extra: str) -> None:
+    for text in (GOOD_LOCK + extra, extra + GOOD_LOCK):
+        problems = pr.lock_syntax_problems(text)
+        assert problems, extra
+        assert "line" in problems[0] or "no " in problems[0]
+
+
+def test_an_empty_lock_or_an_entry_without_hashes_is_drift() -> None:
+    assert pr.lock_syntax_problems("")
+    assert pr.lock_syntax_problems("# only a comment\n")
+    assert pr.lock_syntax_problems("foo==1 \\\n")
+
+
+def test_the_check_fails_a_lock_with_an_index_option(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pins.tsv").write_text("# none\n")
+    _env(monkeypatch, tmp_path, tmp_path / "pins.tsv")
+    lock = "--extra-index-url https://evil.example/simple\n" + GOOD_LOCK
+    _lock_dir(monkeypatch, tmp_path, {"zizmor.txt": lock})
+    _stub(
+        monkeypatch,
+        {"https://pypi.org/pypi/zizmor/1.0.0/json": _pypi([("1" * 64, OLD), ("2" * 64, OLD)])},
+    )
+    assert pr.main(["--check"]) == 1
+    assert "DRIFT lock zizmor" in capsys.readouterr().out
+
+
+GOOD = "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/kubernetes-sigs/kind/releases/download/../../../../evil/kind/releases/download/v0.33.0/kind-linux-amd64",
+        "https://github.com/kubernetes-sigs/kind/releases/download/%2e%2e/%2e%2e/evil/x",
+        "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64?x=1",
+        "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64#frag",
+        "https://user@github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64",
+        "https://github.com:443/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64",
+        "https://github.com/kubernetes-sigs/kind/releases/download//v0.33.0/kind-linux-amd64",
+        "http://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64",
+    ],
+)
+def test_a_url_that_escapes_the_vendor_prefix_is_refused(url: str) -> None:
+    assert pr.url_problem(url)
+    with pytest.raises(pr.PinError, match=r"expected vendor prefix|plain https"):
+        pr.check_prefix(_pin("kind", "0.33.0", url, "a" * 64))
+
+
+def test_a_plain_vendor_url_is_accepted() -> None:
+    assert pr.url_problem(GOOD) is None
+    pr.check_prefix(_pin("kind", "0.33.0", GOOD, "a" * 64))
+
+
+@pytest.mark.parametrize(
+    "row", [r for r in rows() if not r[3].startswith("uv:")], ids=lambda r: r[0]
+)
+def test_every_row_url_is_plain(row: list[str]) -> None:
+    assert pr.url_problem(row[3]) is None
+
+
+def test_no_absolute_path_is_ever_written_into_a_lock() -> None:
+    raw = (
+        "yamale==6.1.0 \\\n    --hash=sha256:aa\n"
+        "pyyaml==6.0.3 \\\n    --hash=sha256:bb\n    # via\n    #   -c /tmp/x/constraints.txt\n"
+        "    #   -r /work/in.txt\n    #   yamale\n"
+        "six==1 \\\n    --hash=sha256:cc\n    # via -r /work/in.txt\n"
+        "idna==3 \\\n    --hash=sha256:dd\n"
+        "    # via\n    #   -r /scratch/in.txt\n    #   a\n    #   b\n"
+    )
+    tidy = pr.tidy_annotations(raw)
+    assert not re.search(r"-[rc] /", tidy)
+    assert "    # via yamale\n" in tidy
+    assert "    # via a\n" not in tidy
+    assert "    # via\n    #   a\n    #   b\n" in tidy
+    assert "six==1" in tidy
+    assert "# via -r" not in tidy
+
+
+def test_the_command_uses_repo_relative_paths(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _lock_dir(monkeypatch, tmp_path, {"pyyaml.txt": _lock("pyyaml", "6.0.3", ["2" * 64])})
+    seen: dict[str, object] = {}
+
+    def fake_run(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
+        seen["cmd"], seen["cwd"] = cmd, kw.get("cwd")
+        (Path(str(kw["cwd"])) / cmd[cmd.index("-o") + 1]).write_text("zizmor==1.2.3\n")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(pr.subprocess, "run", fake_run)
+    pr.regenerate_lock(pr.Pin("zizmor", "1.2.3", "any", "uv:zizmor", "-"))
+    cmd = seen["cmd"]
+    assert isinstance(cmd, list)
+    assert cmd[cmd.index("-o") + 1] == "zizmor.txt"
+    assert seen["cwd"] == tmp_path / "reqs"
+
+
+def test_pyyaml_lock_pins_only_pyyaml() -> None:
+    assert list(pr.lock_entries((REQS / "pyyaml.txt").read_text())) == ["pyyaml"]
