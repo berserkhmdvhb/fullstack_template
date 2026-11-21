@@ -195,6 +195,13 @@ describe('ItemList', () => {
   });
 
   it('deletes an item after confirmation and says so', async () => {
+    const deleted: string[] = [];
+    server.use(
+      http.delete('/api/v1/items/:id', ({ params }) => {
+        deleted.push(params['id'] as string);
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
     const user = userEvent.setup();
     renderWithProviders(<ItemList onEdit={noop} />);
 
@@ -203,6 +210,7 @@ describe('ItemList', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
 
     expect(await screen.findByText('Item deleted successfully.')).toBeInTheDocument();
+    expect(deleted).toEqual(['11111111-1111-1111-1111-111111111111']);
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
@@ -268,6 +276,7 @@ describe('ItemList', () => {
     renderWithProviders(<ItemList onEdit={noop} />);
 
     expect(await screen.findByText('Item on page 1')).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Pagination' })).toBeInTheDocument();
     expect(screen.getByText('Page 1 of 3 (3 items)')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
 

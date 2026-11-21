@@ -31,3 +31,10 @@ def test_only_exact_paths_are_exempt() -> None:
     exempt = paths.exempt_paths(DEFAULT_API_VERSION)
     assert "/api/v1/items/metrics" not in exempt
     assert "/x/health" not in exempt
+
+
+def test_the_csp_report_path_is_built_once_and_is_rate_limit_exempt() -> None:
+    path = paths.csp_report_path(DEFAULT_API_VERSION)
+    assert path == f"/api/{DEFAULT_API_VERSION}/csp-report"
+    assert path in paths.rate_limit_exempt_paths(DEFAULT_API_VERSION)
+    assert path not in paths.exempt_paths(DEFAULT_API_VERSION)

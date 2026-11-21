@@ -65,8 +65,8 @@ from your_service_name.backend.middleware.request_limits import (
 from your_service_name.backend.middleware.security import register_security_middleware
 from your_service_name.backend.paths import (
     API_PREFIX,
-    CSP_REPORT_ROUTE,
     METRICS_PATH,
+    csp_report_path,
     exempt_paths,
 )
 from your_service_name.backend.repositories.in_memory_echo import InMemoryEchoRepository
@@ -315,9 +315,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 docs_url=settings.docs_url,
                 openapi_url=settings.openapi_url,
                 csp_report_path=(
-                    f"{API_PREFIX}/{settings.API_VERSION}{CSP_REPORT_ROUTE}"
-                    if settings.CSP_REPORT_ENABLED
-                    else None
+                    csp_report_path(settings.API_VERSION) if settings.CSP_REPORT_ENABLED else None
                 ),
             )
         )

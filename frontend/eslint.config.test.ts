@@ -10,11 +10,14 @@
  * @packageDocumentation
  */
 
+import { readFileSync } from 'node:fs';
+
 import { ESLint } from 'eslint';
 import tseslint from 'typescript-eslint';
 import { describe, expect, it } from 'vitest';
 
 import fullConfig, { zodBlock, zodConfigBlock } from './eslint.config.mjs';
+import * as configModule from './eslint.config.mjs';
 
 const eslint = new ESLint({
   overrideConfigFile: true,
@@ -55,5 +58,16 @@ describe('no-restricted-imports for zod', () => {
     const at = (block: object) => (fullConfig as object[]).indexOf(block);
     expect(at(zodBlock)).toBeGreaterThanOrEqual(0);
     expect(at(zodConfigBlock)).toBeGreaterThan(at(zodBlock));
+  });
+});
+
+describe('eslint.config.d.mts', () => {
+  it('declares exactly the exports of eslint.config.mjs', () => {
+    const declared = readFileSync('eslint.config.d.mts', 'utf8');
+    const names = [...declared.matchAll(/^export (?:const (\w+)|(default))\b/gm)].map(
+      (m) => m[1] ?? 'default',
+    );
+
+    expect(names.sort()).toEqual(Object.keys(configModule).sort());
   });
 });

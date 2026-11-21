@@ -12,6 +12,11 @@ METRICS_PATH: Final[str] = "/metrics"
 CSP_REPORT_ROUTE: Final[str] = "/csp-report"
 
 
+def csp_report_path(version: str) -> str:
+    """The CSP report endpoint path for an API ``version``, e.g. ``/api/v1/csp-report``."""
+    return f"{API_PREFIX}/{version}{CSP_REPORT_ROUTE}"
+
+
 def exempt_paths(version: str) -> frozenset[str]:
     """The exact paths the rate limiter and the host check skip: the probes and the metrics.
 
@@ -28,4 +33,4 @@ def rate_limit_exempt_paths(version: str) -> frozenset[str]:
     The report route has its own limit (``CSP_REPORT_RATE_LIMIT``), so browser reports never use up
     a user's API budget.
     """
-    return exempt_paths(version) | {f"{API_PREFIX}/{version}{CSP_REPORT_ROUTE}"}
+    return exempt_paths(version) | {csp_report_path(version)}

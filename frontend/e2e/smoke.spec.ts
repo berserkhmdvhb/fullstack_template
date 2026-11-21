@@ -102,7 +102,7 @@ test.describe('Routing', () => {
   test('should serve a real script chunk as immutable JavaScript', async ({ request }) => {
     // Take a chunk the page actually references, so a missing or renamed bundle fails here.
     const html = await (await request.get('/')).text();
-    const chunk = /\/_next\/static\/[^"\\]+\.js/.exec(html)?.[0];
+    const chunk = /\/_next\/static\/[\w./-]+\.js/.exec(html)?.[0];
     if (chunk === undefined) throw new Error('the page references no static script chunk');
 
     const response = await request.get(chunk);
