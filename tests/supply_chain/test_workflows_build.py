@@ -92,8 +92,9 @@ def test_job_order_is_build_merge_sbom_gate_sign() -> None:
     assert jobs["grype"]["needs"] == "sbom"
     assert jobs["image-checks"]["needs"] == "build"
     assert set(jobs["sign-attest"]["needs"]) == {"build", "merge", "sbom", "grype", "image-checks"}
-    # The SBOM attestation waits for the same gate: every platform's scan and check.
-    assert set(jobs["attest-sbom"]["needs"]) == {"build", "sbom", "grype", "image-checks"}
+    # The SBOM attestation waits for exactly what signing waits for, including the merge: no
+    # attestation lands on platform manifests that no signed index points to.
+    assert set(jobs["attest-sbom"]["needs"]) == set(jobs["sign-attest"]["needs"])
 
 
 def test_per_platform_jobs_use_the_platform_matrix_and_per_image_jobs_the_image_matrix() -> None:

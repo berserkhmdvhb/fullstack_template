@@ -1,0 +1,12 @@
+name: T
+on: [push]
+permissions: {}
+jobs:
+  attest-sbom-x:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      attestations: write  # a near miss of the attesting job names
+    steps:
+      - run: echo ok

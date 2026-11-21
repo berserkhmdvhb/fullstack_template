@@ -426,11 +426,11 @@ jobs:
           push-to-registry: true
 
   # One leg per (image, platform), from the same matrix as the SBOM and the scans: attests that platform's SBOM
-  # against its manifest digest. Runs only after the whole gate (every platform's scan and check), and the
+  # against its manifest digest. Runs only after the whole gate and the merge, exactly like signing, and the
   # attestations follow the same guard as the provenance. No platform is named here: the matrix decides.
   attest-sbom:
     name: Attest the SBOM (${{ matrix.id }}, ${{ matrix.platform }})
-    needs: [build, sbom, grype, image-checks]
+    needs: [build, merge, sbom, grype, image-checks]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
