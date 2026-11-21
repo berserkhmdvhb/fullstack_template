@@ -24,14 +24,33 @@ import asyncio
 import logging
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 from alembic import command
 from alembic.config import Config
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 from your_service_name.backend.db._constants import default_sqlite_url, project_root
 from your_service_name.backend.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+
+def _redact(text: str, url: str | None) -> str:
+    """Replace the database URL and its password (also percent-encoded) in ``text`` with ``***``."""
+    if not url:
+        return text
+    secrets = {url}
+    try:
+        password = make_url(url).password
+    except ArgumentError:
+        password = None
+    if password:
+        secrets |= {password, quote(password, safe="")}
+    for secret in sorted(secrets, key=len, reverse=True):
+        text = text.replace(secret, "***")
+    return text
 
 
 def _resolve_alembic_ini_path() -> str:
@@ -85,7 +104,12 @@ async def run_migrations(settings: Settings) -> None:
 
     # Run alembic in a thread to avoid blocking the event loop.
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _run_alembic_sync, _ALEMBIC_CFG_PATH_STR, settings)
+    try:
+        await loop.run_in_executor(None, _run_alembic_sync, _ALEMBIC_CFG_PATH_STR, settings)
+    except Exception as exc:  # noqa: BLE001 — redact whatever failed; the caller retries or aborts
+        # Connection and config errors can echo the URL; raise one that cannot.
+        msg = f"{type(exc).__name__}: {_redact(str(exc), settings.database_url)}"
+        raise RuntimeError(msg) from None
 
 
 def _run_alembic_sync(cfg_path: str, settings: Settings) -> None:
@@ -120,11 +144,14 @@ def _run_alembic_sync(cfg_path: str, settings: Settings) -> None:
     # alembic.ini's static literal, so the app and migrations agree on the file.
     db_url = settings.database_url
     if db_url:
-        cfg.set_main_option("sqlalchemy.url", db_url)
+        # configparser interpolates `%`; escape it so a password containing one still works.
+        cfg.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
     else:
         cfg.set_main_option(
             "sqlalchemy.url",
-            default_sqlite_url(project_root(Path(__file__)), settings.SQLITE_PATH),
+            default_sqlite_url(project_root(Path(__file__)), settings.SQLITE_PATH).replace(
+                "%", "%%"
+            ),
         )
 
     # Ensure the parent directory exists for SQLite database files.
