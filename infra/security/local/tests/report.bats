@@ -61,7 +61,7 @@ JSON
 _write_vex() {
   cat > "$OUT/vex/openvex.json" <<'JSON'
   {"@context":"https://openvex.dev/ns/v0.2.0","@id":"https://example.com/vex-1","author":"test","version":1,"timestamp":"2026-01-01Z",
-   "statements":[{"@id":"x","vulnerability_id":"CVE-2026-1","status":"not_affected","justification":"fixed_version"}]}
+   "statements":[{"@id":"x","vulnerability_id":"CVE-2026-1","status":"affected","action_statement":"Upgrade x to 2 or later."}]}
 JSON
 }
 _write_grant() { # $1 = denied count
@@ -103,7 +103,7 @@ JSON
   run bash "$SCRIPT" vex
   [ "$status" -eq 0 ]
   [[ "$output" == *"statements: 1"* ]]
-  [[ "$output" == *"[not_affected] CVE-2026-1"* ]]
+  [[ "$output" == *"[affected] CVE-2026-1"* ]]
 }
 
 # -----------------------------------------------------------------------------

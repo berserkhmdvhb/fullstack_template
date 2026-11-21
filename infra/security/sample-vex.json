@@ -21,9 +21,8 @@
           ]
         }
       ],
-      "status": "not_affected",
-      "justification": "fixed_version",
-      "impact_statement": "The vulnerable code path is not reachable in this artifact; a fix shipped in ${FIXED_VERSION}."
+      "status": "affected",
+      "action_statement": "Upgrade ${PACKAGE_NAME} to ${FIXED_VERSION} or later."
     }
   ]
 }

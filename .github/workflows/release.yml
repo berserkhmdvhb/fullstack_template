@@ -154,7 +154,7 @@ jobs:
           path: ${{ env.SEC_OUTPUT_DIR }}/grant/
           retention-days: 90
 
-  # Advisory: an OpenVEX document from the fixed CVEs, pinned by image digest.
+  # Advisory: an OpenVEX document from the Grype findings (affected, plus the reviewed not_affected list), pinned by image digest.
   vex:
     name: VEX (advisory)
     needs: [digests, images]
@@ -179,7 +179,7 @@ jobs:
           bash infra/security/generate-vex.sh "${SEC_OUTPUT_DIR}" scan.env image-digests.env
           n="$(jq '.statements | length' "${SEC_OUTPUT_DIR}/vex/openvex.json")"
           if (( n == 0 )); then
-            echo "::warning::VEX has no statements (no fixed CVEs, or the grype reports are missing)"
+            echo "::warning::VEX has no statements (no findings, or the grype reports are missing)"
           fi
           echo "- VEX: ${n} statement(s) (advisory)" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

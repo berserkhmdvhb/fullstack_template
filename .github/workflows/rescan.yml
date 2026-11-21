@@ -76,8 +76,8 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/bin"
           bash infra/security/tools-install.sh grype "$(yq -r '.tools.grype' infra/security/config.yaml)" "${RUNNER_TEMP}/bin"
           echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
-      # No VEX is applied: the release VEX marks every CVE that had an upstream fix as not_affected,
-      # which would hide a later re-rating. The ignore list in grype.yaml is the only exemption.
+      # No VEX is applied: the release VEX is a release-time record and would hide a later re-rating.
+      # The ignore list in grype.yaml is the only exemption.
       # grype exits 2 when it finds something at the config's fail-on severity: a finding, not an error.
       - name: Scan the digest
         env:

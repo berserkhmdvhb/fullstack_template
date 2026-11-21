@@ -2,9 +2,9 @@
 
 Network-independent. Asserts the committed template is a representative OpenVEX
 v0.2.0 shape AND that its product is pinned by immutable `@sha256:` digest (not a
-mutable `:latest` / `:main` tag) and every `not_affected` statement carries
-`fixed_version` — so the shipped VEX reflects the real build digest resolved at
-run time by `infra/security/generate-vex.sh`, and the "pin the immutable
+mutable `:latest` / `:main` tag) and every `affected` statement carries an
+`action_statement` (OpenVEX requires one) — so the shipped VEX reflects the real
+build digest resolved at run time by `infra/security/generate-vex.sh`, and the "pin the immutable
 digest" framing stays honest.
 """
 
@@ -32,8 +32,8 @@ def test_product_pinned_by_digest_not_tag() -> None:
     assert ":main" not in prod
 
 
-def test_not_affected_requires_fixed_version() -> None:
+def test_affected_requires_action_statement() -> None:
     for s in tmpl["statements"]:
-        if s["status"] == "not_affected":
-            assert "fixed_version" in json.dumps(s)
-            assert s["justification"] == "fixed_version"
+        assert s["status"] != "not_affected"  # only the reviewed list may say that
+        if s["status"] == "affected":
+            assert s["action_statement"]

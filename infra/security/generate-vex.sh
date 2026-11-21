@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# Emit an OpenVEX v0.2.0 document for the built image(s): for every CVE Grype
-# reports as FIXED in the shipped artifact, assert the image is not_affected
-# (justification: fixed_version), pinned by its IMMUTABLE digest from
-# image-digests.env — the KB "05" practice, built from the real Grype results and
-# the real build digest, never a pre-baked claim.
+# Emit an OpenVEX v0.2.0 document for the built image(s): every finding Grype
+# reports (.matches and .ignoredMatches; an ignore in grype.yaml only stops the
+# gate, the component is still in the image) becomes an `affected` statement with
+# an action_statement (OpenVEX requires one for `affected`): "Upgrade <pkg> to <fix>
+# or later" when Grype names a fix, else a no-fix note. A fix existing upstream
+# never makes the shipped image not_affected. `not_affected` comes ONLY from the
+# hand-reviewed list infra/security/local/vex-not-affected.json (entries carry a
+# justification, an impact_statement, a review date and an `until` expiry; an
+# expired entry is ignored with a warning, a malformed one fails the script).
+# Statements are pinned by the IMMUTABLE digest from image-digests.env, built from
+# the real Grype results and the real build digest, never a pre-baked claim.
+# Spec: https://github.com/openvex/spec/blob/main/OPENVEX-SPEC.md
 #
 # The template (infra/security/sample-vex.json) is a representative OpenVEX shape
 # whose fields are ${VAR} tokens; this script fills the envelope from CI env and
-# replaces the placeholder statement with one real statement per fixed CVE, so the
-# shipped doc reflects the actual build (captured, never faked). A CVE with no fix
-# in the shipped version is NEVER waved to not_affected.
+# replaces the placeholder statement with the real statements, so the shipped doc
+# reflects the actual build (captured, never faked).
 #
 # Usage: generate-vex.sh [SEC_OUTPUT_DIR] [scan.env] [image-digests.env]
 #   SEC_OUTPUT_DIR     security output dir (default: output/security)
@@ -27,8 +33,9 @@ usage() {
   cat <<'USAGE'
 Usage: generate-vex.sh [SEC_OUTPUT_DIR] [scan.env] [image-digests.env]
 
-Emit an OpenVEX document: one not_affected/fixed_version statement per CVE Grype
-reports fixed in the shipped artifact, pinned by the image's immutable digest.
+Emit an OpenVEX document: one `affected` statement (with an action_statement) per
+Grype finding, pinned by the image's immutable digest; `not_affected` only for
+entries of infra/security/local/vex-not-affected.json (override: VEX_NOT_AFFECTED_LIST).
 
   SEC_OUTPUT_DIR     security output dir        (default: output/security)
   scan.env           image refs under *_IMAGE   (default: scan.env)
@@ -54,21 +61,52 @@ SEC_OUTPUT_DIR="${POSITIONAL[0]:-${SEC_OUTPUT_DIR:-output/security}}"
 SCAN_ENV="${POSITIONAL[1]:-${SCAN_ENV_PATH:-scan.env}}"
 DIGEST_ENV="${POSITIONAL[2]:-image-digests.env}"
 TEMPLATE="${SCRIPT_DIR}/sample-vex.json"
+NOT_AFFECTED_LIST="${VEX_NOT_AFFECTED_LIST:-${SCRIPT_DIR}/local/vex-not-affected.json}"
 
 GRYPE_DIR="${SEC_OUTPUT_DIR}/grype"
 VEX_DIR="${SEC_OUTPUT_DIR}/vex"
 OUT="${VEX_DIR}/openvex.json"
 
-lib_banner "generate-vex" "OpenVEX not_affected statements from Grype fixes"
+lib_banner "generate-vex" "OpenVEX statements from Grype findings"
 
 # ---------- Pre-flight ----------
 need_cmd jq
 [[ -f "${TEMPLATE}" ]] || die "VEX template not found: ${TEMPLATE}"
+[[ -f "${NOT_AFFECTED_LIST}" ]] || die "not_affected list not found: ${NOT_AFFECTED_LIST}"
 
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 VEX_TIMESTAMP="$(now_iso)"
 VEX_ID="${GITHUB_SHA:-local}"; VEX_ID="${VEX_ID:0:7}"   # short SHA
 VEX_AUTHOR="${GITHUB_REPOSITORY:-service-template} <security@example.com>"
+TODAY="$(date -u +%Y-%m-%d)"
+
+# Validate the reviewed not_affected list; any problem fails the script. Justifications
+# are OpenVEX's five (spec: "Status Justifications"); dates are YYYY-MM-DD.
+JUSTIFICATIONS='["component_not_present","vulnerable_code_not_present","vulnerable_code_not_in_execute_path","vulnerable_code_cannot_be_controlled_by_adversary","inline_mitigations_already_exist"]'
+problems="$(jq -r --argjson just "${JUSTIFICATIONS}" '
+  def isdate: type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+    and ((try (strptime("%Y-%m-%d") | mktime | todate[0:10]) catch null) == .);
+  if type != "array" then "the list must be a JSON array"
+  else to_entries[] | .key as $i | .value as $e
+    | if ($e | type) != "object" then "entry \($i): not an object"
+      else
+        ( ["vulnerability","service","package","justification","impact_statement"][]
+          | . as $k | select(($e[$k] | type) != "string" or $e[$k] == "") | "entry \($i): missing or empty \($k)" ),
+        ( select(($e.justification | type) == "string" and $e.justification != ""
+                 and (($just | index([$e.justification])) == null))
+          | "entry \($i): unknown justification \($e.justification)" ),
+        ( ["reviewed","until"][] | . as $k | select(($e[$k] | isdate) | not)
+          | "entry \($i): \($k) must be a valid YYYY-MM-DD date" )
+      end
+  end' "${NOT_AFFECTED_LIST}")" || die "not_affected list is not valid JSON: ${NOT_AFFECTED_LIST}"
+if [ -n "${problems}" ]; then
+  printf '%s\n' "${problems}" >&2
+  die "invalid not_affected list: ${NOT_AFFECTED_LIST}"
+fi
+while IFS= read -r line; do
+  [ -n "${line}" ] && warn "not_affected entry expired (until ${line}); ignored, the finding stays affected"
+done < <(jq -r --arg today "${TODAY}" '.[] | select(.until < $today) | "\(.until) \(.vulnerability) \(.service) \(.package)"' "${NOT_AFFECTED_LIST}")
+used='[]'   # indexes of list entries that matched a finding
 
 # Load scan.env (image refs) + image-digests.env (immutable digests). The digest
 # capture is produced by verify:registry (protected refs only); without it we
@@ -98,10 +136,13 @@ render_envelope() {
 }
 base="$(render_envelope)"
 
-# Build the statements array from Grype JSON: one not_affected/fixed_version
-# statement per CVE that has a fix, pinned to the image's immutable digest. The
+# Build the statements array from Grype JSON: one statement per finding (.matches
+# and .ignoredMatches), `affected` unless a live reviewed-list entry says
+# not_affected, pinned to the image's immutable digest. The
 # Grype per-image report is named <svc>.image.vuln.grype.json, so the service id
 # (→ the *_IMAGE / *_IMAGE_DIGEST keys) is recovered from the filename.
+# Grype JSON shape (v0.121): .matches[] / .ignoredMatches[] with .vulnerability.{id,fix.versions}
+# and .artifact.{name,version,type,purl}; https://github.com/anchore/grype (grype/presenter/models).
 statements='[]'
 shopt -s nullglob
 for gj in "${GRYPE_DIR}"/*.image.vuln.grype.json; do
@@ -121,37 +162,54 @@ for gj in "${GRYPE_DIR}"/*.image.vuln.grype.json; do
   else
     tag="${IMAGE_TAG:-latest}"; repository_url="ghcr.io/$(printf %s "${GITHUB_REPOSITORY:-unknown}" | tr "[:upper:]" "[:lower:]")"
   fi
-  svc_stmts="$(jq -c \
+  res="$(jq -c \
     --arg svc "${svc}" --arg digest "${digest}" --arg repo_url "${repository_url}" \
-    --arg tag "${tag}" --arg ts "${VEX_TIMESTAMP}" \
+    --arg tag "${tag}" --arg ts "${VEX_TIMESTAMP}" --arg today "${TODAY}" \
+    --slurpfile list "${NOT_AFFECTED_LIST}" \
     '
-    [ .matches[]
-      # only-fixed: a CVE with no fix is never waved to not_affected
-      | select((.vulnerability.fix.versions // []) | length > 0)
-      | {
-          # statement @id is the OSV advisory reference for the match id,
-          # not the project internal path — traceable and stable across the doc.
-          "@id": ("https://osv.dev/vulnerability/" + .vulnerability.id),
-          # REQUIRED by the OpenVEX spec: the vulnerability identifier as a
-          # top-level string. The nested "vulnerability:{name,description}"
-          # object is not part of the statement schema and made consumers see
-          # vulnerability_id as null — this is the field they key on.
-          vulnerability_id: .vulnerability.id,
-          timestamp: $ts,
-          products: [{
-            "@id": ("pkg:oci/" + $svc + "@" + $digest + "?repository_url=" + $repo_url + "&tag=" + $tag),
-            subcomponents: [{
-              "@id": (.artifact.purl // ("pkg:" + (.artifact.type // "generic") + "/" + .artifact.name + "@" + (.artifact.version // "")))
+    ($list[0] | to_entries | map(select(.value.service == $svc and .value.until >= $today))) as $live
+    | [ (.matches[]?, .ignoredMatches[]?)
+        | . as $m
+        | (.vulnerability.fix.versions // []) as $fix
+        | ($live | map(select(.value.vulnerability == $m.vulnerability.id and .value.package == $m.artifact.name)) | first) as $na
+        | {
+            # statement @id is the OSV advisory reference for the match id,
+            # not the project internal path — traceable and stable across the doc.
+            "@id": ("https://osv.dev/vulnerability/" + .vulnerability.id),
+            # REQUIRED by the OpenVEX spec: the vulnerability identifier as a
+            # top-level string; this is the field consumers key on.
+            vulnerability_id: .vulnerability.id,
+            timestamp: $ts,
+            products: [{
+              "@id": ("pkg:oci/" + $svc + "@" + $digest + "?repository_url=" + $repo_url + "&tag=" + $tag),
+              subcomponents: [{
+                "@id": (.artifact.purl // ("pkg:" + (.artifact.type // "generic") + "/" + .artifact.name + "@" + (.artifact.version // "")))
+              }]
             }]
-          }],
-          status: "not_affected",
-          justification: "fixed_version",
-          impact_statement: ("Fix shipped in " + (.vulnerability.fix.versions[0]) + "; the vulnerable code path is not reachable in this artifact.")
-        }
-    ]
-    ' "${gj}" 2>/dev/null || echo '[]')"
+          }
+          + (if $na then
+              { status: "not_affected", justification: $na.value.justification, impact_statement: $na.value.impact_statement }
+            else
+              { status: "affected",
+                action_statement: (if ($fix | length) > 0
+                  then "Upgrade " + .artifact.name + " to " + $fix[0] + " or later."
+                  else "No upstream fix is available yet; the scheduled re-scan tracks it." end) }
+            end)
+          + { _used: ($na.key // null) }
+      ]
+    | unique_by([.vulnerability_id, .products[0].subcomponents[0]["@id"]]) as $all
+    | { s: ($all | map(del(._used))), u: ($all | map(._used) | map(select(. != null))) }
+    ' "${gj}" 2>/dev/null || echo '{"s":[],"u":[]}')"
+  svc_stmts="$(jq -c .s <<<"${res}")"
+  used="$(jq -c --argjson u "$(jq -c .u <<<"${res}")" '. + $u' <<<"${used}")"
   statements="$(jq -c --argjson a "${svc_stmts}" '. + $a' <<<"${statements}")"
 done
+
+# An entry that matched no finding produces no statement.
+while IFS= read -r line; do
+  [ -n "${line}" ] && log "not_affected entry matched no finding: ${line}"
+done < <(jq -r --argjson used "${used}" --arg today "${TODAY}" \
+  'to_entries[] | select(.value.until >= $today and ((.key | IN($used[])) | not)) | "\(.value.vulnerability) \(.value.service) \(.value.package)"' "${NOT_AFFECTED_LIST}")
 
 # Assemble: base envelope + the real statements (replacing the placeholder one).
 echo "${base}" | jq --argjson s "${statements}" '.statements = $s' > "${OUT}"
