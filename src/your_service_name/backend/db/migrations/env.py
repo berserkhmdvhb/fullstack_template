@@ -87,6 +87,8 @@ async def _run_migrations_online_async() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        # The runner passes the timeouts and TLS here (PostgreSQL only); the alembic CLI has none.
+        connect_args=config.attributes.get("connect_args", {}),
     )
 
     async with connectable.connect() as connection:

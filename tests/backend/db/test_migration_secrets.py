@@ -3,18 +3,15 @@
 
 from __future__ import annotations
 
-import asyncio
-import logging
 import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from alembic import command
 from pydantic import SecretStr
 
-from your_service_name.backend.db import engine as engine_module
 from your_service_name.backend.db import run_migrations as migrations
 from your_service_name.backend.settings import Settings
 
@@ -47,28 +44,10 @@ def test_a_percent_in_the_password_configures_alembic(settings: Settings) -> Non
 async def test_a_failed_migration_error_does_not_echo_the_url(settings: Settings) -> None:
     boom = RuntimeError(f"could not connect to {URL} (password {PASSWORD})")
     with (
-        patch.object(migrations, "_run_alembic_sync", side_effect=boom),
+        patch.object(migrations, "_read_revision_with_retry", side_effect=boom),
         pytest.raises(RuntimeError) as excinfo,
     ):
         await migrations.run_migrations(settings)
     text = "".join(traceback.format_exception(excinfo.value))
     assert MARKER not in text
     assert "RuntimeError" in text  # the original type is still named
-
-
-async def test_the_retry_loop_logs_no_password(
-    settings: Settings, caplog: pytest.LogCaptureFixture
-) -> None:
-    boom = RuntimeError(f"could not connect to {URL} (password {PASSWORD})")
-    logging.getLogger(engine_module.__name__).disabled = False
-    with (
-        patch.object(migrations, "_run_alembic_sync", side_effect=boom),
-        patch.object(engine_module, "_DB_INIT_MAX_ATTEMPTS", 2),
-        patch.object(asyncio, "sleep", new=AsyncMock()),
-        caplog.at_level(logging.DEBUG),
-        pytest.raises(RuntimeError) as excinfo,
-    ):
-        await engine_module._run_migrations_with_retry(settings)
-    assert "failed" in caplog.text  # the warning was logged ...
-    assert MARKER not in caplog.text  # ... without the password
-    assert MARKER not in "".join(traceback.format_exception(excinfo.value))

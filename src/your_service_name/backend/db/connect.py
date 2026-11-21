@@ -9,6 +9,7 @@ Responsibilities:
 Public API:
 - `ssl_context`: ``False`` for ``disable``, else an ``ssl.SSLContext``.
 - `app_connect_args`: asyncpg ``connect_args`` for the app engine.
+- `migration_connect_args`: the same for the migration run (a lock timeout, no statement timeout).
 
 Notes
 -----
@@ -52,4 +53,17 @@ def app_connect_args(settings: Settings) -> dict[str, Any]:
             "statement_timeout": str(settings.DB_STATEMENT_TIMEOUT_MS),
             "idle_in_transaction_session_timeout": str(settings.DB_IDLE_IN_TRANSACTION_TIMEOUT_MS),
         },
+    }
+
+
+def migration_connect_args(settings: Settings) -> dict[str, Any]:
+    """asyncpg ``connect_args`` for the migration run.
+
+    A ``lock_timeout`` makes a migration that waits on a busy table fail instead of blocking
+    traffic. There is no ``statement_timeout``: a long migration is legitimate.
+    """
+    return {
+        "timeout": settings.DB_CONNECT_TIMEOUT_SECONDS,
+        "ssl": ssl_context(settings),
+        "server_settings": {"lock_timeout": str(settings.DB_MIGRATION_LOCK_TIMEOUT_MS)},
     }
