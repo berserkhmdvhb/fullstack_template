@@ -274,7 +274,7 @@ Access Grafana for pre-built dashboards:
 Every request carries a **correlation id** so its logs can be stitched together across the service
 (and across downstream services that forward it). The template ships the lightweight minimum — an
 `X-Request-Id` header plus a `request_id` field on every log record — rather than a full
-OpenTelemetry/trace pipeline.
+OpenTelemetry/trace pipeline (that is opt-in: see [Tracing](backend-architecture.md#tracing)).
 
 ### How it works
 
@@ -284,7 +284,7 @@ OpenTelemetry/trace pipeline.
   the `X-Request-Id` response header and in every error body.
 - A valid W3C `traceparent` header (`<version>-<32 hex>-<16 hex>-<2 hex>`, lowercase, no all-zero ids,
   version `00` exactly, a newer version read by its first 55 characters, `ff` invalid, sent once) puts its trace id on every log line as `trace_id` (and on error bodies). An invalid or
-  absent one is ignored, never a 400, and no trace id is generated here.
+  absent one is ignored, never a 400, and no trace id is generated here, unless [tracing](backend-architecture.md#tracing) is on: then `trace_id` and `span_id` come from the active span, which continues a valid `traceparent`.
 - If the caller sends no valid id, the middleware **generates** one — a UUID4 hex
   string (32 chars, e.g. `2f1c9a7b…`). It is never blank and never the sentinel.
 - The id is injected onto every log record emitted while handling the request (application, request

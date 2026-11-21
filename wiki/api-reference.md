@@ -321,7 +321,7 @@ Members:
 | `detail` | A safe, human-readable explanation. A 500 always carries the same generic text |
 | `instance` | The request path, never the query string (it can carry tokens) |
 | `request_id` | The `X-Request-Id` of the request, also in the response header and every log line |
-| `trace_id` | The W3C trace id, only when the caller sent a valid `traceparent` |
+| `trace_id` | The W3C trace id, only when the caller sent a valid `traceparent` or [tracing](backend-architecture.md#tracing) is on (then the active span's) |
 | `errors` | 422 only: a list of `{loc, msg, type}`; the submitted values are never echoed |
 
 Headers an error carries are kept (`Retry-After`, `WWW-Authenticate`, `Allow`). No stack trace, file

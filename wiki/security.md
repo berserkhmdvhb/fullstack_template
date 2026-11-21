@@ -10,6 +10,7 @@ Security headers, CORS, rate limiting, supply-chain scanning, container hardenin
 - [HTTP Security Headers](#http-security-headers)
 - [CORS Configuration](#cors-configuration)
 - [Rate Limiting](#rate-limiting)
+- [CSP Violation Reports](#csp-violation-reports)
 - [Request Limits and Trusted Hosts](#request-limits-and-trusted-hosts)
 - [Client IP](#client-ip)
 - [Supply-Chain Security (CI)](#supply-chain-security-ci)
@@ -228,14 +229,34 @@ environment variables (see `backend/main.py`). The template ships
 
 ## Rate Limiting
 
-Per-IP rate limiting via the **`limits`** library in `backend/middleware/rate_limiting.py`
-(a `BaseHTTPMiddleware`), plus optional NGINX Ingress annotations:
+Per-IP rate limiting via the **`limits`** library's async API (`limits.aio`) in
+`backend/middleware/rate_limiting.py` (a `BaseHTTPMiddleware`) and `backend/rate_limiter.py`, plus
+optional NGINX Ingress annotations:
 
 ### Backend Rate Limiting
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `RATE_LIMIT_DEFAULT` | `100/minute` | Max requests per IP (fixed-window, in-memory). `limits` format: `N/minute`, `N/second`, … |
+| `RATE_LIMIT_DEFAULT` | `100/minute` | Max requests per IP (fixed window). `limits` format: `N/minute`, `N/second`, … |
+| `RATE_LIMIT_STORAGE` | `memory://` | Where the counters live (a secret: a Redis URL can hold a password) |
+| `RATE_LIMIT_STORAGE_TIMEOUT_SECONDS` | `0.2` | Redis connect and socket timeout, and the cap on one limiter call |
+
+**Storage.** `memory://` keeps the counters in the process, so the limit is **per replica**: with
+two Pods a client can make twice the configured rate. `redis://`, `rediss://` and `redis+unix://`
+share the counters across replicas (`limits.aio.storage.RedisStorage` with the redis-py asyncio
+client; see the `limits` documentation, "Async Storage"). Counter keys start with the service name, so several services can share one
+Redis, and the CSP report limit has its own namespace. Anything else is refused at startup, and the
+URL never appears in a log or an error. In production a plaintext `redis://` URL is refused unless
+every host is loopback (use `rediss://`, a unix socket, or `memory://`), the same rule as the
+database TLS. In the chart the URL comes from the app Secret (`RATE_LIMIT_STORAGE` in
+`secrets.existingSecret`), never from `config:`; allow the egress to Redis (port 6379) with
+`backend.networkPolicy.extraEgress`.
+
+**Fail open.** A Redis error, or a call slower than `RATE_LIMIT_STORAGE_TIMEOUT_SECONDS`, allows the
+request and logs a warning (the exception type only) at most once a minute: an outage of the
+limiter must not take the API down. While Redis is unreachable a request can wait up to the timeout
+(0.2 s by default: well above a same-cluster round trip, short enough to bound the added latency).
+The ingress limit below still applies.
 
 > **Why not slowapi**: slowapi resolves the target route *handler* from the
 > top-level route table to decide which limits apply, but FastAPI assembles the
@@ -258,6 +279,35 @@ metadata:
 - Rate limit is applied **per client IP address** (the resolved address, see [Client IP](#client-ip))
 - Exceeding the limit returns `429 Too Many Requests` as a problem body (see [Error Responses](api-reference.md#error-responses))
 - Response includes `Retry-After` header (seconds until reset)
+
+---
+
+## CSP Violation Reports
+
+Opt-in (`CSP_REPORT_ENABLED`, default off; the chart's `cspReporting.enabled` turns on this and the
+frontend half with one value). `POST /api/v1/csp-report` takes the browser's violation reports and
+logs them, so a policy change can be watched before it is enforced. It is a browser-defined format,
+not API: it is not in the OpenAPI document, takes no authentication (browsers send none) and is a
+404 when off.
+
+- **Formats.** `application/csp-report` (`report-uri`: `{"csp-report": {...}}`) and
+  `application/reports+json` (`report-to`: an array of reports; only `"type": "csp-violation"`
+  entries count). Any other content type is a 415, malformed JSON or the wrong shape a 400, and an
+  accepted report a 204. Every error is a problem body.
+- **Limits.** The body is capped at `CSP_REPORT_MAX_BYTES` (16384), checked from `Content-Length`
+  and again while it streams in, never read unbounded: a 413. At most 10 reports are taken from one
+  request. `CSP_REPORT_RATE_LIMIT` (`20/minute` per client, its own counter in the same limiter and
+  storage as above) answers 429 with `Retry-After`; a limited request is not read.
+- **What is logged.** One warning per violation, with a fixed set of fields: `document-uri`,
+  `blocked-uri`, `violated-directive`, `effective-directive`, `disposition`, `status-code`,
+  `source-file`, `line-number`, `column-number`. URLs lose their query string and fragment (they can
+  carry tokens). A value is a string or an integer; strings lose control characters (so a report
+  cannot forge a log line) and are cut to 512 characters, integers must be 0 to 2^31 - 1, and
+  anything else, and every unknown field (such as `original-policy` or `script-sample`), is dropped.
+  The sanitising is in `services/csp_report_service.py`.
+- **Frontend.** With `CSP_REPORTING_ENABLED=true` (read per request by `frontend/middleware.ts`) the
+  CSP gets `report-uri /api/v1/csp-report` and `report-to csp-endpoint`, and the response gets
+  `Reporting-Endpoints: csp-endpoint="/api/v1/csp-report"`. Unset, nothing changes.
 
 ---
 

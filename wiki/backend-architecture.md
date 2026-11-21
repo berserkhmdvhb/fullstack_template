@@ -16,6 +16,7 @@ Detailed breakdown of the FastAPI backend: layered architecture, data flow, and 
 - [Schema Layer](#schema-layer)
 - [Database Layer](#database-layer)
 - [Middleware Stack](#middleware-stack)
+- [Tracing](#tracing)
 - [Data Flow](#data-flow)
 
 ---
@@ -312,7 +313,7 @@ only records metrics and does not read the client address.
 | Request limits | `middleware/request_limits.py` | Body-size cap (413) and trusted hosts (400) |
 | Logging | `middleware/logging.py` | Request/response logging (opt-in via `LOG_REQUESTS`) |
 | Security | `middleware/security.py` | Security headers |
-| Rate Limiting | `middleware/rate_limiting.py` | Per-IP request throttling (enforced in-middleware via `limits`) |
+| Rate Limiting | `middleware/rate_limiting.py`, `rate_limiter.py` | Per-IP request throttling (async `limits`, memory or Redis storage, fail open: see [Rate Limiting](security.md#rate-limiting)) |
 | CORS | `main.py` | CORS configuration from the `CORS_*` settings |
 | Prometheus | `main.py` | Metrics exposition at `/metrics` for ServiceMonitor |
 
@@ -321,6 +322,59 @@ only records metrics and does not read the client address.
 | Security | `middleware/security.py` | CORS configuration, security headers |
 | Logging | `middleware/logging.py` | Request/response logging (opt-in via `LOG_REQUESTS`) |
 | Prometheus | `main.py` | Metrics exposition at `/metrics` for ServiceMonitor |
+
+---
+
+## Tracing
+
+Opt-in OpenTelemetry tracing over OTLP/HTTP (`observability/tracing.py`). Off by default: with
+`TRACING_ENABLED=false` nothing of the SDK, the exporter, the instrumentations or `redis` is imported
+(a test proves it; FastAPI itself loads the small, inert `opentelemetry` API package).
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `TRACING_ENABLED` | `false` | Turn tracing on; needs `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | The collector's base URL; `/v1/traces` is appended |
+| `OTEL_EXPORTER_OTLP_HEADERS` | unset | `name=value,...` for the collector (a secret: keep it in the app Secret) |
+| `OTEL_SERVICE_NAME` | the package name | `service.name` |
+| `TRACING_SAMPLE_RATIO` | `1.0` | Share of new traces recorded (0 to 1) |
+
+- **What is traced.** One server span per request (the FastAPI/ASGI instrumentation) and one client
+  span per database statement (the SQLAlchemy instrumentation, on the app engine). The probes and
+  `/metrics` (`paths.exempt_paths`, the one list) are never traced, and a database call outside a
+  traced request (a probe's `SELECT 1`) starts no trace.
+- **What is not captured.** No request or response header, no body, no query string (it is removed
+  from the span's URL attributes), no SQL parameter value (the statement text keeps its
+  placeholders) and no SQL comment.
+- **Sampling.** `ParentBased(TraceIdRatioBased(TRACING_SAMPLE_RATIO))`: a caller's `traceparent`
+  sampled flag is honoured, so a client can force the recording of its own requests (the rate limit
+  bounds that), and the ratio decides for new traces.
+- **Export.** A `BatchSpanProcessor` exports on its own thread, so a failing, slow or unreachable
+  collector costs a request nothing (a full queue drops spans). `create_app` sets it up once per
+  process, so each worker has its own. The lifespan flushes and stops it within five seconds
+  (`SHUTDOWN_TIMEOUT_SECONDS`).
+- **One trace id.** With tracing on, the `trace_id` and `span_id` on every log line and the
+  `trace_id` of a problem body come from the active span, and a valid inbound `traceparent` is
+  continued, so the span, the logs and the error body carry the caller's trace id.
+  `outgoing_trace_headers()` then forwards the active span as the parent. With tracing off the ids
+  are the inbound `traceparent`'s, as before. See [Logging](operations-runbook.md#log-correlation--tracing).
+
+Every value above is passed explicitly to the SDK constructors. The SDK and the instrumentations
+still read these standard variables themselves, which the template leaves to the operator:
+`OTEL_SDK_DISABLED`; the span limits (`OTEL_SPAN_*_LIMIT`, `OTEL_ATTRIBUTE_*_LIMIT`); the exporter's
+TLS files (`OTEL_EXPORTER_OTLP_CERTIFICATE`, `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE`,
+`OTEL_EXPORTER_OTLP_CLIENT_KEY`, and their `*_TRACES_*` forms) and its `*_TRACES_ENDPOINT` /
+`*_TRACES_HEADERS` overrides; `OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_*` (setting those makes
+the instrumentation record headers, against the rule above); and `OTEL_SEMCONV_STABILITY_OPT_IN`.
+`OTEL_RESOURCE_ATTRIBUTES` is not read. FastAPI's own telemetry is switched off in `create_app`.
+
+The SQLAlchemy instrumentation declares support for SQLAlchemy below 2.1 although the locked 2.1
+release works with it; the code skips the version check and a test runs the real path against the
+lock. Re-check this when either package is updated.
+
+In the chart: `observability.tracing.*` (and `backend.networkPolicy.extraEgress` to reach the
+collector on 4318). See [Security](security.md#rate-limiting) for the Redis rate-limit storage that
+shares the same egress setting.
 
 ---
 
