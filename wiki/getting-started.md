@@ -226,7 +226,7 @@ python -m your_service_name.scripts.seed
 
 ```bash
 cd frontend
-npm ci
+npm ci --ignore-scripts
 ```
 
 ### 2. Generate API Types

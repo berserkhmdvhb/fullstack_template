@@ -24,7 +24,7 @@ The frontend is built as a **Next.js standalone application** and served by the 
 ```mermaid
 flowchart TB
     subgraph Build["Build (CI/CD)"]
-        NPM["npm ci"]
+        NPM["npm ci --ignore-scripts"]
         OpenAPI["npm run openapi-gen"]
         NextBuild["npx next build"]
     end
@@ -61,30 +61,42 @@ Dependency install scripts (`preinstall`, `install`, `postinstall`) run arbitrar
 frontend installs with `npm ci --ignore-scripts` in the CI `setup-frontend` action and in both Dockerfile builder
 stages. The build, every test, the dev server and Playwright pass without them.
 
-**Exceptions: none.** Three lockfile packages declare an install script; none is needed:
+Three lockfile packages declare an install script; none is needed:
 
 | Package | What the script does | Without it |
 |---|---|---|
 | `esbuild` | Validates the platform binary and swaps the JS launcher for it (a start-up speed-up). | The JS launcher runs the same binary (Vite and Vitest use it). |
 | `unrs-resolver` | Checks the native resolver binding and fetches a fallback if the platform package is missing. | The platform binding arrives as an optional dependency (`@unrs/resolver-binding-*`). |
-| `fsevents` | Builds the macOS file watcher. | Optional and macOS-only; the watcher falls back to polling. |
+| `fsevents` | Rebuilds the macOS file watcher from source (the package ships a prebuilt `fsevents.node`). | Optional and macOS-only; the prebuilt watcher still works. |
 
 Playwright installs no browser from a postinstall: the CI jobs and developers run `npx playwright install`
 explicitly.
 
 **The allowlist.** npm 11.20 reads an `allowScripts` field in `frontend/package.json` (`name` or `name@version` to
 `true` or `false`; see the npm `install-scripts` and `ci` manual pages). Ours lists the three packages above with
-`false`, so even an install without `--ignore-scripts` skips them quietly. `npm install-scripts ls` lists any
-package not yet reviewed. If a script ever becomes necessary, set the entry to `true` (pin it as `name@version`),
-add a row here saying why and how it runs (for example an explicit `npm rebuild <name>` step after the install), and
-the guard test accepts it only once this page names the package.
+`false`, so even an install without `--ignore-scripts` skips them quietly. A denial is keyed by the bare name (it
+survives a version bump). An approval (`true`) must be `name@<exact locked version>` and have its row in the
+Exceptions section below; npm ignores ranges and dist-tags, and the guard rejects them. `npm install-scripts ls`
+lists any package not yet reviewed.
 
 **The guard.** `tests/supply_chain/test_npm_install_scripts.py` fails when `frontend/package-lock.json` has a
 `hasInstallScript` package with no `allowScripts` entry, so a dependency update that adds an install script is
-caught in review. When it fails, read the script, decide, then run `npm install-scripts deny <name>` (or `approve`).
+caught in review. When it fails, read the script, then deny it: `npm install-scripts deny <name>`, or for a package
+that is not installed on this platform (npm answers ENOMATCH, as for `fsevents` on Linux)
+`npm pkg set 'allowScripts.<name>=false' --json`. Do not run `npm install-scripts prune`: it drops the entries of
+other-platform packages, and the guard then flags the loss. To approve, add the `name@version` row below first.
 
 **Developers.** Install locally with `npm ci --ignore-scripts` as well: it is the same install CI runs, and nothing
 in the local workflow needs a script.
+
+#### Exceptions
+
+None: no install script runs. An approved script gets one row here, as `name@exact-version`, with why it is
+needed and how it runs instead (for example an explicit `npm rebuild <name>` step after the install).
+
+| Package | Why | How it runs |
+|---|---|---|
+| (none) | | |
 
 ### Build Output
 

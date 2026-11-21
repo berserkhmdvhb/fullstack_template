@@ -71,7 +71,7 @@ ignore_missing_imports = true
 **Solution**:
 ```bash
 cd frontend
-npm ci
+npm ci --ignore-scripts
 npm run openapi-gen
 ```
 
@@ -402,7 +402,7 @@ docker compose up -d
 **Symptom**: the `unit` or `integration` job of `reusable-frontend.yml` fails
 
 **Solutions**:
-- Clear cache: delete `frontend/node_modules` and re-run `npm ci`
+- Clear cache: delete `frontend/node_modules` and re-run `npm ci --ignore-scripts`
 - Check `package-lock.json` is committed and up-to-date
 - Verify MSW handlers match the actual API endpoints
 
@@ -488,7 +488,7 @@ alembic upgrade head
 # Frontend
 cd frontend
 rm -rf node_modules .next
-npm ci
+npm ci --ignore-scripts
 npm run openapi-gen
 
 # Docker
