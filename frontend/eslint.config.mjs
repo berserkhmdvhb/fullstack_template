@@ -9,7 +9,7 @@ import tseslint from 'typescript-eslint';
 import pluginImport from 'eslint-plugin-import';
 import jsdoc from 'eslint-plugin-jsdoc';
 import testingLibrary from 'eslint-plugin-testing-library';
-import vitest from 'eslint-plugin-vitest';
+import vitest from '@vitest/eslint-plugin';
 
 // ---- 1) Non-typed TS block: parse TS with ts parser, no project ----
 const nonTypedTsBlock = {
@@ -142,6 +142,7 @@ const jsdocBlock = {
           'FunctionDeclaration[export=true]',
           'ExportNamedDeclaration > VariableDeclaration > VariableDeclarator[init.type="ArrowFunctionExpression"]',
         ],
+        exemptEmptyConstructors: false, // keep the pre-65 default (the plugin flipped it to true)
         require: {
           ClassDeclaration: true,
           FunctionDeclaration: true,
