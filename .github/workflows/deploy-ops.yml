@@ -45,7 +45,11 @@ jobs:
     name: ${{ inputs.operation }} (${{ inputs.environment }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    environment: ${{ inputs.environment }}
+    # Only a rollback changes what runs, so only it records a deployment; the other operations
+    # must not look like a deploy to anything that reads the deployment history.
+    environment:
+      name: ${{ inputs.environment }}
+      deployment: ${{ inputs.operation == 'rollback' }}
     # The same lock as the deploy jobs of this environment, so an operation never interleaves with a deploy.
     concurrency:
       group: deploy-${{ inputs.environment }}

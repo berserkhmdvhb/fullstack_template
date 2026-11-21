@@ -203,7 +203,7 @@ jobs:
       digests: ${{ needs.digests.outputs.digests }}
 
   # A v* tag only: the SBOMs, the OpenVEX document, the licence report and the image digests go to a draft GitHub Release.
-# The digests (image-digests.env, scan.env) outlive the workflow artifact; the weekly re-scan reads them.
+  # The digests (image-digests.env, scan.env) outlive the workflow artifact; the weekly re-scan reads them.
   # The release is never published here; immutable releases reject assets added after publication.
   release-assets:
     name: Release assets (draft)

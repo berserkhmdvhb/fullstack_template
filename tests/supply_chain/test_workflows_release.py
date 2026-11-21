@@ -13,7 +13,12 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from tests.supply_chain._workflows import ARTIFACT_RETENTION_DAYS, steps_of, workflow
+from tests.supply_chain._workflows import (
+    ARTIFACT_RETENTION_DAYS,
+    WORKFLOWS,
+    steps_of,
+    workflow,
+)
 
 BASH: str = shutil.which("bash") or "/usr/bin/bash"
 MIN_UPLOAD_STEPS = 3  # digests, grant and vex
@@ -277,3 +282,9 @@ def test_steps_that_pipe_commands_fail_on_the_first_failing_stage() -> None:
     upload = next(s for s in _assets()["steps"] if s.get("name") == "Upload to the draft release")
     for step in (merge, upload):
         assert step["run"].lstrip().startswith("set -euo pipefail"), step.get("name")
+
+
+def test_no_comment_sits_at_column_zero_inside_the_jobs_mapping() -> None:
+    lines = (WORKFLOWS / "release.yml").read_text(encoding="utf-8").splitlines()
+    start = lines.index("jobs:")
+    assert not [ln for ln in lines[start:] if ln.startswith("#")]

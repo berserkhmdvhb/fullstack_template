@@ -320,7 +320,7 @@ def test_ops_inputs_and_environment() -> None:
     assert inputs["operation"]["options"] == ["rollback", "history", "cleanup", "check"]
     assert {"revision", "confirm"} <= set(inputs)
     job = _ops()["jobs"]["ops"]
-    assert job["environment"] == "${{ inputs.environment }}"
+    assert job["environment"]["name"] == "${{ inputs.environment }}"
     assert job["permissions"] == {"contents": "read", "id-token": "write"}
     assert _uses_cluster_access(job)
 
@@ -417,3 +417,9 @@ def test_check_operation_is_read_only_runs_through_cluster_access_and_needs_no_c
     for s in steps:
         if "helm upgrade" in s.get("run", "") or "helm rollback" in s.get("run", ""):
             assert "inputs.operation == 'rollback'" in s["if"]
+
+
+def test_only_a_rollback_creates_a_deployment_record() -> None:
+    env = _ops()["jobs"]["ops"]["environment"]
+    assert env["name"] == "${{ inputs.environment }}"
+    assert env["deployment"] == "${{ inputs.operation == 'rollback' }}"

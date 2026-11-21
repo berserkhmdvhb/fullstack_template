@@ -3,14 +3,18 @@
 
 Usage: rescan_collect.py OUTDIR       (env: GH_REPO, GH_TOKEN; reads the GitHub API only)
 
-For each environment (dev, qa, production) take the latest deployment whose latest status is
-`success`. If its ref is a release tag whose release carries `image-digests.env` and `scan.env`
-assets, read the digests from there; otherwise map the deployment to the Release workflow run for
-that commit and read them from that run's `image-digests` artifact. Then do the same for the latest
-published release. An expired artifact is reported as not scannable, never skipped silently.
+For each environment (dev, qa, production) take the newest deployment whose latest status is
+`success` and follow that status's run URL to the workflow run (and attempt) that created it.
+  * a `release.yml` run: if the deployment's ref is a release tag whose release carries
+    `image-digests.env` and `scan.env`, read them there; otherwise read the `image-digests`
+    artifact of that run attempt;
+  * a `deploy-ops.yml` run that rolled back: the running digest is unknown, so it is reported;
+  * any other run (an operator's check or history run on an old deployment record): ignored.
+Then do the same for the latest published release. An expired or missing artifact is reported as
+not scannable, never skipped silently.
 
-Writes OUTDIR/digests.json ({"images": [...unique by digest...], "unscannable": [...]}) and the
-OpenVEX document of each build under OUTDIR/vex/. Appends a summary to GITHUB_STEP_SUMMARY.
+Writes OUTDIR/digests.json ({"images": [...unique by digest...], "unscannable": [...]}).
+Appends a summary to GITHUB_STEP_SUMMARY.
 """
 
 from __future__ import annotations
@@ -30,38 +34,36 @@ from typing import Any
 
 # A runner takes the gh arguments and returns stdout; a failing call raises. Tests pass a stub.
 Gh = Callable[[list[str]], bytes]
-Make = Callable[[], "Build"]
+Images = dict[str, tuple[str, str]]  # image id -> (digest, repository)
 
 ENVIRONMENTS = ("dev", "qa", "production")
-RELEASE_WORKFLOW = "release.yml"
+RELEASE_WORKFLOW = ".github/workflows/release.yml"
+OPS_WORKFLOW = ".github/workflows/deploy-ops.yml"
 DIGESTS_FILE = "image-digests.env"
 REFS_FILE = "scan.env"
-VEX_FILE = "openvex.json"
 EXPIRED = "not scannable: digest artifact expired (redeploy)"
+ROLLBACK = "after rollback: running digest unknown - redeploy or inspect the cluster"
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-REPOSITORY = re.compile(r"^[a-z0-9][a-z0-9._/-]*$")
-LIMIT = 30  # the newest deployments, runs and releases that are looked at
+SLUG = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+LIMIT = 30  # the newest deployments and runs that are looked at
 ARGS = 2
+
+
+class NotFoundError(RuntimeError):
+    """The GitHub API answered 404."""
 
 
 class Expired(Exception):  # noqa: N818 - a control-flow signal, not an error
     """The digest artifact exists but has expired."""
 
 
-class Build:
-    """The images one build produced: id -> (digest, repository), and its OpenVEX document."""
-
-    def __init__(self, images: dict[str, tuple[str, str]], vex: bytes | None) -> None:
-        self.images = images
-        self.vex = vex
-
-
 def run_gh(args: list[str]) -> bytes:
     """Run `gh` (the token comes from GH_TOKEN) and return stdout."""
     done = subprocess.run([shutil.which("gh") or "gh", *args], capture_output=True, check=False)  # noqa: S603
     if done.returncode != 0:
-        msg = f"gh {' '.join(args[:3])} failed: {done.stderr.decode(errors='replace').strip()}"
-        raise RuntimeError(msg)
+        err = done.stderr.decode(errors="replace").strip()
+        msg = f"gh {' '.join(args[:3])} failed: {err}"
+        raise (NotFoundError if "HTTP 404" in err else RuntimeError)(msg)
     return done.stdout
 
 
@@ -74,9 +76,18 @@ def parse_env(text: str) -> dict[str, str]:
     return {k.strip(): v.strip() for k, v in pairs}
 
 
-def build_from_env(digests: str, refs: str, vex: bytes | None) -> Build:
-    """Join `<ID>_IMAGE_DIGEST` with `<ID>_IMAGE` (a reference with a tag) into a Build."""
-    images: dict[str, tuple[str, str]] = {}
+def registry_pattern(repo: str) -> re.Pattern[str]:
+    """Images of this repository only: ghcr.io/<owner>/<repo>/<name>, lowercased as GHCR does."""
+    if not SLUG.match(repo):
+        msg = f"GH_REPO is not owner/repo: {repo!r}"
+        raise ValueError(msg)
+    return re.compile(rf"^ghcr\.io/{re.escape(repo.lower())}/[a-z0-9][a-z0-9._/-]*$")
+
+
+def build_from_env(digests: str, refs: str, repo: str) -> Images:
+    """Join `<ID>_IMAGE_DIGEST` with `<ID>_IMAGE` (a reference with a tag): id -> (digest, repo)."""
+    pattern = registry_pattern(repo)
+    images: Images = {}
     ref_map = parse_env(refs)
     for key, digest in parse_env(digests).items():
         if not key.endswith("_IMAGE_DIGEST"):
@@ -84,163 +95,171 @@ def build_from_env(digests: str, refs: str, vex: bytes | None) -> Build:
         name = key.removesuffix("_DIGEST")
         ref = ref_map.get(name, "")
         repository = ref.rsplit(":", 1)[0] if ":" in ref.rsplit("/", 1)[-1] else ref
-        if not DIGEST.match(digest) or not REPOSITORY.match(repository):
+        if not DIGEST.match(digest) or not pattern.match(repository):
             msg = f"unusable digest or image reference for {name}"
             raise ValueError(msg)
         images[name.removesuffix("_IMAGE").lower()] = (digest, repository)
-    return Build(images, vex)
+    return images
 
 
-def from_release(gh: Gh, repo: str, release: dict[str, Any]) -> Build | None:
-    """The build a release shipped, from its assets, or None when it has no digest assets."""
+def from_release(gh: Gh, repo: str, release: dict[str, Any]) -> Images | None:
+    """The images a release shipped, from its assets, or None when it has no digest assets."""
     assets = {a["name"]: a["id"] for a in release.get("assets", [])}
     if DIGESTS_FILE not in assets or REFS_FILE not in assets:
         return None
 
-    def asset(name: str) -> bytes:
+    def asset(name: str) -> str:
         url = f"repos/{repo}/releases/assets/{assets[name]}"
-        return gh(["api", "-H", "Accept: application/octet-stream", url])
+        return gh(["api", "-H", "Accept: application/octet-stream", url]).decode()
 
-    vex = asset(VEX_FILE) if VEX_FILE in assets else None
-    return build_from_env(asset(DIGESTS_FILE).decode(), asset(REFS_FILE).decode(), vex)
+    return build_from_env(asset(DIGESTS_FILE), asset(REFS_FILE), repo)
 
 
-def artifact_zip(gh: Gh, repo: str, run_id: int, name: str) -> dict[str, bytes] | None:
-    """The files of one run artifact; None when there is none; Expired when it has expired."""
-    found = api(gh, f"repos/{repo}/actions/runs/{run_id}/artifacts?name={name}&per_page=5")
-    arts = found.get("artifacts", [])
+def attempt_path(repo: str, run_id: int, attempt: int | None) -> str:
+    base = f"repos/{repo}/actions/runs/{run_id}"
+    return f"{base}/attempts/{attempt}" if attempt else base
+
+
+def parse_run_url(url: str, repo: str) -> tuple[int, int | None]:
+    """(run id, attempt) from a deployment status URL; anything else is reported."""
+    pattern = rf"^https://github\.com/{re.escape(repo)}/actions/runs/(\d+)(?:/attempts/(\d+))?(?:/job/\d+)?(?:[?#].*)?$"
+    m = re.match(pattern, url)
+    if not m:
+        msg = "not scannable: unrecognised deployment status URL"
+        raise LookupError(msg)
+    return int(m[1]), int(m[2]) if m[2] else None
+
+
+def attempt_artifact(gh: Gh, repo: str, run_id: int, attempt: int | None) -> dict[str, bytes]:
+    """The files of the `image-digests` artifact uploaded during one attempt of a run."""
+    info = api(gh, attempt_path(repo, run_id, attempt))
+    found = api(gh, f"repos/{repo}/actions/runs/{run_id}/artifacts?name=image-digests&per_page=100")
+    arts = [
+        a
+        for a in found.get("artifacts", [])
+        if info["run_started_at"] <= a["created_at"] <= info["updated_at"]
+    ]
     if not arts:
-        return None
-    if all(a.get("expired") for a in arts):
+        msg = "not scannable: no image-digests artifact from the deployed run attempt"
+        raise LookupError(msg)
+    art = max(arts, key=lambda a: a["created_at"])
+    if art.get("expired"):
         raise Expired
-    art = next(a for a in arts if not a.get("expired"))
     data = gh(["api", f"repos/{repo}/actions/artifacts/{art['id']}/zip"])
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         return {Path(n).name: z.read(n) for n in z.namelist() if not n.endswith("/")}
 
 
-def from_run(gh: Gh, repo: str, sha: str, ref: str) -> Build:
-    """The build of the release workflow run for a commit (the run for the same ref first)."""
-    path = f"repos/{repo}/actions/workflows/{RELEASE_WORKFLOW}/runs?head_sha={sha}&per_page={LIMIT}"
-    runs = api(gh, path).get("workflow_runs", [])
-    if not runs:
-        msg = "not scannable: no release workflow run found for this commit"
-        raise LookupError(msg)
-    runs.sort(key=lambda r: r.get("head_branch") != ref)  # stable: newest first within each group
-    expired = False
-    for run in runs:
-        try:
-            files = artifact_zip(gh, repo, run["id"], "image-digests")
-        except Expired:
-            expired = True
-            continue
-        if files and DIGESTS_FILE in files and REFS_FILE in files:
-            vex_files = _optional_vex(gh, repo, run["id"])
-            return build_from_env(
-                files[DIGESTS_FILE].decode(), files[REFS_FILE].decode(), vex_files
-            )
-    if expired:
-        raise LookupError(EXPIRED)
-    msg = "not scannable: the release workflow run has no image-digests artifact"
-    raise LookupError(msg)
-
-
-def _optional_vex(gh: Gh, repo: str, run_id: int) -> bytes | None:
+def from_attempt(gh: Gh, repo: str, run_id: int, attempt: int | None) -> Images:
     try:
-        files = artifact_zip(gh, repo, run_id, "vex")
+        files = attempt_artifact(gh, repo, run_id, attempt)
     except Expired:
+        raise LookupError(EXPIRED) from None
+    if DIGESTS_FILE not in files or REFS_FILE not in files:
+        msg = "not scannable: the artifact lacks image-digests.env or scan.env"
+        raise LookupError(msg)
+    return build_from_env(files[DIGESTS_FILE].decode(), files[REFS_FILE].decode(), repo)
+
+
+def from_tag_run(gh: Gh, repo: str, tag: str) -> Images:
+    """The release workflow run of a tag (newest first), for a release without digest assets."""
+    sha = str(api(gh, f"repos/{repo}/commits/{tag}")["sha"])
+    runs = api(
+        gh, f"repos/{repo}/actions/workflows/release.yml/runs?head_sha={sha}&per_page={LIMIT}"
+    )
+    mine = [r for r in runs.get("workflow_runs", []) if r.get("head_branch") == tag]
+    if not mine:
+        msg = "not scannable: no release workflow run found for this tag"
+        raise LookupError(msg)
+    last: LookupError | None = None
+    for run in mine:
+        try:
+            return from_attempt(gh, repo, run["id"], run.get("run_attempt"))
+        except LookupError as err:
+            last = err
+    raise last or LookupError(EXPIRED)
+
+
+def release_by_tag(gh: Gh, repo: str, tag: str) -> dict[str, Any] | None:
+    try:
+        return dict(api(gh, f"repos/{repo}/releases/tags/{tag}"))
+    except NotFoundError:
         return None
-    return files.get(VEX_FILE) if files else None
 
 
-def latest_success(gh: Gh, repo: str, env: str) -> dict[str, Any] | None:
+def deployed(gh: Gh, repo: str, env: str) -> Images | None:
+    """What an environment runs; None when no release deployment is found; LookupError to report."""
     deps = api(gh, f"repos/{repo}/deployments?environment={env}&per_page={LIMIT}")
     for dep in deps:
         statuses = api(gh, f"repos/{repo}/deployments/{dep['id']}/statuses?per_page=1")
-        if statuses and statuses[0].get("state") == "success":
-            return dict(dep)
+        if not statuses or statuses[0].get("state") != "success":
+            continue
+        url = str(statuses[0].get("log_url") or statuses[0].get("target_url") or "")
+        run_id, attempt = parse_run_url(url, repo)
+        path = str(api(gh, attempt_path(repo, run_id, attempt)).get("path", "")).split("@")[0]
+        if path == OPS_WORKFLOW:
+            jobs = api(gh, attempt_path(repo, run_id, attempt) + "/jobs").get("jobs", [])
+            if any(str(j.get("name", "")).startswith("rollback") for j in jobs):
+                raise LookupError(ROLLBACK)
+        elif path == RELEASE_WORKFLOW:
+            ref = str(dep.get("ref", ""))
+            release = release_by_tag(gh, repo, ref) if ref.startswith("v") else None
+            built = from_release(gh, repo, release) if release else None
+            return built or from_attempt(gh, repo, run_id, attempt)
     return None
 
 
-def deployed_build(gh: Gh, repo: str, dep: dict[str, Any], by_tag: dict[str, Any]) -> Build:
-    """The build a deployment ran: the release assets for a release tag, else the workflow run."""
-    ref, sha = str(dep.get("ref", "")), str(dep["sha"])
-    release = by_tag.get(ref) if ref.startswith("v") else None
-    built = from_release(gh, repo, release) if release else None
-    return built or from_run(gh, repo, sha, ref)
-
-
-def release_build(gh: Gh, repo: str, release: dict[str, Any]) -> Build:
-    """A published release's build: its assets, else the workflow run of its tag."""
-    built = from_release(gh, repo, release)
-    if built:
-        return built
-    tag = str(release["tag_name"])
-    sha = str(api(gh, f"repos/{repo}/commits/{tag}")["sha"])
-    return from_run(gh, repo, sha, tag)
+def release_images(gh: Gh, repo: str, release: dict[str, Any]) -> Images:
+    """A published release's images: its assets, else the workflow run of its tag."""
+    return from_release(gh, repo, release) or from_tag_run(gh, repo, str(release["tag_name"]))
 
 
 def collect(gh: Gh, repo: str) -> tuple[dict[str, dict[str, Any]], list[dict[str, str]], list[str]]:
-    """(images by digest, unscannable, notes). Each image: id, repository, where, vex bytes."""
-    releases = api(gh, f"repos/{repo}/releases?per_page={LIMIT}")
-    by_tag = {r["tag_name"]: r for r in releases}
+    """(images by digest, unscannable, notes). Each image: id, repository, where."""
     images: dict[str, dict[str, Any]] = {}
     bad: list[dict[str, str]] = []
     notes: list[str] = []
 
-    def add(where: str, build: Build) -> None:
-        for name, (digest, repository) in build.images.items():
-            img = images.setdefault(
-                digest, {"id": name, "repository": repository, "where": [], "vex": None}
-            )
-            img["where"].append(where)
-            img["vex"] = img["vex"] or build.vex
-
-    def attempt(where: str, make: Make) -> None:
+    def attempt(where: str, make: Callable[[], Images | None]) -> None:
         try:
-            build = make()
+            found = make()
         except (LookupError, ValueError) as err:
             bad.append({"where": where, "reason": str(err)})
             return
-        if build.vex is None:
-            notes.append(f"{where}: no OpenVEX document found; scanned without VEX")
-        add(where, build)
+        if found is None:
+            notes.append(f"{where}: no successful release deployment")
+            return
+        for name, (digest, repository) in found.items():
+            img = images.setdefault(digest, {"id": name, "repository": repository, "where": []})
+            img["where"].append(where)
 
     for env in ENVIRONMENTS:
-        dep = latest_success(gh, repo, env)
-        if dep is None:
-            notes.append(f"{env}: no successful deployment")
-            continue
-        attempt(env, partial(deployed_build, gh, repo, dep, by_tag))
-    published = [r for r in releases if not r.get("draft") and str(r["tag_name"]).startswith("v")]
-    if published:
-        latest = published[0]
-        tag = str(latest["tag_name"])
-        attempt(f"release {tag}", partial(release_build, gh, repo, latest))
-    else:
+        attempt(env, partial(deployed, gh, repo, env))
+    try:
+        release = dict(api(gh, f"repos/{repo}/releases/latest"))
+    except NotFoundError:
         notes.append("no published release")
+    else:
+        tag = str(release["tag_name"])
+        if release.get("draft") or release.get("prerelease") or not tag.startswith("v"):
+            notes.append(f"latest release {tag} is not a published v* release; skipped")
+        else:
+            attempt(f"release {tag}", partial(release_images, gh, repo, release))
     return images, bad, notes
 
 
 def write(out: Path, images: dict[str, dict[str, Any]], bad: list[dict[str, str]]) -> None:
-    (out / "vex").mkdir(parents=True, exist_ok=True)
-    rows = []
-    for digest, img in sorted(images.items()):
-        short = digest.removeprefix("sha256:")[:12]
-        vex = None
-        if img["vex"]:
-            vex = f"vex/{short}.openvex.json"
-            (out / vex).write_bytes(img["vex"])
-        rows.append(
-            {
-                "id": img["id"],
-                "digest": digest,
-                "short": short,
-                "repository": img["repository"],
-                "where": img["where"],
-                "vex": vex,
-            }
-        )
+    out.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {
+            "id": img["id"],
+            "digest": digest,
+            "short": digest.removeprefix("sha256:")[:12],
+            "repository": img["repository"],
+            "where": img["where"],
+        }
+        for digest, img in sorted(images.items())
+    ]
     (out / "digests.json").write_text(json.dumps({"images": rows, "unscannable": bad}, indent=2))
 
 
