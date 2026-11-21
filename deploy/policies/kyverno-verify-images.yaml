@@ -1,7 +1,7 @@
 # Admits only this repository's images, and only when they are signed and carry build provenance.
 #
-# Replace <owner> with the GitHub owner (lowercase). The adapter rewrites your-service-name
-# to the adopted service name. Read wiki/admission-control.md before applying it.
+# Render the placeholders in angle brackets with scripts/render-admission-policy.sh before
+# applying; read wiki/admission-control.md first.
 #
 # Kyverno 1.20's ImageValidatingPolicy is used because it verifies cosign v3 Sigstore bundles,
 # the format GitHub's artifact attestations are stored in. The older ClusterPolicy verifyImages
@@ -9,7 +9,7 @@
 apiVersion: policies.kyverno.io/v1
 kind: ImageValidatingPolicy
 metadata:
-  name: verify-your-service-name-images
+  name: verify-signed-images
   annotations:
     policies.kyverno.io/title: Verify signed and attested service images
     policies.kyverno.io/category: Software Supply Chain Security
@@ -36,8 +36,9 @@ spec:
           - UPDATE
         resources:
           - pods
+          - pods/ephemeralcontainers
   matchImageReferences:
-    - glob: ghcr.io/<owner>/your-service-name/*
+    - glob: ghcr.io/<owner>/<repo>/*
   validationConfigurations:
     mutateDigest: true
     verifyDigest: true
@@ -48,9 +49,9 @@ spec:
         keyless:
           identities:
             - issuer: https://token.actions.githubusercontent.com
-              subjectRegExp: '^https://github\.com/<owner>/your-service-name/\.github/workflows/reusable-build\.yml@refs/(heads/main|tags/v[^/]+)$'
+              subjectRegExp: '^https://github\.com/<Owner>/<Repo>/\.github/workflows/reusable-build\.yml@refs/(heads/main|tags/v[^/]+)$'
           additionalExtensions:
-            githubWorkflowRepository: <owner>/your-service-name
+            githubWorkflowRepository: <Owner>/<Repo>
         ctlog:
           url: https://rekor.sigstore.dev
   attestations:

@@ -1,0 +1,48 @@
+# Closes the alias spellings of this repository's registry path.
+#
+# The signature policy matches the image string literally, so a port (ghcr.io:443) or a different
+# case (GHCR.io, a mixed-case path) pulls the same image without being verified. This policy
+# denies those spellings and leaves the canonical lowercase name to the signature policy.
+#
+# Render the placeholders in angle brackets with scripts/render-admission-policy.sh before
+# applying; see wiki/admission-control.md.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: deny-image-aliases
+  annotations:
+    policies.kyverno.io/title: Deny alias spellings of the service image path
+    policies.kyverno.io/category: Software Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/minversion: 1.20.0
+spec:
+  validationActions:
+    - Deny
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pods
+          - pods/ephemeralcontainers
+  variables:
+    - name: images
+      expression: >-
+        object.spec.containers.map(c, c.image) +
+        object.spec.?initContainers.orValue([]).map(c, c.image) +
+        object.spec.?ephemeralContainers.orValue([]).map(c, c.image)
+  validations:
+    - expression: >-
+        variables.images.all(i,
+        i.startsWith('ghcr.io/<owner>/<repo>/') ||
+        !i.lowerAscii().replace('ghcr.io:443/', 'ghcr.io/').startsWith('ghcr.io/<owner>/<repo>/'))
+      message: >-
+        Use the canonical lowercase image name ghcr.io/<owner>/<repo>/...; a port or a different
+        case would skip signature verification.

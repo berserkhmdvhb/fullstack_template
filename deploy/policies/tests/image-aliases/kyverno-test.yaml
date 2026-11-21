@@ -1,0 +1,59 @@
+# Offline tests for ../../kyverno-deny-image-aliases.yaml (run: kyverno test deploy/policies).
+#
+# The policy is plain CEL over the pod spec, so `kyverno test` evaluates it fully offline: the
+# canonical lowercase name and unrelated images pass, every alias spelling of this repository's
+# registry path is denied. The placeholders stay literal in policy and fixtures.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: deny-image-aliases
+policies:
+  - ../../kyverno-deny-image-aliases.yaml
+resources:
+  - resources.yaml
+results:
+  - policy: deny-image-aliases
+    resources:
+      - canonical
+    kind: Pod
+    result: pass
+  - policy: deny-image-aliases
+    resources:
+      - foreign
+    kind: Pod
+    result: pass
+  - policy: deny-image-aliases
+    resources:
+      - other-repo
+    kind: Pod
+    result: pass
+  - policy: deny-image-aliases
+    resources:
+      - port-443
+    kind: Pod
+    result: fail
+  - policy: deny-image-aliases
+    resources:
+      - upper-host
+    kind: Pod
+    result: fail
+  - policy: deny-image-aliases
+    resources:
+      - mixed-path
+    kind: Pod
+    result: fail
+  - policy: deny-image-aliases
+    resources:
+      - mixed-path-port-443
+    kind: Pod
+    result: fail
+  - policy: deny-image-aliases
+    resources:
+      - init-alias
+    kind: Pod
+    result: fail
+  - policy: deny-image-aliases
+    resources:
+      - ephemeral-alias
+    kind: Pod
+    result: fail

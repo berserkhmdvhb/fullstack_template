@@ -41,7 +41,7 @@ jobs:
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
           changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
-          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|Makefile|frontend/lib/api/|\.github/|scripts/|infra/|tools/)' <<<"$changed"; then
+          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|Makefile|frontend/lib/api/|\.github/|scripts/|infra/|tools/|deploy/|wiki/)' <<<"$changed"; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"
@@ -123,7 +123,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools
-          key: tools-repo-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+          key: tools-repo-shellcheck-bats-yq-kyverno-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
       - name: Install the pinned tools
         run: |
           scripts/tools.sh install shellcheck bats yq kyverno
@@ -132,7 +132,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools
-          key: tools-repo-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+          key: tools-repo-shellcheck-bats-yq-kyverno-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
       - name: Shellcheck
         run: bash scripts/ci/shell-lint.sh
       - name: Secret templates
@@ -142,7 +142,7 @@ jobs:
           LIB_TS=0 bats infra/security/local/tests/
           bats tests/scripts/
       - name: Admission policy tests
-        run: kyverno test deploy/policies/tests --require-tests
+        run: kyverno test deploy/policies --require-tests
 
   # Blocking, always runs: every tracked Dockerfile through the pinned hadolint (scripts/tools.sh).
   hadolint:

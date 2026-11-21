@@ -42,3 +42,14 @@ def test_in_cluster_minor_matches_cli_minor() -> None:
 def test_links_to_the_single_identity_section() -> None:
     assert "./security.md#verifying-an-image" in DOC
     assert "reusable-build.yml@" not in DOC
+
+
+def test_tells_adopters_to_render_and_to_check_with_a_server_side_dry_run() -> None:
+    assert "scripts/render-admission-policy.sh <Owner>/<Repo>" in DOC
+    assert (REPO / "scripts" / "render-admission-policy.sh").is_file()
+    assert "--dry-run=server" in DOC
+
+
+def test_gke_section_cites_the_current_google_pages() -> None:
+    for page in ("overview-cv", "cv-sigstore-check", "cv-slsa-check", "policy-yaml-reference"):
+        assert f"https://docs.cloud.google.com/binary-authorization/docs/{page}" in DOC

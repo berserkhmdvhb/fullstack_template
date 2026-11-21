@@ -1,4 +1,4 @@
-# Offline tests for ../kyverno-verify-images.yaml (run: kyverno test deploy/policies/tests).
+# Offline tests for ../../kyverno-verify-images.yaml (run: kyverno test deploy/policies).
 #
 # What `kyverno test` can evaluate without a registry: whether an image matches the
 # matchImageReferences glob. Images outside the glob pass untouched (no verification is attempted).
@@ -12,23 +12,23 @@
 apiVersion: cli.kyverno.io/v1alpha1
 kind: Test
 metadata:
-  name: verify-your-service-name-images
+  name: verify-signed-images
 policies:
-  - ../kyverno-verify-images.yaml
+  - ../../kyverno-verify-images.yaml
 resources:
   - resources.yaml
 results:
-  - policy: verify-your-service-name-images
+  - policy: verify-signed-images
     resources:
       - foreign-image
     kind: Pod
     result: pass
-  - policy: verify-your-service-name-images
+  - policy: verify-signed-images
     resources:
       - other-owner-image
     kind: Pod
     result: pass
-  - policy: verify-your-service-name-images
+  - policy: verify-signed-images
     resources:
       - matched-image-unverifiable
     kind: Pod
