@@ -56,6 +56,7 @@ jobs:
       - name: Start the stack
         id: stack
         run: |
+          export PATH="$PWD/.venv/bin:$PATH"
           export BACKEND_URL="http://127.0.0.1:${BACKEND_PORT:-8000}"
           ./infra/runtime/entrypoint.sh --mode all --no-wait > stack.log 2>&1 &
           echo $! > stack.pid

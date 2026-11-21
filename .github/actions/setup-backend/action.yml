@@ -1,7 +1,8 @@
 name: Set up the backend
 description: >-
-  Install Python and the backend with its develop extras, with the pip cache dir keyed on pyproject.toml
-  (the repository has no lockfile). Input python-version (default 3.13). No outputs.
+  Install Python, the pinned uv (tools/pins.tsv) and the backend from uv.lock with the dev group, with the uv
+  cache dir keyed on uv.lock. A stale uv.lock fails the job. The environment is .venv (callers use .venv/bin/<tool>, or make, which does).
+  Input python-version (default 3.13). No outputs.
 inputs:
   python-version:
     description: Python version to install.
@@ -13,21 +14,35 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
         allow-prereleases: true
-    # Restored everywhere, saved only from a push to main (never from a pull request or a tag).
-    - id: pip-cache
+    # uv is pinned and checksum-verified by scripts/tools.sh, the same way as every other tool.
+    - name: Install the pinned uv
       shell: bash
-      run: echo "dir=$(pip cache dir)" >> "$GITHUB_OUTPUT"
+      run: |
+        scripts/tools.sh install uv
+    # Restored everywhere, saved only from a push to main (never from a pull request or a tag).
+    - id: uv-cache
+      shell: bash
+      run: echo "dir=$(.tools/bin/uv cache dir)" >> "$GITHUB_OUTPUT"
     - id: restore
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ${{ steps.pip-cache.outputs.dir }}
-        key: pip-${{ runner.os }}-${{ inputs.python-version }}-${{ hashFiles('pyproject.toml') }}
-    - name: Install the backend
+        path: ${{ steps.uv-cache.outputs.dir }}
+        key: uv-${{ runner.os }}-${{ inputs.python-version }}-${{ hashFiles('uv.lock') }}
+    # The setup-python interpreter is the one uv uses; it never downloads another.
+    - name: Check the lock, then install the locked backend
       shell: bash
+      env:
+        UV_PYTHON_DOWNLOADS: never
       run: |
-        pip install -e '.[develop]'
+        python_bin="$(command -v python)"
+        .tools/bin/uv lock --check --python "$python_bin"
+        .tools/bin/uv sync --locked --python "$python_bin"
+    - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.restore.outputs.cache-hit != 'true'
+      name: Prune the uv cache
+      shell: bash
+      run: .tools/bin/uv cache prune --ci
     - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.restore.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ${{ steps.pip-cache.outputs.dir }}
+        path: ${{ steps.uv-cache.outputs.dir }}
         key: ${{ steps.restore.outputs.cache-primary-key }}

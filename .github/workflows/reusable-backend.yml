@@ -81,6 +81,7 @@ jobs:
       # The suite is hermetic, but the job also boots uvicorn so it exercises the real startup path.
       - name: Integration tests
         run: |
+          export PATH="$PWD/.venv/bin:$PATH"
           port="${BACKEND_PORT:-8000}"
           uvicorn "${BACKEND_ENTRY:-your_service_name.backend.main:app}" --host 127.0.0.1 --port "$port" &
           pid=$!

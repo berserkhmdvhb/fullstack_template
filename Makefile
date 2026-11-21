@@ -32,6 +32,8 @@ PYTHON := $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else c
 # uv: the pinned binary from tools/pins.tsv (scripts/tools.sh install uv) when present, else the one on PATH.
 UV := $(or $(wildcard .tools/bin/uv),uv)
 SERVICE := your_service_name
+# The project venv's tools (ruff, mypy, uvicorn) first, so make finds them without activating it.
+export PATH := $(CURDIR)/.venv/bin:$(PATH)
 # COV_FAIL_UNDER intentionally absent: the 85% gate is single-sourced in
 # pyproject [tool.coverage.report] fail_under, so any `--cov` run enforces it.
 

@@ -114,6 +114,46 @@ def test_setup_backend_pins_no_floating_tool() -> None:
     assert "--upgrade" not in text
 
 
+def _setup_backend_steps() -> list[dict[str, Any]]:
+    return steps_of(load(ACTIONS / "setup-backend" / "action.yml"))
+
+
+def test_setup_backend_installs_the_pinned_uv_and_the_locked_set() -> None:
+    steps = _setup_backend_steps()
+    runs = [s.get("run", "") for s in steps]
+    joined = "\n".join(runs)
+    assert "scripts/tools.sh install uv" in joined
+    assert "pip install" not in joined
+    assert not any("setup-uv" in s.get("uses", "") for s in steps), "no third-party uv action"
+    check = joined.index("uv lock --check")
+    assert check < joined.index("uv sync --locked"), "a stale lock must fail before the install"
+    sync = next(s for s in steps if "uv sync --locked" in s.get("run", ""))
+    assert sync["env"]["UV_PYTHON_DOWNLOADS"] == "never"
+    assert "--python" in sync["run"]
+    assert "--no-dev" not in sync["run"], "the dev group is installed"
+
+
+def test_setup_backend_caches_the_uv_cache_keyed_on_the_lock_and_python() -> None:
+    steps = _setup_backend_steps()
+    restore = next(s for s in steps if "actions/cache/restore" in s.get("uses", ""))
+    assert "hashFiles('uv.lock')" in restore["with"]["key"]
+    assert "inputs.python-version" in restore["with"]["key"]
+    names = [s.get("run", "") or s.get("uses", "") for s in steps]
+    prune = next(i for i, n in enumerate(names) if "uv cache prune --ci" in n)
+    save = next(i for i, n in enumerate(names) if "actions/cache/save" in n)
+    assert prune < save
+    for step in (steps[prune], steps[save]):
+        assert "github.ref == 'refs/heads/main'" in step["if"]
+        assert "github.event_name == 'push'" in step["if"]
+
+
+def test_the_backend_path_filter_includes_the_lock() -> None:
+    steps = workflow("ci.yml")["jobs"]["changes"]["steps"]
+    run = next(s["run"] for s in steps if s.get("id") == "filter")
+    pattern = next(m for m in re.findall(r"grep -Eq '([^']+)'", run) if "pyproject" in m)
+    assert re.search(pattern, "uv.lock")
+
+
 def test_every_workflow_has_permissions_and_concurrency() -> None:
     for path in sorted(WORKFLOWS.glob("*.yml")):
         wf = load(path)

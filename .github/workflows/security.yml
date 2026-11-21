@@ -135,6 +135,7 @@ jobs:
       - uses: ./.github/actions/setup-backend
       - name: Audit the installed environment
         run: |
+          export PATH="$PWD/.venv/bin:$PATH"
           mkdir -p "$SEC_OUTPUT_DIR/pip-audit"
           python -m venv "$RUNNER_TEMP/pip-audit"
           "$RUNNER_TEMP/pip-audit/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pip-audit.txt
