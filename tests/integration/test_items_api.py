@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Final
 
@@ -346,3 +347,16 @@ async def test_list_items_pagination(client: httpx.AsyncClient) -> None:
     assert len(data["items"]) == 1
     assert data["page"] == PAGINATION_TOTAL_PAGES
     assert data["total_pages"] == PAGINATION_TOTAL_PAGES
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_item_timestamps_carry_an_explicit_utc_offset(
+    client: httpx.AsyncClient, api_base: str
+) -> None:
+    """A created item's timestamps are ISO-8601 with an explicit offset, never naive."""
+    res = await client.post(f"{api_base}/items", json={"name": "tz"})
+    assert res.status_code == status.HTTP_201_CREATED
+    for key in ("created_at", "updated_at"):
+        stamp = datetime.fromisoformat(res.json()[key])
+        assert stamp.utcoffset() == timedelta(0), key

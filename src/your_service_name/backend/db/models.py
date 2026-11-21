@@ -22,10 +22,42 @@ from your_service_name.backend.db.models import Base, Item
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, String, Uuid, func
+from sqlalchemy import Boolean, DateTime, Dialect, String, TypeDecorator, Uuid, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+class UTCDateTime(TypeDecorator[datetime]):
+    """
+    A timezone-aware UTC timestamp on every database.
+
+    Notes
+    -----
+    - The column type is still ``DateTime(timezone=True)``: no schema change on PostgreSQL.
+    - SQLite stores no zone and returns naive values; this attaches UTC on load.
+    - An aware value is converted to UTC on write; a naive one raises (a bug signal).
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, _dialect: Dialect) -> datetime | None:
+        """Convert an aware value to UTC; refuse a naive one."""
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            msg = (
+                "naive datetime refused: use a timezone-aware value (for example datetime.now(UTC))"
+            )
+            raise ValueError(msg)
+        return value.astimezone(UTC)
+
+    def process_result_value(self, value: datetime | None, _dialect: Dialect) -> datetime | None:
+        """Attach UTC to a naive value loaded from a database that stores no zone."""
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 class Base(DeclarativeBase):
@@ -71,18 +103,18 @@ class Item(Base):
     description: Mapped[str] = mapped_column(String, nullable=False, default="")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         server_default=func.now(),
         nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
     )
     deleted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
+        UTCDateTime(),
         nullable=True,
         default=None,
     )

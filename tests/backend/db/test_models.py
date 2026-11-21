@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Boolean, DateTime, String, Uuid
+from sqlalchemy import Boolean, String, Uuid
 from sqlalchemy.orm import DeclarativeBase
 
-from your_service_name.backend.db.models import Base, Item
+from your_service_name.backend.db.models import Base, Item, UTCDateTime
 
 NAME_MAX_LENGTH: int = 255
 
@@ -85,9 +85,9 @@ class TestItemModel:
         assert active_col.nullable is False
 
     def test_created_at_column_type(self) -> None:
-        """created_at column should be DateTime with timezone."""
+        """created_at column should be UTCDateTime (timezone-aware)."""
         created_col = Item.__table__.columns["created_at"]
-        assert isinstance(created_col.type, DateTime)
+        assert isinstance(created_col.type, UTCDateTime)
         assert created_col.type.timezone is True
 
     def test_created_at_has_server_default(self) -> None:
@@ -96,9 +96,9 @@ class TestItemModel:
         assert created_col.server_default is not None
 
     def test_updated_at_column_type(self) -> None:
-        """updated_at column should be DateTime with timezone."""
+        """updated_at column should be UTCDateTime (timezone-aware)."""
         updated_col = Item.__table__.columns["updated_at"]
-        assert isinstance(updated_col.type, DateTime)
+        assert isinstance(updated_col.type, UTCDateTime)
         assert updated_col.type.timezone is True
 
     def test_updated_at_has_onupdate(self) -> None:
