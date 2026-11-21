@@ -78,7 +78,7 @@ def test_the_locations_without_add_header_inherit_the_security_set() -> None:
 
 def test_cache_control_locations_redeclare_all_three_security_headers() -> None:
     caching = {
-        "/_next/static/": "public, immutable",
+        "/_next/static/": "public, max-age=31536000, immutable",
         "= /logo.png": "public, max-age=604800",
         "= /favicon.ico": "public, max-age=604800",
         "= /robots.txt": "no-cache",
@@ -97,3 +97,15 @@ def test_no_location_sets_hsts() -> None:
     """HSTS is the edge's."""
     for location in _locations():
         assert "Strict-Transport-Security" not in {k for k, _, _ in _final(location)}, location
+
+
+def test_cache_control_is_set_once_by_add_header_not_by_expires() -> None:
+    """`expires` emits a Cache-Control of its own, so next to add_header it made two."""
+    assert not re.search(r"^\s*expires\s", re.sub(r"#.*", "", CONF), re.MULTILINE)
+
+
+def test_next_internals_are_hidden_from_proxied_responses() -> None:
+    """x-middleware-rewrite carries the backend URL; http-level, so every proxy location inherits it."""
+    http = CONF[: CONF.index("  server {")]
+    hidden = set(re.findall(r"^\s*proxy_hide_header\s+(\S+);", re.sub(r"#.*", "", http), re.M))
+    assert hidden == {"X-Middleware-Rewrite", "X-Powered-By"}
