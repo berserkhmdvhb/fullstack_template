@@ -87,7 +87,7 @@ JUSTIFICATIONS='["component_not_present","vulnerable_code_not_present","vulnerab
 problems="$(jq -rs --argjson just "${JUSTIFICATIONS}" --arg today "${TODAY}" '
   def isdate: type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
     and ((try (strptime("%Y-%m-%d") | mktime | todate[0:10]) catch null) == .);
-  def blank: type != "string" or test("^\\s*$");
+  def blank: type != "string" or (test("\\S") | not);
   if length != 1 or (.[0] | type) != "array" then "the not_affected list must be one JSON array"
   else .[0] as $l
     | ( $l | to_entries[] | .key as $i | .value as $e
@@ -173,13 +173,18 @@ for gj in "${GRYPE_DIR}"/*.image.vuln.grype.json; do
   else
     tag="${IMAGE_TAG:-latest}"; repository_url="ghcr.io/$(printf %s "${GITHUB_REPOSITORY:-unknown}" | tr "[:upper:]" "[:lower:]")"
   fi
+  # Shape check (Grype v0.121 document: .matches always an array, .ignoredMatches absent or an array
+  # of objects) so no iteration below can silently skip a wrong-typed field.
+  jq -e 'type == "object" and (.matches | type) == "array" and ((.ignoredMatches // []) | type) == "array"
+    and all(.matches[], (.ignoredMatches // [])[]; type == "object")' "${gj}" >/dev/null \
+    || die "cannot build VEX statements from ${gj} (not a Grype JSON report)"
   res="$(jq -c \
     --arg svc "${svc}" --arg digest "${digest}" --arg repo_url "${repository_url}" \
     --arg tag "${tag}" --arg ts "${VEX_TIMESTAMP}" --arg today "${TODAY}" \
     --slurpfile list "${NOT_AFFECTED_LIST}" \
     '
     ($list[0] | to_entries | map(select(.value.service == $svc and .value.until >= $today))) as $live
-    | [ (.matches[]?, .ignoredMatches[]?)
+    | [ (.matches[], (.ignoredMatches // [])[])
         | . as $m
         | (.vulnerability.fix.versions // []) as $fix
         | (.vulnerability.id | if type == "string" and . != "" then . else error("finding without a vulnerability id") end) as $vid
@@ -188,10 +193,10 @@ for gj in "${GRYPE_DIR}"/*.image.vuln.grype.json; do
         | {
             # statement @id is the OSV advisory reference for the match id,
             # not the project internal path — traceable and stable across the doc.
-            "@id": ("https://osv.dev/vulnerability/" + .vulnerability.id),
+            "@id": ("https://osv.dev/vulnerability/" + $vid),
             # REQUIRED by the OpenVEX spec: the vulnerability identifier as a
             # top-level string; this is the field consumers key on.
-            vulnerability_id: .vulnerability.id,
+            vulnerability_id: $vid,
             timestamp: $ts,
             products: [{
               "@id": ("pkg:oci/" + $svc + "@" + $digest + "?repository_url=" + $repo_url + "&tag=" + $tag),

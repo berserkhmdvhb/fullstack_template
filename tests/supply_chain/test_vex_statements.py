@@ -275,3 +275,34 @@ def test_other_frozen_scripts_are_unchanged() -> None:
         data = (REPO / "infra/security" / name).read_bytes()
         got = hashlib.sha1(b"blob %d\0" % len(data) + data, usedforsecurity=False).hexdigest()
         assert got == blob, f"{name} is frozen"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["null", '"x"', "[]", "{}", '{"matches":"x"}', '{"matches":{}}',
+     '{"matches":[],"ignoredMatches":"x"}', '{"matches":[1]}'],
+)  # fmt: skip
+def test_report_of_the_wrong_shape_fails_closed(tmp_path: Path, raw: str) -> None:
+    p, stmts = _run_full(tmp_path, raw_report=raw)
+    assert p.returncode != 0
+    assert "cannot build VEX statements from" in p.stderr
+    assert "not a Grype JSON report" in p.stderr
+    assert not stmts
+
+
+def test_report_with_no_findings_is_valid(tmp_path: Path) -> None:
+    p, stmts = _run_full(tmp_path, raw_report='{"matches":[]}')
+    assert p.returncode == 0, p.stderr
+    assert stmts == []
+
+
+def test_multiline_impact_statement_with_a_blank_line_is_accepted(tmp_path: Path) -> None:
+    p, s = _run(tmp_path, [_entry(impact_statement="First paragraph.\n\nSecond paragraph.")])
+    assert p.returncode == 0, p.stderr
+    assert s["CVE-2026-0003"]["status"] == "not_affected"
+
+
+def test_whitespace_and_newlines_only_impact_statement_is_rejected(tmp_path: Path) -> None:
+    p, _ = _run(tmp_path, [_entry(impact_statement=" \n\n\t\n")])
+    assert p.returncode != 0
+    assert "invalid not_affected list" in p.stderr
