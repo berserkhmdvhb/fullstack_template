@@ -25,6 +25,7 @@ from your_service_name.backend.logging.correlation import (
     TRACEPARENT_HEADER,
     TRACESTATE_HEADER,
     get_request_id,
+    get_trace_id,
     parse_traceparent,
     reset_request_id,
     reset_trace_context,
@@ -65,7 +66,9 @@ class CorrelationIdMiddleware:
         state = scope.setdefault("state", {})
         state["request_id"] = request_id
         state["trace_context"] = trace
-        state["trace_id"] = trace.trace_id if trace else None
+        # With tracing on, the active span (the one the tracing middleware started, which continues
+        # the inbound traceparent) decides: one id for the span, the logs and the problem body.
+        state["trace_id"] = get_trace_id()
 
         async def send_with_id(message: Message) -> None:
             if message["type"] == "http.response.start":

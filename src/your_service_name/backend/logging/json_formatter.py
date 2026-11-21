@@ -6,7 +6,8 @@ machine-parseable, so each record is emitted as a single-line JSON object. In de
 
 The formatter always carries ``@timestamp``, ``level``, ``logger``, ``message`` and ``request_id``
 (the latter injected by :class:`~your_service_name.backend.logging.correlation.RequestIdFilter`);
-``trace_id`` is added when the request carried a valid ``traceparent``. Any extra keys attached
+``trace_id`` is added when the request carried a valid ``traceparent`` (or tracing is on), and
+``span_id`` with tracing on. Any extra keys attached
 at the call site via ``logger.info(..., extra={...})`` are merged in as structured fields, so
 callers can add context (e.g. ``item_id``) without changing the format.
 """
@@ -45,6 +46,7 @@ _RESERVED_KEYS: frozenset[str] = frozenset(
         "asctime",
         "request_id",
         "trace_id",
+        "span_id",
         "trace_part",
     }
 )
@@ -64,6 +66,8 @@ class JsonLogFormatter(logging.Formatter):
         }
         if trace_id := getattr(record, "trace_id", None):
             payload["trace_id"] = trace_id
+        if span_id := getattr(record, "span_id", None):
+            payload["span_id"] = span_id
         payload.update(
             {key: value for key, value in record.__dict__.items() if key not in _RESERVED_KEYS}
         )

@@ -46,6 +46,8 @@ logger = logging.getLogger(__name__)
 # the migration runner and the seed script (via db/_constants.py). Overridable via SQLITE_PATH.
 DEFAULT_SQLITE_REL_PATH: Final[str] = "data/items.db"
 DEFAULT_RATE_LIMIT: Final[str] = "100/minute"
+# The package's own name: the default tracing service name (the adapt script renames the package).
+DEFAULT_SERVICE_NAME: Final[str] = __name__.split(".", maxsplit=1)[0]
 # The chart's ingress `proxy-body-size` (10m, which nginx reads as MiB); a test keeps them equal.
 DEFAULT_MAX_REQUEST_BODY_BYTES: Final[int] = 10 * 1024 * 1024
 
@@ -126,7 +128,29 @@ _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
     "ALLOW_PRODUCTION_DOCS",
     "TRUST_CF_CONNECTING_IP",
     "MAX_REQUEST_BODY_BYTES",
+    "TRACING_ENABLED",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_HEADERS",
+    "OTEL_SERVICE_NAME",
+    "TRACING_SAMPLE_RATIO",
 )
+
+
+def parse_header_list(raw: str) -> dict[str, str]:
+    """Parse ``name=value,name2=value2`` (the OTLP headers format); ``ValueError`` when malformed.
+
+    The message never carries the text: a header value is a credential.
+    """
+    headers: dict[str, str] = {}
+    for item in raw.split(","):
+        if not item.strip():
+            continue
+        name, sep, value = item.partition("=")
+        if not sep or not name.strip():
+            msg = "expected comma-separated name=value pairs"
+            raise ValueError(msg)
+        headers[name.strip()] = value.strip()
+    return headers
 
 
 def _is_local_host(host: str) -> bool:
@@ -259,6 +283,35 @@ class Settings(BaseSettings):
     RATE_LIMIT_DEFAULT: str = Field(
         default=DEFAULT_RATE_LIMIT,
         description="Per-IP rate limit in `limits` format, for example `100/minute`.",
+    )
+
+    # --- Tracing (opt-in) -----------------------------------------------------
+    TRACING_ENABLED: bool = Field(
+        default=False,
+        description="Export OpenTelemetry traces over OTLP/HTTP (server spans for the API, "
+        "database spans for statement text). Off, nothing of OpenTelemetry beyond its small API "
+        "package is loaded. Needs OTEL_EXPORTER_OTLP_ENDPOINT.",
+    )
+    OTEL_EXPORTER_OTLP_ENDPOINT: str | None = Field(
+        default=None,
+        description="Tracing: the collector's base URL (`http://host:4318`); `/v1/traces` is "
+        "appended. Required when TRACING_ENABLED=true.",
+    )
+    OTEL_EXPORTER_OTLP_HEADERS: SecretStr | None = Field(
+        default=None,
+        description="Tracing: headers for the collector, `name=value,name2=value2` (for "
+        "example its auth token). A secret.",
+    )
+    OTEL_SERVICE_NAME: str = Field(
+        default=DEFAULT_SERVICE_NAME,
+        description="Tracing: the `service.name` resource attribute.",
+    )
+    TRACING_SAMPLE_RATIO: float = Field(
+        default=1.0,
+        ge=0,
+        le=1,
+        description="Tracing: the share of new traces recorded (0 to 1). A caller's sampled "
+        "`traceparent` is always honoured, whatever this says.",
     )
 
     # --- Request limits -------------------------------------------------------
@@ -624,6 +677,32 @@ class Settings(BaseSettings):
             raise ValueError(msg) from exc
         return value
 
+    @field_validator("OTEL_EXPORTER_OTLP_ENDPOINT")
+    @classmethod
+    def _valid_otlp_endpoint(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            parts = urlsplit(value.strip())
+            ok = parts.scheme in ("http", "https") and bool(parts.hostname)
+        except ValueError:
+            ok = False
+        if not ok:
+            msg = "OTEL_EXPORTER_OTLP_ENDPOINT must be an http(s) URL such as http://collector:4318"
+            raise ValueError(msg)
+        return value.strip().rstrip("/")
+
+    @field_validator("OTEL_EXPORTER_OTLP_HEADERS")
+    @classmethod
+    def _valid_otlp_headers(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None:
+            try:
+                parse_header_list(value.get_secret_value())
+            except ValueError as exc:
+                msg = "OTEL_EXPORTER_OTLP_HEADERS must be comma-separated name=value pairs"
+                raise ValueError(msg) from exc
+        return value
+
     # --- Validators: cross-field ----------------------------------------------
 
     @model_validator(mode="after")
@@ -634,6 +713,11 @@ class Settings(BaseSettings):
         credentials). Runs after the per-field parsing above, so it sees typed values.
         """
         problems = self._auth_problems()
+        if self.TRACING_ENABLED and not self.OTEL_EXPORTER_OTLP_ENDPOINT:
+            problems.append(
+                "OTEL_EXPORTER_OTLP_ENDPOINT is required when TRACING_ENABLED=true; set the "
+                "collector URL or turn tracing off"
+            )
         for name, secret in (
             ("DATABASE_URL", self.DATABASE_URL),
             ("TEST_DATABASE_URL", self.TEST_DATABASE_URL),

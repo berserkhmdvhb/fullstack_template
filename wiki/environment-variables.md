@@ -74,6 +74,11 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 | `CORS_ALLOW_METHODS` | comma-separated list | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | Comma-separated allowed methods. | — |
 | `CORS_ALLOW_HEADERS` | comma-separated list | `Authorization,Content-Type,X-Requested-With` | Comma-separated allowed request headers. | — |
 | `RATE_LIMIT_DEFAULT` | str | `100/minute` | Per-IP rate limit in `limits` format, for example `100/minute`. | — |
+| `TRACING_ENABLED` | bool | `false` | Export OpenTelemetry traces over OTLP/HTTP (server spans for the API, database spans for statement text). Off, nothing of OpenTelemetry beyond its small API package is loaded. Needs OTEL_EXPORTER_OTLP_ENDPOINT. | — |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | str | (unset) | Tracing: the collector's base URL (`http://host:4318`); `/v1/traces` is appended. Required when TRACING_ENABLED=true. | — |
+| `OTEL_EXPORTER_OTLP_HEADERS` | secret | (secret) | Tracing: headers for the collector, `name=value,name2=value2` (for example its auth token). A secret. | — |
+| `OTEL_SERVICE_NAME` | str | `your_service_name` | Tracing: the `service.name` resource attribute. | — |
+| `TRACING_SAMPLE_RATIO` | float | `1.0` | Tracing: the share of new traces recorded (0 to 1). A caller's sampled `traceparent` is always honoured, whatever this says. | — |
 | `MAX_REQUEST_BODY_BYTES` | int | `10485760` | Largest accepted request body in bytes; more is a 413. The default (10 MiB) is the chart's ingress `proxy-body-size`, so the edge and the service agree. | — |
 | `ALLOWED_HOSTS` | comma-separated list | `*` | Comma-separated `Host` values the service answers (`*.example.com` matches subdomains, `*` anything; an entry never carries a port). Anything else is a 400; the probe and metrics paths are exempt. The chart sets it from the ingress hosts and the backend Service names. | Must be set and must not contain `*`. |
 | `TRUSTED_PROXY_CIDRS` | comma-separated list | (empty) | Comma-separated IPv4/IPv6 CIDRs of the proxies (the gateway and, in the Tunnel edge mode, cloudflared) whose forwarding headers are trusted. Empty trusts nothing: the TCP peer is the client. An invalid entry stops startup, and so does one with host bits set (`10.1.2.3/8`; write `10.0.0.0/8`). | — |

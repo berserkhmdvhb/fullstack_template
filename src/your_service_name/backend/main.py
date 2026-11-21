@@ -39,6 +39,7 @@ Notes
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -150,9 +151,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logger.exception("DB initialization failed. Pod is up but NOT ready (/health → 503).")
 
+    tracing = getattr(app.state, "tracing", None)
+    if tracing is not None:
+        from your_service_name.backend.db.engine import (  # noqa: PLC0415 — only with tracing on
+            current_engine,
+        )
+
+        if (engine := current_engine()) is not None:
+            tracing.instrument_engine(engine.sync_engine)
+
     try:
         yield
     finally:
+        if tracing is not None:
+            await asyncio.to_thread(tracing.shutdown)
         jwks_cache = getattr(app.state, "jwks_cache", None)
         if jwks_cache is not None:
             await jwks_cache.aclose()
@@ -198,6 +210,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # inline-script CSP problem as /docs, and /docs alone covers interactive docs.
         redoc_url=None,
         lifespan=lifespan,
+        # FastAPI's own telemetry is off: with the global OpenTelemetry providers unset it would
+        # do nothing, and FASTAPI_OTEL_AUTO_CONFIGURE=true must not start a second exporter.
+        # Tracing is the opt-in ``TRACING_ENABLED`` feature (observability/tracing.py).
+        telemetry={"tracing": False, "metrics": False, "logs": False, "auto_configure": False},
         openapi_tags=[
             {"name": "health", "description": "Service health checks"},
             {"name": "echo", "description": "Echo demo endpoints"},
@@ -269,6 +285,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # kept out of the OpenAPI document, so the document, the contract tests and the oasdiff gate
     # cover the API only.
     Instrumentator().instrument(app).expose(app, endpoint=METRICS_PATH, include_in_schema=False)
+
+    # --- Opt-in tracing --------------------------------------------------------
+    # The instrumentation wraps the whole middleware stack, so it is outermost whatever the order.
+    if settings.TRACING_ENABLED:
+        from your_service_name.backend.observability.tracing import (  # noqa: PLC0415 — lazy
+            install_tracing,
+        )
+
+        install_tracing(app, settings)
 
     # /docs is provided by FastAPI's built-in Swagger page (docs_url above); its
     # /openapi.json is already mounted by the routers, so no extra wiring is needed.

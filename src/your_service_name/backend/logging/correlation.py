@@ -24,6 +24,10 @@ import re
 import uuid
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +87,23 @@ def parse_traceparent(value: str | None, tracestate: str | None = None) -> Trace
 _REQUEST_ID: ContextVar[str] = ContextVar("request_id", default=NO_REQUEST_ID)
 
 
-# The active W3C trace context. OpenTelemetry tracing (opt-in, added later) hooks in here: it will
-# start the request span and replace ``parent_id`` with the new span's id.
+# The active W3C trace context, from the inbound ``traceparent``.
 _TRACE: ContextVar[TraceContext | None] = ContextVar("trace_context", default=None)
+
+# With OpenTelemetry tracing on (``observability/tracing.py``) the active span is the one source of
+# ids: this returns its ``(trace id, span id, flags)``, or ``None`` outside a valid span. ``None``
+# here (tracing off) keeps the ``traceparent`` behaviour above.
+_span_ids_provider: Callable[[], tuple[str, str, str] | None] | None = None
+
+
+def set_span_ids_provider(provider: Callable[[], tuple[str, str, str] | None] | None) -> None:
+    """Install (or, with ``None``, remove) the active-span lookup; tracing does this."""
+    global _span_ids_provider  # noqa: PLW0603 — set at startup, cleared at shutdown
+    _span_ids_provider = provider
+
+
+def _span_ids() -> tuple[str, str, str] | None:
+    return _span_ids_provider() if _span_ids_provider is not None else None
 
 
 def generate_request_id() -> str:
@@ -118,9 +136,21 @@ def reset_request_id(token: Token[str]) -> None:
 
 
 def get_trace_id() -> str | None:
-    """The W3C trace id of the current request, or ``None`` when no valid ``traceparent`` came."""
+    """The trace id of the current request.
+
+    The active span's when tracing is on, else the one of a valid inbound ``traceparent``, else
+    ``None``.
+    """
+    if ids := _span_ids():
+        return ids[0]
     ctx = _TRACE.get()
     return ctx.trace_id if ctx else None
+
+
+def get_span_id() -> str | None:
+    """The id of the active span, or ``None`` (tracing off, or outside a span)."""
+    ids = _span_ids()
+    return ids[1] if ids else None
 
 
 def set_trace_context(ctx: TraceContext | None) -> Token[TraceContext | None]:
@@ -138,9 +168,15 @@ def outgoing_trace_headers() -> dict[str, str]:
 
     Merge them into every outbound request, for example ``httpx.get(url, headers={**own,
     **outgoing_trace_headers()})``. It forwards the inbound trace (restarted at version 00) and its
-    ``tracestate``, as received, when that is at most 512 characters: the service creates no spans.
+    ``tracestate``, as received, when that is at most 512 characters. With tracing on, the parent
+    is the active span (so the downstream service's span hangs under it).
     """
     ctx = _TRACE.get()
+    if ids := _span_ids():
+        headers = {TRACEPARENT_HEADER: f"00-{ids[0]}-{ids[1]}-{ids[2]}"}
+        if ctx and ctx.tracestate and ctx.trace_id == ids[0]:
+            headers[TRACESTATE_HEADER] = ctx.tracestate
+        return headers
     if ctx is None:
         return {}
     headers = {TRACEPARENT_HEADER: f"00-{ctx.trace_id}-{ctx.parent_id}-{ctx.flags}"}
@@ -158,9 +194,13 @@ class RequestIdFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """Add ``request_id`` (and ``trace_id`` when set) to the record; never suppresses it."""
+        """Add ``request_id`` (and ``trace_id``, ``span_id`` when set); keeps every record."""
         record.request_id = get_request_id()
         trace_id = get_trace_id()
+        span_id = get_span_id()
         record.trace_id = trace_id
-        record.trace_part = f" trace_id={trace_id}" if trace_id else ""
+        record.span_id = span_id
+        record.trace_part = (f" trace_id={trace_id}" if trace_id else "") + (
+            f" span_id={span_id}" if span_id else ""
+        )
         return True

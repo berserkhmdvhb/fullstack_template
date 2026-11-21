@@ -118,6 +118,11 @@ def _get_engine(settings: Settings) -> AsyncEngine:
     return _engine
 
 
+def current_engine() -> AsyncEngine | None:
+    """The app engine once ``init_db`` has made it, else ``None`` (the tracing instrumentation)."""
+    return _engine
+
+
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """
     Yield an AsyncSession per request with auto-commit/rollback.
