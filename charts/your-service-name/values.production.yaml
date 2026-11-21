@@ -33,8 +33,11 @@ config:
   DEBUG: "false"
   LOG_LEVEL: WARNING
   # An auth mode is REQUIRED in production: with ENV=production the backend refuses to start on
-  # AUTH_MODE=none. Choose one (gateway or bearer; see wiki/environment-variables.md), for example:
-  # AUTH_MODE: gateway
+  # AUTH_MODE=none. Choose one (oidc or cloudflare-access for
+  # production; gateway and bearer are reference modes; see wiki/security.md), for example:
+  # AUTH_MODE: oidc
+  # OIDC_ISSUER: https://idp.example.com
+  # OIDC_AUDIENCE: api://your-service
   # Same-origin, versioned: the browser calls /api/v1 and the Next.js server
   # proxies it to BACKEND_URL (set in the ConfigMap). Relative => one bundle
   # for every environment; no build-time API URL to inject per env.

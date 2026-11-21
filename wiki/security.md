@@ -138,17 +138,66 @@ FastAPI dependency, which resolves a `Principal` per request.
 
 | `AUTH_MODE` | Behaviour | Trust model |
 |-------------|-----------|-------------|
+| `oidc` | **Production mode.** `Authorization: Bearer <jwt>` from an OpenID Connect provider, verified against the provider's JWKS. | The service verifies every token itself; see [OIDC](#oidc-mode). |
+| `cloudflare-access` | **Production mode.** The Cloudflare Access application token in the `Cf-Access-Jwt-Assertion` header, verified against the team's keys and the application's AUD tag. | The service verifies every token itself; see [Cloudflare Access](#cloudflare-access-mode). |
 | `none` *(default)* | Auth disabled; the dependency yields an anonymous principal. Reference CRUD is open. With `ENV=production` it is refused unless `ALLOW_ANONYMOUS=true`. | N/A — opt-in only. |
-| `gateway` | Identity is read from a gateway-injected header (`AUTH_USER_ID_HEADER`, default `X-Authenticated-User-Id`; roles from `AUTH_ROLES_HEADER`, default `X-Authenticated-User-Roles`, comma-separated). Missing → `401`. | The service trusts the header **unconditionally**. Safe only because the deployment denies every client but the ingress the path to the pods (Kubernetes `NetworkPolicy` default-deny). Do not expose the service directly to untrusted clients in this mode. |
-| `bearer` | Identity from an HMAC-signed JWT bearer token verified with a shared secret (`AUTH_JWT_SECRET`, algorithm `AUTH_JWT_ALGORITHM`, default `HS256`, subject claim `AUTH_JWT_USER_ID_CLAIM`, default `sub`). Missing/invalid → `401`. | The service verifies the signature itself. |
+| `gateway` *(reference)* | Identity is read from a gateway-injected header (`AUTH_USER_ID_HEADER`, default `X-Authenticated-User-Id`; roles from `AUTH_ROLES_HEADER`, default `X-Authenticated-User-Roles`, comma-separated). Missing → `401`. | The service trusts the header **unconditionally**. Safe only because the deployment denies every client but the ingress the path to the pods (Kubernetes `NetworkPolicy` default-deny). Do not expose the service directly to untrusted clients in this mode. |
+| `bearer` *(reference)* | Identity from an HMAC-signed JWT bearer token verified with a shared secret (`AUTH_JWT_SECRET`, algorithm `AUTH_JWT_ALGORITHM`, default `HS256`, subject claim `AUTH_JWT_USER_ID_CLAIM`, default `sub`). Missing/invalid → `401`. | A shared secret for internal or test use, **not** end-user identity: whoever holds it can mint any identity. |
+
+`gateway` and `bearer` are **reference modes**; use `oidc` or `cloudflare-access` in production.
+
+### OIDC mode
+
+```bash
+AUTH_MODE=oidc
+OIDC_ISSUER=https://idp.example.com        # a token's `iss` must equal this exactly
+OIDC_AUDIENCE=api://your-service           # comma-separated; the token's `aud` must contain one
+# OIDC_JWKS_URL=https://idp.example.com/keys   # unset: taken once from ${OIDC_ISSUER}/.well-known/openid-configuration
+# OIDC_ROLES_CLAIM=groups                      # a list of strings or a space-separated string
+```
+
+- Tokens: RS256/ES256 by default (`OIDC_ALGORITHMS`, an allowlist of RS*, PS*, ES*; `none` and
+  every HS* are refused at startup). The header `alg` must be in the allowlist and fit the key's
+  type (and curve), `kid` is required, a non-empty `crit` header is refused, and a token over
+  8 KiB is refused. `exp` is required; `nbf` and `iat` are checked when present, with
+  `OIDC_CLOCK_SKEW_SECONDS` (default 60, at most 300). The user id is the `OIDC_USER_ID_CLAIM`
+  (default `sub`), which must be a non-empty string.
+- Keys: fetched over `https` (plain `http` only for `localhost` outside production) with 5 s
+  timeouts, no redirects and a 1 MiB cap, and cached for `JWKS_CACHE_TTL_SECONDS` (3600).
+  Concurrent cold requests make one fetch. An unknown `kid` triggers one refetch, at most once
+  per `JWKS_MIN_REFETCH_SECONDS` (30) across all requests, so random `kid`s cannot hammer the
+  provider. When a refresh fails the last good keys are kept for `JWKS_MAX_STALE_SECONDS`
+  (86400); with no usable keys the answer is `503` ("authentication temporarily unavailable"),
+  never `500` and never "allow". When discovery is used the document's `issuer` must equal
+  `OIDC_ISSUER`.
+- Failures: a missing token is `401` with `WWW-Authenticate: Bearer`; any other failure is `401`
+  with `WWW-Authenticate: Bearer error="invalid_token"` and the generic detail "invalid or
+  expired token". The reason is logged at info level (never the token); the response does not
+  say which check failed.
+
+### Cloudflare Access mode
+
+```bash
+AUTH_MODE=cloudflare-access
+CF_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com   # a bare hostname
+CF_ACCESS_AUD=<application AUD tag>
+```
+
+The issuer is `https://<team domain>` and the keys are `https://<team domain>/cdn-cgi/access/certs`
+(both as [Cloudflare documents](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)),
+RS256 only; the claim checks and key cache are the ones above. The user id is `sub` and the
+claims (including `email`, when present) are on the principal. Only the `Cf-Access-Jwt-Assertion`
+header is read: Cloudflare adds it on every request through the tunnel and recommends validating
+it rather than the `CF_Authorization` cookie, which is not guaranteed to be passed, and a cookie
+as a credential would bring cross-site request forgery questions the header does not have.
+Cloudflare service-token requests carry no `sub` for a person, so they are refused here.
 
 - **Authorization** is layered on with `require_roles(*roles)`: a dependency that
   returns `403` when the principal lacks a required role.
-- **JWT verification is dependency-free** (no PyJWT in the tree) and deliberately
-  accepts only the HMAC family (`HS256`/`HS384`/`HS512`), rejecting `alg` confusion
-  (the header `alg` must match the configured one) and using a constant-time
-  signature compare. It is a **reference pattern**, not a production IdP — replace
-  with your token service / JWKS verification for production.
+- The `bearer` reference mode is dependency-free and accepts only the HMAC family
+  (`HS256`/`HS384`/`HS512`), rejecting `alg` confusion (the header `alg` must match the
+  configured one) with a constant-time signature compare. `oidc` and `cloudflare-access` use
+  PyJWT (with `cryptography`); the template implements no signature algorithm itself.
 - **CSRF posture**: the API is stateless — it authenticates via a header or a
   bearer token, not cookie sessions — so classic CSRF does not apply. If you
   introduce cookie-based sessions, add same-site cookies and a CSRF token; do not

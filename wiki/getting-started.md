@@ -435,7 +435,7 @@ helm upgrade --install your-service-name charts/your-service-name \
 <a id="production-needs-an-auth-mode"></a>
 > **Production needs an auth mode.** `values.production.yaml` sets `ENV=production`, so the backend
 > refuses to start on `AUTH_MODE=none` (see [Backend settings](./environment-variables.md#backend-settings)).
-> Add `AUTH_MODE: gateway` (or `bearer`, with `AUTH_JWT_SECRET`) under `config:` before the first deploy.
+> Add `AUTH_MODE: oidc` (or `cloudflare-access`; see [Authentication](./security.md#authentication--authorization)) under `config:` before the first deploy.
 > Without it the post-install migration hook fails, so the Helm release fails and `deploy-env.sh` rolls it back.
 
 ### 4. Verify Rollout
