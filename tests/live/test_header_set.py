@@ -66,6 +66,8 @@ _FRONTEND_LAYER: Final[dict[str, str]] = {
     "cross-origin-resource-policy": "same-origin",
 }
 _NGINX_LAYER: Final[dict[str, str]] = {
+    # `server_tokens off`: nginx still names itself, with no version.
+    "server": "nginx",
     "x-content-type-options": "nosniff",
     "x-frame-options": "DENY",
     "content-security-policy": "default-src 'none'",
@@ -225,6 +227,53 @@ def test_nginx_files_and_404(path: str, cache_control: str | None) -> None:
         res = client.get(_chunk_path() if path == "chunk" else path)
     assert res.status_code == expected
     # One Cache-Control (a repeat fails in _final_headers), the intended value, a bare nginx.
-    pinned = {"server": "nginx", **({"cache-control": cache_control} if cache_control else {})}
+    pinned = {"cache-control": cache_control} if cache_control else {}
     _assert_final_set(res, _NGINX_LAYER, exact_transport=pinned)
     assert ("cache-control" in res.headers) == (cache_control is not None)
+
+
+# The comparison helper itself, on canned responses (no stack needed): strict both ways.
+_NGINX_WIRE = [
+    ("Server", "nginx"),
+    ("Date", "x"),
+    ("Content-Type", "text/plain"),
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("Content-Security-Policy", "default-src 'none'"),
+]
+
+
+def _canned(extra: list[tuple[str, str]] | None = None, drop: str | None = None) -> httpx.Response:
+    headers = [(k, v) for k, v in _NGINX_WIRE if k != drop] + (extra or [])
+    return httpx.Response(200, headers=headers)
+
+
+def test_the_helper_accepts_nginx_with_its_versionless_server_header() -> None:
+    _assert_final_set(_canned(), _NGINX_LAYER)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        [("Server", "nginx/1.27.0")],  # a version; replaces the plain header
+        [("Cross-Origin-Embedder-Policy", "require-corp")],
+        [("X-Powered-By", "Next.js")],
+        [("X-Middleware-Rewrite", "http://backend:8000/")],
+    ],
+)
+def test_the_helper_still_fails_on_any_other_header_or_a_versioned_server(
+    extra: list[tuple[str, str]],
+) -> None:
+    drop = "Server" if extra[0][0] == "Server" else None
+    with pytest.raises(AssertionError):
+        _assert_final_set(_canned(extra, drop=drop), _NGINX_LAYER)
+
+
+def test_the_helper_fails_when_nginx_sends_no_server_header() -> None:
+    with pytest.raises(AssertionError):
+        _assert_final_set(_canned(drop="Server"), _NGINX_LAYER)
+
+
+def test_the_helper_fails_on_a_repeated_header() -> None:
+    with pytest.raises(AssertionError, match="more than once"):
+        _assert_final_set(_canned([("Cache-Control", "a"), ("Cache-Control", "b")]), _NGINX_LAYER)

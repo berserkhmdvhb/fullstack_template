@@ -13,7 +13,8 @@ sri() {
   # A variable assignment keeps curl's exit status visible to set -e (a pipeline into openssl would hide it).
   body="$(mktemp)"
   trap 'rm -f "${body}"' RETURN
-  curl -fsS --proto '=https' --tlsv1.2 -o "${body}" "https://cdn.jsdelivr.net/npm/swagger-ui-dist@${version}/$1"
+  # `|| return 1`: this runs inside $(...), where set -e does not reach, so a partial body is never hashed.
+  curl -fsS --proto '=https' --tlsv1.2 -o "${body}" "https://cdn.jsdelivr.net/npm/swagger-ui-dist@${version}/$1" || return 1
   [[ -s "${body}" ]] || { echo "empty download: $1" >&2; return 1; }
   openssl dgst -sha384 -binary < "${body}" | openssl base64 -A
 }

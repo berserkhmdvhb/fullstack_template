@@ -90,10 +90,11 @@ On the paths it proxies to the backend (`/api/v1`, `/docs`, `/openapi.json`), Ne
 `x-middleware-rewrite` response header that holds the backend's internal URL (for example
 `http://<release>-backend:8000/api/v1/health`). Next always sets it, and removing it in `proxy.ts` cancels
 the rewrite, so the frontend cannot drop it. It discloses internal topology (CWE-200, low severity).
-Expose the app through the nginx gateway or an edge, never the frontend port directly: the gateway config
-hides `X-Middleware-Rewrite` and `X-Powered-By` from proxied responses (`proxy_hide_header`, inherited by
-every proxy location). The live header test lists the header as a known Next exposure and allows it only
-on proxied paths of the frontend port.
+Expose the app through an edge or a gateway that does not proxy through the frontend, never the frontend
+port directly. The shipped nginx proxies nothing; as a safeguard for an adopter who adds a proxy location,
+its config hides `X-Middleware-Rewrite` and `X-Powered-By` from proxied responses (`proxy_hide_header` at
+http level, inherited by that location). The live header test lists the header as a known Next exposure and
+allows it only on proxied paths of the frontend port.
 
 ### Ingress-Level Headers
 

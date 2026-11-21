@@ -38,6 +38,14 @@ STUB
   [[ "$output" != *"sha384-"* ]]
 }
 
+@test "a partial body with a curl failure exits non-zero and prints no hash" {
+  stub_curl 'printf "half a bun" > "$out"; echo "curl: (18) transfer closed" >&2; exit 18'
+  run bash "$SCRIPT" 5.9.9
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"sha384-"* ]]
+  [[ "$output" != *"SWAGGER_UI_VERSION"* ]]
+}
+
 @test "an empty download exits non-zero" {
   stub_curl ': > "$out"'
   run bash "$SCRIPT" 5.9.9
