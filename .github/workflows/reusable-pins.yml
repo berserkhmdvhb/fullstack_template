@@ -2,7 +2,8 @@ name: Pin drift
 
 # Call-only: ci.yml (pull requests and pushes: only the rows a pull request changed) and pins-drift.yml
 # (weekly: every row). The recorded sha256 of each pin must equal the vendor's published one for that
-# exact version, a hashed lock must match PyPI, and the security scanners' release checksums must exist.
+# exact version; every entry of every hashed lock must match PyPI's published hashes and be at least 7 days old;
+# and the security scanners' release checksums must exist. Fetches retry briefly on timeouts, 429 and 5xx.
 # Read-only on purpose: a bump is refreshed by a maintainer with `make pins-refresh`, never by a bot.
 on:
   workflow_call:

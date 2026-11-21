@@ -27,22 +27,35 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import time
+import urllib.error
 import urllib.request
 from dataclasses import astuple, dataclass, replace
+from datetime import UTC, datetime, timedelta
+from email.message import Message
 from pathlib import Path
-from typing import NoReturn
+from typing import IO, NoReturn
 
 ROOT = Path(__file__).resolve().parent.parent
 HEX64 = re.compile(r"[0-9a-f]{64}")
+# The documented regeneration command (tools/pins.tsv header), plus --quiet.
 UV_COMPILE = [
-    *("uv", "pip", "compile", "--quiet", "--generate-hashes", "--no-header", "--no-annotate"),
+    *("uv", "pip", "compile", "--quiet", "--generate-hashes", "--no-header"),
     *("--python-version", "3.13", "--python-platform", "x86_64-unknown-linux-gnu"),
 ]
+MIN_AGE = timedelta(
+    days=7
+)  # a release must be this old before it is pinned (Renovate minimumReleaseAge)
+ATTEMPTS = 4  # fetch tries for a transient failure
+TRANSIENT = {429, 500, 502, 503, 504}
 PIN_FIELDS = 5  # name version platform url sha256
 MIN_SUM_FIELDS = 2  # a hash and a name
 USAGE = "usage: pins-refresh.sh [--check] [--base REF] [name...]"
 
-# tool -> (kind, checksum-file url template).
+# tool -> (kind, checksum-file url template, expected url prefix).
+# The prefix anchors the vendor: a row whose url points elsewhere (a look-alike org) is refused
+# before anything is fetched.
 # Fields: {url} the pin url, {dir} its directory, {ver} the version.
 #   sumfile    a vendor file of "<sha256>  <asset>" lines (any of the usual path/star decorations)
 #   hashfile   a file holding the bare sha256, beside the asset
@@ -51,32 +64,76 @@ USAGE = "usage: pins-refresh.sh [--check] [--base REF] [name...]"
 #   archive    a GitHub tag archive (no vendor checksum exists): hashed on download
 #   uv         a Python tool: hashed lock in tools/requirements/, checked against PyPI
 #   none       uv downloads and verifies it itself
-SOURCES: dict[str, tuple[str, str]] = {
-    "helm3": ("sumfile", "{url}.sha256sum"),
-    "helm4": ("sumfile", "{url}.sha256sum"),
-    "kubectl": ("hashfile", "{url}.sha256"),
-    "kind": ("sumfile", "{url}.sha256sum"),
-    "kubeconform": ("sumfile", "{dir}/CHECKSUMS"),
-    "ct": ("sumfile", "{dir}/checksums.txt"),
-    "helm-unittest": ("sumfile", "{dir}/helm-unittest-checksum.sha"),
-    "actionlint": ("sumfile", "{dir}/actionlint_{ver}_checksums.txt"),
-    "hadolint": ("sumfile", "{dir}/checksums.sha256"),
-    "gitleaks": ("sumfile", "{dir}/gitleaks_{ver}_checksums.txt"),
-    "squawk": ("gh-digest", ""),
-    "oasdiff": ("sumfile", "{dir}/checksums.txt"),
-    "cosign": ("sumfile", "{dir}/cosign_checksums.txt"),
-    "kyverno": ("sumfile", "{dir}/checksums.txt"),
-    "yq": ("yq-columns", "{dir}/checksums"),
-    "bats": ("archive", ""),
-    "shellcheck": ("gh-digest", ""),
-    "node": ("sumfile", "https://nodejs.org/dist/v{ver}/SHASUMS256.txt"),
-    "python": ("none", ""),
-    "zizmor": ("uv", ""),
-    "schemathesis": ("uv", ""),
-    "pre-commit": ("uv", ""),
-    "yamale": ("uv", ""),
-    "yamllint": ("uv", ""),
-    "pip-audit": ("uv", ""),
+SOURCES: dict[str, tuple[str, str, str]] = {
+    "helm3": ("sumfile", "{url}.sha256sum", "https://get.helm.sh/"),
+    "helm4": ("sumfile", "{url}.sha256sum", "https://get.helm.sh/"),
+    "kubectl": ("hashfile", "{url}.sha256", "https://dl.k8s.io/release/"),
+    "kind": (
+        "sumfile",
+        "{url}.sha256sum",
+        "https://github.com/kubernetes-sigs/kind/releases/download/",
+    ),
+    "kubeconform": (
+        "sumfile",
+        "{dir}/CHECKSUMS",
+        "https://github.com/yannh/kubeconform/releases/download/",
+    ),
+    "ct": (
+        "sumfile",
+        "{dir}/checksums.txt",
+        "https://github.com/helm/chart-testing/releases/download/",
+    ),
+    "helm-unittest": (
+        "sumfile",
+        "{dir}/helm-unittest-checksum.sha",
+        "https://github.com/helm-unittest/helm-unittest/releases/download/",
+    ),
+    "actionlint": (
+        "sumfile",
+        "{dir}/actionlint_{ver}_checksums.txt",
+        "https://github.com/rhysd/actionlint/releases/download/",
+    ),
+    "hadolint": (
+        "sumfile",
+        "{dir}/checksums.sha256",
+        "https://github.com/hadolint/hadolint/releases/download/",
+    ),
+    "gitleaks": (
+        "sumfile",
+        "{dir}/gitleaks_{ver}_checksums.txt",
+        "https://github.com/gitleaks/gitleaks/releases/download/",
+    ),
+    "squawk": ("gh-digest", "", "https://github.com/sbdchd/squawk/releases/download/"),
+    "oasdiff": (
+        "sumfile",
+        "{dir}/checksums.txt",
+        "https://github.com/oasdiff/oasdiff/releases/download/",
+    ),
+    "cosign": (
+        "sumfile",
+        "{dir}/cosign_checksums.txt",
+        "https://github.com/sigstore/cosign/releases/download/",
+    ),
+    "kyverno": (
+        "sumfile",
+        "{dir}/checksums.txt",
+        "https://github.com/kyverno/kyverno/releases/download/",
+    ),
+    "yq": ("yq-columns", "{dir}/checksums", "https://github.com/mikefarah/yq/releases/download/"),
+    "bats": ("archive", "", "https://github.com/bats-core/bats-core/archive/refs/tags/"),
+    "shellcheck": ("gh-digest", "", "https://github.com/koalaman/shellcheck/releases/download/"),
+    "node": (
+        "sumfile",
+        "https://nodejs.org/dist/v{ver}/SHASUMS256.txt",
+        "https://nodejs.org/dist/",
+    ),
+    "python": ("none", "", "uv:python"),
+    "zizmor": ("uv", "", "uv:zizmor"),
+    "schemathesis": ("uv", "", "uv:schemathesis"),
+    "pre-commit": ("uv", "", "uv:pre-commit"),
+    "yamale": ("uv", "", "uv:yamale"),
+    "yamllint": ("uv", "", "uv:yamllint"),
+    "pip-audit": ("uv", "", "uv:pip-audit"),
 }
 
 # config.yaml tool -> (github repo, checksum file, asset, algorithm).
@@ -145,21 +202,63 @@ def out(text: str) -> None:
     sys.stdout.write(text + "\n")
 
 
-def fetch(url: str) -> bytes:
-    if not url.startswith("https://"):
-        fail(f"refusing non-https url {url}")
-    headers = {"User-Agent": "pins-refresh"}
+class HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow redirects, but never to anything but https."""
+
+    def redirect_request(  # noqa: PLR0913, PLR0917
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: Message,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        if not newurl.startswith("https://"):
+            fail(f"non-https redirect to {newurl}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def build_request(url: str) -> urllib.request.Request:
+    request = urllib.request.Request(url, headers={"User-Agent": "pins-refresh"})  # noqa: S310
     token = os.environ.get("GITHUB_TOKEN")
     if token and url.startswith("https://api.github.com/"):
-        headers["Authorization"] = f"Bearer {token}"
-    try:
-        request = urllib.request.Request(url, headers=headers)  # noqa: S310
-        with urllib.request.urlopen(request, timeout=60) as resp:  # noqa: S310
-            data: bytes = resp.read()
-    except OSError as exc:
-        msg = f"cannot fetch {url}: {exc}"
-        raise PinError(msg) from exc
+        # Unredirected: urllib would copy a normal header to wherever a redirect points.
+        request.add_unredirected_header("Authorization", f"Bearer {token}")
+    return request
+
+
+def open_url(request: urllib.request.Request) -> bytes:
+    opener = urllib.request.build_opener(HttpsOnlyRedirect)
+    with opener.open(request, timeout=60) as resp:
+        data: bytes = resp.read()
     return data
+
+
+def fetch(url: str) -> bytes:
+    """GET with bounded retries (timeouts, 429, 5xx); a 404 or any other answer is final."""
+    if not url.startswith("https://"):
+        fail(f"refusing non-https url {url}")
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            return open_url(build_request(url))
+        except urllib.error.HTTPError as exc:
+            transient = exc.code in TRANSIENT
+            error: Exception = exc
+        except (TimeoutError, urllib.error.URLError, ConnectionError) as exc:
+            transient, error = True, exc
+        if not transient or attempt == ATTEMPTS:
+            fail(f"cannot fetch {url}: {error}")
+        time.sleep(2 ** (attempt - 1))
+    fail(f"cannot fetch {url}")  # unreachable; keeps the type checker honest
+
+
+def utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+def exclude_newer(now: datetime) -> str:
+    return (now - MIN_AGE).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def git_show(base: str, rel: str) -> str:
@@ -217,24 +316,33 @@ def sha_from_sumfile(text: str, asset: str) -> str:
 
 
 def sha_from_yq(text: str, order: str, asset: str) -> str:
+    if "SHA-256" not in order.split():
+        fail("the vendor's checksums_hashes_order lists no SHA-256 column")
     column = order.split().index("SHA-256")
     for line in text.splitlines():
         parts = line.split()
         if parts and parts[0] == asset:
-            if HEX64.fullmatch(parts[1 + column]):
+            if len(parts) > 1 + column and HEX64.fullmatch(parts[1 + column]):
                 return parts[1 + column]
             break
     fail(f"no SHA-256 for {asset} in the vendor checksums")
 
 
+def check_prefix(pin: Pin) -> None:
+    prefix = SOURCES[pin.name][2]
+    if not (pin.url == prefix if prefix.startswith("uv:") else pin.url.startswith(prefix)):
+        fail(f"{pin.name}: url is not under the expected vendor prefix {prefix}")
+
+
 def vendor_sha(pin: Pin) -> str:
-    kind, template = SOURCES[pin.name]
+    kind, template, _prefix = SOURCES[pin.name]
+    check_prefix(pin)
     directory, asset = pin.url.rsplit("/", 1)
     source = template.format(url=pin.url, dir=directory, ver=pin.version)
     if kind == "sumfile":
         return sha_from_sumfile(fetch(source).decode(), asset)
     if kind == "hashfile":
-        value = fetch(source).decode().split()[0]
+        value = (fetch(source).decode().split() or [""])[0]
         if not HEX64.fullmatch(value):
             fail(f"{source} does not hold a sha256")
         return value
@@ -267,24 +375,46 @@ def lock_path(pin: Pin) -> Path:
 
 def problem(pin: Pin) -> str | None:
     """None when the pin matches its vendor, else what differs. PinError if that cannot be told."""
+    check_prefix(pin)
     kind = SOURCES[pin.name][0]
     if kind == "none":
         return None
     if kind == "uv":
+        # The PyPI hashes and release age of every lock entry are checked per lock (lock_problems).
         pkg = pin.url.removeprefix("uv:")
-        lock_ver, hashes = parse_lock(lock_path(pin).read_text(), pkg)
+        lock_ver, _hashes = parse_lock(lock_path(pin).read_text(), pkg)
         if lock_ver != pin.version:
             return f"lock pins {pkg}=={lock_ver}, the pin version is {pin.version}"
-        files = json.loads(fetch(f"https://pypi.org/pypi/{pkg}/{pin.version}/json"))["urls"]
-        published = {f["digests"]["sha256"] for f in files}
-        extra = sorted(hashes - published)
-        return (
-            f"lock has {len(extra)} hash(es) PyPI does not publish for {pkg} {pin.version}"
-            if extra
-            else None
-        )
+        return None
     vendor = vendor_sha(pin)
     return None if vendor == pin.sha256 else f"recorded {pin.sha256}, vendor {vendor}"
+
+
+def lock_entries(text: str) -> dict[str, tuple[str, set[str]]]:
+    """Every `name==version` of a hash-pinned lock with its hashes."""
+    entries = re.finditer(
+        r"^([A-Za-z0-9_.-]+)==(\S+) \\\n((?:[ \t]+--hash=sha256:[0-9a-f]{64}(?: \\)?\n?)+)",
+        text,
+        re.MULTILINE,
+    )
+    return {norm(m[1]): (m[2], set(HEX64.findall(m[3]))) for m in entries}
+
+
+def lock_problems(path: Path) -> list[str]:
+    """Every entry's hashes must be on PyPI for that version, and every file of it 7+ days old."""
+    found = []
+    cutoff = utcnow() - MIN_AGE
+    for name, (version, hashes) in sorted(lock_entries(path.read_text()).items()):
+        files = json.loads(fetch(f"https://pypi.org/pypi/{name}/{version}/json"))["urls"]
+        published = {f["digests"]["sha256"] for f in files}
+        if hashes - published:
+            found.append(
+                f"{name} {version}: {len(hashes - published)} hash(es) PyPI does not publish"
+            )
+        young = [f for f in files if datetime.fromisoformat(f["upload_time_iso_8601"]) > cutoff]
+        if young:
+            found.append(f"{name} {version}: uploaded less than 7 days ago")
+    return found
 
 
 def config_problem(name: str, version: str) -> str | None:
@@ -302,29 +432,84 @@ def config_problem(name: str, version: str) -> str | None:
     return None
 
 
+def compile_command(lock: Path, constraints: Path, now: datetime) -> list[str]:
+    """Regenerate in place (the old lock is the preference: no upgrades), with a cutoff."""
+    return [
+        *UV_COMPILE,
+        "--exclude-newer",
+        exclude_newer(now),
+        "-c",
+        str(constraints),
+        "-o",
+        str(lock),
+        "-",
+    ]
+
+
+def tidy_annotations(text: str) -> str:
+    """Drop uv's `-c <temp path>` source from the `# via` lines (no churn in a regenerated lock)."""
+    text = re.sub(r"^ +#   -c \S+\n", "", text, flags=re.MULTILINE)
+    return re.sub(
+        r"^( +)# via\n +#   (\S[^\n]*)\n(?! +#   )", r"\1# via \2\n", text, flags=re.MULTILINE
+    )
+
+
 def regenerate_lock(pin: Pin) -> None:
-    pkg = pin.url.removeprefix("uv:")
-    result = subprocess.run(  # noqa: S603
-        [*UV_COMPILE, "-o", str(lock_path(pin)), "-"],
-        input=f"{pkg}=={pin.version}\n", text=True, check=False,
-    )  # fmt: skip
+    """Rewrite the pin's lock; pyyaml stays at the version of pyyaml.txt."""
+    lock = lock_path(pin)
+    constraints = ""
+    pyyaml = lock.parent / "pyyaml.txt"
+    if pyyaml.is_file():
+        constraints = f"pyyaml=={parse_lock(pyyaml.read_text(), 'pyyaml')[0]}\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        constraint_file = Path(tmp) / "constraints.txt"
+        constraint_file.write_text(constraints)
+        result = subprocess.run(  # noqa: S603
+            compile_command(lock, constraint_file, utcnow()),
+            input=f"{pin.url.removeprefix('uv:')}=={pin.version}\n", text=True, check=False,
+        )  # fmt: skip
     if result.returncode:
         fail(f"uv pip compile failed for {pin.name}")
+    lock.write_text(tidy_annotations(lock.read_text()))
+
+
+# When the checker itself changes, every row is checked: a row diff would hide a broken checker.
+WATCHED = (
+    "scripts/pins_refresh.py",
+    "scripts/pins-refresh.sh",
+    ".github/workflows/reusable-pins.yml",
+    ".github/workflows/pins-drift.yml",
+)
 
 
 def changed(
-    base: str, pins: list[Pin], tools: dict[str, str], pins_rel: str, config_rel: str
-) -> tuple[list[Pin], dict[str, str]]:
-    old_pins = {(p.name, p.platform): p for p in parse_pins(git_show(base, pins_rel))}
-    old_tools = parse_config_tools(git_show(base, config_rel))
-    picked = []
-    for pin in pins:
-        lock_changed = SOURCES[pin.name][0] == "uv" and git_show(
-            base, f"tools/requirements/{pin.name}.txt"
-        ) != (lock_path(pin).read_text() if lock_path(pin).exists() else "")
-        if old_pins.get((pin.name, pin.platform)) != pin or lock_changed:
-            picked.append(pin)
-    return picked, {n: v for n, v in tools.items() if old_tools.get(n) != v}
+    base: str,
+    selection: tuple[list[Pin], dict[str, str], list[Path]],
+    rels: tuple[str, str],
+) -> tuple[list[Pin], dict[str, str], list[Path]]:
+    """Rows, config tools and locks that differ from `base` (all of them if the checker changed)."""
+    pins, tools, locks = selection
+    for rel in WATCHED:
+        current = (ROOT / rel).read_text() if (ROOT / rel).is_file() else ""
+        if git_show(base, rel) != current:
+            return selection
+    old_pins = {(p.name, p.platform): p for p in parse_pins(git_show(base, rels[0]))}
+    old_tools = parse_config_tools(git_show(base, rels[1]))
+
+    def lock_differs(path: Path) -> bool:
+        return git_show(base, os.path.relpath(path, ROOT)) != path.read_text()
+
+    picked = [
+        p
+        for p in pins
+        if old_pins.get((p.name, p.platform)) != p
+        or (SOURCES[p.name][0] == "uv" and lock_differs(lock_path(p)))
+    ]
+    return (
+        picked,
+        {n: v for n, v in tools.items() if old_tools.get(n) != v},
+        [path for path in locks if lock_differs(path)],
+    )
 
 
 def parse_args(argv: list[str]) -> tuple[bool, str, list[str]]:
@@ -382,6 +567,19 @@ def run_tool(name: str, version: str) -> bool:
     return bool(found)
 
 
+def run_lock(path: Path) -> bool:
+    try:
+        found = lock_problems(path)
+    except (PinError, OSError, KeyError, ValueError) as exc:
+        out(f"ERROR lock {path.stem}: {exc}")
+        return True
+    for line in found:
+        out(f"DRIFT lock {path.stem}: {line}")
+    if not found:
+        out(f"ok lock {path.stem}")
+    return bool(found)
+
+
 def main(argv: list[str]) -> int:
     try:
         check, base, names = parse_args(argv)
@@ -398,13 +596,14 @@ def main(argv: list[str]) -> int:
     if unknown:
         sys.stderr.write(f"pins-refresh: no checksum source for {', '.join(unknown)}\n")
         return 1
+    locks = sorted(Path(os.environ.get("REQS", str(ROOT / "tools/requirements"))).glob("*.txt"))
     if names:
         pins = [p for p in pins if p.name in names]
         tools = {n: v for n, v in tools.items() if n in names}
+        locks = [path for path in locks if path.stem in names]
     if base:
-        pins, tools = changed(
-            base, pins, tools, *(os.path.relpath(p, ROOT) for p in (pins_path, config_path))
-        )
+        rels = (os.path.relpath(pins_path, ROOT), os.path.relpath(config_path, ROOT))
+        pins, tools, locks = changed(base, (pins, tools, locks), rels)
     failed = False
     new_text = text
     for pin in pins:
@@ -412,7 +611,9 @@ def main(argv: list[str]) -> int:
         failed = failed or bad
     for name, version in tools.items():
         failed = run_tool(name, version) or failed
-    if not pins and not tools:
+    for path in locks:
+        failed = run_lock(path) or failed
+    if not pins and not tools and not locks:
         out("no pins to check")
     if new_text != text:
         pins_path.write_text(new_text)

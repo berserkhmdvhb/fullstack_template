@@ -356,21 +356,19 @@ def test_deploy_jobs_run_the_matrix_helper_with_a_hashed_pyyaml_venv(name: str) 
 
 
 def test_pyyaml_lock_matches_every_other_pyyaml_pin() -> None:
-    def block(text: str) -> str | None:
-        m = re.search(r"^pyyaml==.*?(?=^\S|\Z)", text, re.MULTILINE | re.DOTALL)
-        return m.group(0) if m else None
+    """Every lock pinning pyyaml agrees with pyyaml.txt (version and hashes), not a literal."""
 
-    def hashes(text: str) -> set[str]:
-        return set(re.findall(r"--hash=sha256:[0-9a-f]{64}", text))
+    def block(text: str) -> tuple[str, set[str]] | None:
+        m = re.search(r"^pyyaml==(\S+) \\\n((?:[ \t]+--hash=\S+(?: \\)?\n?)+)", text, re.MULTILINE)
+        return (m.group(1), set(re.findall(r"sha256:[0-9a-f]{64}", m.group(2)))) if m else None
 
-    lock = (REPO / "tools/requirements/pyyaml.txt").read_text()
-    assert re.findall(r"^([A-Za-z0-9_.-]+==\S+)", lock, re.MULTILINE) == ["pyyaml==6.0.3"]
+    lock = block((REPO / "tools/requirements/pyyaml.txt").read_text())
+    assert lock
+    assert lock[1]
     for path in sorted((REPO / "tools/requirements").glob("*.txt")):
         other = block(path.read_text())
-        if other is None or path.name == "pyyaml.txt":
-            continue
-        assert other.split()[0] == "pyyaml==6.0.3", path.name
-        assert hashes(other) == hashes(lock), path.name
+        if other is not None:
+            assert other == lock, path.name
 
 
 def test_only_the_sign_attest_job_is_exempt_from_the_environment_rule() -> None:

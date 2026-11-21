@@ -10,8 +10,10 @@
 # vendor checksum exists), hashed on download; a changed archive is refused.
 # Rows with url uv:<pkg> are Python tools. Each is installed into its own venv,
 # .tools/uv-tools/<name>, with `uv pip install --require-hashes -r tools/requirements/<name>.txt`
-# (every transitive dependency hash-pinned; regenerate with `uv pip compile --generate-hashes
-# --python-version 3.13 --python-platform x86_64-unknown-linux-gnu`), on the pinned `python` row.
+# (every transitive dependency hash-pinned; `make pins-refresh` regenerates a lock in place with
+# `uv pip compile --generate-hashes --no-header --python-version 3.13 --python-platform x86_64-unknown-linux-gnu`
+# plus `--exclude-newer` (now minus 7 days) and pyyaml held at the version in tools/requirements/pyyaml.txt),
+# on the pinned `python` row.
 # Their sha256 column is `-` because the hashes live in the requirements file. yamale and yamllint
 # are what `ct lint` shells out to. `uv:python` runs `uv python install <version>` (uv's own cache);
 # uv verifies that download with its built-in checksums, which is accepted here.
@@ -25,7 +27,7 @@
 # kubectl (bare binary from dl.k8s.io, sha256 from <binary>.sha256 beside it): must stay within one
 # minor version of the cluster (the Kubernetes version-skew policy); change the pin when the cluster moves.
 #
-# Helm major (spec section 11 item 15): see the default-helm line. Both majors are installed
+# Helm major: see the default-helm line. Both majors are installed
 # (helm3, helm4); `helm` links to the default.
 #default-helm: 4
 # Reason: with Helm 4.3.2 and 3.22.1 against the chart and no cluster, `helm lint`,

@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import urllib.error
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 
@@ -137,9 +140,9 @@ def _pin(name: str, version: str, url: str, sha: str) -> object:
             (
                 "kind",
                 "0.33.0",
-                "https://github.com/o/kind/releases/download/v0.33.0/kind-linux-amd64",
+                "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64",
             ),
-            "https://github.com/o/kind/releases/download/v0.33.0/kind-linux-amd64.sha256sum",
+            "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64.sha256sum",
         ),
         (
             ("node", "22.1.0", "https://nodejs.org/dist/v22.1.0/node-v22.1.0-linux-x64.tar.xz"),
@@ -149,17 +152,17 @@ def _pin(name: str, version: str, url: str, sha: str) -> object:
             (
                 "gitleaks",
                 "8.1.0",
-                "https://github.com/o/g/releases/download/v8.1.0/gitleaks_8.1.0_linux_x64.tar.gz",
+                "https://github.com/gitleaks/gitleaks/releases/download/v8.1.0/gitleaks_8.1.0_linux_x64.tar.gz",
             ),
-            "https://github.com/o/g/releases/download/v8.1.0/gitleaks_8.1.0_checksums.txt",
+            "https://github.com/gitleaks/gitleaks/releases/download/v8.1.0/gitleaks_8.1.0_checksums.txt",
         ),
         (
             (
                 "hadolint",
                 "2.1.0",
-                "https://github.com/o/h/releases/download/v2.1.0/hadolint-linux-x86_64",
+                "https://github.com/hadolint/hadolint/releases/download/v2.1.0/hadolint-linux-x86_64",
             ),
-            "https://github.com/o/h/releases/download/v2.1.0/checksums.sha256",
+            "https://github.com/hadolint/hadolint/releases/download/v2.1.0/checksums.sha256",
         ),
     ],
 )
@@ -195,7 +198,7 @@ def test_bats_hashes_the_tag_archive(monkeypatch: pytest.MonkeyPatch) -> None:
     assert pr.vendor_sha(_pin("bats", "1.0.0", url, "x")) == hashlib.sha256(b"archive").hexdigest()
 
 
-def test_uv_row_checks_the_lock_against_pypi(
+def test_uv_row_checks_the_version_against_its_lock(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     lock = f"zizmor==1.0.0 \\\n    --hash=sha256:{'1' * 64} \\\n    --hash=sha256:{'2' * 64}\n"
@@ -210,10 +213,10 @@ def test_uv_row_checks_the_lock_against_pypi(
     ).encode()
     _stub(monkeypatch, {"https://pypi.org/pypi/zizmor/1.0.0/json": body})
     pin = _pin("zizmor", "1.0.0", "uv:zizmor", "-")
-    assert pr.problem(pin) is None
+    assert (
+        pr.problem(pin) is None
+    )  # the row only has to agree with its lock; PyPI is checked per lock
     assert "version" in (pr.problem(_pin("zizmor", "1.0.1", "uv:zizmor", "-")) or "")
-    _stub(monkeypatch, {"https://pypi.org/pypi/zizmor/1.0.0/json": b'{"urls": []}'})
-    assert "PyPI" in (pr.problem(pin) or "")
 
 
 # --- --check and update over a scratch pins file ---
@@ -229,6 +232,7 @@ def _scratch(tmp_path: Path, sha: str) -> Path:
 def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pins: Path) -> None:
     monkeypatch.setenv("PINS", str(pins))
     monkeypatch.setenv("SECURITY_CONFIG", str(tmp_path / "none.yaml"))
+    monkeypatch.setenv("REQS", str(tmp_path / "reqs"))
 
 
 def test_check_passes_names_the_drifting_pin_and_fails_on_fetch_errors(
@@ -268,6 +272,8 @@ def test_check_with_a_base_only_looks_at_changed_rows(
     old = pins.read_text()
 
     def fake_show(_base: str, rel: str) -> str:
+        if rel in pr.WATCHED:
+            return (ROOT / rel).read_text() if (ROOT / rel).is_file() else ""
         return old if rel.endswith("pins.tsv") else ""
 
     monkeypatch.setattr(pr, "git_show", fake_show)
@@ -302,7 +308,12 @@ def test_wrapper_rejects_unknown_and_incomplete_arguments() -> None:
 def test_wrapper_check_with_no_rows_needs_no_network(tmp_path: Path) -> None:
     empty = tmp_path / "pins.tsv"
     empty.write_text("# nothing\n")
-    run = _wrapper("--check", PINS=str(empty), SECURITY_CONFIG=str(tmp_path / "none.yaml"))
+    run = _wrapper(
+        "--check",
+        PINS=str(empty),
+        SECURITY_CONFIG=str(tmp_path / "none.yaml"),
+        REQS=str(tmp_path / "reqs"),
+    )
     assert run.returncode == 0, run.stderr
 
 
@@ -328,6 +339,8 @@ def test_the_drift_job_is_blocking_and_filtered_on_pull_requests() -> None:
         "infra/security/config.yaml",
         "scripts/pins-refresh.sh",
         "scripts/pins_refresh.py",
+        ".github/workflows/reusable-pins.yml",
+        ".github/workflows/pins-drift.yml",
     ):
         assert re.search(pattern, path), f"the pins filter misses {path}"
     assert not re.search(pattern, "src/app.py")
@@ -350,3 +363,407 @@ def test_a_weekly_run_checks_every_row() -> None:
     call = doc["jobs"]["pins"]
     assert call["uses"] == "./.github/workflows/reusable-pins.yml"
     assert "with" not in call  # no base: every row
+
+
+# --- round 1: anchoring, config.yaml, locks, fetch ---
+
+NOW = datetime(2026, 11, 21, 12, 0, tzinfo=UTC)
+OLD = "2026-01-01T00:00:00.000000Z"
+YOUNG = "2026-11-20T00:00:00.000000Z"
+
+
+def _pypi(files: list[tuple[str, str]]) -> bytes:
+    urls = [{"digests": {"sha256": h}, "upload_time_iso_8601": t} for h, t in files]
+    return json.dumps({"urls": urls}).encode()
+
+
+def _lock(name: str, version: str, hashes: list[str]) -> str:
+    return f"{name}=={version} \\\n" + " \\\n".join(f"    --hash=sha256:{h}" for h in hashes) + "\n"
+
+
+@pytest.mark.parametrize("row", rows(), ids=lambda r: f"{r[0]}-{r[2]}")
+def test_every_url_is_under_its_expected_vendor_prefix(row: list[str]) -> None:
+    assert row[3].startswith(pr.SOURCES[row[0]][2]), f"{row[0]}: url outside the vendor prefix"
+
+
+def test_config_sources_pin_the_repo_the_annotation_names() -> None:
+    notes = dict(
+        re.findall(r"datasource=github-releases depName=(\S+)\n\s+([a-z-]+): v", CONFIG.read_text())
+    )
+    by_tool = {tool: repo for repo, tool in notes.items()}
+    for tool, (repo, *_rest) in pr.CONFIG_SOURCES.items():
+        assert by_tool[tool] == repo, f"{tool}: the annotation and CONFIG_SOURCES disagree"
+
+
+@pytest.mark.parametrize(
+    ("name", "url"),
+    [
+        ("kind", "https://github.com/evil/kind/releases/download/v0.33.0/kind-linux-amd64"),
+        ("helm4", "https://evil.example/helm-v4.3.2-linux-amd64.tar.gz"),
+        ("squawk", "https://github.com/evil/squawk/releases/download/v2.0.0/squawk-linux-x64"),
+        ("bats", "https://github.com/evil/bats-core/archive/refs/tags/v1.0.0.tar.gz"),
+        ("zizmor", "uv:zizmor-lookalike"),
+    ],
+)
+def test_a_look_alike_vendor_is_refused_before_any_fetch(
+    monkeypatch: pytest.MonkeyPatch, name: str, url: str
+) -> None:
+    seen = _stub(monkeypatch, {})
+    with pytest.raises(pr.PinError, match="expected vendor prefix"):
+        pr.problem(_pin(name, "1", url, "a" * 64))
+    assert seen == []
+
+
+def test_a_look_alike_row_fails_the_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    pins = tmp_path / "pins.tsv"
+    url = "https://github.com/evil/kind/releases/download/v0.33.0/kind-linux-amd64"
+    pins.write_text(f"kind\t0.33.0\tlinux-amd64\t{url}\t{'a' * 64}\n")
+    _env(monkeypatch, tmp_path, pins)
+    seen = _stub(monkeypatch, {})
+    assert pr.main(["--check"]) == 1
+    assert "ERROR kind" in capsys.readouterr().out
+    assert seen == []
+
+
+def test_negative_vendor_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    kubectl = "https://dl.k8s.io/release/v1.0.0/bin/linux/amd64/kubectl"
+    _stub(monkeypatch, {kubectl + ".sha256": b"not-hex"})
+    with pytest.raises(pr.PinError, match="sha256"):
+        pr.vendor_sha(_pin("kubectl", "1.0.0", kubectl, "x"))
+    api = "https://api.github.com/repos/sbdchd/squawk/releases/tags/v2.0.0"
+    url = "https://github.com/sbdchd/squawk/releases/download/v2.0.0/squawk-linux-x64"
+    for body in (
+        b'{"assets": []}',
+        b'{"assets": [{"name": "squawk-linux-x64", "digest": null}]}',
+        b'{"assets": [{"name": "squawk-linux-x64", "digest": "sha1:abc"}]}',
+    ):
+        _stub(monkeypatch, {api: body})
+        with pytest.raises(pr.PinError, match="digest"):
+            pr.vendor_sha(_pin("squawk", "2.0.0", url, "x"))
+    yq = "https://github.com/mikefarah/yq/releases/download/v4.0.0/yq_linux_amd64.tar.gz"
+    base = "https://github.com/mikefarah/yq/releases/download/v4.0.0"
+    _stub(
+        monkeypatch,
+        {
+            f"{base}/checksums": b"yq_linux_amd64.tar.gz a b",
+            f"{base}/checksums_hashes_order": b"MD5\nSHA-1\n",
+        },
+    )
+    with pytest.raises(pr.PinError, match="SHA-256"):
+        pr.vendor_sha(_pin("yq", "4.0.0", yq, "x"))
+
+
+def _cfg_base(tool: str, version: str) -> str:
+    repo = pr.CONFIG_SOURCES[tool][0]
+    return f"https://github.com/{repo}/releases/download/{version}"
+
+
+def test_config_sha256_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    base = _cfg_base("syft", "v1.0.0")
+    listing = f"{'a' * 64}  syft_1.0.0_linux_amd64.tar.gz\n".encode()
+    _stub(monkeypatch, {f"{base}/syft_1.0.0_checksums.txt": listing})
+    assert pr.config_problem("syft", "v1.0.0") is None
+    _stub(monkeypatch, {f"{base}/syft_1.0.0_checksums.txt": f"{'a' * 64}  other.tar.gz\n".encode()})
+    with pytest.raises(pr.PinError, match="not listed"):
+        pr.config_problem("syft", "v1.0.0")
+
+
+def test_config_md5_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    base = _cfg_base("sbom-utility", "v0.1.0")
+    md5 = f"{base}/sbom-utility-v0.1.0-linux-amd64.tar.gz.md5"
+    _stub(monkeypatch, {md5: b"d" * 32 + b"\n"})
+    assert pr.config_problem("sbom-utility", "v0.1.0") is None
+    _stub(monkeypatch, {md5: b"nope"})
+    assert pr.config_problem("sbom-utility", "v0.1.0")
+
+
+def test_run_tool_reports_ok_drift_and_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    base = _cfg_base("sbom-utility", "v0.1.0")
+    md5 = f"{base}/sbom-utility-v0.1.0-linux-amd64.tar.gz.md5"
+    _stub(monkeypatch, {md5: b"d" * 32})
+    assert pr.run_tool("sbom-utility", "v0.1.0") is False
+    assert "ok sbom-utility v0.1.0 (config.yaml)" in capsys.readouterr().out
+    _stub(monkeypatch, {md5: b"nope"})
+    assert pr.run_tool("sbom-utility", "v0.1.0") is True
+    assert "DRIFT sbom-utility" in capsys.readouterr().out
+    _stub(monkeypatch, {})
+    assert pr.run_tool("sbom-utility", "v0.1.0") is True
+    assert "ERROR sbom-utility" in capsys.readouterr().out
+
+
+def test_a_config_tool_with_no_vendor_checksum_fails_the_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text("tools:\n  syft: v1.0.0\n")
+    (tmp_path / "pins.tsv").write_text("# none\n")
+    _env(monkeypatch, tmp_path, tmp_path / "pins.tsv")
+    monkeypatch.setenv("SECURITY_CONFIG", str(config))
+    _stub(monkeypatch, {})
+    assert pr.main(["--check"]) == 1
+    assert "ERROR syft" in capsys.readouterr().out
+
+
+# --- locks ---
+
+
+def _lock_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, files: dict[str, str]) -> None:
+    reqs = tmp_path / "reqs"
+    reqs.mkdir(exist_ok=True)
+    for name, text in files.items():
+        (reqs / name).write_text(text)
+    monkeypatch.setenv("REQS", str(reqs))
+    monkeypatch.setattr(pr, "utcnow", lambda: NOW)
+
+
+def test_every_lock_entry_is_checked_against_pypi_hashes_and_age(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    lock = _lock("zizmor", "1.0.0", ["1" * 64]) + _lock("colorama", "0.4.6", ["2" * 64, "3" * 64])
+    _lock_dir(monkeypatch, tmp_path, {"zizmor.txt": lock})
+    pypi = "https://pypi.org/pypi/{}/{}/json"
+    _stub(
+        monkeypatch,
+        {
+            pypi.format("zizmor", "1.0.0"): _pypi([("1" * 64, OLD)]),
+            pypi.format("colorama", "0.4.6"): _pypi(
+                [("2" * 64, OLD), ("3" * 64, OLD), ("4" * 64, OLD)]
+            ),
+        },
+    )
+    assert pr.lock_problems(tmp_path / "reqs" / "zizmor.txt") == []
+    _stub(
+        monkeypatch,
+        {
+            pypi.format("zizmor", "1.0.0"): _pypi([("9" * 64, OLD)]),
+            pypi.format("colorama", "0.4.6"): _pypi([("2" * 64, OLD), ("3" * 64, OLD)]),
+        },
+    )
+    assert any(
+        "zizmor" in p and "hash" in p for p in pr.lock_problems(tmp_path / "reqs" / "zizmor.txt")
+    )
+
+
+def test_a_transitive_package_younger_than_seven_days_is_named(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    lock = _lock("zizmor", "1.0.0", ["1" * 64]) + _lock("pyyaml", "6.0.4", ["2" * 64])
+    _lock_dir(monkeypatch, tmp_path, {"zizmor.txt": lock})
+    _stub(
+        monkeypatch,
+        {
+            "https://pypi.org/pypi/zizmor/1.0.0/json": _pypi([("1" * 64, OLD)]),
+            "https://pypi.org/pypi/pyyaml/6.0.4/json": _pypi([("2" * 64, OLD), ("5" * 64, YOUNG)]),
+        },
+    )
+    problems = pr.lock_problems(tmp_path / "reqs" / "zizmor.txt")
+    assert len(problems) == 1
+    assert "pyyaml 6.0.4" in problems[0]
+    assert "7 days" in problems[0]
+
+
+def test_the_check_runs_the_lock_check_and_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pins.tsv").write_text("# none\n")
+    _env(monkeypatch, tmp_path, tmp_path / "pins.tsv")
+    _lock_dir(monkeypatch, tmp_path, {"pyyaml.txt": _lock("pyyaml", "6.0.3", ["2" * 64])})
+    _stub(monkeypatch, {"https://pypi.org/pypi/pyyaml/6.0.3/json": _pypi([("2" * 64, OLD)])})
+    assert pr.main(["--check"]) == 0
+    assert "ok lock pyyaml" in capsys.readouterr().out
+    _stub(monkeypatch, {})
+    assert pr.main(["--check"]) == 1
+    assert "ERROR lock pyyaml" in capsys.readouterr().out
+
+
+# --- regeneration ---
+
+
+def test_the_regeneration_command_is_the_documented_one_with_a_cutoff() -> None:
+    header = " ".join(ln.lstrip("# ") for ln in PINS.read_text().splitlines() if ln.startswith("#"))
+    documented = (
+        "uv pip compile --generate-hashes --no-header --python-version 3.13"
+        " --python-platform x86_64-unknown-linux-gnu"
+    )
+    assert documented in header
+    cmd = pr.compile_command(Path("lock.txt"), Path("c.txt"), NOW)
+    assert " ".join(c for c in cmd if c != "--quiet").startswith(documented)
+    assert cmd[cmd.index("--exclude-newer") + 1] == "2026-11-14T12:00:00Z"
+    assert cmd[cmd.index("-c") + 1] == "c.txt"
+    assert cmd[cmd.index("-o") + 1] == "lock.txt"
+    assert "--upgrade" not in cmd
+    assert "--no-annotate" not in cmd
+
+
+def test_regeneration_constrains_pyyaml_and_writes_only_where_told(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _lock_dir(monkeypatch, tmp_path, {"pyyaml.txt": _lock("pyyaml", "6.0.3", ["2" * 64])})
+    calls: list[tuple[list[str], str, str]] = []
+
+    def fake_run(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
+        constraint = Path(cmd[cmd.index("-c") + 1]).read_text()
+        calls.append((cmd, str(kw["input"]), constraint))
+        Path(cmd[cmd.index("-o") + 1]).write_text("zizmor==1.2.3\n")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(pr.subprocess, "run", fake_run)
+    pr.regenerate_lock(pr.Pin("zizmor", "1.2.3", "any", "uv:zizmor", "-"))
+    (cmd, stdin, constraint) = calls[0]
+    assert stdin == "zizmor==1.2.3\n"
+    assert constraint.strip() == "pyyaml==6.0.3"
+    assert cmd[cmd.index("-o") + 1] == str(tmp_path / "reqs" / "zizmor.txt")
+
+
+# --- --base selection ---
+
+
+def _base_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, old: dict[str, str]) -> None:
+    pins = _scratch(tmp_path, "b" * 64)
+    _env(monkeypatch, tmp_path, pins)
+    monkeypatch.setattr(pr, "utcnow", lambda: NOW)
+    old = {**old, "tools/pins.tsv": pins.read_text()}
+
+    def fake_show(_base: str, rel: str) -> str:
+        if rel in pr.WATCHED:
+            return (ROOT / rel).read_text() if (ROOT / rel).is_file() else ""
+        if rel.endswith("pins.tsv"):
+            return old["tools/pins.tsv"]
+        return old.get("lock", "") if rel.endswith(".txt") else ""
+
+    monkeypatch.setattr(pr, "git_show", fake_show)
+
+
+def test_base_selects_a_changed_config_tool(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text("tools:\n  syft: v1.0.0\n")
+    _base_env(monkeypatch, tmp_path, {})
+    monkeypatch.setenv("SECURITY_CONFIG", str(config))
+    _stub(monkeypatch, {})
+    assert (
+        pr.main(["--check", "--base", "x"]) == 1
+    )  # syft is new against the base: checked, and unreachable
+    assert "ERROR syft" in capsys.readouterr().out
+
+
+def test_base_selects_a_lock_only_change(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _base_env(
+        monkeypatch,
+        tmp_path,
+        {"lock": "old\n"},
+    )
+    _lock_dir(monkeypatch, tmp_path, {"zizmor.txt": _lock("zizmor", "1.0.0", ["1" * 64])})
+    _stub(monkeypatch, {"https://pypi.org/pypi/zizmor/1.0.0/json": _pypi([("1" * 64, OLD)])})
+    assert pr.main(["--check", "--base", "x"]) == 0
+    assert "ok lock zizmor" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "watched", ["scripts/pins_refresh.py", ".github/workflows/reusable-pins.yml"]
+)
+def test_a_change_to_the_checker_checks_every_row(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, watched: str
+) -> None:
+    pins = _scratch(tmp_path, "b" * 64)
+    _env(monkeypatch, tmp_path, pins)
+    same = pins.read_text()
+
+    def fake_show(_base: str, rel: str) -> str:
+        if rel == watched:
+            return "an older version\n"
+        return (
+            same
+            if rel.endswith("pins.tsv")
+            else (ROOT / rel).read_text()
+            if (ROOT / rel).is_file()
+            else ""
+        )
+
+    monkeypatch.setattr(pr, "git_show", fake_show)
+    seen = _stub(monkeypatch, {})
+    assert pr.main(["--check", "--base", "x"]) == 1
+    assert seen, "the unchanged row was not checked although the checker changed"
+
+
+# --- fetch ---
+
+
+def test_authorization_is_not_copied_to_redirects_and_http_redirects_are_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    request = pr.build_request("https://api.github.com/x")
+    assert not request.headers.get("Authorization")
+    assert request.unredirected_hdrs.get("Authorization") == "Bearer t"
+    assert "Authorization" not in pr.build_request("https://example.org/x").unredirected_hdrs
+    handler = pr.HttpsOnlyRedirect()
+    with pytest.raises(pr.PinError, match="non-https redirect"):
+        handler.redirect_request(request, None, 302, "Found", {}, "http://example.org/x")
+
+
+def _http_error(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("https://x", code, "err", None, None)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("transient", [429, 500, 503])
+def test_transient_failures_are_retried_with_backoff(
+    monkeypatch: pytest.MonkeyPatch, transient: int
+) -> None:
+    outcomes: list[object] = [_http_error(transient), TimeoutError("slow"), b"data"]
+    outcomes_made = outcomes[:-1]
+    slept: list[float] = []
+
+    def fake_open(_request: object) -> bytes:
+        item = outcomes.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item  # type: ignore[return-value]
+
+    monkeypatch.setattr(pr, "open_url", fake_open)
+    monkeypatch.setattr(pr.time, "sleep", slept.append)
+    assert pr.fetch("https://x/y") == b"data"
+    assert len(slept) == len(outcomes_made)
+    assert slept[1] > slept[0]
+
+
+def test_a_404_is_never_retried_and_retries_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    attempts: list[int] = []
+
+    def always(code: int) -> object:
+        def fake_open(_request: object) -> bytes:
+            attempts.append(code)
+            raise _http_error(code)
+
+        return fake_open
+
+    monkeypatch.setattr(pr.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(pr, "open_url", always(404))
+    with pytest.raises(pr.PinError):
+        pr.fetch("https://x/y")
+    assert attempts == [404]
+    attempts.clear()
+    monkeypatch.setattr(pr, "open_url", always(503))
+    with pytest.raises(pr.PinError):
+        pr.fetch("https://x/y")
+    assert 1 < len(attempts) <= pr.ATTEMPTS
+
+
+def test_the_constraint_source_is_removed_from_the_via_lines() -> None:
+    raw = (
+        "pyyaml==6.0.3 \\\n    --hash=sha256:aa\n"
+        "    # via\n    #   -c /tmp/x/constraints.txt\n    #   yamale\n"
+        "six==1 \\\n    --hash=sha256:bb\n"
+        "    # via\n    #   -c /tmp/x/constraints.txt\n    #   a\n    #   b\n"
+    )
+    tidy = pr.tidy_annotations(raw)
+    assert "constraints.txt" not in tidy
+    assert "    # via yamale\n" in tidy
+    assert "    # via\n    #   a\n    #   b\n" in tidy
