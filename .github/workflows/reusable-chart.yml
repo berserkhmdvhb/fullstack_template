@@ -25,16 +25,26 @@ jobs:
         run: |
           scripts/tools.sh install helm4
           echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
-      # ct lint runs yamllint with the tracked config, the same file the pre-commit hook uses. Chart.yaml schema,
-      # maintainers and version-increment checks are off: they need ct's schema file and a target branch.
-      - name: Install chart-testing and yamllint
-        run: scripts/tools.sh install ct yamllint
+      # ct calls yamllint (with the tracked config the pre-commit hook also uses) and yamale (Chart.yaml schema).
+      # GitHub runners ship neither and no uv, so each gets a venv from its hashed lock, as zizmor does in ci.yml.
+      - name: Install chart-testing, yamllint and yamale
+        run: |
+          scripts/tools.sh install ct
+          for tool in yamllint yamale; do
+            python3 -m venv "$RUNNER_TEMP/${tool}"
+            "$RUNNER_TEMP/${tool}/bin/pip" install --quiet --require-hashes --no-deps -r "tools/requirements/${tool}.txt"
+          done
+      # --check-version-increment needs a target branch (the checkout is shallow). --validate-maintainers would look
+      # up the maintainers' GitHub accounts over the network, and the chart's maintainer is a placeholder.
       - name: ct lint
         run: |
-          ct lint --charts "${CHART_DIR}" --lint-conf .github/ct-lintconf.yaml \
-            --validate-chart-schema=false --validate-maintainers=false --check-version-increment=false
+          : "${CHART_DIR:?CHART_DIR is required}"
+          PATH="$RUNNER_TEMP/yamllint/bin:$RUNNER_TEMP/yamale/bin:$PATH" ct lint --charts "${CHART_DIR}" \
+            --lint-conf .github/ct-lintconf.yaml --chart-yaml-schema .github/ct-chart-schema.yaml \
+            --validate-maintainers=false --check-version-increment=false
       - name: Lint and render every values file
         run: |
+          : "${CHART_DIR:?CHART_DIR is required}"
           helm version --short
           helm lint "${CHART_DIR}"
           for f in "${CHART_DIR}"/values.*.yaml; do

@@ -31,3 +31,50 @@ def test_the_hook_script_reads_the_same_file() -> None:
     script = (REPO / "scripts" / "ci" / "yamllint-values.sh").read_text(encoding="utf-8")
     assert CONF in script
     assert ".tools/opt" not in script
+
+
+SCHEMA = ".github/ct-chart-schema.yaml"
+
+
+def _chart_runs() -> str:
+    steps = workflow("reusable-chart.yml")["jobs"]["chart"]["steps"]
+    return "\n".join(s.get("run", "") for s in steps)
+
+
+def test_the_chart_schema_is_tracked_and_matches_the_ct_pin() -> None:
+    first = (REPO / SCHEMA).read_text(encoding="utf-8").splitlines()[0]
+    assert first.startswith("# ")
+    assert "chart_schema.yaml" in first
+    pin = next(
+        ln.split("\t")[1]
+        for ln in (REPO / "tools" / "pins.tsv").read_text(encoding="utf-8").splitlines()
+        if ln.startswith("ct\t")
+    )
+    assert pin in first
+
+
+def test_ct_lint_validates_the_chart_schema() -> None:
+    runs = _chart_runs()
+    assert f"--chart-yaml-schema {SCHEMA}" in runs
+    assert "--validate-chart-schema=false" not in runs
+    assert "--check-version-increment=false" in runs
+    assert "--validate-maintainers=false" in runs
+
+
+def test_the_chart_job_installs_its_python_linters_from_hashed_locks() -> None:
+    runs = _chart_runs()
+    assert "for tool in yamllint yamale; do" in runs
+    assert 'python3 -m venv "$RUNNER_TEMP/${tool}"' in runs
+    assert "tools/requirements/${tool}.txt" in runs
+    assert "--require-hashes" in runs
+    assert 'PATH="$RUNNER_TEMP/yamllint/bin:$RUNNER_TEMP/yamale/bin:$PATH" ct lint' in runs
+    assert "install ct" in runs
+    assert "GITHUB_PATH" not in runs.replace('"$PWD/.tools/bin" >> "$GITHUB_PATH"', "")
+
+
+def test_every_step_using_the_chart_dir_fails_closed_without_it() -> None:
+    steps = workflow("reusable-chart.yml")["jobs"]["chart"]["steps"]
+    users = [s for s in steps if "CHART_DIR" in s.get("run", "")]
+    assert len(users) >= 2  # noqa: PLR2004
+    for step in users:
+        assert ': "${CHART_DIR:?' in step["run"], step.get("name")
