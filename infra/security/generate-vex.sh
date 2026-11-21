@@ -175,8 +175,10 @@ for gj in "${GRYPE_DIR}"/*.image.vuln.grype.json; do
   fi
   # Shape check (Grype v0.121 document: .matches always an array, .ignoredMatches absent or an array
   # of objects) so no iteration below can silently skip a wrong-typed field.
-  jq -e 'type == "object" and (.matches | type) == "array" and ((.ignoredMatches // []) | type) == "array"
-    and all(.matches[], (.ignoredMatches // [])[]; type == "object")' "${gj}" >/dev/null \
+  # Slurped: exactly one document. ignoredMatches may be absent or null, else an array.
+  jq -se 'length == 1 and (.[0] | type == "object" and (.matches | type) == "array"
+    and ((.ignoredMatches | type) as $t | $t == "null" or $t == "array")
+    and all(.matches[], (.ignoredMatches // [])[]; type == "object"))' "${gj}" >/dev/null \
     || die "cannot build VEX statements from ${gj} (not a Grype JSON report)"
   res="$(jq -c \
     --arg svc "${svc}" --arg digest "${digest}" --arg repo_url "${repository_url}" \

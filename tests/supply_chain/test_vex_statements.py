@@ -280,7 +280,11 @@ def test_other_frozen_scripts_are_unchanged() -> None:
 @pytest.mark.parametrize(
     "raw",
     ["null", '"x"', "[]", "{}", '{"matches":"x"}', '{"matches":{}}',
-     '{"matches":[],"ignoredMatches":"x"}', '{"matches":[1]}'],
+     '{"matches":[],"ignoredMatches":"x"}', '{"matches":[1]}',
+     '{"matches":"x"} {"matches":[]}', '{"matches":[]} {"matches":"x"}',
+     '{"matches":[]} {"matches":[]}',
+     '{"matches":[],"ignoredMatches":false}', '{"matches":[],"ignoredMatches":0}',
+     '{"matches":[],"ignoredMatches":""}', '{"matches":[],"ignoredMatches":{}}'],
 )  # fmt: skip
 def test_report_of_the_wrong_shape_fails_closed(tmp_path: Path, raw: str) -> None:
     p, stmts = _run_full(tmp_path, raw_report=raw)
@@ -290,8 +294,9 @@ def test_report_of_the_wrong_shape_fails_closed(tmp_path: Path, raw: str) -> Non
     assert not stmts
 
 
-def test_report_with_no_findings_is_valid(tmp_path: Path) -> None:
-    p, stmts = _run_full(tmp_path, raw_report='{"matches":[]}')
+@pytest.mark.parametrize("raw", ['{"matches":[]}', '{"matches":[],"ignoredMatches":null}'])
+def test_report_with_no_findings_is_valid(tmp_path: Path, raw: str) -> None:
+    p, stmts = _run_full(tmp_path, raw_report=raw)
     assert p.returncode == 0, p.stderr
     assert stmts == []
 
