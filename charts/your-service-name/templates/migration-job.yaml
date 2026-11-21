@@ -1,38 +1,33 @@
 {{/*
-   Alembic migration Job, run as a Helm hook so it executes on every install and
-   upgrade automatically (no manual delete-recreate). backoffLimit/activeDeadline
-   are the Job's own retry budget; the backend also retries init_db on startup.
+   Alembic migration Job: a plain release resource, one per release revision. NOT a Helm hook.
 
-   MUST be a POST-install/upgrade hook, not pre-install. Helm runs pre-install
-   hooks BEFORE any regular resources exist ("executes ... before any resources
-   are created"), so a pre-install migration can never see the ServiceAccount or
-   Postgres it depends on — both are regular resources created only afterwards,
-   and a failed pre-install hook aborts the release before they are made. As a
-   post-install hook the SA, Postgres, Secret and ConfigMap all exist first; the
-   backend's readiness probe (/api/v1/health) is DB-connection green independent
-   of the schema, and the backend retries init_db on startup, so starting it just
-   before the schema lands is safe.
+   Why not a hook: the backend's readiness (/api/v1/health) checks the schema revision, and Helm
+   waits for the release's resources to be ready (--wait) BEFORE it runs post-install and
+   post-upgrade hooks (pkg/action install.go and upgrade.go: the wait, then the post hooks). A
+   post-install migration hook would therefore wait for Pods that wait for the schema it creates: a
+   deadlock on every first install. As an ordinary resource the Job is created together with the
+   Deployment; the Pods stay unready until it finishes, and a rolling update keeps the old Pods
+   serving meanwhile. deploy-env.sh passes --wait-for-jobs, so a failed migration fails the
+   release and the rollback path runs.
 
-   Faithful to the Kustomize Job, incl. the cross-namespace secret detail: DB_USER
-   is pulled from the APP secret (same one the migrate container consumes) and
-   DB_NAME from the ConfigMap — both in the Job's own namespace. Referencing the
-   db-namespace secret here stranded the init container in CreateContainerConfigError.
+   The name carries .Release.Revision because a Job's spec is immutable: each upgrade renders a new
+   Job. ttlSecondsAfterFinished cleans old ones up. The runner never downgrades and treats a newer
+   database as success, so `helm rollback` (which re-runs an older Job) is safe.
+   backoffLimit/activeDeadlineSeconds are the Job's own retry budget; the runner also retries the
+   database connection itself.
+
+   DB_USER is pulled from the APP secret (the one the migrate container consumes) and DB_NAME from
+   the ConfigMap, both in the Job's own namespace. Referencing the db-namespace secret here
+   stranded the init container in CreateContainerConfigError.
 */}}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "chart.fullname" . }}-migration
+  name: {{ printf "%s-migrate-r%d" (include "chart.fullname" . | trunc 44 | trimSuffix "-") (.Release.Revision | int) }}
   namespace: {{ .Release.Namespace }}
   labels:
 {{- include "chart.labels" . | nindent 4 }}
     app.kubernetes.io/component: migration
-  annotations:
-    # post-install (not pre-install): see the block comment above — the migration
-    # depends on regular resources (ServiceAccount + Postgres) that only exist
-    # after the release's resources are created.
-    "helm.sh/hook": post-install,post-upgrade
-    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
-    "helm.sh/hook-weight": "0"
 spec:
   backoffLimit: 3
   activeDeadlineSeconds: 300

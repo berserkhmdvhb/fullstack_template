@@ -3,7 +3,8 @@
 #
 # 1. image values from the manifest plus the release digests (every digest must be sha256:<64 hex>)
 # 2. record the last `deployed` Helm revision (none on a first install)
-# 3. helm upgrade --install --rollback-on-failure --wait (Helm rolls a failed upgrade back itself)
+# 3. helm upgrade --install --rollback-on-failure --wait --wait-for-jobs (Helm rolls a failed upgrade back
+#    itself; --wait-for-jobs makes a failed migration Job fail the release)
 # 4. deploy-verify.sh, then scripts/smoke-test.sh through a port-forward
 # 5. when verify or smoke fails: helm rollback to the recorded revision, then exit 1
 #
@@ -63,7 +64,7 @@ echo "last deployed revision before this deploy: ${recorded:-none (first install
 helm upgrade --install "$SERVICE_NAME" "$CHART_DIR" \
   -f "$CHART_DIR/values.${DEPLOY_ENV}.yaml" -f "$VALUES" \
   --namespace "$NAMESPACE" \
-  --rollback-on-failure --wait --timeout "$HELM_TIMEOUT"
+  --rollback-on-failure --wait --wait-for-jobs --timeout "$HELM_TIMEOUT"
 helm history "$SERVICE_NAME" -n "$NAMESPACE" --max 5
 
 # 4. verify and smoke

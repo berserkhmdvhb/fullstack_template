@@ -61,7 +61,7 @@ STUB
   run bash "$SCRIPT"
   [ "$status" -eq 0 ]
   grep -q "helm upgrade --install svc charts/x" "$LOG"
-  grep -q -- "--rollback-on-failure --wait --timeout 5m" "$LOG"
+  grep -q -- "--rollback-on-failure --wait --wait-for-jobs --timeout 5m" "$LOG"
   grep -q -- "-n svc-dev" "$LOG"
   grep -q "^verify COMPONENTS=backend frontend" "$LOG"
   grep -q "^smoke --base-url http://127.0.0.1:8000 --host svc-backend --path /api/v1" "$LOG"

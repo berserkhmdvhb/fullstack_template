@@ -3,7 +3,7 @@
 #
 # Checks (the first failure exits 1):
 #   1. the release is `deployed` (its newest Helm release Secret has status=deployed)
-#   2. the migration Job, if it still exists, completed
+#   2. the newest migration Job (one per release revision), if any, completed
 #   3. every pod of the service is Running (or Succeeded)
 #   4. every pod of each component runs the expected image DIGEST (the pod's imageID)
 #   5. the backend and frontend health routes answer (kubectl exec, no ingress needed)
@@ -52,13 +52,14 @@ echo "Verifying release $RELEASE in $NAMESPACE"
 echo "== Check 1: Helm release status =="
 found="$("${K[@]}" get secret -l "owner=helm,name=${RELEASE},status=deployed" -o name)"
 [[ -n "$found" ]] || fail "release $RELEASE is not deployed"
-echo "release deployed (migration hook succeeded)"
+echo "release deployed"
 
 echo "== Check 2: Migration Job =="
-migs="$("${K[@]}" get job -l app.kubernetes.io/component=migration \
-  -o jsonpath='{range .items[*]}{.status.succeeded}{"|"}{.status.failed}{"|"}{.status.conditions[?(@.type=="Failed")].status}{"\n"}{end}')"
+# One Job per release revision stays until its TTL; only the newest is this deploy's.
+migs="$("${K[@]}" get job -l app.kubernetes.io/component=migration --sort-by=.metadata.creationTimestamp \
+  -o jsonpath='{range .items[*]}{.status.succeeded}{"|"}{.status.failed}{"|"}{.status.conditions[?(@.type=="Failed")].status}{"\n"}{end}' | tail -n 1)"
 if [[ -z "$migs" ]]; then
-  echo "no migration job (the hook deletes it on success): ok"
+  echo "no migration job (cleaned up after its TTL): ok"
 else
   while IFS='|' read -r ok failed cond; do
     [[ "$ok" == "1" ]] && continue

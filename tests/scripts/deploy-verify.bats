@@ -84,6 +84,14 @@ STUB
   [[ "$output" == *"ERROR: migration job failed"* ]]
 }
 
+@test "check 2 looks only at the newest migration job (older revisions' Jobs stay until their TTL)" {
+  STUB_JOBS=$'|1|True\n1||' run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  STUB_JOBS=$'1||\n|1|True' run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: migration job failed"* ]]
+}
+
 @test "check 2 fails on a job with the Failed condition" {
   STUB_JOBS="|4|True" run bash "$SCRIPT"
   [ "$status" -eq 1 ]
