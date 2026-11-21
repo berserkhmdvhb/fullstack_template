@@ -9,7 +9,13 @@ from pathlib import Path
 import pytest
 
 SRC = Path(__file__).resolve().parents[2] / "src"
-ALLOWED = {Path("your_service_name/backend/settings.py")}
+# The two process entry points read their own few variables: the launcher is a thin process starter
+# and the HEALTHCHECK probe must stay import-light (no pydantic), so neither goes through Settings.
+ALLOWED = {
+    Path("your_service_name/backend/settings.py"),
+    Path("your_service_name/backend/serve.py"),
+    Path("your_service_name/backend/healthcheck.py"),
+}
 ENV_ATTRS = {"getenv", "getenvb", "environ", "environb", "putenv", "unsetenv"}
 
 
