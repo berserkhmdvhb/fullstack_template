@@ -6,6 +6,11 @@
  * specificity (v3 compared specificity, so `.min-h-screen` beat an element rule like `html, body`).
  * A bare element selector outside a layer would therefore override utilities such as `min-h-screen`.
  *
+ * The scope is element-only on purpose. An element rule (`html, body { ... }`) is the v3 habit that breaks silently
+ * under v4. A selector with a class, id, attribute or other pseudo-class is a component style an author wrote
+ * unlayered deliberately, so this guard does not police it. `:where(...)` and `:is(...)` add no specificity of their
+ * own, so `:where(html)` is still a bare element and is unwrapped before the check.
+ *
  * @packageDocumentation
  */
 
@@ -37,10 +42,26 @@ function unlayeredRules(): Rule[] {
   return out;
 }
 
+/**
+ * Whether a selector targets bare elements only, after unwrapping `:where(...)` and `:is(...)`.
+ *
+ * @param selector - one selector from a rule
+ *
+ * @returns true when no class, id, attribute or other pseudo-class remains
+ */
+function isBareElement(selector: string): boolean {
+  let unwrapped = selector;
+  for (let prev = ''; prev !== unwrapped;) {
+    prev = unwrapped;
+    unwrapped = unwrapped.replace(/:(?:where|is)\(([^()]*)\)/g, '$1');
+  }
+  return !/[.#[:]/.test(unwrapped);
+}
+
 describe('globals.css cascade', () => {
   it('has no unlayered rule whose selector is a bare element (utilities must be able to override it)', () => {
     const bare = unlayeredRules().flatMap((r) =>
-      r.selectors.filter((s) => !/[.#[:]/.test(s)).map((s) => s.trim()),
+      r.selectors.filter(isBareElement).map((s) => s.trim()),
     );
     expect(bare).toEqual([]);
   });
@@ -65,4 +86,20 @@ describe('globals.css cascade', () => {
     });
     expect(self).toEqual([]);
   });
+});
+
+describe('isBareElement', () => {
+  it.each(['html', 'body', ':where(html)', ':is(html, body)', ':where(:is(header))'])(
+    'flags %s as a bare element',
+    (selector) => {
+      expect(isBareElement(selector)).toBe(true);
+    },
+  );
+
+  it.each(['.btn', '#root', 'a[href]', ':where(.btn)', 'html:not(.dark)', ':is(.a, .b)'])(
+    'does not flag %s',
+    (selector) => {
+      expect(isBareElement(selector)).toBe(false);
+    },
+  );
 });

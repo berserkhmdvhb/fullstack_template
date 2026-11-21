@@ -99,15 +99,16 @@ test.describe('Routing', () => {
     expect(html.toLowerCase()).toContain('next');
   });
 
-  test('should serve static assets with cache headers', async ({ request }) => {
-    // Next.js webpack chunks are served by the frontend itself
-    const response = await request.get('/_next/static/chunks/webpack.js');
+  test('should serve a real script chunk as immutable JavaScript', async ({ request }) => {
+    // Take a chunk the page actually references, so a missing or renamed bundle fails here.
+    const html = await (await request.get('/')).text();
+    const chunk = /\/_next\/static\/[^"\\]+\.js/.exec(html)?.[0];
+    if (chunk === undefined) throw new Error('the page references no static script chunk');
 
-    // Should either succeed or get a 404 (if chunk doesn't exist yet)
-    // If it exists, it should have cache headers
-    if (response.status() === 200) {
-      const cacheControl = response.headers()['cache-control'];
-      expect(cacheControl).toContain('public');
-    }
+    const response = await request.get(chunk);
+
+    expect(response.status()).toBe(200);
+    expect(response.headers()['content-type']).toMatch(/javascript/);
+    expect(response.headers()['cache-control']).toBe('public, max-age=31536000, immutable');
   });
 });

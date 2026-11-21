@@ -20,6 +20,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Node 25+ has its own global localStorage (undefined without --localstorage-file) that shadows the DOM's.
+    execArgv: ['--no-experimental-webstorage'],
     globals: true,
     include: [
       'lib/config.test.ts',

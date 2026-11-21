@@ -31,6 +31,7 @@ describe('MSW unhandled-request policy', () => {
       expect(await response.text()).toBe('ok');
       expect(warn.mock.calls.flat().join(' ')).not.toMatch(/MSW/);
     } finally {
+      warn.mockRestore();
       happyDOM.setURL(originalUrl);
       await new Promise((resolve) => upstream.close(resolve));
     }

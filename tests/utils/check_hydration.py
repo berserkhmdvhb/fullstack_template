@@ -48,11 +48,9 @@ TIMEOUT_ARG_INDEX = 1
 INTERVAL_ARG_INDEX = 2
 NAME_ARG_INDEX = 3
 
-# Shared app chunks: main-app-<hash>.js plus the other shared chunks
-# (255-*, 4bd1b696-*, webpack-*, ...). App-Router chunk filenames are word
-# characters, '.', '/' and '-' only.
+# Any script chunk the page references (Turbopack names them like `05n5fvnr4t_e3.js`).
+# Chunk filenames are word characters, ".", "/" and "-" only.
 _CHUNK_RE = re.compile(r"/_next/static/chunks/[\w./-]+\.js")
-_MAIN_APP_RE = re.compile(r"/_next/static/chunks/main-app-[\w./-]+\.js")
 
 # Poll a loopback service started in THIS container. CI runners (especially
 # enterprise/self-hosted runners) frequently export http_proxy/https_proxy;
@@ -86,17 +84,12 @@ def _get(url: str) -> tuple[int | None, str, str]:
 
 
 def _extract_chunk(html: str) -> str | None:
-    """Return a shared chunk path from page HTML, preferring the app entry.
+    """Return the first script chunk path the page HTML references, or None.
 
-    The App-Router entry chunk (``main-app-<hash>.js``) is the one that actually
-    hydrates the app, so prefer it; otherwise fall back to the first shared chunk
-    found — any of them 404ing breaks hydration.
+    Any referenced chunk 404ing breaks hydration, so the first one is as good as any.
     """
-    main_app = _MAIN_APP_RE.search(html)
-    if main_app:
-        return main_app.group(0)
-    first = _CHUNK_RE.search(html)
-    return first.group(0) if first else None
+    match = _CHUNK_RE.search(html)
+    return match.group(0) if match else None
 
 
 def _content_type_ok(content_type: str) -> bool:
