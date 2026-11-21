@@ -117,8 +117,15 @@ jobs:
           cluster_name: ${{ vars.GKE_CLUSTER }}
           location: ${{ vars.GKE_LOCATION }}
           kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
+      # container_matrix.py imports PyYAML; these jobs have no setup-python, so a hashed venv supplies it.
+      - name: Install PyYAML for the matrix helper
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pyyaml"
+          "$RUNNER_TEMP/pyyaml/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pyyaml.txt
       # Digest-pinned upgrade, verify, smoke, and rollback to the recorded revision: all in the script.
       - name: Deploy, verify and smoke test
+        env:
+          MATRIX_CMD: ${{ runner.temp }}/pyyaml/bin/python ${{ github.workspace }}/.github/scripts/container_matrix.py
         run: bash scripts/ci/deploy-env.sh
       - name: Upload the smoke report
         if: always()
@@ -167,8 +174,15 @@ jobs:
           cluster_name: ${{ vars.GKE_CLUSTER }}
           location: ${{ vars.GKE_LOCATION }}
           kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
+      # container_matrix.py imports PyYAML; these jobs have no setup-python, so a hashed venv supplies it.
+      - name: Install PyYAML for the matrix helper
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pyyaml"
+          "$RUNNER_TEMP/pyyaml/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pyyaml.txt
       # Digest-pinned upgrade, verify, smoke, and rollback to the recorded revision: all in the script.
       - name: Deploy, verify and smoke test
+        env:
+          MATRIX_CMD: ${{ runner.temp }}/pyyaml/bin/python ${{ github.workspace }}/.github/scripts/container_matrix.py
         run: bash scripts/ci/deploy-env.sh
       - name: Upload the smoke report
         if: always()
@@ -217,8 +231,15 @@ jobs:
           cluster_name: ${{ vars.GKE_CLUSTER }}
           location: ${{ vars.GKE_LOCATION }}
           kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
+      # container_matrix.py imports PyYAML; these jobs have no setup-python, so a hashed venv supplies it.
+      - name: Install PyYAML for the matrix helper
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pyyaml"
+          "$RUNNER_TEMP/pyyaml/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pyyaml.txt
       # Digest-pinned upgrade, verify, smoke, and rollback to the recorded revision: all in the script.
       - name: Deploy, verify and smoke test
+        env:
+          MATRIX_CMD: ${{ runner.temp }}/pyyaml/bin/python ${{ github.workspace }}/.github/scripts/container_matrix.py
         run: bash scripts/ci/deploy-env.sh
       - name: Upload the smoke report
         if: always()

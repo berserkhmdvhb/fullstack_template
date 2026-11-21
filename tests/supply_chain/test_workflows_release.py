@@ -94,7 +94,7 @@ def test_jobs_run_in_order() -> None:
 
 def test_plan_job_uses_the_matrix_helper_and_exposes_outputs() -> None:
     job = _jobs()["plan"]
-    assert "python3 .github/scripts/container_matrix.py --matrix" in _runs(job)
+    assert ".github/scripts/container_matrix.py --matrix" in _runs(job)
     assert {"matrix", "version", "channel", "image_tag", "immutable"} <= set(job["outputs"])
     assert "fromJSON(needs.plan.outputs.matrix)" in str(_jobs()["build"]["strategy"]["matrix"])
 

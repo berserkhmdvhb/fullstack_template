@@ -142,27 +142,21 @@ jobs:
         run: |
           scripts/tools.sh install actionlint
           echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      # The lint uses setup-backend's interpreter (PyYAML comes from the develop extras), so no step may put a venv's bin on GITHUB_PATH before it.
+      - name: CI hardening lint
+        run: infra/security/check-ci-hardening.sh
+      - name: actionlint
+        run: actionlint
       - name: Install zizmor
         run: |
           python -m venv "$RUNNER_TEMP/zizmor"
           "$RUNNER_TEMP/zizmor/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/zizmor.txt
-          echo "$RUNNER_TEMP/zizmor/bin" >> "$GITHUB_PATH"
-      # The lint imports PyYAML, which the runner's system python3 lacks; a hashed venv supplies it for that step only.
-      - name: Install PyYAML for the hardening lint
-        run: |
-          python -m venv "$RUNNER_TEMP/ci-hardening"
-          "$RUNNER_TEMP/ci-hardening/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/ci-hardening.txt
-      - name: CI hardening lint
-        env:
-          PATH: ${{ runner.temp }}/ci-hardening/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-        run: infra/security/check-ci-hardening.sh
-      - name: actionlint
-        run: actionlint
       # The read-only token turns on zizmor's online audits (impostor commits, known-vulnerable actions).
       - name: zizmor
         env:
           GH_TOKEN: ${{ github.token }}
-        run: zizmor .github/
+        run: |
+          "$RUNNER_TEMP/zizmor/bin/zizmor" .github/
 
   # The one required status check. Path-filtered jobs that are skipped and the matrix legs of the reusable
   # workflows have no stable check names, so the branch ruleset requires this job instead (see

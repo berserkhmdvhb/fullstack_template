@@ -237,7 +237,7 @@ def test_ci_has_a_blocking_always_on_workflows_job() -> None:
         "scripts/tools.sh install actionlint",
         "--require-hashes",
         "tools/requirements/zizmor.txt",
-        "zizmor .github/",
+        'zizmor/bin/zizmor" .github/',
     ):
         assert needle in runs, needle
 
@@ -259,57 +259,90 @@ def test_zizmor_runs_online_with_a_read_only_token() -> None:
 
     job = workflow("ci.yml")["jobs"]["workflows"]
     assert job["permissions"] == {"contents": "read"}
-    step = next(s for s in job["steps"] if s.get("run", "").strip().startswith("zizmor "))
+    step = next(s for s in job["steps"] if 'zizmor/bin/zizmor" ' in s.get("run", ""))
     assert step["env"] == {"GH_TOKEN": "${{ github.token }}"}
     assert "--offline" not in step["run"]
     assert "--no-online-audits" not in step["run"]
 
 
-def test_hardening_lint_runs_with_a_hashed_pyyaml_venv() -> None:
+def test_no_step_puts_a_venv_bin_on_github_path() -> None:
+    from tests.supply_chain._workflows import all_files, load  # noqa: PLC0415
+
+    for path in all_files():
+        doc = load(path)
+        jobs = doc["jobs"].values() if "jobs" in doc else [doc["runs"]]
+        for job in jobs:
+            runs = "\n".join(s.get("run", "") for s in job.get("steps", []))
+            for venv in re.findall(r"python3? -m venv (\S+)", runs):
+                bin_dir = venv.strip("\"'") + "/bin"
+                for line in runs.splitlines():
+                    assert not ("GITHUB_PATH" in line and bin_dir in line.replace('"', "")), (
+                        path.name,
+                        line,
+                    )
+
+
+def test_hardening_lint_runs_with_the_setup_backend_interpreter() -> None:
     from tests.supply_chain._workflows import workflow  # noqa: PLC0415
 
     steps = workflow("ci.yml")["jobs"]["workflows"]["steps"]
-    names = [s.get("name") for s in steps]
-    lint = names.index("CI hardening lint")
-    install = next(
-        i for i, s in enumerate(steps) if "tools/requirements/ci-hardening.txt" in s.get("run", "")
+    lint = next(i for i, s in enumerate(steps) if s.get("name") == "CI hardening lint")
+    setup = next(
+        i for i, s in enumerate(steps) if s.get("uses") == "./.github/actions/setup-backend"
     )
-    assert install < lint
-    run = steps[install]["run"]
-    assert 'python -m venv "$RUNNER_TEMP/ci-hardening"' in run
-    assert "--require-hashes" in run
-    assert "--no-deps" in run
-    assert "GITHUB_PATH" not in run
-    path = steps[lint]["env"]["PATH"]
-    assert path.startswith("${{ runner.temp }}/ci-hardening/bin:")
-    assert "GITHUB_PATH" not in steps[lint].get("run", "")
+    assert setup < lint
+    assert "env" not in steps[lint]
+    assert not any("venv" in s.get("run", "") for s in steps[setup + 1 : lint])
 
 
-def test_release_plan_runs_with_a_hashed_pyyaml_venv() -> None:
+def _installs_pyyaml(step: dict[str, str]) -> bool:
+    run = step.get("run", "")
+    return (
+        'python3 -m venv "$RUNNER_TEMP/pyyaml"' in run
+        and "--require-hashes" in run
+        and "--no-deps" in run
+        and "tools/requirements/pyyaml.txt" in run
+    )
+
+
+def test_release_plan_runs_the_matrix_helper_with_a_hashed_pyyaml_venv() -> None:
     from tests.supply_chain._workflows import workflow  # noqa: PLC0415
 
     steps = workflow("release.yml")["jobs"]["plan"]["steps"]
     plan = next(i for i, s in enumerate(steps) if s.get("id") == "plan")
-    install = next(
-        i for i, s in enumerate(steps) if "tools/requirements/ci-hardening.txt" in s.get("run", "")
+    assert any(_installs_pyyaml(s) for s in steps[:plan])
+    assert (
+        '"$RUNNER_TEMP/pyyaml/bin/python" .github/scripts/container_matrix.py' in steps[plan]["run"]
     )
-    assert install < plan
-    assert "--require-hashes" in steps[install]["run"]
-    assert "GITHUB_PATH" not in steps[install]["run"]
-    assert steps[plan]["env"]["PATH"].startswith("${{ runner.temp }}/ci-hardening/bin:")
+    assert "PATH" not in steps[plan].get("env", {})
 
 
-def test_ci_hardening_lock_pins_the_same_pyyaml_as_yamllint() -> None:
-    def pyyaml_block(name: str) -> tuple[list[str], str]:
-        text = (REPO / "tools/requirements" / name).read_text()
-        pkgs = re.findall(r"^([A-Za-z0-9_.-]+==\S+)", text, re.MULTILINE)
-        block = re.search(r"^pyyaml==.*?(?=^\S|\Z)", text, re.MULTILINE | re.DOTALL)
-        assert block, name
-        return pkgs, block.group(0)
+@pytest.mark.parametrize("name", ["deploy-dev", "deploy-qa", "deploy-production"])
+def test_deploy_jobs_run_the_matrix_helper_with_a_hashed_pyyaml_venv(name: str) -> None:
+    from tests.supply_chain._workflows import workflow  # noqa: PLC0415
 
-    pkgs, block = pyyaml_block("ci-hardening.txt")
-    _, ref_block = pyyaml_block("yamllint.txt")
-    assert pkgs == ["pyyaml==6.0.3"]
-    hashes = set(re.findall(r"--hash=sha256:[0-9a-f]{64}", block))
-    assert hashes
-    assert hashes == set(re.findall(r"--hash=sha256:[0-9a-f]{64}", ref_block))
+    steps = workflow("deploy.yml")["jobs"][name]["steps"]
+    deploy = next(i for i, s in enumerate(steps) if "deploy-env.sh" in s.get("run", ""))
+    assert any(_installs_pyyaml(s) for s in steps[:deploy])
+    env = steps[deploy]["env"]
+    assert env["MATRIX_CMD"].startswith("${{ runner.temp }}/pyyaml/bin/python ")
+    assert env["MATRIX_CMD"].endswith("/.github/scripts/container_matrix.py")
+    assert "PATH" not in env
+
+
+def test_pyyaml_lock_matches_every_other_pyyaml_pin() -> None:
+    def block(text: str) -> str | None:
+        m = re.search(r"^pyyaml==.*?(?=^\S|\Z)", text, re.MULTILINE | re.DOTALL)
+        return m.group(0) if m else None
+
+    def hashes(text: str) -> set[str]:
+        return set(re.findall(r"--hash=sha256:[0-9a-f]{64}", text))
+
+    lock = (REPO / "tools/requirements/pyyaml.txt").read_text()
+    assert re.findall(r"^([A-Za-z0-9_.-]+==\S+)", lock, re.MULTILINE) == ["pyyaml==6.0.3"]
+    for path in sorted((REPO / "tools/requirements").glob("*.txt")):
+        other = block(path.read_text())
+        if other is None or path.name == "pyyaml.txt":
+            continue
+        assert other.split()[0] == "pyyaml==6.0.3", path.name
+        assert hashes(other) == hashes(lock), path.name

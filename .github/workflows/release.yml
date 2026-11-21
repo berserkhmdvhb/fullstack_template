@@ -35,18 +35,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The helper imports PyYAML, which the runner's system python3 lacks; a hashed venv supplies it for the next step only.
+      # The helper imports PyYAML and this job has no setup-python; a hashed venv supplies it.
       - name: Install PyYAML for the matrix helper
         run: |
-          python3 -m venv "$RUNNER_TEMP/ci-hardening"
-          "$RUNNER_TEMP/ci-hardening/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/ci-hardening.txt
+          python3 -m venv "$RUNNER_TEMP/pyyaml"
+          "$RUNNER_TEMP/pyyaml/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pyyaml.txt
       # The helper writes version, channel, image_tag and immutable to GITHUB_OUTPUT; the matrix JSON is its stdout.
       - name: Render the matrix and the version
         id: plan
-        env:
-          PATH: ${{ runner.temp }}/ci-hardening/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
         run: |
-          matrix="$(python3 .github/scripts/container_matrix.py --matrix)"
+          matrix="$("$RUNNER_TEMP/pyyaml/bin/python" .github/scripts/container_matrix.py --matrix)"
           echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
           {
             echo "### Release plan"

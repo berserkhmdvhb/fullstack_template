@@ -109,7 +109,7 @@ Pull requests and tags restore caches and never save them, so a pull request can
 |---|---|
 | Third-party actions | the `uses:` line, a full 40-character SHA with a `# vX.Y.Z` comment (Renovate keeps them current) |
 | Dev tools (shellcheck, bats, yq, actionlint, helm, kubectl, node) | `tools/pins.tsv`, with checksums, installed by `scripts/tools.sh` |
-| Python tools (zizmor, pip-audit, yamllint, ...) | `tools/requirements/*.txt`, hash-pinned; `ci-hardening.txt` is the PyYAML the CI hardening lint and the release plan job run with, in a venv on `PATH` for that step only |
+| Python tools (zizmor, pip-audit, yamllint, ...) | `tools/requirements/*.txt`, hash-pinned; `pyyaml.txt` is the PyYAML for `container_matrix.py` in the release `plan` and deploy jobs (no setup-python there), installed into a venv and called by full path |
 | Security tools (syft, grype, grant, osv-scanner, kubescape, ...) | `infra/security/config.yaml`, installed by `infra/security/tools-install.sh` |
 | The ZAP image | `infra/security/config.yaml` (`dast.zap_image`), by tag and digest |
 | Container base images | the `FROM` lines of the Dockerfiles, by `@sha256:` digest |
