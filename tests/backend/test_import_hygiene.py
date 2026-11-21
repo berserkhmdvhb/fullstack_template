@@ -109,3 +109,21 @@ def test_no_backend_image_can_contain_a_dotenv() -> None:
             for source in match.group(1).split():
                 assert source not in {".", "./", "*"}, f"{name}: {line}"
                 assert not Path(source).name.startswith(".env"), f"{name}: {line}"
+
+
+def test_features_off_import_no_tracing_sdk_or_redis() -> None:
+    """The opt-in dependencies are imported only when their feature is on.
+
+    FastAPI itself imports the small ``opentelemetry`` API package (its own, inert telemetry), so
+    the check is for everything this feature adds: the SDK, the exporter, the instrumentations,
+    the semantic conventions, the protobuf definitions and ``redis``.
+    """
+    code = (
+        "import sys; from your_service_name.backend.main import create_app; create_app();"
+        "banned = ('opentelemetry.sdk', 'opentelemetry.exporter', 'opentelemetry.instrumentation',"
+        " 'opentelemetry.semconv', 'opentelemetry.proto', 'opentelemetry.util.http', 'redis');"
+        "bad = sorted(m for m in sys.modules if m == 'redis' or m.startswith(banned));"
+        "assert not bad, bad"
+    )
+    result = _import(code, {})
+    assert result.returncode == 0, result.stderr

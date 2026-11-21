@@ -27,6 +27,12 @@ dependencies = [
   "asyncpg",
   "aiosqlite",
   "limits>=3.0",
+  # Opt-in features (TRACING_ENABLED, a redis:// RATE_LIMIT_STORAGE): imported only when switched on.
+  "redis>=5",
+  "opentelemetry-sdk>=1.30",
+  "opentelemetry-exporter-otlp-proto-http>=1.30",
+  "opentelemetry-instrumentation-fastapi>=0.51b0",
+  "opentelemetry-instrumentation-sqlalchemy>=0.51b0",
   "prometheus-fastapi-instrumentator>=6.1.0",
 ]
 
