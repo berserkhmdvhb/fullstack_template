@@ -1,0 +1,17 @@
+name: T
+on: [push]
+permissions: {}
+jobs:
+  j:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: write  # push the image
+    steps:
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          push: true
+      - run: docker push x
+      - run: cosign sign --yes x
+      - uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0

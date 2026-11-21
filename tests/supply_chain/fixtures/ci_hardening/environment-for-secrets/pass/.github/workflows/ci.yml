@@ -15,4 +15,4 @@ jobs:
   call:
     permissions:
       id-token: write # passed to the called workflow
-    uses: ./.github/workflows/other.yml
+    uses: ./.github/workflows/deploy.yml

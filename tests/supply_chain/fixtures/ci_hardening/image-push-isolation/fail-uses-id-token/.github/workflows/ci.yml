@@ -1,0 +1,9 @@
+name: T
+on: [push]
+permissions: {}
+jobs:
+  j:
+    permissions:
+      contents: read
+      id-token: write  # sign
+    uses: ./.github/workflows/other.yml

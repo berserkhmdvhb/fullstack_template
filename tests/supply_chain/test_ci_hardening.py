@@ -29,6 +29,7 @@ CHECKS = (
     "no-prt-checkout",
     "no-inline-secrets",
     "image-digest",
+    "image-push-isolation",
     "provenance",
     "osv-coverage",
     "environment-for-secrets",
@@ -36,8 +37,6 @@ CHECKS = (
     "no-dry-run-env",
     "documented-permissions",
 )
-# provenance is a SKIP until PROVENANCE_ENABLED is set, so it has its own tests below.
-GATING = tuple(c for c in CHECKS if c != "provenance")
 USAGE_ERROR = 2
 FINDING = re.compile(r"^(?P<file>\S+?):(?P<line>\d+): (?P<check>[a-z-]+) ", re.MULTILINE)
 
@@ -67,7 +66,7 @@ def found(root: Path) -> set[str]:
 
 
 def variants(prefix: str) -> list[tuple[str, str]]:
-    names = [*GATING, "composite"]
+    names = [*CHECKS, "composite"]
     return [
         (c, d.name)
         for c in names
@@ -130,27 +129,18 @@ def test_findings_print_as_file_line_id_message() -> None:
     )
 
 
-def test_provenance_is_a_skip_that_never_fails() -> None:
-    result = run_lint(FIXTURES / "provenance" / "fail")
+def test_provenance_is_not_a_skip_any_more() -> None:
+    result = run_lint(FIXTURES / "provenance" / "pass")
+    assert "SKIP" not in result.stdout
+    assert "PROVENANCE_ENABLED" not in LINTER.read_text()
+
+
+def test_provenance_findings_name_what_is_missing() -> None:
+    out = run_lint(FIXTURES / "provenance" / "fail-no-sbom-attest").stdout
+    assert "actions/attest-sbom" in out
     assert (
-        "SKIP provenance: not enforced yet (set PROVENANCE_ENABLED once release.yml attests)"
-        in result.stdout
+        "reusable-build.yml" in run_lint(FIXTURES / "provenance" / "fail-missing-reusable").stdout
     )
-    assert "provenance" not in {m["check"] for m in FINDING.finditer(result.stdout)}
-
-
-def test_provenance_check_can_be_switched_on() -> None:
-    sys.path.insert(0, str(LINTER.parent))
-    try:
-        import ci_hardening_lint as lint  # noqa: PLC0415
-    finally:
-        sys.path.pop(0)
-    good = lint.gather(FIXTURES / "provenance" / "pass")[0]
-    bad = lint.gather(FIXTURES / "provenance" / "fail")[0]
-    assert lint.check_provenance(good, enabled=True) == ([], [])
-    findings, skips = lint.check_provenance(bad, enabled=True)
-    assert [f.check for f in findings] == ["provenance"]
-    assert skips == []
 
 
 def test_docker_reference_needs_a_digest_and_a_local_reference_is_exempt() -> None:
@@ -170,9 +160,7 @@ def test_json_report_is_valid_and_matches_the_exit_code() -> None:
     assert bad.returncode == 1
     doc = json.loads(bad.stdout)
     assert doc["status"] == "red"
-    assert doc["skipped"] == [
-        "SKIP provenance: not enforced yet (set PROVENANCE_ENABLED once release.yml attests)"
-    ]
+    assert "skipped" not in doc
     assert (
         json.loads(run_lint(FIXTURES / "all-good" / "pass", "--json").stdout)["status"] == "green"
     )

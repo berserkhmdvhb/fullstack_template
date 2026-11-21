@@ -5,15 +5,15 @@ The pipeline that builds the software is its own attack surface, so the workflow
 controls that protect them. Scans ``.github/workflows/*.{yml,yaml}`` and
 ``.github/actions/*/action.{yml,yaml}``.
 
-Output: one line per finding, ``file:line: CHECK-ID message``, then a summary. A SKIP is printed and
-never fails. Exit 1 on any finding, 0 when clean, 2 on a usage or parse error (``file:line:
-parse-error ...``). ``--json`` prints a structured
-report instead (used by ``check-ci-hardening.sh``).
+Output: one line per finding, ``file:line: CHECK-ID message``, then a summary. Exit 1 on any
+finding, 0 when clean, 2 on a usage or parse error (``file:line: parse-error ...``). ``--json``
+prints a structured report instead (used by ``check-ci-hardening.sh``).
 
 Checks (ids are stable):
-  pinned-uses, top-permissions, no-prt-checkout, no-inline-secrets, image-digest, provenance
-  (SKIP until PROVENANCE_ENABLED), osv-coverage, environment-for-secrets, timeouts, no-dry-run-env,
-  documented-permissions.
+  pinned-uses, top-permissions, no-prt-checkout, no-inline-secrets, image-digest,
+  image-push-isolation (only reusable-build.yml pushes, signs or attests images), provenance
+  (when a workflow calls reusable-build.yml, it must sign, verify and attest), osv-coverage,
+  environment-for-secrets, timeouts, no-dry-run-env, documented-permissions.
 
 Known limitation: image-digest accepts a value that is one whole ``${{ }}`` expression (a digest
 computed at run time, verified by the image-verify step); it cannot see through the expression.
@@ -32,12 +32,11 @@ from typing import Any
 
 import yaml
 
-PROVENANCE_ENABLED = (
-    False  # Switch on once release.yml signs and attests images; the provenance check then gates.
-)
 USAGE_ERROR = 2
-PROVENANCE_SKIP = (
-    "SKIP provenance: not enforced yet (set PROVENANCE_ENABLED once release.yml attests)"
+REUSABLE_BUILD = ".github/workflows/reusable-build.yml"
+_REUSABLE_REF = "./" + REUSABLE_BUILD
+_CLOUD_LOGIN_REF = (
+    "./.github/workflows/deploy.yml"  # its caller grants id-token for the cloud login
 )
 
 _SHA_REF = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
@@ -49,9 +48,9 @@ _WHOLE_EXPR = re.compile(r"^\$\{\{[^}]*\}\}$")
 _SECRET_REF = re.compile(r"(?<![\w.-])secrets\b(?:\s*\.\s*(\w+))?")
 _QUOTED = re.compile(r"'(?:[^']|'')*'")
 _OSV_RUN = re.compile(r"osv-scanner|scan-osv\.sh")
-_PROVENANCE = re.compile(
-    r"attest-build-provenance|slsa-github-generator|attest-provenance|cosign attest"
-)
+_IMAGE_PUSH_RUN = re.compile(r"\bdocker\s+push\b|\bcosign\s+sign\b")
+_COSIGN_SIGN = re.compile(r"\bcosign\s+sign\b")
+_COSIGN_VERIFY = re.compile(r"\bcosign\s+verify\b")
 
 
 class LDict(dict[str, Any]):
@@ -320,25 +319,131 @@ def check_image_digest(doc: Doc) -> list[Finding]:
     return found
 
 
-def check_provenance(
-    docs: list[Doc], *, enabled: bool = PROVENANCE_ENABLED
-) -> tuple[list[Finding], list[str]]:
-    """Return (findings, skips); skips until PROVENANCE_ENABLED, then release.yml must attest."""
-    if not enabled:
-        return [], [PROVENANCE_SKIP]
-    for doc in docs:
-        if re.search(r"workflows/release\.ya?ml$", doc.name) and any(
-            _PROVENANCE.search(str(s.get("uses", "")) + " " + str(s.get("run", "")))
-            for s in doc.steps()
-        ):
-            return [], []
-    release = next(
-        (d.name for d in docs if re.search(r"workflows/release\.ya?ml$", d.name)),
-        ".github/workflows/release.yml",
+def _grants(perms: Any, scope: str) -> bool:
+    return isinstance(perms, LDict) and perms.get(scope) == "write"
+
+
+def _effective_permissions(doc: Doc, job: LDict) -> Any:
+    return job["permissions"] if "permissions" in job else doc.data.get("permissions")
+
+
+def _pushes_images(step: LDict) -> str | None:
+    """Why this step is an image operation (push, sign or attest), or None."""
+    ref = str(step.get("uses", ""))
+    with_ = step.get("with")
+    if ref.startswith("docker/build-push-action@") and (
+        not isinstance(with_, LDict) or str(with_.get("push", "false")).strip().lower() != "false"
+    ):
+        return "docker/build-push-action with push"
+    if ref.startswith("actions/attest"):
+        return ref.split("@", maxsplit=1)[0]
+    if _IMAGE_PUSH_RUN.search(str(step.get("run", ""))):
+        return "docker push or cosign sign"
+    return None
+
+
+def check_image_push_isolation(doc: Doc) -> list[Finding]:
+    """Only reusable-build.yml pushes, signs or attests images, and only it holds both grants."""
+    if doc.name.endswith(REUSABLE_BUILD):
+        return []
+    found: list[Finding] = []
+    for job_id, job in doc.jobs():
+        perms = _effective_permissions(doc, job)
+        callee = str(job.get("uses", "")).strip()
+        if callee:
+            allowed_id_token = {_REUSABLE_REF, _CLOUD_LOGIN_REF}
+            if callee != _REUSABLE_REF and _grants(perms, "packages"):
+                found.append(
+                    Finding(
+                        doc.name,
+                        job.line,
+                        "image-push-isolation",
+                        f"job {job_id} grants packages: write to {callee}; "
+                        "only reusable-build.yml may",
+                    )
+                )
+            if callee not in allowed_id_token and _grants(perms, "id-token"):
+                found.append(
+                    Finding(
+                        doc.name,
+                        job.line,
+                        "image-push-isolation",
+                        f"job {job_id} grants id-token: write to {callee}; only reusable-build.yml "
+                        "(signing) and deploy.yml (cloud login) may",
+                    )
+                )
+            continue
+        if _grants(perms, "packages"):
+            msg = f"job {job_id} holds packages: write; only reusable-build.yml may push images"
+            found.append(Finding(doc.name, job.line, "image-push-isolation", msg))
+        for step in job.get("steps", []):
+            what = _pushes_images(step) if isinstance(step, LDict) else None
+            if what:
+                msg = f"job {job_id} runs {what}; only reusable-build.yml may push, sign or attest"
+                found.append(Finding(doc.name, job.line, "image-push-isolation", msg))
+    return found
+
+
+def _step_index(steps: list[Any], match: Callable[[LDict], bool]) -> int | None:
+    return next((i for i, s in enumerate(steps) if isinstance(s, LDict) and match(s)), None)
+
+
+def _attest_pushes(step: LDict, action: str) -> bool:
+    with_ = step.get("with")
+    return (
+        str(step.get("uses", "")).startswith(f"actions/{action}@")
+        and isinstance(with_, LDict)
+        and str(with_.get("push-to-registry", "")).strip().lower() == "true"
     )
-    return [
-        Finding(release, 1, "provenance", "the release workflow has no provenance attestation step")
-    ], []
+
+
+def _signing_gaps(doc: Doc, job_id: str, job: LDict) -> list[Finding]:
+    steps = list(job.get("steps", []))
+    sign = _step_index(steps, lambda s: bool(_COSIGN_SIGN.search(str(s.get("run", "")))))
+    gaps: list[str] = []
+    if sign is None:
+        return [Finding(doc.name, job.line, "provenance", f"job {job_id} has no cosign sign step")]
+    verify = _step_index(
+        steps[sign + 1 :], lambda s: bool(_COSIGN_VERIFY.search(str(s.get("run", ""))))
+    )
+    if verify is None:
+        gaps.append("a cosign verify step after the cosign sign step")
+    gaps += [
+        f"actions/{action} with push-to-registry: true"
+        for action in ("attest-build-provenance", "attest-sbom")
+        if _step_index(steps, lambda s, a=action: _attest_pushes(s, a)) is None  # type: ignore[misc]
+    ]
+    perms = job.get("permissions")
+    gaps += [
+        f"{scope}: write" for scope in ("id-token", "attestations") if not _grants(perms, scope)
+    ]
+    return [Finding(doc.name, job.line, "provenance", f"job {job_id} lacks {gap}") for gap in gaps]
+
+
+def check_provenance(docs: list[Doc]) -> list[Finding]:
+    """When a workflow calls reusable-build.yml, that workflow must sign, verify and attest."""
+    called = any(
+        str(job.get("uses", "")).strip() == _REUSABLE_REF for d in docs for _, job in d.jobs()
+    )
+    if not called:
+        return []
+    build = next((d for d in docs if d.name.endswith(REUSABLE_BUILD)), None)
+    if build is None:
+        return [Finding(REUSABLE_BUILD, 1, "provenance", f"{REUSABLE_BUILD} is called but missing")]
+    signer = [
+        (i, j)
+        for i, j in build.jobs()
+        if any(
+            _COSIGN_SIGN.search(str(s.get("run", "")))
+            for s in j.get("steps", [])
+            if isinstance(s, LDict)
+        )
+    ]
+    if not signer:
+        return [
+            Finding(build.name, 1, "provenance", "no job in reusable-build.yml runs cosign sign")
+        ]
+    return [f for i, j in signer for f in _signing_gaps(build, i, j)]
 
 
 def _job_runs_osv(job: LDict) -> bool:
@@ -411,6 +516,10 @@ def check_environment_for_secrets(doc: Doc) -> list[Finding]:
         if "environment" in job:
             continue
         reasons = _job_secret_reasons(job, top_idtoken=top_idtoken)
+        if doc.name.endswith(
+            REUSABLE_BUILD
+        ):  # keyless signing mints a Sigstore certificate, no cloud secret
+            reasons = [r for r in reasons if r != "id-token: write"]
         if reasons:
             found.append(
                 Finding(
@@ -489,6 +598,7 @@ PER_DOC_CHECKS: tuple[Check, ...] = (
     check_no_prt_checkout,
     check_no_inline_secrets,
     check_image_digest,
+    check_image_push_isolation,
     check_environment_for_secrets,
     check_timeouts,
     check_no_dry_run_env,
@@ -523,16 +633,13 @@ def gather(root: Path) -> tuple[list[Doc], list[str]]:
     return docs, errors
 
 
-def lint(
-    docs: list[Doc], *, provenance: bool = PROVENANCE_ENABLED
-) -> tuple[list[Finding], list[str]]:
+def lint(docs: list[Doc]) -> list[Finding]:
     findings: list[Finding] = []
     for doc in docs:
         for check in PER_DOC_CHECKS:
             findings += check(doc)
-    prov, skips = check_provenance(docs, enabled=provenance)
-    findings += prov + check_osv_coverage(docs)
-    return sorted(findings, key=lambda f: (f.file, f.line, f.check)), skips
+    findings += check_provenance(docs) + check_osv_coverage(docs)
+    return sorted(findings, key=lambda f: (f.file, f.line, f.check))
 
 
 def main(argv: list[str]) -> int:
@@ -546,7 +653,7 @@ def main(argv: list[str]) -> int:
     if not docs and not errors:
         print("ci_hardening_lint: no workflows or actions found under .github/", file=sys.stderr)
         return USAGE_ERROR
-    findings, skips = lint(docs)
+    findings = lint(docs)
     if as_json:
         print(
             json.dumps(
@@ -554,7 +661,6 @@ def main(argv: list[str]) -> int:
                     "scan": "ci-hardening",
                     "findings": [f.__dict__ for f in findings],
                     "errors": errors,
-                    "skipped": skips,
                     "status": "error" if errors else "red" if findings else "green",
                 },
                 indent=2,
@@ -565,12 +671,10 @@ def main(argv: list[str]) -> int:
             print(finding.render())
         for error in errors:
             print(error)
-        for skip in skips:
-            print(skip)
         bad_files = len({f.file for f in findings})
         print(
             f"ci-hardening: {len(findings)} finding(s) in {bad_files} of {len(docs)} file(s), "
-            f"{len(errors)} parse error(s), {len(skips)} skipped"
+            f"{len(errors)} parse error(s)"
         )
     if errors:
         return USAGE_ERROR

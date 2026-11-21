@@ -8,7 +8,7 @@ jobs:
     permissions:
       contents: read
       # push the image
-      packages: write
+      issues: write
       id-token: write # WIF login
     environment: dev
     steps:

@@ -1,0 +1,9 @@
+name: T
+on: [push]
+permissions: {}
+jobs:
+  j:
+    permissions:
+      contents: read
+      packages: write  # push the image
+    uses: ./.github/workflows/other.yml

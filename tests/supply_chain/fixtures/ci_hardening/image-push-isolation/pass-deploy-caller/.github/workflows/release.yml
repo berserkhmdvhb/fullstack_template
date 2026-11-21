@@ -1,0 +1,9 @@
+name: T
+on: [push]
+permissions: {}
+jobs:
+  deploy:
+    permissions:
+      contents: read
+      id-token: write  # cloud login
+    uses: ./.github/workflows/deploy.yml
