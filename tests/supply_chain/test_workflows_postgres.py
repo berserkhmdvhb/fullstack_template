@@ -78,5 +78,34 @@ def test_the_lint_job_runs_squawk_on_the_pinned_binary() -> None:
 
 def test_the_repo_job_installs_squawk_for_its_bats_test() -> None:
     runs = "\n".join(str(s.get("run", "")) for s in workflow("ci.yml")["jobs"]["repo"]["steps"])
-    assert "install shellcheck bats yq kyverno squawk" in runs
+    assert "install shellcheck bats yq kyverno squawk oasdiff" in runs
     assert "bats tests/scripts/" in runs
+
+
+def test_integration_runs_on_sqlite_and_on_postgres_with_separate_reports() -> None:
+    steps = _jobs()["integration"]["steps"]
+    sqlite = next(s for s in steps if "(SQLite)" in s.get("name", ""))
+    assert sqlite["env"]["TEST_DATABASE_URL"] == "", "an empty URL selects SQLite"
+    assert "make test-integration" in sqlite["run"]
+    postgres = next(s for s in steps if "(PostgreSQL)" in s.get("name", ""))
+    assert "TEST_DATABASE_URL" not in postgres.get("env", {}), (
+        "the job-level PostgreSQL URL applies"
+    )
+    assert "make test-integration" in postgres["run"]
+    reports = {
+        m for s in (sqlite, postgres) for m in re.findall(r"INTEGRATION_JUNIT=(\S+)", s["run"])
+    }
+    assert len(reports) > 1
+
+
+def test_the_integration_failure_artifact_has_every_report() -> None:
+    upload = next(
+        s for s in _jobs()["integration"]["steps"] if "upload-artifact" in s.get("uses", "")
+    )
+    paths = upload["with"]["path"]
+    for report in (
+        "junit-integration-sqlite.xml",
+        "junit-integration-postgres.xml",
+        "junit-contract.xml",
+    ):
+        assert report in paths

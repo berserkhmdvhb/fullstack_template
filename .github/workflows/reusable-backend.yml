@@ -108,8 +108,14 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup-backend
+      # Twice: on SQLite (TEST_DATABASE_URL emptied for this step, which also runs the tests marked sqlite_only,
+      # for example the schema-aware readiness ones) and on PostgreSQL below.
+      - name: Integration tests (SQLite)
+        env:
+          TEST_DATABASE_URL: ""
+        run: make test-integration INTEGRATION_JUNIT=test-results/junit-integration-sqlite.xml
       # The suite is hermetic, but the job also boots uvicorn so it exercises the real startup path.
-      - name: Integration tests
+      - name: Integration tests (PostgreSQL)
         run: |
           export PATH="$PWD/.venv/bin:$PATH"
           port="${BACKEND_PORT:-8000}"
@@ -119,7 +125,7 @@ jobs:
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
           python tests/utils/wait_for_service.py "http://127.0.0.1:$port/api/${API_VERSION:-v1}/health" 45 0.5 Backend
-          make test-integration
+          make test-integration INTEGRATION_JUNIT=test-results/junit-integration-postgres.xml
       # Property tests from the app's OpenAPI document, on the same PostgreSQL (wiki/testing.md).
       - name: Contract tests (Schemathesis)
         run: make test-contract
@@ -129,7 +135,9 @@ jobs:
         with:
           name: backend-integration-reports
           path: |
-            test-results/junit-integration.xml
+            test-results/junit-integration-sqlite.xml
+            test-results/junit-integration-postgres.xml
+            test-results/junit-contract.xml
           retention-days: 7
 
   e2e:

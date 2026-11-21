@@ -322,8 +322,10 @@ test:
 test-unit:
 	$(PYTHON) -m pytest --cov --cov-report=term --cov-report=xml --junitxml=test-results/junit-unit.xml
 
+# INTEGRATION_JUNIT lets CI keep the SQLite and PostgreSQL runs' reports apart.
+INTEGRATION_JUNIT ?= test-results/junit-integration.xml
 test-integration:
-	$(PYTHON) -m pytest tests/ -m integration -o addopts="" -v --junitxml=test-results/junit-integration.xml
+	$(PYTHON) -m pytest tests/ -m integration -o addopts="" -v --junitxml=$(INTEGRATION_JUNIT)
 
 test-e2e:
 	$(PYTHON) -m pytest tests/ -m e2e -o addopts="" -v --junitxml=test-results/junit-e2e.xml

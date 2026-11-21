@@ -8,6 +8,7 @@ from typing import Any, cast
 from tests.supply_chain._workflows import WORKFLOWS, load, workflow
 
 LABEL = "breaking-change"
+FIRST_PARENT_DEPTH = 2
 LABEL_EVENTS = ("labeled", "unlabeled")
 
 
@@ -29,7 +30,8 @@ def test_no_job_is_conditioned_on_the_event_action_or_a_label() -> None:
             condition = str(j.get("if", ""))
             assert not re.search(r"event\.action|labeled|label", condition), f"{path.name}:{name}"
             for step in j.get("steps", []):
-                assert "event.action" not in str(step.get("if", "")), f"{path.name}:{name}"
+                step_if = str(step.get("if", ""))
+                assert not re.search(r"event\.action|labeled|label", step_if), f"{path.name}:{name}"
 
 
 def test_the_job_is_blocking_least_privilege_and_always_runs() -> None:
@@ -40,6 +42,9 @@ def test_the_job_is_blocking_least_privilege_and_always_runs() -> None:
     assert j["permissions"] == {"contents": "read"}
     assert "timeout-minutes" in j
     assert j["steps"][0]["with"]["persist-credentials"] is False
+    assert j["steps"][0]["with"]["fetch-depth"] == FIRST_PARENT_DEPTH, (
+        "the first parent must be present"
+    )
 
 
 def test_the_job_is_behind_ci_ok_and_not_skippable() -> None:
@@ -55,7 +60,7 @@ def test_the_label_reaches_the_script_through_env_never_through_run() -> None:
         f"${{{{ contains(github.event.pull_request.labels.*.name, '{LABEL}') }}}}"
     )
     assert step["env"]["EVENT_NAME"] == "${{ github.event_name }}"
-    assert step["env"]["BASE_REF"] == "${{ github.base_ref }}"
+    assert "BASE_REF" not in step["env"], "the base is the merge commit's first parent"
 
 
 def test_the_job_installs_the_pinned_binary() -> None:

@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 # -----------------------------------------------------------------------------
 # oasdiff.bats — scripts/ci/oasdiff.sh: a breaking change fails without the label and passes with it, a
-# compatible change passes, a push skips, and the pull-request path reads the base snapshot with git show.
+# compatible change passes, a push skips, a spec that does not load fails whatever the label says, and the
+# pull-request path reads the base snapshot from the first parent of the merge commit.
 # Needs the pinned oasdiff (scripts/tools.sh install oasdiff).
 # -----------------------------------------------------------------------------
 
@@ -9,7 +10,7 @@ setup() {
   ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   SCRIPT="$ROOT/scripts/ci/oasdiff.sh"
   FIX="$BATS_TEST_DIRNAME/fixtures"
-  unset BREAKING_CHANGE_LABEL EVENT_NAME BASE_REF BASE_REV GITHUB_STEP_SUMMARY
+  unset BREAKING_CHANGE_LABEL EVENT_NAME GITHUB_STEP_SUMMARY
 }
 
 @test "a removed endpoint fails without the label" {
@@ -42,49 +43,69 @@ setup() {
   [[ "$output" == *"skipped"* ]]
 }
 
-# The pull-request path: the base snapshot comes from git (BASE_REV here; BASE_REF is fetched in CI).
-make_repo() {
+@test "a spec that does not load fails, label or not" {
+  echo '{bad' > "$BATS_TEST_TMPDIR/bad.json"
+  run bash "$SCRIPT" "$FIX/openapi-base.json" "$BATS_TEST_TMPDIR/bad.json"
+  [ "$status" -ne 0 ]
+  BREAKING_CHANGE_LABEL=true run bash "$SCRIPT" "$FIX/openapi-base.json" "$BATS_TEST_TMPDIR/bad.json"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"label does not apply"* ]]
+}
+
+# The pull-request path: HEAD is a merge commit whose first parent is the base (what actions/checkout tests).
+# merge_with SNAPSHOT: branch `base` holds the base snapshot, branch `pr` holds SNAPSHOT, HEAD merges pr into base.
+merge_with() {
   R="$BATS_TEST_TMPDIR/repo"
   mkdir -p "$R/scripts/ci" "$R/frontend/lib/api"
   cp "$SCRIPT" "$R/scripts/ci/oasdiff.sh"
-  git -C "$R" init -q
+  git -C "$R" init -q -b base
   git -C "$R" config user.email t@example.invalid
   git -C "$R" config user.name t
-  cp "$FIX/openapi-base.json" "$R/frontend/lib/api/openapi.json"
+  if [ -z "${NO_BASE_SNAPSHOT:-}" ]; then cp "$FIX/openapi-base.json" "$R/frontend/lib/api/openapi.json"; fi
   git -C "$R" add -A
-  git -C "$R" commit -q -m base
-  git -C "$R" tag base
+  git -C "$R" commit -q -m base --allow-empty
+  git -C "$R" checkout -q -b pr
+  cp "$1" "$R/frontend/lib/api/openapi.json"
+  git -C "$R" add -A
+  git -C "$R" commit -q -m change --allow-empty
+  git -C "$R" checkout -q base
+  echo other > "$R/other.txt"          # the base moves on, so the merge is a real merge commit
+  git -C "$R" add other.txt
+  git -C "$R" commit -q -m "base moves"
+  git -C "$R" merge -q --no-ff -m merge pr
 }
 
-@test "pull request: the snapshot is compared with the base revision's" {
-  make_repo
-  cp "$FIX/openapi-breaking.json" "$R/frontend/lib/api/openapi.json"
-  PATH="$ROOT/.tools/bin:$PATH" BASE_REV=base run bash "$R/scripts/ci/oasdiff.sh"
+@test "pull request: a breaking change against the first parent fails, and passes with the label" {
+  merge_with "$FIX/openapi-breaking.json"
+  PATH="$ROOT/.tools/bin:$PATH" run bash "$R/scripts/ci/oasdiff.sh"
   [ "$status" -eq 1 ]
-  PATH="$ROOT/.tools/bin:$PATH" BASE_REV=base BREAKING_CHANGE_LABEL=true run bash "$R/scripts/ci/oasdiff.sh"
-  [ "$status" -eq 0 ]
-  cp "$FIX/openapi-compatible.json" "$R/frontend/lib/api/openapi.json"
-  PATH="$ROOT/.tools/bin:$PATH" BASE_REV=base run bash "$R/scripts/ci/oasdiff.sh"
+  PATH="$ROOT/.tools/bin:$PATH" BREAKING_CHANGE_LABEL=true run bash "$R/scripts/ci/oasdiff.sh"
   [ "$status" -eq 0 ]
 }
 
-@test "pull request: BASE_REF is fetched from origin" {
-  make_repo
-  git clone -q --bare "$R" "$BATS_TEST_TMPDIR/origin.git"
-  git -C "$R" remote add origin "$BATS_TEST_TMPDIR/origin.git"
-  git -C "$R" branch -M main
-  git -C "$R" push -q origin main
-  cp "$FIX/openapi-breaking.json" "$R/frontend/lib/api/openapi.json"
-  PATH="$ROOT/.tools/bin:$PATH" BASE_REF=main run bash "$R/scripts/ci/oasdiff.sh"
-  [ "$status" -eq 1 ]
+@test "pull request: a compatible change passes" {
+  merge_with "$FIX/openapi-compatible.json"
+  PATH="$ROOT/.tools/bin:$PATH" run bash "$R/scripts/ci/oasdiff.sh"
+  [ "$status" -eq 0 ]
+}
+
+@test "pull request: a base that moved on is not read as a removal (the base is the first parent)" {
+  merge_with "$FIX/openapi-base.json"   # the pull request changes nothing in the snapshot
+  PATH="$ROOT/.tools/bin:$PATH" run bash "$R/scripts/ci/oasdiff.sh"
+  [ "$status" -eq 0 ]
+}
+
+@test "pull request: HEAD that is not a merge commit fails with a clear message" {
+  merge_with "$FIX/openapi-base.json"
+  git -C "$R" checkout -q --detach HEAD^1
+  PATH="$ROOT/.tools/bin:$PATH" run bash "$R/scripts/ci/oasdiff.sh"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"not a merge commit"* ]]
 }
 
 @test "pull request: no base snapshot yet skips" {
-  make_repo
-  git -C "$R" rm -q --cached frontend/lib/api/openapi.json
-  git -C "$R" commit -q -m drop
-  git -C "$R" tag nosnap
-  PATH="$ROOT/.tools/bin:$PATH" BASE_REV=nosnap run bash "$R/scripts/ci/oasdiff.sh"
+  NO_BASE_SNAPSHOT=1 merge_with "$FIX/openapi-base.json"
+  PATH="$ROOT/.tools/bin:$PATH" run bash "$R/scripts/ci/oasdiff.sh"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"no frontend/lib/api/openapi.json yet"* ]]
+  [[ "$output" == *"has no frontend/lib/api/openapi.json yet"* ]]
 }
