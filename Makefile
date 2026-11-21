@@ -3,7 +3,7 @@
     export-requirements check-requirements-sync \
     ruff-format ruff-format-check ruff-lint ruff-lint-fix mypy-check \
     openapi-gen openapi-drift-check env-docs env-docs-check \
-    shellcheck tools tools-dry-run pins-refresh \
+    shellcheck image-checks tools tools-dry-run pins-refresh \
     check-all check-all-dry precommit \
     test test-unit test-integration test-e2e test-contract test-live test-file test-file-function test-fast \
     test-coverage test-coverage-xml test-cov-html test-coverage-rep test-coverage-file \
@@ -65,6 +65,7 @@ help::
 	@echo "  ruff-lint                Run Ruff linter"
 	@echo "  mypy-check               Run MyPy static type checker"
 	@echo "  shellcheck               Lint all tracked shell scripts (*.sh + *.bats) with ShellCheck"
+	@echo "  image-checks             Build the images (throwaway tags) and run the CI structure checks (IDS=...)"
 	@echo "  check-all                Run dev tool drift check + format + lint + mypy"
 	@echo "  check-all-dry            Same as above but without auto-format (format-check)"
 	@echo "  precommit                Run every pre-commit hook on all files (pinned pre-commit, no network)"
@@ -233,6 +234,11 @@ openapi-drift-check:
 # on PATH (it is pinned in CI; install locally via your package manager or the
 # VS Code extension). Override the binary with SHELLCHECK=/path/to/shellcheck.
 SHELLCHECK ?= shellcheck
+
+# Build the images with throwaway tags and run the structure checks CI runs on a pull request (strict),
+# then remove them. IDS="backend nginx" limits it. Needs docker and the pinned yq.
+image-checks:
+	bash scripts/ci/image-checks-local.sh $(IDS)
 
 shellcheck:
 	@command -v "$(SHELLCHECK)" >/dev/null 2>&1 || { echo "shellcheck not found on PATH — install it (e.g. 'apk add shellcheck', 'brew install shellcheck', or the VS Code extension) to run this gate locally." >&2; exit 1; }
