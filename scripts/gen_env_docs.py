@@ -68,7 +68,7 @@ def _type_name(field: FieldInfo) -> str:
 
 def _default(field: FieldInfo) -> str:
     """The documented default: secrets are never shown, empty/unset are spelled out."""
-    if "secret" in _type_name(field):
+    if "secret" in _type_name(field).lower():
         return "(secret)"
     value = field.get_default(call_default_factory=True)
     if isinstance(value, list):

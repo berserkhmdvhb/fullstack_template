@@ -74,6 +74,8 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 | `CORS_ALLOW_METHODS` | comma-separated list | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | Comma-separated allowed methods. | — |
 | `CORS_ALLOW_HEADERS` | comma-separated list | `Authorization,Content-Type,X-Requested-With` | Comma-separated allowed request headers. | — |
 | `RATE_LIMIT_DEFAULT` | str | `100/minute` | Per-IP rate limit in `limits` format, for example `100/minute`. | — |
+| `RATE_LIMIT_STORAGE` | SecretStr | (secret) | Where the rate-limit counters live. The default `memory://` counts per replica (the limit is per Pod); Redis, shared by every replica (`redis://`, `rediss://` or `redis+unix://`; the URL can hold a password, so it is a secret). When Redis is down or slow the request is allowed (fail open). | Plaintext `redis://` is refused unless every host is loopback; use `rediss://`, a unix socket or `memory://`. |
+| `RATE_LIMIT_STORAGE_TIMEOUT_SECONDS` | float | `0.2` | Redis connect and socket timeout (and the cap on one limiter call), in seconds. Short on purpose: it is added to a request while Redis is unreachable. | — |
 | `TRACING_ENABLED` | bool | `false` | Export OpenTelemetry traces over OTLP/HTTP (server spans for the API, database spans for statement text). Off, nothing of OpenTelemetry beyond its small API package is loaded. Needs OTEL_EXPORTER_OTLP_ENDPOINT. | — |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | str | (unset) | Tracing: the collector's base URL (`http://host:4318`); `/v1/traces` is appended. Required when TRACING_ENABLED=true. | — |
 | `OTEL_EXPORTER_OTLP_HEADERS` | secret | (secret) | Tracing: headers for the collector, `name=value,name2=value2` (for example its auth token). A secret. | — |

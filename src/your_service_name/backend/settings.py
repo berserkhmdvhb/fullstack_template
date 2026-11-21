@@ -57,6 +57,11 @@ DEFAULT_MAX_REQUEST_BODY_BYTES: Final[int] = 10 * 1024 * 1024
 JWT_HASHLIB: Final[dict[str, str]] = {"HS256": "sha256", "HS384": "sha384", "HS512": "sha512"}
 ALLOWED_JWT_ALGS: Final[frozenset[str]] = frozenset(JWT_HASHLIB)
 
+MEMORY_STORAGE_URL: Final[str] = "memory://"
+RATE_LIMIT_STORAGE_SCHEMES: Final[frozenset[str]] = frozenset(
+    {"memory", "redis", "rediss", "redis+unix"}
+)
+
 PRODUCTION_ENVS: Final[frozenset[str]] = frozenset({"production", "prod"})
 
 # A bare origin: scheme://host[:port], no path, query or trailing slash.
@@ -133,6 +138,8 @@ _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
     "OTEL_EXPORTER_OTLP_HEADERS",
     "OTEL_SERVICE_NAME",
     "TRACING_SAMPLE_RATIO",
+    "RATE_LIMIT_STORAGE",
+    "RATE_LIMIT_STORAGE_TIMEOUT_SECONDS",
 )
 
 
@@ -162,6 +169,31 @@ def _is_local_host(host: str) -> bool:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+def rate_limit_storage_problem(url: str) -> str | None:
+    """Why ``url`` is no usable ``RATE_LIMIT_STORAGE``, or ``None``; the reason never echoes it."""
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+    except ValueError:
+        return "is not a valid URL"
+    if parts.scheme not in RATE_LIMIT_STORAGE_SCHEMES:
+        return "must start with memory://, redis://, rediss:// or redis+unix://"
+    if parts.scheme in ("redis", "rediss") and not host:
+        return "must name the Redis host"
+    if parts.scheme == "redis+unix" and not parts.path:
+        return "must name the socket path"
+    return None
+
+
+def _is_loopback_storage(url: str) -> bool:
+    """True when a plaintext ``redis://`` URL names a loopback host (fails closed otherwise)."""
+    try:
+        host = urlsplit(url).hostname
+    except ValueError:
+        return False
+    return bool(host) and _is_local_host(host or "")
 
 
 def _is_loopback_database(url: str) -> bool:
@@ -283,6 +315,24 @@ class Settings(BaseSettings):
     RATE_LIMIT_DEFAULT: str = Field(
         default=DEFAULT_RATE_LIMIT,
         description="Per-IP rate limit in `limits` format, for example `100/minute`.",
+    )
+    RATE_LIMIT_STORAGE: SecretStr = Field(
+        default=SecretStr(MEMORY_STORAGE_URL),
+        description="Where the rate-limit counters live. The default `memory://` counts per "
+        "replica (the limit is per Pod); Redis, shared by every replica (`redis://`, "
+        "`rediss://` or `redis+unix://`; the URL can hold a password, so it is a secret). When "
+        "Redis is down or slow the request is allowed (fail open).",
+        json_schema_extra={
+            "production": "Plaintext `redis://` is refused unless every host is loopback; use "
+            "`rediss://`, a unix socket or `memory://`."
+        },
+    )
+    RATE_LIMIT_STORAGE_TIMEOUT_SECONDS: float = Field(
+        default=0.2,
+        gt=0,
+        le=10,
+        description="Redis connect and socket timeout (and the cap on one limiter call), in "
+        "seconds. Short on purpose: it is added to a request while Redis is unreachable.",
     )
 
     # --- Tracing (opt-in) -----------------------------------------------------
@@ -677,6 +727,21 @@ class Settings(BaseSettings):
             raise ValueError(msg) from exc
         return value
 
+    @field_validator("RATE_LIMIT_STORAGE", mode="before")
+    @classmethod
+    def _storage_strip(cls, value: object) -> object:
+        if isinstance(value, SecretStr):
+            value = value.get_secret_value()
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("RATE_LIMIT_STORAGE")
+    @classmethod
+    def _valid_storage(cls, value: SecretStr) -> SecretStr:
+        if why := rate_limit_storage_problem(value.get_secret_value()):
+            msg = f"RATE_LIMIT_STORAGE {why}"
+            raise ValueError(msg)
+        return value
+
     @field_validator("OTEL_EXPORTER_OTLP_ENDPOINT")
     @classmethod
     def _valid_otlp_endpoint(cls, value: str | None) -> str | None:
@@ -814,6 +879,14 @@ class Settings(BaseSettings):
         problems: list[str] = []
 
         problems += self._database_problems()
+
+        storage = self.RATE_LIMIT_STORAGE.get_secret_value()
+        if urlsplit(storage).scheme == "redis" and not _is_loopback_storage(storage):
+            problems.append(
+                "RATE_LIMIT_STORAGE: plaintext redis:// to a remote host sends the counters "
+                "(and the password) unencrypted; use rediss://, a redis+unix:// socket, a "
+                "loopback host, or memory:// (a limit per replica)"
+            )
 
         origins = self.CORS_ORIGINS
         if self.CORS_ALLOW_CREDENTIALS and not origins:

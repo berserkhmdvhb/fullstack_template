@@ -22,6 +22,7 @@ Configuration
 -------------
 - ``RATE_LIMIT_DEFAULT`` (a ``Settings`` field): limit string in ``limits`` format
   (e.g. ``100/minute``, ``10/second``). Default ``100/minute``.
+- ``RATE_LIMIT_STORAGE``: ``memory://`` (per replica) or Redis; see ``backend/rate_limiter.py``.
 """
 
 from __future__ import annotations
@@ -30,13 +31,16 @@ import logging
 from typing import TYPE_CHECKING
 
 from limits import parse
-from limits.storage import MemoryStorage
-from limits.strategies import FixedWindowRateLimiter
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from your_service_name.backend import paths
 from your_service_name.backend.errors import problem_response
-from your_service_name.backend.settings import DEFAULT_RATE_LIMIT
+from your_service_name.backend.rate_limiter import RateLimiter, build_storage
+from your_service_name.backend.settings import (
+    DEFAULT_RATE_LIMIT,
+    DEFAULT_SERVICE_NAME,
+    MEMORY_STORAGE_URL,
+)
 from your_service_name.utils.versioning_api import DEFAULT_API_VERSION
 
 if TYPE_CHECKING:
@@ -51,6 +55,9 @@ if TYPE_CHECKING:
     from your_service_name.backend.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+#: The key namespace of the default limit (the CSP report limit has its own).
+DEFAULT_NAMESPACE = "default"
 
 
 def _parse_limit(raw: str) -> RateLimitItem:
@@ -103,9 +110,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         *,
         limit: str = DEFAULT_RATE_LIMIT,
         exempt_paths: frozenset[str] = paths.exempt_paths(DEFAULT_API_VERSION),
+        limiter: RateLimiter | None = None,
     ) -> None:
         super().__init__(app)
-        self._limiter = FixedWindowRateLimiter(MemoryStorage())
+        self._limiter = limiter or RateLimiter(
+            build_storage(MEMORY_STORAGE_URL, 1), prefix=DEFAULT_SERVICE_NAME, timeout=1
+        )
         self._limit = _parse_limit(limit)
         self._exempt_paths = exempt_paths
 
@@ -116,7 +126,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path in self._exempt_paths:
             return await call_next(request)
 
-        if not self._limiter.hit(self._limit, _client_ip(request)):
+        if not await self._limiter.hit(self._limit, DEFAULT_NAMESPACE, _client_ip(request)):
             retry_after = self._limit.GRANULARITY.seconds * self._limit.multiples
             return problem_response(
                 request.scope,
@@ -133,8 +143,9 @@ def register_rate_limiting(app: FastAPI, settings: Settings) -> None:
     Configure and register the rate limiter on the FastAPI application.
 
     Parses ``RATE_LIMIT_DEFAULT`` (raising at startup on a bad value), installs a
-    fixed-window, in-memory, per-IP limiter, and mounts the enforcing middleware
-    so the limit actually applies to routes. Liveness/readiness probes
+    fixed-window, per-IP limiter on the configured storage (``RATE_LIMIT_STORAGE``, see
+    ``backend/rate_limiter.py``), and mounts the enforcing middleware so the limit actually
+    applies to routes. Liveness/readiness probes
     (``/health``, ``/healthz``) and ``/metrics`` are exempt.
 
     Parameters
@@ -154,6 +165,19 @@ def register_rate_limiting(app: FastAPI, settings: Settings) -> None:
     logger.info("Rate limiting enabled: %s per IP", limit)
     # Parse eagerly so a misconfigured limit fails at startup, not per request.
     _parse_limit(limit)
+    # One limiter (one storage) per app, shared with the other limited endpoints (the CSP report).
+    limiter = RateLimiter(
+        build_storage(
+            settings.RATE_LIMIT_STORAGE.get_secret_value(),
+            settings.RATE_LIMIT_STORAGE_TIMEOUT_SECONDS,
+        ),
+        prefix=DEFAULT_SERVICE_NAME,
+        timeout=settings.RATE_LIMIT_STORAGE_TIMEOUT_SECONDS,
+    )
+    app.state.rate_limiter = limiter
     app.add_middleware(
-        RateLimitMiddleware, limit=limit, exempt_paths=paths.exempt_paths(settings.API_VERSION)
+        RateLimitMiddleware,
+        limit=limit,
+        limiter=limiter,
+        exempt_paths=paths.exempt_paths(settings.API_VERSION),
     )
