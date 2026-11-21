@@ -4,7 +4,7 @@
  * @remarks
  * axe files text it cannot resolve (for example white text on a transparent button over a white
  * card) under `incomplete`, not `violations`. This helper measures every visible text node
- * from the browser's computed styles: the text colour against the backgrounds painted behind it,
+ * from the browser's computed styles (CSS opacity included): the text colour against the backgrounds painted behind it,
  * composited down to the first opaque one (white when none is). A background image or gradient on an
  * ancestor makes the answer unknowable, so that node is reported as `unresolved` instead of passing.
  *
@@ -94,7 +94,13 @@ export async function lowContrastText(page: Page): Promise<TextContrastIssue[]> 
         issues.push({ text: text.slice(0, 40), element: label(el), ratio: 'unresolved', needed });
         continue;
       }
-      const fg = over(rgba(style.color), backdrop);
+      // CSS opacity on the element or an ancestor fades the text: fold it into the text colour's alpha.
+      let opacity = 1;
+      for (let up: Element | null = el; up; up = up.parentElement) {
+        opacity *= Number.parseFloat(getComputedStyle(up).opacity);
+      }
+      const [r, g, b, a] = rgba(style.color);
+      const fg = over([r, g, b, a * opacity], backdrop);
       const measured = Math.round(ratio(fg, backdrop) * 100) / 100;
       if (measured < needed) {
         issues.push({ text: text.slice(0, 40), element: label(el), ratio: measured, needed });

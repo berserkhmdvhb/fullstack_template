@@ -10,7 +10,8 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders, screen } from '@/src/test/test-utils';
 
-import { THEME_INIT_SCRIPT, ThemeProvider, useTheme } from './theme-provider';
+import { ThemeProvider, useTheme } from './theme-provider';
+import { THEME_INIT_SCRIPT } from './theme-script';
 
 beforeAll(() => {
   // Mock matchMedia so prefers-color-scheme: light returns false (dark default)
@@ -147,5 +148,27 @@ describe('ThemeProvider and the <html> class', () => {
   it('ships an init script that only touches the html class', () => {
     expect(THEME_INIT_SCRIPT).toContain("document.documentElement.classList.add('dark')");
     expect(THEME_INIT_SCRIPT).toContain('prefers-color-scheme: light');
+  });
+
+  it('still switches the theme for the session when storage is blocked', async () => {
+    const { userEvent } = await import('@testing-library/user-event');
+    document.documentElement.classList.remove('light', 'dark');
+    document.documentElement.classList.add('dark');
+    const blocked = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    renderWithProviders(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+
+    await userEvent.setup().click(screen.getByText('Toggle'));
+
+    expect(blocked).toHaveBeenCalled();
+    expect(document.documentElement.classList.contains('light')).toBe(true);
+    expect(screen.getByTestId('theme')).toHaveTextContent('light');
+    blocked.mockRestore();
+    document.documentElement.classList.remove('light');
   });
 });

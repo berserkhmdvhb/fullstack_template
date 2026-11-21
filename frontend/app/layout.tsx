@@ -17,7 +17,8 @@ import '@/styles/globals.css';
 
 import { GlobalHeader } from './(ui)/global-header';
 import { GlobalProviders } from './(ui)/global-providers';
-import { THEME_INIT_SCRIPT, ThemeProvider } from './(ui)/theme-provider';
+import { ThemeProvider } from './(ui)/theme-provider';
+import { THEME_INIT_SCRIPT } from './(ui)/theme-script';
 
 export const metadata = {
   title: 'Your Service Name',
@@ -46,12 +47,8 @@ export default async function RootLayout({
     <html lang="en" suppressHydrationWarning nonce={nonce}>
       <head>
         {/* Sets the theme class before first paint. It carries the request nonce, so the CSP needs no
-            'unsafe-inline'. The browser hides the nonce attribute from the DOM, hence suppressHydrationWarning. */}
-        <script
-          nonce={nonce}
-          suppressHydrationWarning
-          dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
-        />
+            'unsafe-inline'. Only <html> suppresses the hydration warning (its class is set before React runs). */}
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body>
         <a
