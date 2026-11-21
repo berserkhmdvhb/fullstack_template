@@ -23,7 +23,9 @@ export PS4='+ $(date "+%H:%M:%S") ${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:-main} 
 [[ "${TRACE:-0}" == "1" ]] && set -x
 
 umask 027
-export PATH="/home/appuser/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH}"
+# The inherited PATH comes before the system dirs: in the image it starts with the app venv (/app/.venv/bin),
+# which must win over the base image's python in /usr/local/bin.
+export PATH="/home/appuser/.local/bin:${PATH}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # ---- Load .env if present -------------------------------------------
 # Only set variables that are NOT already defined (e.g. by docker-compose).

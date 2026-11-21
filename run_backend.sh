@@ -27,10 +27,11 @@ set -euo pipefail
 echo "Starting Backend..."
 echo "=========================================="
 
-# --- venv bootstrap ---
-if [ ! -d ".venv" ]; then
-  echo "Creating virtual environment..."
-  python3 -m venv .venv
+# --- venv bootstrap: the locked dependencies (uv.lock), once ---
+if [ ! -f ".venv/.deps_installed" ]; then
+  echo "Installing the locked dependencies..."
+  uv sync --locked
+  touch .venv/.deps_installed
 fi
 
 # --- load .env if present ---
@@ -53,18 +54,10 @@ GUNICORN_RELOAD="${GUNICORN_RELOAD:-false}"
 # Optional GPU env (don't force on non-GPU hosts)
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-}"
 
-# --- activate venv & install deps ---
+# --- activate venv ---
 echo "Activating virtual environment..."
 # shellcheck disable=SC1091
 source .venv/bin/activate
-
-# Install dependencies only once
-if [ ! -f ".venv/.deps_installed" ]; then
-  echo "Installing dependencies..."
-  python -m pip install --upgrade pip
-  python -m pip install -e .
-  touch .venv/.deps_installed
-fi
 
 echo "Host: ${BACKEND_HOST} | Port: ${BACKEND_PORT} | Workers=${GUNICORN_WORKERS} | Reload=${GUNICORN_RELOAD}"
 

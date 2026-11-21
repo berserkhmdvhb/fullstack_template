@@ -9,12 +9,13 @@ FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf107
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never
 
-ARG PKG_VERSION=0.0.0
-
-# Pretend version for setuptools_scm (no .git needed)
-ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_YOUR_SERVICE_NAME=${PKG_VERSION}
+# uv from the official image, at the version tools/pins.tsv pins (a test keeps the two equal).
+COPY --from=ghcr.io/astral-sh/uv:0.13.8@sha256:5cc1805e2426484abca4ad46ea783bab281fdb225fd82d8ce6d66a81254bac85 /uv /bin/uv
 
 # Build deps (kept only in builder)
 # hadolint ignore=DL3008 # apt versions are not pinnable per package; the base image digest pins the release
@@ -23,13 +24,22 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
       libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# The venv is built at /app/.venv and copied to the same path in the runtime stage (same base image),
+# so its scripts and interpreter links stay valid.
 WORKDIR /app
-COPY pyproject.toml README.md alembic.ini /app/
-COPY src /app/src
 
-# Install backend into /install
-RUN pip install --no-cache-dir --upgrade "pip>=25.3" \
- && pip install --no-cache-dir --prefix=/install .
+# Layer 1: the locked dependencies only (cached until pyproject.toml or uv.lock changes).
+# --frozen installs exactly uv.lock and checks every download against its recorded hash.
+COPY pyproject.toml uv.lock /app/
+RUN uv sync --frozen --no-dev --no-install-project --no-editable
+
+# Layer 2: the project itself.
+ARG PKG_VERSION=0.0.0
+# Pretend version for setuptools_scm (no .git needed)
+ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_YOUR_SERVICE_NAME=${PKG_VERSION}
+COPY README.md LICENSE alembic.ini /app/
+COPY src /app/src
+RUN uv sync --frozen --no-dev --no-editable
 
 
 ############################
@@ -87,8 +97,9 @@ WORKDIR /app
 # Non-root user
 RUN useradd -m -u 10001 appuser
 
-# Install backend (includes alembic.ini + migrations via pip install)
-COPY --chown=10001:10001 --from=py-builder /install /usr/local
+# The locked backend venv, copied root-owned (no --chown): the app user can run it but not rewrite its
+# own code, and its bytecode is already compiled, so nothing is written at start-up.
+COPY --from=py-builder /app/.venv /app/.venv
 
 # Copy alembic.ini (needed at runtime for migrations)
 COPY --chown=10001:10001 alembic.ini /app/alembic.ini
@@ -97,9 +108,10 @@ COPY --chown=10001:10001 alembic.ini /app/alembic.ini
 COPY --chown=10001:10001 infra/db/run_migrations.sh /app/infra/db/run_migrations.sh
 COPY --chown=10001:10001 infra/backend/run_backend.sh /app/infra/backend/run_backend.sh
 
-# Make the scripts executable; logs dir
+# Make the scripts executable. /app stays root-owned; only the dirs the app writes (logs, and data for the
+# default SQLite database) belong to the app user.
 RUN chmod +x /app/infra/db/run_migrations.sh /app/infra/backend/run_backend.sh \
- && mkdir -p /app/logs && chown -R appuser:appuser /app
+ && mkdir -p /app/logs /app/data && chown appuser:appuser /app/logs /app/data
 
 # Healthcheck — uses HTTPS when HEALTHCHECK_SCHEME=https
 ARG HEALTHCHECK_SCHEME=http
@@ -108,7 +120,7 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
   CMD ["sh", "-c", "curl -fsS \"${HEALTHCHECK_SCHEME}://localhost:${BACKEND_PORT:-8000}/api/${API_VERSION:-v1}/healthz\" || exit 1"]
 
 USER 10001
-ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ENV PATH="/app/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
 CMD ["/app/infra/backend/run_backend.sh"]
