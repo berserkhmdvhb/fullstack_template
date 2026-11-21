@@ -52,8 +52,9 @@ logger = logging.getLogger(__name__)
 
 # Liveness/readiness probes and the metrics endpoint are exempt from rate
 # limiting. Matched by *trailing path segment* so the exemption holds regardless
-# of the API prefix an adopter mounts under (e.g. /health vs /api/v1/health).
-_DEFAULT_EXEMPT_PATH_SUFFIXES: tuple[str, ...] = ("health", "healthz", "metrics")
+# of the API prefix an adopter mounts under (e.g. /health vs /api/v1/health). The trusted-host
+# check (request_limits.py) exempts the same paths: one list.
+EXEMPT_PATH_SUFFIXES: tuple[str, ...] = ("health", "healthz", "metrics")
 
 
 def _parse_limit(raw: str) -> RateLimitItem:
@@ -83,7 +84,7 @@ def _parse_limit(raw: str) -> RateLimitItem:
         raise ValueError(msg) from exc
 
 
-def _is_exempt_path(path: str, suffixes: tuple[str, ...]) -> bool:
+def is_exempt_path(path: str, suffixes: tuple[str, ...]) -> bool:
     """
     Return True if ``path`` ends on one of the exempt trailing segments.
 
@@ -117,7 +118,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         app: ASGIApp,
         *,
         limit: str = DEFAULT_RATE_LIMIT,
-        exempt_path_suffixes: tuple[str, ...] = _DEFAULT_EXEMPT_PATH_SUFFIXES,
+        exempt_path_suffixes: tuple[str, ...] = EXEMPT_PATH_SUFFIXES,
     ) -> None:
         super().__init__(app)
         self._limiter = FixedWindowRateLimiter(MemoryStorage())
@@ -128,7 +129,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         """Skip exempt paths; reject requests that exceed the per-IP limit with 429."""
-        if _is_exempt_path(request.url.path, self._exempt_path_suffixes):
+        if is_exempt_path(request.url.path, self._exempt_path_suffixes):
             return await call_next(request)
 
         if not self._limiter.hit(self._limit, _client_ip(request)):

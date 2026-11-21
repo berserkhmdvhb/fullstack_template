@@ -4,7 +4,7 @@ Unit tests for the rate limiting middleware.
 
 Covers:
 - ``_parse_limit``: parses ``limits`` specs; rejects invalid ones loudly.
-- ``_is_exempt_path``: trailing-segment exemption (bare + prefixed + non-match).
+- ``is_exempt_path``: trailing-segment exemption (bare + prefixed + non-match).
 - ``_client_ip``: key extraction with/without a client address.
 - ``RateLimitMiddleware`` on a minimal app: the (limit+1)-th request is 429 with a
   ``Retry-After`` header, and exempt paths are never throttled.
@@ -20,8 +20,8 @@ from starlette.datastructures import Address
 from your_service_name.backend.middleware.rate_limiting import (
     RateLimitMiddleware,
     _client_ip,
-    _is_exempt_path,
     _parse_limit,
+    is_exempt_path,
     register_rate_limiting,
 )
 from your_service_name.backend.settings import Settings
@@ -62,22 +62,22 @@ class TestParseLimit:
 
 
 class TestIsExemptPath:
-    """``_is_exempt_path`` matches exempt trailing segments."""
+    """``is_exempt_path`` matches exempt trailing segments."""
 
     def test_matches_bare_and_prefixed(self) -> None:
         """Both ``/health`` and ``/api/v1/health`` are exempt."""
         suffixes: tuple[str, ...] = ("health", "healthz", "metrics")
-        assert _is_exempt_path("/health", suffixes)
-        assert _is_exempt_path("/api/v1/health", suffixes)
-        assert _is_exempt_path("/metrics", suffixes)
+        assert is_exempt_path("/health", suffixes)
+        assert is_exempt_path("/api/v1/health", suffixes)
+        assert is_exempt_path("/metrics", suffixes)
 
     def test_non_exempt_path(self) -> None:
         """An unrelated path is not exempt."""
-        assert not _is_exempt_path("/api/v1/items", ("health", "healthz", "metrics"))
+        assert not is_exempt_path("/api/v1/items", ("health", "healthz", "metrics"))
 
     def test_empty_suffixes_never_exempt(self) -> None:
         """No configured suffixes means nothing is exempt."""
-        assert not _is_exempt_path("/health", ())
+        assert not is_exempt_path("/health", ())
 
 
 class TestClientIp:

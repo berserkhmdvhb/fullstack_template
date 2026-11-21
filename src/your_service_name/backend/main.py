@@ -32,6 +32,7 @@ Notes
 - CORS origins come from the `CORS_ORIGINS` setting (comma-separated).
 - Security headers are injected via `register_security_middleware`.
 - Rate limiting is configured via `register_rate_limiting` (per-IP, `limits`).
+- Body size and `Host` are limited by `MAX_REQUEST_BODY_BYTES` and `ALLOWED_HOSTS`.
 - Request logging is opt-in via the `LOG_REQUESTS` setting.
 - DI initialization occurs inside `lifespan` to guarantee availability for request dependencies.
 """
@@ -55,6 +56,10 @@ from your_service_name.backend.middleware.client_ip import ClientIpMiddleware
 from your_service_name.backend.middleware.correlation import CorrelationIdMiddleware
 from your_service_name.backend.middleware.logging import RequestLoggingMiddleware
 from your_service_name.backend.middleware.rate_limiting import register_rate_limiting
+from your_service_name.backend.middleware.request_limits import (
+    RequestSizeLimitMiddleware,
+    TrustedHostMiddleware,
+)
 from your_service_name.backend.middleware.security import register_security_middleware
 from your_service_name.backend.repositories.in_memory_echo import InMemoryEchoRepository
 from your_service_name.backend.services.echo_service import EchoService
@@ -229,6 +234,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Optional request logging (controlled by the LOG_REQUESTS setting).
     app.add_middleware(RequestLoggingMiddleware, log_requests=settings.LOG_REQUESTS)
+
+    # Body-size cap, then host check: both answer with a problem body, so they sit INSIDE the
+    # correlation middleware (the 400/413 carry the request id) and outside everything else
+    # (logging, security headers, the rate limiter, CORS): a refused request costs nothing more.
+    # Added in reverse: ``add_middleware`` puts the later call further out.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
+    app.add_middleware(RequestSizeLimitMiddleware, max_bytes=settings.MAX_REQUEST_BODY_BYTES)
 
     # Correlation id MUST sit just inside ClientIpMiddleware (added right after this) so it scopes
     # the id for every log emitted while handling the request, including the request-logging

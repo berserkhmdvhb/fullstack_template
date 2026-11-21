@@ -140,3 +140,15 @@ imagePullSecrets:
 {{- define "chart.databaseURL" -}}
 {{- printf "postgresql+asyncpg://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)" -}}
 {{- end -}}
+
+{{/*
+   The Host values the backend answers (its ALLOWED_HOSTS): the ingress hosts, plus the backend
+   Service's in-cluster names, because the frontend's server-side calls reach the backend by
+   Service name. Ports are not listed: the backend strips the port before it matches.
+*/}}
+{{- define "chart.allowedHosts" -}}
+{{- $svc := printf "%s-backend" (include "chart.fullname" .) -}}
+{{- $ns := .Release.Namespace -}}
+{{- $hosts := list .Values.ingress.hosts.api .Values.ingress.hosts.app .Values.ingress.hosts.root $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns) -}}
+{{- join "," $hosts -}}
+{{- end -}}

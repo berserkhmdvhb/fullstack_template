@@ -10,6 +10,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+from tests.backend.test_chart_request_limits import rendered_config
 from your_service_name.backend.settings import Settings
 
 CHART = Path(__file__).resolve().parents[2] / "charts" / "your-service-name"
@@ -19,10 +20,12 @@ CHART_DATABASE_URL = "postgresql+asyncpg://app:fake@db.example.test:5432/app"
 
 
 def _config(env: str) -> dict[str, Any]:
-    """The ConfigMap values the backend receives for ``env``: values.yaml + values.<env>.yaml."""
+    """The ConfigMap values the backend receives for ``env``: values.yaml + values.<env>.yaml,
+    plus ALLOWED_HOSTS, which the chart computes (so it is read from the rendered ConfigMap)."""
     base = yaml.safe_load((CHART / "values.yaml").read_text(encoding="utf-8"))["config"]
     over = yaml.safe_load((CHART / f"values.{env}.yaml").read_text(encoding="utf-8")) or {}
-    return {**base, **over.get("config", {})}
+    rendered = rendered_config(env)
+    return {**base, **over.get("config", {}), "ALLOWED_HOSTS": rendered["ALLOWED_HOSTS"]}
 
 
 @pytest.fixture(autouse=True)

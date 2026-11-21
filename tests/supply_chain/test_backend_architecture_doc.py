@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 ORDER = [
     "ClientIpMiddleware",
     "CorrelationIdMiddleware",
+    "RequestSizeLimitMiddleware",
+    "TrustedHostMiddleware",
     "RequestLoggingMiddleware",
     "security headers",
     "RateLimitMiddleware",

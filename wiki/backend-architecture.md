@@ -292,11 +292,16 @@ alembic downgrade -1
 Middleware wraps all requests in this order, outermost first (`create_app` in `main.py`):
 
 1. `ClientIpMiddleware`: resolves the real client address first, so everything below sees one value
-2. `CorrelationIdMiddleware`: scopes the `X-Request-Id` for every log line
-3. `RequestLoggingMiddleware`: method, path, status, duration and client (opt-in via `LOG_REQUESTS`)
-4. security headers
-5. `RateLimitMiddleware`: per-client-IP throttling
-6. `CORSMiddleware`
+2. `CorrelationIdMiddleware`: scopes the `X-Request-Id` and the `traceparent` trace id for every log line
+3. `RequestSizeLimitMiddleware`: refuses an oversized body before anything reads it
+4. `TrustedHostMiddleware`: refuses a `Host` that is not in `ALLOWED_HOSTS`
+5. `RequestLoggingMiddleware`: method, path, status, duration and client (opt-in via `LOG_REQUESTS`)
+6. security headers
+7. `RateLimitMiddleware`: per-client-IP throttling
+8. `CORSMiddleware`
+
+The two refusals sit just inside the correlation middleware so their problem bodies carry the request
+id, and outside everything else so a refused request costs nothing more.
 
 The Prometheus instrumentator (`/metrics`) is added last, so it wraps the whole stack from outside. It
 only records metrics and does not read the client address.
@@ -304,7 +309,8 @@ only records metrics and does not read the client address.
 | Middleware | File | Purpose |
 |-----------|------|---------|
 | Client IP | `middleware/client_ip.py` | Rewrites the client address from a trusted proxy's headers; the trust rules are in [Client IP](security.md#client-ip) |
-| Correlation | `middleware/correlation.py` | `X-Request-Id` correlation id for the request's logs |
+| Correlation | `middleware/correlation.py` | `X-Request-Id` and `traceparent` trace id for the request's logs |
+| Request limits | `middleware/request_limits.py` | Body-size cap (413) and trusted hosts (400) |
 | Logging | `middleware/logging.py` | Request/response logging (opt-in via `LOG_REQUESTS`) |
 | Security | `middleware/security.py` | Security headers |
 | Rate Limiting | `middleware/rate_limiting.py` | Per-IP request throttling (enforced in-middleware via `limits`) |

@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 # the migration runner and the seed script (via db/_constants.py). Overridable via SQLITE_PATH.
 DEFAULT_SQLITE_REL_PATH: Final[str] = "data/items.db"
 DEFAULT_RATE_LIMIT: Final[str] = "100/minute"
+# The chart's ingress `proxy-body-size` (10m, which nginx reads as MiB); a test keeps them equal.
+DEFAULT_MAX_REQUEST_BODY_BYTES: Final[int] = 10 * 1024 * 1024
 
 # HMAC family only: JWT alg name -> hashlib digest name (a JWT "HS256" is hashlib "sha256").
 # RSA/ECDSA/`none` are deliberately rejected to avoid the classic "alg confusion" attack
@@ -71,6 +73,7 @@ _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
     "ALLOW_ANONYMOUS",
     "ALLOW_PRODUCTION_DOCS",
     "TRUST_CF_CONNECTING_IP",
+    "MAX_REQUEST_BODY_BYTES",
 )
 
 
@@ -165,6 +168,21 @@ class Settings(BaseSettings):
     RATE_LIMIT_DEFAULT: str = Field(
         default=DEFAULT_RATE_LIMIT,
         description="Per-IP rate limit in `limits` format, for example `100/minute`.",
+    )
+
+    # --- Request limits -------------------------------------------------------
+    MAX_REQUEST_BODY_BYTES: int = Field(
+        default=DEFAULT_MAX_REQUEST_BODY_BYTES,
+        gt=0,
+        description="Largest accepted request body in bytes; more is a 413. The default (10 MiB) "
+        "is the chart's ingress `proxy-body-size`, so the edge and the service agree.",
+    )
+    ALLOWED_HOSTS: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["*"],
+        description="Comma-separated `Host` values the service answers (`*.example.com` matches "
+        "subdomains, `*` anything). Anything else is a 400; the probe and metrics paths are "
+        "exempt. The chart sets it from the ingress hosts and the backend Service names.",
+        json_schema_extra={"production": "Must be set and must not contain `*`."},
     )
 
     # --- Client IP ------------------------------------------------------------
@@ -292,7 +310,9 @@ class Settings(BaseSettings):
         """An empty variable means "not set" (the old reads used ``or default``)."""
         return cls._default_of(info.field_name) if cls._is_blank(value) else value
 
-    @field_validator("CORS_ORIGINS", "CORS_ALLOW_METHODS", "CORS_ALLOW_HEADERS", mode="before")
+    @field_validator(
+        "CORS_ORIGINS", "CORS_ALLOW_METHODS", "CORS_ALLOW_HEADERS", "ALLOWED_HOSTS", mode="before"
+    )
     @classmethod
     def _csv(cls, value: object, info: ValidationInfo) -> object:
         if not isinstance(value, str):
@@ -424,6 +444,12 @@ class Settings(BaseSettings):
             problems.append(
                 "CORS_ORIGINS: every origin must be a bare scheme://host[:port], with no path "
                 "and no trailing slash"
+            )
+
+        if not self.ALLOWED_HOSTS or "*" in self.ALLOWED_HOSTS:
+            problems.append(
+                "ALLOWED_HOSTS: '*' (or an empty list) accepts any Host header; list the hosts "
+                "the service answers, for example the ingress hosts and the Service names"
             )
 
         if self.TRUST_CF_CONNECTING_IP and not self.TRUSTED_PROXY_CIDRS:

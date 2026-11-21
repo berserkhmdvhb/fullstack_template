@@ -12,6 +12,11 @@ data:
   # rewrites in next.config.ts). Points at the in-cluster backend Service; the
   # browser never sees it. A runtime env, so one image serves every environment.
   BACKEND_URL: "http://{{ include "chart.fullname" . }}-backend:8000"
+  # Host values the backend accepts (a 400 otherwise); probes and /metrics are exempt. Set
+  # config.ALLOWED_HOSTS to take over the list.
+  {{- if not (hasKey .Values.config "ALLOWED_HOSTS") }}
+  ALLOWED_HOSTS: {{ include "chart.allowedHosts" . | quote }}
+  {{- end }}
   # DB_HOST points at the internal Postgres Service (computed from the db
   # namespace) for local/dev/qa, or at the managed DB host in production.
   {{- if .Values.postgresql.enabled }}

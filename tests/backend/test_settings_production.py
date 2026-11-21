@@ -25,7 +25,12 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _production(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
     """A valid production base, then overrides: Postgres, gateway auth."""
-    base = {"ENV": "production", "DATABASE_URL": POSTGRES_URL, "AUTH_MODE": "gateway"}
+    base = {
+        "ENV": "production",
+        "DATABASE_URL": POSTGRES_URL,
+        "AUTH_MODE": "gateway",
+        "ALLOWED_HOSTS": "api.example.com",
+    }
     for name, value in {**base, **env}.items():
         monkeypatch.setenv(name, value)
 
@@ -39,6 +44,32 @@ def _refused(monkeypatch: pytest.MonkeyPatch, *names: str, **env: str) -> str:
     for name in names:
         assert name in text
     return text
+
+
+class TestAllowedHostsRule:
+    @pytest.mark.parametrize("value", ["*", "api.example.com,*", ""])
+    def test_a_wildcard_or_empty_list_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        _refused(monkeypatch, "ALLOWED_HOSTS", ALLOWED_HOSTS=value)
+
+    def test_an_empty_list_object_is_refused(self) -> None:
+        with pytest.raises(ValidationError, match="ALLOWED_HOSTS"):
+            Settings(
+                ENV="production",
+                DATABASE_URL=SecretStr(POSTGRES_URL),
+                AUTH_MODE="gateway",
+                ALLOWED_HOSTS=[],
+            )
+
+    def test_listed_hosts_and_subdomain_wildcards_are_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _production(monkeypatch, ALLOWED_HOSTS="api.example.com, *.example.org")
+        assert Settings().ALLOWED_HOSTS == ["api.example.com", "*.example.org"]
+
+    def test_outside_production_the_default_is_any_host(self) -> None:
+        assert Settings().ALLOWED_HOSTS == ["*"]
 
 
 class TestClientIpRule:
@@ -266,7 +297,12 @@ class TestDocs:
 
     def test_the_served_app_has_no_docs_routes_in_production(self) -> None:
         app = create_app(
-            Settings(ENV="production", DATABASE_URL=SecretStr(POSTGRES_URL), AUTH_MODE="gateway")
+            Settings(
+                ENV="production",
+                DATABASE_URL=SecretStr(POSTGRES_URL),
+                AUTH_MODE="gateway",
+                ALLOWED_HOSTS=["api.example.com"],
+            )
         )
         paths = {getattr(route, "path", "") for route in app.routes}
         assert "/docs" not in paths
@@ -278,11 +314,13 @@ class TestDocs:
                 ENV="production",
                 DATABASE_URL=SecretStr(POSTGRES_URL),
                 AUTH_MODE="gateway",
+                ALLOWED_HOSTS=["api.example.com"],
                 ALLOW_PRODUCTION_DOCS=True,
             )
         )
         # No lifespan (no `with`): only the routing is under test, not the database.
-        assert TestClient(app).get("/openapi.json").status_code == 200  # noqa: PLR2004
+        client = TestClient(app)
+        assert client.get("/openapi.json", headers={"Host": "api.example.com"}).status_code == 200  # noqa: PLR2004
 
 
 class TestFailsLoudAtAppCreation:
