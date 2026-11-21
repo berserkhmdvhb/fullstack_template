@@ -57,3 +57,36 @@ describe('CSP reporting', () => {
     expect(on).toBe(off);
   });
 });
+
+describe('CSP on the docs page', () => {
+  const docs = () => csp('/docs');
+  const directive = (name: string) =>
+    docs()
+      .split('; ')
+      .find((d) => d.startsWith(`${name} `)) ?? '';
+
+  it('admits the CDN for scripts and styles, but no inline script and no eval', () => {
+    expect(directive('script-src')).toMatch(
+      /^script-src 'self' 'nonce-[^']+' https:\/\/cdn\.jsdelivr\.net$/,
+    );
+    expect(directive('style-src')).toBe("style-src 'self' https://cdn.jsdelivr.net");
+    expect(docs()).not.toContain('unsafe-');
+  });
+
+  it('keeps images and connections same-origin', () => {
+    expect(directive('img-src')).toBe("img-src 'self' blob: data:");
+    expect(directive('connect-src')).toBe("connect-src 'self'");
+  });
+
+  it('is proxied to the backend, with its init script, under the strict policy', () => {
+    const init = run('/docs/init.js');
+    expect(init.headers.get('x-middleware-rewrite')).toContain('/docs/init.js');
+    expect(csp('/docs/init.js')).not.toContain('cdn.jsdelivr.net');
+  });
+
+  it('does not extend the CDN to any other page', () => {
+    for (const path of ['/', '/items', '/docsx']) {
+      expect(csp(path)).not.toContain('cdn.jsdelivr.net');
+    }
+  });
+});

@@ -63,8 +63,8 @@ export function proxy(request: NextRequest) {
 
   const { nextUrl } = request;
   // The interactive /docs page is the ONLY page allowed to load a third-party
-  // script/style origin (Swagger UI's jsDelivr CDN) and inline scripts/styles;
-  // every other page keeps the strict nonce-only policy below.
+  // script/style origin (Swagger UI's jsDelivr CDN, pinned by SRI in the backend's page);
+  // it has no inline script, so it needs no 'unsafe-inline' for scripts.
   const isDocsPage = nextUrl.pathname === '/docs';
   const response = proxiesToBackend(nextUrl.pathname)
     ? NextResponse.rewrite(
@@ -81,13 +81,13 @@ export function proxy(request: NextRequest) {
       // CDN only on /docs: Swagger UI loads its bundle/CSS from jsDelivr there.
       // Every other page stays CDN-free — no third-party script/style origin.
       "img-src 'self' blob: data:",
-      isDocsPage ? "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net" : "style-src 'self'",
+      isDocsPage ? "style-src 'self' https://cdn.jsdelivr.net" : "style-src 'self'",
       // The nonce admits Next.js's own inline bootstrap scripts without a blanket
-      // 'unsafe-inline'/'unsafe-eval'. /docs additionally needs 'unsafe-inline'
-      // (Swagger UI's inline init script + injected styles) and the jsDelivr CDN —
-      // scoped to that one page, so the rest of the app stays nonce-only.
+      // 'unsafe-inline'/'unsafe-eval'. /docs additionally admits the jsDelivr CDN for
+      // Swagger UI's bundle (its init script is the backend's own /docs/init.js, same origin),
+      // scoped to that one page.
       isDocsPage
-        ? `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' https://cdn.jsdelivr.net`
+        ? `script-src 'self' 'nonce-${nonce}' https://cdn.jsdelivr.net`
         : `script-src 'self' 'nonce-${nonce}'`,
       // The frontend calls the API same-origin (/api/v1, rewritten above), so
       // 'self' is the only connect origin — no broad `https:` that would permit
