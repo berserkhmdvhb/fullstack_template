@@ -77,8 +77,8 @@ git clone <YOUR_REPO_URL> && cd $_
 cp .env.example .env                 # then edit to taste
 infra/adapt/replace_service_name.sh -n <your_service> --dry-run   # preview the rename
 infra/adapt/replace_service_name.sh -n <your_service>             # apply it
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[develop]"        # == make develop
+scripts/tools.sh install uv && export PATH="$PWD/.tools/bin:$PATH"
+make develop && source .venv/bin/activate   # locked set; the uv workflow: wiki/getting-started.md#lock-file-and-the-7-day-rule
 cd frontend && npm ci && npm run dev # frontend at :3000
 # backend:  source .venv/bin/activate && python -m your_service_name.backend.main  (API at :8000)
 ```

@@ -97,7 +97,7 @@ def test_dependabot_does_security_updates_only() -> None:
         "the file must say Renovate owns version updates"
     )
     updates = yaml.safe_load(text)["updates"]
-    assert {u["package-ecosystem"] for u in updates} == {"pip", "npm", "docker", "github-actions"}
+    assert {u["package-ecosystem"] for u in updates} == {"uv", "npm", "docker", "github-actions"}
     for update in updates:
         assert update["open-pull-requests-limit"] == 0
 
@@ -144,3 +144,11 @@ def test_no_private_planning_reference_in_the_new_files() -> None:
     ):
         text = (ROOT / rel).read_text(encoding="utf-8")
         assert not re.search(r"spec section|design doc", text, re.IGNORECASE), rel
+
+
+def test_renovate_maintains_uv_lock_and_moves_the_uv_pin_with_its_image() -> None:
+    cfg = renovate()
+    assert cfg["lockFileMaintenance"]["enabled"] is True
+    assert cfg["minimumReleaseAge"] == "7 days"
+    rule = next(r for r in cfg["packageRules"] if r.get("groupName") == "uv")
+    assert set(rule["matchPackageNames"]) == {"astral-sh/uv", "ghcr.io/astral-sh/uv"}

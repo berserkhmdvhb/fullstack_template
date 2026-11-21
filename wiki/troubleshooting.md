@@ -26,7 +26,7 @@ Common issues and solutions for local development, Kubernetes, Docker, and CI/CD
 
 | Cause | Solution |
 |-------|----------|
-| Missing dependencies | `pip install -e ".[develop]"` |
+| Missing dependencies | `make develop` (uv sync --locked) |
 | Database not available | Check `DATABASE_URL`; SQLite fallback works without PostgreSQL |
 | Port already in use | Change `BACKEND_PORT` in `.env` |
 | Migration failure | Run `alembic upgrade head` manually |
@@ -480,7 +480,7 @@ kubectl -n your-service-name-<env> top pods
 ```bash
 # Backend
 make clean-all
-pip install -e ".[develop]"
+make develop
 alembic upgrade head
 
 # Frontend

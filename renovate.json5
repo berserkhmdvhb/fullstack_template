@@ -104,6 +104,13 @@
     }
   ],
 
+  // uv.lock is maintained by Renovate's pep621 manager (part of config:recommended) with `uv lock`, which reads
+  // [tool.uv] exclude-newer = "7 days" from pyproject.toml, so a refreshed lock also keeps the 7-day rule.
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
+
   "packageRules": [
     {
       // Minor and patch updates (and digest refreshes) arrive together, once a week. Majors fall outside this rule,
@@ -118,6 +125,13 @@
       "matchUpdateTypes": ["major"],
       "groupName": null,
       "addLabels": ["major"]
+    },
+    {
+      // The uv pin in tools/pins.tsv and the uv image tag in Dockerfile.backend must stay equal (a test checks it),
+      // so one pull request moves both. The image digest is refreshed by Renovate; the pins.tsv checksum by make pins-refresh.
+      "description": "uv: the pins.tsv row and the backend image tag move together",
+      "matchPackageNames": ["astral-sh/uv", "ghcr.io/astral-sh/uv"],
+      "groupName": "uv"
     },
     {
       "description": "Tell the reviewer why pin drift is red",

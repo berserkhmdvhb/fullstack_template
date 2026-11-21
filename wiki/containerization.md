@@ -60,12 +60,15 @@ flowchart TB
 
 ```dockerfile
 FROM python:3.12-slim AS builder
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
+COPY --from=ghcr.io/astral-sh/uv:<version>@sha256:<digest> /uv /bin/uv   # same version as tools/pins.tsv
 RUN apt-get update && apt-get install -y build-essential libpq-dev
 WORKDIR /app
-COPY pyproject.toml README.md alembic.ini /app/
+COPY pyproject.toml uv.lock /app/
+RUN uv sync --frozen --no-dev --no-install-project --no-editable   # locked dependencies, hash-checked
+COPY README.md LICENSE alembic.ini /app/
 COPY src /app/src
-RUN pip install --prefix=/install .
+RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:3.12-slim AS runtime
 LABEL org.opencontainers.image.title="Your Service Name"
@@ -73,7 +76,8 @@ LABEL org.opencontainers.image.version="${VERSION}"
 
 RUN apt-get install -y libsqlite3-0 libpq5 bash tini curl ca-certificates
 RUN useradd -m -u 10001 appuser
-COPY --from=builder /install /usr/local
+COPY --from=builder /app/.venv /app/.venv   # root-owned: the app user cannot rewrite its code
+ENV PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
 COPY infra/db/run_migrations.sh /app/infra/db/run_migrations.sh

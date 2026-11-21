@@ -38,8 +38,9 @@ Local development workflow, Makefile commands, code quality tools, Kubernetes de
 
 | Command | Description |
 |---------|-------------|
-| `make install` | Install package in editable mode (production deps) |
-| `make develop` | Install with all development dependencies |
+| `make install` | Install the locked runtime dependencies (`uv sync --locked --no-dev`) |
+| `make develop` | Install the locked set with the dev group (`uv sync --locked`) |
+| `make lock` / `make lock-check` | Re-resolve `uv.lock` / fail when it is stale (see [Getting started](./getting-started.md#lock-file-and-the-7-day-rule)) |
 
 ### Code Quality
 

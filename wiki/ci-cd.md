@@ -103,7 +103,7 @@ Setup of the cloud side: [GKE cluster setup](./gke-cluster-setup.md), [Cloudflar
 
 | Cache | Key | Saved by |
 |---|---|---|
-| pip (`setup-backend`) | `pip-<os>-<python>-<hash of pyproject.toml>` | a push to `main` only |
+| uv (`setup-backend`) | `uv-<os>-<python>-<hash of uv.lock>` (pruned with `uv cache prune --ci` before the save) | a push to `main` only |
 | npm (`setup-frontend`) | `npm-<os>-<node>-<hash of frontend/package-lock.json>` | a push to `main` only |
 | dev tools (`.tools/`) | `tools-<os>-<hash of tools/pins.tsv>` | a push to `main` only |
 | image layers | the GitHub Actions cache, scoped per image id | `reusable-build.yml` (`mode=max`) |

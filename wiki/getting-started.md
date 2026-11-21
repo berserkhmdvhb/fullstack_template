@@ -134,19 +134,46 @@ Secret, with per-environment values selected from `charts/your-service-name/valu
 
 ## Backend Setup
 
-### 1. Create a Virtual Environment
+### 1. Install uv
+
+The backend is locked with [uv](https://docs.astral.sh/uv/). The pinned version is in `tools/pins.tsv`;
+`scripts/tools.sh install uv` installs it (checksum-verified) into `.tools/bin`.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+scripts/tools.sh install uv
+export PATH="$PWD/.tools/bin:$PATH"
 ```
 
 ### 2. Install Dependencies
 
 ```bash
-# Install the package in editable mode with dev dependencies
-pip install -e ".[develop]"
+make develop            # uv sync --locked: creates .venv with the locked set and the dev group
+source .venv/bin/activate
+make install            # runtime dependencies only (uv sync --locked --no-dev)
 ```
+
+Without uv, `pip install -e . --group dev` (pip 25.1 or newer) installs the same dependencies from
+`pyproject.toml`, unlocked and without hashes.
+
+### Lock file and the 7-day rule
+
+`uv.lock` pins every dependency, with hashes. Change it only with these commands, and commit it with
+the `pyproject.toml` change:
+
+| Task | Command |
+|---|---|
+| Re-resolve after editing `pyproject.toml` | `make lock` (`uv lock`) |
+| Fail if the lock is stale | `make lock-check` (`uv lock --check`; CI and pre-commit run it) |
+| Install exactly the lock | `make develop` (`uv sync --locked`) |
+| Upgrade one package | `uv lock --upgrade-package <name>` |
+| Upgrade the dev tools | `make dev-tools-upgrade` |
+| See what is outdated | `make dev-tools-outdated` or `uv tree --outdated --depth 1` |
+
+A locked release must be at least 7 days old, like the pinned tools. `[tool.uv] exclude-newer = "7 days"`
+in `pyproject.toml` is a relative span: uv resolves it when you run `uv lock` and records
+`exclude-newer-span = "P7D"` in the lock. The lock holds no clock reading, so `uv lock --check` answers
+the same on any later day; only an explicit re-lock moves the cutoff. The container image builds from
+the same lock with `uv sync --frozen --no-dev` (see [Containerization](./containerization.md)).
 
 ### 3. Initialize the Database
 
