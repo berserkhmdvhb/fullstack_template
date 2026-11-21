@@ -1,7 +1,11 @@
 name: CI
 
 on:
+  # labeled and unlabeled re-run the whole workflow (every job runs as on any other pull request event): the
+  # api-compat job reads the breaking-change label, and a label change must never leave the test jobs out of
+  # `CI OK`. No job's `if:` looks at the event action.
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
     tags: ["v*"]
@@ -173,6 +177,28 @@ jobs:
       - name: hadolint
         run: bash scripts/ci/hadolint.sh
 
+  # Blocking. Compares the committed OpenAPI snapshot with the base branch's (scripts/ci/oasdiff.sh) and fails on a
+  # breaking change unless the pull request carries the `breaking-change` label. Only users with triage permission
+  # or above can add a label (wiki/api-lifecycle.md). On a push the script skips with a summary line.
+  api-compat:
+    name: API compatibility (oasdiff)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install oasdiff
+        run: scripts/tools.sh install oasdiff
+      - name: Compare the OpenAPI snapshot with the base branch
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BREAKING_CHANGE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'breaking-change') }}
+        run: bash scripts/ci/oasdiff.sh
+
   # Blocking, always runs (no paths gate): the hardening lint, actionlint and zizmor over .github/.
   workflows:
     name: Workflow hardening
@@ -211,13 +237,13 @@ jobs:
   # The one required status check. Path-filtered jobs that are skipped and the matrix legs of the reusable
   # workflows have no stable check names, so the branch ruleset requires this job instead (see
   # wiki/github-repository-settings.md). Only backend, frontend, live and pins may be skipped, and only on a pull
-  # request (their path filter); everything else must succeed, and so must `changes`, or the filter never ran.
+  # request (their path filter); everything else (api-compat included) must succeed, and so must `changes`, or the filter never ran.
   # `live` is advisory on pull requests, so its result is ignored there instead of relying on how
   # continue-on-error surfaces through a called workflow.
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, chart, backend, frontend, live, security, repo, hadolint, workflows, pins]
+    needs: [changes, chart, backend, frontend, live, security, repo, hadolint, api-compat, workflows, pins]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

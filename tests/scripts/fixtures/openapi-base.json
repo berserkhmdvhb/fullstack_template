@@ -1,0 +1,19 @@
+{
+  "openapi": "3.0.3",
+  "info": {"title": "fixture", "version": "1.0.0"},
+  "paths": {
+    "/v1/things": {
+      "get": {
+        "operationId": "listThings",
+        "responses": {"200": {"description": "ok"}}
+      }
+    },
+    "/v1/things/{id}": {
+      "get": {
+        "operationId": "getThing",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "ok"}}
+      }
+    }
+  }
+}
