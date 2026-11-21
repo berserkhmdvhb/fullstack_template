@@ -48,3 +48,15 @@ def test_the_job_keeps_its_permissions_and_timeout() -> None:
     job = workflow("reusable-chart.yml")["jobs"]["chart"]
     assert job["permissions"] == {"contents": "read"}
     assert job["timeout-minutes"] <= 10  # noqa: PLR2004
+
+
+def test_the_unit_job_installs_the_pinned_helm_before_the_tests() -> None:
+    """test_chart_production_guard.py runs in the unit job and needs the pinned helm, not PATH's."""
+    steps = workflow("reusable-backend.yml")["jobs"]["unit"]["steps"]
+    runs = [s.get("run", "") for s in steps]
+    install = next((i for i, r in enumerate(runs) if "scripts/tools.sh install helm4" in r), None)
+    assert install is not None, "the unit job must install the pinned helm (helm4)"
+    tests = next(i for i, r in enumerate(runs) if "make test-unit" in r)
+    assert install < tests
+    assert "${{" not in runs[install]
+    assert "GITHUB_PATH" not in runs[install], "the tests find .tools/bin/helm; no PATH writes"
