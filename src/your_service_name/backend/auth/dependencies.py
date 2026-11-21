@@ -20,6 +20,12 @@ Modes (``AUTH_MODE`` setting; see ``backend/settings.py``, validated at startup)
               request without it is rejected with 401.
 - ``bearer``  — identity comes from a signed JWT bearer token, verified with a
               shared HMAC secret (``AUTH_JWT_SECRET``). Missing/invalid → 401.
+- ``oidc``    — production mode: ``Authorization: Bearer <jwt>`` from an OpenID Connect
+              provider, verified (RS*/PS*/ES*) against its cached JWKS. Missing/invalid → 401;
+              keys unobtainable → 503.
+
+``gateway`` and ``bearer`` are *reference* modes (a trusted header; a shared-secret scheme for
+internal or test use, not for end-user identity); ``oidc`` is for production.
 
 Trust boundary (see wiki/security.md): in ``gateway`` mode the service trusts the
 header unconditionally — that is only safe because the deployment denies every
@@ -43,11 +49,15 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import Depends, HTTPException, Request, status
 
+from your_service_name.backend.auth.jwks import JwksCache, JwksUnavailableError
+from your_service_name.backend.auth.jwt_verify import TokenRejectedError, verify_token
 from your_service_name.backend.auth.principal import Principal
 from your_service_name.backend.settings import JWT_HASHLIB
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from fastapi import FastAPI
 
     from your_service_name.backend.settings import Settings
 
@@ -70,11 +80,21 @@ class NotAuthenticatedError(HTTPException):
         )
 
 
+class AuthUnavailableError(HTTPException):
+    """503 raised when the signing keys cannot be obtained (never "allow", never a 500)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="authentication temporarily unavailable",
+        )
+
+
 class InvalidTokenError(Exception):
     """Raised by the minimal JWT verifier when a token cannot be validated."""
 
 
-def get_current_user(request: Request) -> Principal:
+async def get_current_user(request: Request) -> Principal:
     """
     Resolve the principal for the current request.
 
@@ -103,6 +123,8 @@ def get_current_user(request: Request) -> Principal:
         return _principal_from_gateway(request, settings)
     if settings.AUTH_MODE == "bearer":
         return _principal_from_bearer(request, settings)
+    if settings.AUTH_MODE == "oidc":
+        return await _principal_from_oidc(request, settings)
     return Principal(user_id="anonymous", identity_source="none")
 
 
@@ -242,3 +264,102 @@ def _principal_from_bearer(request: Request, settings: Settings) -> Principal:
         msg = f"Auth token missing claim {claim!r}."
         raise NotAuthenticatedError(msg)
     return Principal(user_id=str(user_id), identity_source="bearer", claims=payload)
+
+
+# --- oidc mode ----------------------------------------------------------------
+
+_INVALID_TOKEN_SCHEME: str = 'Bearer error="invalid_token"'  # noqa: S105 — RFC 6750 section 3.1
+_INVALID_TOKEN_DETAIL: str = "invalid or expired token"  # noqa: S105 — a message, not a secret
+
+
+def _jwks_cache(app: FastAPI, settings: Settings) -> JwksCache:
+    """The app's one JWKS cache, built on first use (closed by the lifespan)."""
+    cache: JwksCache | None = getattr(app.state, "jwks_cache", None)
+    if cache is None:
+        cache = JwksCache(
+            jwks_url=settings.OIDC_JWKS_URL,
+            issuer=settings.OIDC_ISSUER,
+            production=settings.is_production,
+            ttl=settings.JWKS_CACHE_TTL_SECONDS,
+            min_refetch=settings.JWKS_MIN_REFETCH_SECONDS,
+            max_stale=settings.JWKS_MAX_STALE_SECONDS,
+        )
+        app.state.jwks_cache = cache
+    return cache
+
+
+def _bearer_token(request: Request) -> str | None:
+    """The token of an ``Authorization: Bearer`` header, or ``None`` when there is none."""
+    scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+    token = token.strip()
+    return token if scheme.lower() == "bearer" and token else None
+
+
+async def _verified_claims(  # noqa: PLR0913 — one parameter per check, shared by the token modes
+    request: Request,
+    token: str,
+    *,
+    issuer: str,
+    audiences: list[str],
+    algorithms: list[str],
+    leeway: float,
+    settings: Settings,
+) -> dict[str, Any]:
+    """Verify ``token``; every failure is a generic 401 (the reason is logged, never the token)."""
+    try:
+        return await verify_token(
+            token,
+            cache=_jwks_cache(request.app, settings),
+            issuer=issuer,
+            audiences=audiences,
+            algorithms=algorithms,
+            leeway=leeway,
+        )
+    except TokenRejectedError as exc:
+        logger.info("Token rejected: %s", exc)
+        raise NotAuthenticatedError(_INVALID_TOKEN_DETAIL, scheme=_INVALID_TOKEN_SCHEME) from exc
+    except JwksUnavailableError as exc:
+        logger.warning("Signing keys unavailable; answering 503")
+        raise AuthUnavailableError from exc
+
+
+def _user_id(claims: dict[str, Any], claim: str) -> str:
+    value = claims.get(claim)
+    if not isinstance(value, str) or not value:
+        logger.info("Token rejected: user claim %r missing or not a non-empty string", claim)
+        raise NotAuthenticatedError(_INVALID_TOKEN_DETAIL, scheme=_INVALID_TOKEN_SCHEME)
+    return value
+
+
+def _roles(claims: dict[str, Any], claim: str | None) -> list[str]:
+    """Roles from a list-of-strings claim or a space-separated string; anything else is none."""
+    value = claims.get(claim) if claim else None
+    if isinstance(value, str):
+        return value.split()
+    if isinstance(value, list):
+        return [r for r in value if isinstance(r, str) and r]
+    return []
+
+
+async def _principal_from_oidc(request: Request, settings: Settings) -> Principal:
+    """Resolve identity from an OIDC provider's JWT (``Authorization: Bearer``)."""
+    token = _bearer_token(request)
+    if token is None:
+        msg = "authentication required"
+        raise NotAuthenticatedError(msg)
+    # Settings validation guarantees an issuer and an audience; "" fails closed on a bad build.
+    claims = await _verified_claims(
+        request,
+        token,
+        issuer=settings.OIDC_ISSUER or "",
+        audiences=settings.OIDC_AUDIENCE,
+        algorithms=settings.OIDC_ALGORITHMS,
+        leeway=settings.OIDC_CLOCK_SKEW_SECONDS,
+        settings=settings,
+    )
+    return Principal(
+        user_id=_user_id(claims, settings.OIDC_USER_ID_CLAIM),
+        identity_source="oidc",
+        roles=_roles(claims, settings.OIDC_ROLES_CLAIM),
+        claims=claims,
+    )

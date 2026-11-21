@@ -9,11 +9,13 @@ Exposes the request-principal dependency used to gate write endpoints:
     async def create(..., current_user: Annotated[Principal, Depends(get_current_user)]): ...
 
 Identity is config-driven (``AUTH_MODE``): ``none`` (default, anonymous),
-``gateway`` (trusted header), or ``bearer`` (signed JWT). See
+``oidc`` (JWT checked against a JWKS; the production mode), ``gateway`` (trusted header) or
+``bearer`` (HMAC JWT); the last two are reference modes. See
 ``your_service_name.backend.auth.dependencies`` and wiki/security.md.
 """
 
 from your_service_name.backend.auth.dependencies import (
+    AuthUnavailableError,
     InvalidTokenError,
     NotAuthenticatedError,
     get_current_user,
@@ -22,6 +24,7 @@ from your_service_name.backend.auth.dependencies import (
 from your_service_name.backend.auth.principal import Principal
 
 __all__ = [
+    "AuthUnavailableError",
     "InvalidTokenError",
     "NotAuthenticatedError",
     "Principal",

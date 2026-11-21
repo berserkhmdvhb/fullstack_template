@@ -158,6 +158,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        jwks_cache = getattr(app.state, "jwks_cache", None)
+        if jwks_cache is not None:
+            await jwks_cache.aclose()
         await close_db(app)
         logger.info("API shutting down...")
 

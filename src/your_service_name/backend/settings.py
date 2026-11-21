@@ -79,13 +79,30 @@ def jwks_url_problem(url: str, *, production: bool) -> str | None:
     return "must be an https URL (http is allowed only for localhost outside production)"
 
 
-AuthMode = Literal["none", "gateway", "bearer"]
+AuthMode = Literal["none", "gateway", "bearer", "oidc"]
+
+# Asymmetric JWT algorithms an OIDC allowlist may name. `none` and every HS* are deliberately
+# absent: a symmetric alg against a public JWKS is the classic algorithm-confusion attack.
+OIDC_ALLOWED_ALGS: Final[frozenset[str]] = frozenset(
+    {"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"}
+)
+MAX_CLOCK_SKEW_SECONDS: Final[int] = 300
 
 _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
     "ENV",
     "AUTH_USER_ID_HEADER",
     "AUTH_ROLES_HEADER",
     "AUTH_JWT_USER_ID_CLAIM",
+    "OIDC_ISSUER",
+    "OIDC_AUDIENCE",
+    "OIDC_JWKS_URL",
+    "OIDC_ALGORITHMS",
+    "OIDC_CLOCK_SKEW_SECONDS",
+    "OIDC_USER_ID_CLAIM",
+    "OIDC_ROLES_CLAIM",
+    "JWKS_CACHE_TTL_SECONDS",
+    "JWKS_MIN_REFETCH_SECONDS",
+    "JWKS_MAX_STALE_SECONDS",
     "SQLITE_PATH",
     "LOG_LEVEL",
     "DATABASE_URL",
@@ -229,8 +246,9 @@ class Settings(BaseSettings):
     # --- Auth -----------------------------------------------------------------
     AUTH_MODE: AuthMode = Field(
         default="none",
-        description="`none` (anonymous), `gateway` (trusted identity header) or `bearer` "
-        "(HMAC-signed JWT).",
+        description="`oidc` (JWT from an OpenID Connect provider, checked against its JWKS) is the "
+        "production mode. `gateway` (trusted identity header) and `bearer` (HMAC-signed JWT, "
+        "shared secret) are reference modes; `none` is anonymous.",
         json_schema_extra={"production": "`none` is refused unless ALLOW_ANONYMOUS=true."},
     )
     ALLOW_ANONYMOUS: bool = Field(
@@ -256,6 +274,58 @@ class Settings(BaseSettings):
     AUTH_JWT_USER_ID_CLAIM: str = Field(
         default="sub",
         description="Bearer mode: token claim holding the user id.",
+    )
+
+    OIDC_ISSUER: str | None = Field(
+        default=None,
+        description="OIDC mode: the issuer; a token's `iss` must equal it exactly. Required "
+        "when AUTH_MODE=oidc.",
+    )
+    OIDC_AUDIENCE: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        description="OIDC mode: comma-separated accepted audiences; a token's `aud` must "
+        "contain one. Required when AUTH_MODE=oidc.",
+    )
+    OIDC_JWKS_URL: str | None = Field(
+        default=None,
+        description="OIDC mode: the provider's JWKS URL. Unset takes `jwks_uri` once from "
+        "`${OIDC_ISSUER}/.well-known/openid-configuration` (whose `issuer` must equal "
+        "OIDC_ISSUER) and caches it.",
+        json_schema_extra={"production": "Must be https (so must OIDC_ISSUER when this is unset)."},
+    )
+    OIDC_ALGORITHMS: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["RS256", "ES256"],
+        description="OIDC mode: comma-separated allowlist of token algorithms (RS*, PS*, ES*). "
+        "`none` and every HS* are refused at startup.",
+    )
+    OIDC_CLOCK_SKEW_SECONDS: int = Field(
+        default=60,
+        ge=0,
+        le=MAX_CLOCK_SKEW_SECONDS,
+        description="OIDC mode: clock-skew tolerance for `exp`, `nbf` and `iat` (0 to 300).",
+    )
+    OIDC_USER_ID_CLAIM: str = Field(
+        default="sub", description="OIDC mode: token claim holding the user id."
+    )
+    OIDC_ROLES_CLAIM: str | None = Field(
+        default=None,
+        description="OIDC mode: token claim holding the roles (a list of strings or a "
+        "space-separated string). Unset means no roles.",
+    )
+    JWKS_CACHE_TTL_SECONDS: int = Field(
+        default=3600, gt=0, description="OIDC mode: how long fetched signing keys are used."
+    )
+    JWKS_MIN_REFETCH_SECONDS: int = Field(
+        default=30,
+        ge=0,
+        description="OIDC mode: at most one JWKS refetch per this interval across all requests "
+        "(an unknown `kid` triggers one), so random `kid`s cannot hammer the provider.",
+    )
+    JWKS_MAX_STALE_SECONDS: int = Field(
+        default=86400,
+        gt=0,
+        description="OIDC mode: when a refresh fails, keep serving the last good keys for up to "
+        "this long; after that requests get a 503.",
     )
 
     # --- Database -------------------------------------------------------------
@@ -394,6 +464,16 @@ class Settings(BaseSettings):
             return value.strip().lower() or "none"
         return value
 
+    @field_validator("OIDC_AUDIENCE", "OIDC_ALGORITHMS", mode="before")
+    @classmethod
+    def _csv_values(cls, value: object, info: ValidationInfo) -> object:
+        if not isinstance(value, str):
+            return value
+        items = [item.strip() for item in value.split(",") if item.strip()]
+        if info.field_name == "OIDC_ALGORITHMS":
+            items = [item.upper() for item in items]
+        return items or cls._default_of(info.field_name)
+
     @field_validator("AUTH_JWT_ALGORITHM", mode="before")
     @classmethod
     def _normalise_algorithm(cls, value: object) -> object:
@@ -448,6 +528,31 @@ class Settings(BaseSettings):
                 problems.append(
                     "AUTH_JWT_ALGORITHM must be one of " + ", ".join(sorted(ALLOWED_JWT_ALGS))
                 )
+        if self.AUTH_MODE == "oidc":
+            problems += self._oidc_problems()
+        return problems
+
+    def _oidc_problems(self) -> list[str]:
+        problems: list[str] = []
+        if not self.OIDC_ISSUER:
+            problems.append("OIDC_ISSUER is required when AUTH_MODE=oidc; set it")
+        if not self.OIDC_AUDIENCE:
+            problems.append("OIDC_AUDIENCE is required when AUTH_MODE=oidc; set it")
+        refused = [a for a in self.OIDC_ALGORITHMS if a not in OIDC_ALLOWED_ALGS]
+        if refused or not self.OIDC_ALGORITHMS:
+            problems.append(
+                "OIDC_ALGORITHMS must list only "
+                + ", ".join(sorted(OIDC_ALLOWED_ALGS))
+                + " (`none` and HS* are refused)"
+            )
+        # Where the keys come from: the JWKS URL, else discovery under the issuer.
+        source_name, source = (
+            ("OIDC_JWKS_URL", self.OIDC_JWKS_URL)
+            if self.OIDC_JWKS_URL
+            else ("OIDC_ISSUER", self.OIDC_ISSUER)
+        )
+        if source and (why := jwks_url_problem(source, production=self.is_production)):
+            problems.append(f"{source_name} {why}")
         return problems
 
     def _production_problems(self) -> list[str]:
@@ -498,8 +603,8 @@ class Settings(BaseSettings):
 
         if self.AUTH_MODE == "none" and not self.ALLOW_ANONYMOUS:
             problems.append(
-                "AUTH_MODE=none serves every endpoint anonymously; set AUTH_MODE to gateway or "
-                "bearer, or set ALLOW_ANONYMOUS=true to accept that explicitly"
+                "AUTH_MODE=none serves every endpoint anonymously; set AUTH_MODE to oidc (or "
+                "gateway/bearer), or set ALLOW_ANONYMOUS=true to accept that explicitly"
             )
 
         if not self.ALLOW_PRODUCTION_DOCS:
