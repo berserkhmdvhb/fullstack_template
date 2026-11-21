@@ -82,12 +82,23 @@
       ]
     },
     {
-      // `repository:tag@sha256:...` anywhere in a chart values file or in config.yaml (the DAST image).
+      // `repository:tag@sha256:...` written inline (config.yaml's DAST image, or an inline ref in a values file).
       "customType": "regex",
-      "description": "Image digests in values files and config.yaml",
+      "description": "Inline image digests in values files and config.yaml",
       "managerFilePatterns": ["/(^|/)values[^/]*\\.ya?ml$/", "/^infra/security/config\\.yaml$/"],
       "matchStrings": [
         "(?<depName>[a-z0-9][\\w.-]*(?:/[\\w.-]+)+):(?<currentValue>[\\w][\\w.-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      // The chart's split format: `repository:`, `tag:` and `digest:` on consecutive keys. It matches once `digest`
+      // holds a sha256 (production); an empty digest is a local or placeholder image that has nothing to look up.
+      "customType": "regex",
+      "description": "Split repository/tag/digest image keys in values files",
+      "managerFilePatterns": ["/(^|/)values[^/]*\\.ya?ml$/"],
+      "matchStrings": [
+        "repository: [\"']?(?<depName>[a-z0-9][\\w./-]*)[\"']?\\n\\s+tag: [\"']?(?<currentValue>[\\w][\\w.-]*)[\"']?(?:\\n\\s*(?:registry|#)[^\\n]*)*\\n\\s+digest: [\"']?(?<currentDigest>sha256:[a-f0-9]{64})[\"']?"
       ],
       "datasourceTemplate": "docker"
     }
@@ -114,26 +125,34 @@
       "prBodyNotes": ["The `pins` check is red until `make pins-refresh` has written the vendor checksums and the hashed locks. Run it and push."]
     },
     {
-      // Spec section 11: Helm 3 is only kept to prove the chart still renders on 3.x.
+      // Helm 3 is only kept to prove the chart still renders on 3.x; Helm 4 is the default.
       "description": "helm3 stays on 3.x",
       "matchDepNames": ["helm3"],
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["tools/pins.tsv"],
       "allowedVersions": "<4"
     },
     {
       // The frontend's engines field is >=22 <23 until the frontend upgrade.
       "description": "node stays on 22.x",
       "matchDepNames": ["node"],
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["tools/pins.tsv"],
       "allowedVersions": "<23"
     },
     {
-      "description": "The python row names an interpreter, not a PyPI package",
+      "description": "The python row names an interpreter, not a PyPI package (the backend base image is a Dockerfile, not this row)",
       "matchDepNames": ["python"],
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["tools/pins.tsv"],
       "enabled": false
     },
     {
       // Version-skew policy: kubectl stays within one minor of the cluster; change the pin when the cluster moves.
       "description": "kubectl follows the cluster, not the latest release",
       "matchDepNames": ["kubectl"],
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["tools/pins.tsv"],
       "matchUpdateTypes": ["minor", "major"],
       "enabled": false
     }

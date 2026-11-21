@@ -100,3 +100,47 @@ def test_dependabot_does_security_updates_only() -> None:
     assert {u["package-ecosystem"] for u in updates} == {"pip", "npm", "docker", "github-actions"}
     for update in updates:
         assert update["open-pull-requests-limit"] == 0
+
+
+def test_every_name_based_rule_is_scoped_to_the_pin_file() -> None:
+    """`python`, `node` and friends also name base images and npm packages: scope the rules."""
+    for rule in renovate()["packageRules"]:
+        if "matchDepNames" in rule:
+            assert rule.get("matchManagers") == ["custom.regex"], rule["description"]
+            assert rule.get("matchFileNames") == ["tools/pins.tsv"], rule["description"]
+
+
+def test_the_split_values_format_is_matched_once_a_digest_is_set() -> None:
+    values = (ROOT / "charts" / "your-service-name" / "values.yaml").read_text(encoding="utf-8")
+    manager = next(
+        m
+        for m in _managers("values")
+        if "(?<currentDigest>" in "".join(m["matchStrings"])
+        and "tag:" in "".join(m["matchStrings"])
+    )
+    pattern = _compile(manager["matchStrings"][0])
+    assert not pattern.search(values), "an unpinned (empty digest) image must not be looked up"
+    digest = "sha256:" + "a" * 64
+    pinned = values.replace(
+        '    repository: envoyproxy/envoy\n    tag: v1.31.0\n    digest: ""',
+        f'    repository: envoyproxy/envoy\n    tag: v1.31.0\n    digest: "{digest}"',
+    )
+    assert pinned != values
+    match = pattern.search(pinned)
+    assert match
+    assert (match.group("depName"), match.group("currentValue"), match.group("currentDigest")) == (
+        "envoyproxy/envoy",
+        "v1.31.0",
+        digest,
+    )
+
+
+def test_no_private_planning_reference_in_the_new_files() -> None:
+    for rel in (
+        "renovate.json5",
+        "tools/pins.tsv",
+        "scripts/pins_refresh.py",
+        "scripts/github-settings.sh",
+    ):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert not re.search(r"spec section|design doc", text, re.IGNORECASE), rel
