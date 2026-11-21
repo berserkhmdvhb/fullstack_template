@@ -206,8 +206,8 @@ are not hash-locked until they are added to that list. Update the list with the 
 ### 3. Initialize the Database
 
 ```bash
-# Run Alembic migrations
-alembic upgrade head
+# Run the migrations (the app does not migrate at startup)
+python -m your_service_name.backend.db.run_migrations
 ```
 
 > If `DATABASE_URL` is not set, the backend falls back to SQLite (`sqlite+aiosqlite:///./data/items.db`).
@@ -252,8 +252,7 @@ Run each service in its own terminal. Two terminals minimum (backend + frontend)
 ### Terminal 1 — Backend
 
 ```bash
-source .venv/bin/activate
-python -m your_service_name.backend.main
+./run_backend.sh   # runs the migrations, then serves with auto-reload
 # Backend API at http://127.0.0.1:8000
 # API docs at http://127.0.0.1:8000/docs
 ```
@@ -436,7 +435,7 @@ helm upgrade --install your-service-name charts/your-service-name \
 > **Production needs an auth mode.** `values.production.yaml` sets `ENV=production`, so the backend
 > refuses to start on `AUTH_MODE=none` (see [Backend settings](./environment-variables.md#backend-settings)).
 > Add `AUTH_MODE: oidc` (or `cloudflare-access`; see [Authentication](./security.md#authentication--authorization)) under `config:` before the first deploy.
-> Without it the post-install migration hook fails, so the Helm release fails and `deploy-env.sh` rolls it back.
+> Without it the backend Pods never become ready, so the Helm release fails and `deploy-env.sh` rolls it back.
 
 ### 4. Verify Rollout
 
@@ -456,11 +455,11 @@ kubectl -n your-service-name get pdb
 
 ### 5. Run Database Migrations
 
-Migrations run automatically as a Kubernetes Job on each deployment. Verify:
+Migrations run automatically as a Kubernetes Job on each deployment (one per revision; see [Database operations](./database.md#the-migration-job)). Verify:
 
 ```bash
 kubectl -n your-service-name get jobs
-kubectl -n your-service-name logs job/your-service-name-migration
+kubectl -n your-service-name logs job/<release>-your-service-name-migrate-r<revision>
 ```
 
 ---

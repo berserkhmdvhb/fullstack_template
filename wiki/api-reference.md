@@ -40,33 +40,32 @@ The API currently does **not require authentication**. All endpoints are publicl
 
 ### GET `/api/v1/health`
 
-Database-aware health check.
+Readiness: read-only, checks that the database is reachable and its schema matches this release.
+This is the one place that does not answer with a problem document: the body is the health shape below.
 
 **Response**: `200 OK`
 
 ```json
-{
-  "ok": true
-}
+{"status": "ok"}
 ```
 
-**Response**: `200 OK` (degraded)
+**Response**: `503 Service Unavailable`
 
 ```json
-{
-  "ok": false,
-  "detail": "Database not initialized"
-}
+{"status": "degraded", "reason": "schema_behind"}
 ```
+
+`reason` is `database_unreachable`, `schema_missing` or `schema_behind`; the body never names a revision,
+URL or error. The rules are in [Database operations](./database.md#readiness-and-liveness).
 
 ### GET `/api/v1/healthz`
 
-Simple connectivity check. Always returns ok.
+Liveness: process-only, no database, always ok.
 
 **Response**: `200 OK`
 
-```
-ok
+```json
+{"status": "ok"}
 ```
 
 ---

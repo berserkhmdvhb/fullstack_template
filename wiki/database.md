@@ -11,6 +11,7 @@ PostgreSQL setup, SQLAlchemy models, Alembic migrations, soft-delete pattern, an
 - [SQLAlchemy Models](#sqlalchemy-models)
 - [Engine & Session](#engine--session)
 - [Alembic Migrations](#alembic-migrations)
+- [Database operations](#database-operations)
 - [Soft-Delete Pattern](#soft-delete-pattern)
 - [Repository Pattern](#repository-pattern)
 - [Kubernetes Database Deployment](#kubernetes-database-deployment)
@@ -96,9 +97,13 @@ class ItemModel(Base):
 | `name` | `String(255)` | No | — | Item name (1-255 chars) |
 | `description` | `Text` | Yes | — | Optional description |
 | `is_active` | `Boolean` | No | `True` | Active status |
-| `created_at` | `DateTime` | No | `now()` | Auto-set on create |
-| `updated_at` | `DateTime` | No | `now()` | Auto-updated on change |
-| `deleted_at` | `DateTime` | Yes | — | Soft-delete timestamp |
+| `created_at` | `UTCDateTime` | No | `now()` | Auto-set on create |
+| `updated_at` | `UTCDateTime` | No | `now()` | Auto-updated on change |
+| `deleted_at` | `UTCDateTime` | Yes | — | Soft-delete timestamp |
+
+`UTCDateTime` is `DateTime(timezone=True)` on PostgreSQL (no schema change). On SQLite, which stores no
+zone, it attaches UTC to loaded values; it converts an aware value to UTC on write and **refuses a naive
+one**, so every timestamp the API returns carries an explicit offset.
 
 ---
 
@@ -185,14 +190,97 @@ alembic current
 alembic history
 ```
 
-### Migration Runner (Container)
+### Migration Runner
 
-In Docker Compose, the backend runs migrations on startup:
+`python -m your_service_name.backend.db.run_migrations` is the one way the app's database is migrated
+(`alembic upgrade head` above is the developer's tool). It waits for the database (bounded retry,
+never logging the URL), then acts on the database's revision:
 
-```yaml
-backend:
-  command: ["/usr/bin/tini", "--", "/app/infra/db/run_migrations.sh"]
-```
+| State | Action |
+|-------|--------|
+| at the code's head | no-op |
+| behind, or empty | `upgrade head` |
+| at a revision this release does not know (newer) | logs "database is ahead of this release; nothing to do" and exits 0; **never downgrades** |
+| more than one head in the scripts | fails |
+
+The app does **not** migrate at startup. Each entry point migrates first: the chart's Job, the compose
+`migrate` service (the backend waits for it), `./run_backend.sh`, `infra/runtime/entrypoint.sh` and the
+CI job that boots Uvicorn.
+
+---
+
+## Database operations
+
+### The migration Job
+
+The chart runs the runner as a Job named `<fullname>-migrate-r<revision>`: one per release revision (a Job's
+spec is immutable), a plain release resource with `ttlSecondsAfterFinished: 86400`, **not a Helm hook**.
+
+Why not a hook: readiness checks the schema (below), and Helm waits for the release's resources to be
+ready *before* it runs post-install and post-upgrade hooks (Helm `pkg/action`: `install.go` and
+`upgrade.go` run the wait, then the post hooks). A post-install migration would wait for Pods that
+wait for the schema it creates, which deadlocks every first install. As a normal resource the Job starts
+with the Deployment; the new Pods stay unready until it finishes and a rolling update keeps the old Pods
+serving meanwhile. `scripts/ci/deploy-env.sh` passes `--wait-for-jobs`, so a failed migration fails the
+release and the existing rollback runs. Operating it: [operations runbook](./operations-runbook.md#database-migrations).
+
+### Expand/contract policy
+
+A migration must stay compatible with the **previous release's code**: add before you use (a new nullable
+column or table first, the code that uses it in the next release) and remove one release after the code
+stopped using it. This is what makes two behaviours safe: a database *ahead* of the code counts as
+ready (a newer release migrated first), and `helm rollback` re-runs an older Job against a newer schema
+and succeeds. Do not rename or drop a column in the same release that stops using it.
+
+### Readiness and liveness
+
+`GET /api/v1/health` (readiness, and the startup probe) is read-only and answers:
+
+| Outcome | Status | Body |
+|---------|--------|------|
+| database reachable, revision is the code's head, or unknown to the code (ahead) | 200 | `{"status": "ok"}` |
+| database unreachable (or the engine failed to start) | 503 | `{"status": "degraded", "reason": "database_unreachable"}` |
+| `alembic_version` missing or empty | 503 | `{"status": "degraded", "reason": "schema_missing"}` |
+| revision is a known older one | 503 | `{"status": "degraded", "reason": "schema_behind"}` |
+
+The code's expected head is read once at startup from the bundled scripts. The body never names a revision,
+URL or error. `GET /api/v1/healthz` (liveness) is process-only: no database, no schema check, so Pods are
+not restarted while a migration runs.
+
+### Timeouts and pool sizing
+
+All are [settings](./environment-variables.md#backend-settings), applied to PostgreSQL only (SQLite ignores them):
+`DB_CONNECT_TIMEOUT_SECONDS` (asyncpg `timeout`), and, for the app engine only, `DB_STATEMENT_TIMEOUT_MS` and
+`DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` (asyncpg `server_settings`). The migration run sets
+`lock_timeout` from `DB_MIGRATION_LOCK_TIMEOUT_MS`, so a migration waiting on a busy table fails
+instead of blocking traffic, and **no** `statement_timeout`, because a long migration is legitimate.
+
+The pool is **per process**: connections opened = (`DB_POOL_SIZE` + `DB_MAX_OVERFLOW`) x replicas (x the
+HPA maximum), and that total plus the migration Job must stay below the server's `max_connections`.
+Size the pool from that budget, not from one Pod.
+
+### TLS to the database
+
+`DB_SSLMODE` and `DB_SSLROOTCERT` build an `ssl.SSLContext` (TLS 1.2 or later):
+
+| `DB_SSLMODE` | Behaviour |
+|--------------|-----------|
+| `disable` (default) | no TLS (passed explicitly: asyncpg would otherwise "prefer" TLS) |
+| `require` | encrypts, verifies nothing |
+| `verify-ca` | verifies the certificate chain, not the hostname |
+| `verify-full` | verifies the chain and the hostname |
+
+The verify modes trust the file in `DB_SSLROOTCERT` alone when it is set, and the image's system trust
+store otherwise. **Production refuses `disable` and `require` unless the database host is loopback.**
+The chart's production values set `verify-full`.
+
+**Cloud SQL with the Auth Proxy** (text only; placeholders): run the Cloud SQL Auth Proxy as a sidecar
+listening on `127.0.0.1:<port>` for `<project>:<region>:<instance>`, set the database host to `127.0.0.1`
+and `DB_SSLMODE=disable` (the proxy encrypts the hop itself and a loopback host is allowed in production). With
+IAM database authentication, start the proxy with automatic IAM authentication, run the Pod under a
+Kubernetes service account bound to a Google service account that has the Cloud SQL Instance User role, and
+use the database user `<service-account>@<project>.iam` with no password. Without the proxy, connect to the
+instance's private address with `verify-full` and the instance CA in `DB_SSLROOTCERT`.
 
 ---
 
@@ -381,45 +469,9 @@ externalDatabase:
 
 ### Database Migration Job
 
-Migrations run as a Kubernetes Job before each deployment:
-
-```yaml
-# now in the Helm chart: charts/your-service-name/templates/migration-job.yaml (post-install,post-upgrade hook)
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: your-service-name-migration
-  namespace: your-service-name
-spec:
-  backoffLimit: 3
-  activeDeadlineSeconds: 300
-  template:
-    spec:
-      initContainers:
-        - name: wait-for-db
-          image: postgres:16-alpine
-          command:
-            - /bin/sh
-            - -c
-            - |
-              until pg_isready -h your-service-name-postgresql.your-service-name-db.svc.cluster.local -p 5432; do
-                echo "Waiting for PostgreSQL..."
-                sleep 2
-              done
-      containers:
-        - name: migration
-          image: your-service-name-backend:latest
-          command:
-            - python
-            - -m
-            - your_service_name.backend.db.run_migrations
-          envFrom:
-            - configMapRef:
-                name: your-service-name-config
-            - secretRef:
-                name: your-service-name-db-credentials
-      restartPolicy: Never
-```
+Migrations run as a per-revision Job that is a plain release resource, not a Helm hook; see
+[The migration Job](#the-migration-job). Its template is
+`charts/your-service-name/templates/migration-job.yaml`.
 
 ### Database Backup CronJob
 

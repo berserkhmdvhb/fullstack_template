@@ -146,7 +146,7 @@ The `infra/runtime/entrypoint.sh` script is retained **only for local developmen
 
 ### Backend Entry
 
-- Runs Alembic migrations (`run_migrations.sh`)
+- Runs the database migrations first (`run_migrations.sh`; the app does not migrate itself)
 - Starts Uvicorn (one process per container; Kubernetes scales pods)
 - Binds to `${BACKEND_HOST}:${BACKEND_PORT}`
 

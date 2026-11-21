@@ -80,7 +80,7 @@ infra/adapt/replace_service_name.sh -n <your_service>             # apply it
 scripts/tools.sh install uv && export PATH="$PWD/.tools/bin:$PATH"
 make develop && source .venv/bin/activate   # locked set; the uv workflow: wiki/getting-started.md#lock-file-and-the-7-day-rule
 cd frontend && npm ci && npm run dev # frontend at :3000
-# backend:  source .venv/bin/activate && python -m your_service_name.backend.main  (API at :8000)
+# backend:  ./run_backend.sh  (migrates, then serves the API at :8000)
 ```
 
 Install the git hook once with `scripts/tools.sh install pre-commit` and then `.tools/bin/pre-commit install`; `make precommit` runs every hook on all files. The hooks call the same tools CI does (see `.pre-commit-config.yaml`) and name the install command for any that is missing.

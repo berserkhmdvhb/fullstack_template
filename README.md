@@ -98,7 +98,7 @@ infra/adapt/replace_service_name.sh -n awesome_solution
 
 ```bash
 # Terminal 1 — Backend
-python -m your_service_name.backend.main    # http://127.0.0.1:${BACKEND_PORT}/ (docs at /docs)
+./run_backend.sh                            # migrates, then serves http://127.0.0.1:${BACKEND_PORT}/ (docs at /docs)
 
 # Terminal 2 — Frontend
 cd frontend && npm run dev                  # http://127.0.0.1:${FRONTEND_PORT}/

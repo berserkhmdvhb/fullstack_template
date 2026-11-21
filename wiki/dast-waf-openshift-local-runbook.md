@@ -61,7 +61,7 @@ Use the chart's env values so namespace/image/secret resolve from one source
 helm install mysvc ./charts/your-service-name \
   --create-namespace --namespace mysvc-qa \
   -f charts/your-service-name/values.qa.yaml
-helm status mysvc -n mysvc-qa          # wait for READY (post-install migration hook + workloads)
+helm status mysvc -n mysvc-qa          # wait for READY (migration Job + workloads)
 ```
 
 Get a reachable URL:

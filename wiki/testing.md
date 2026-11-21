@@ -87,7 +87,12 @@ In-process ASGI tests that wire multiple components:
 |-----------|--------------|
 | `test_echo_api.py` | POST /echo, GET /echo/history |
 | `test_health_api.py` | GET /health, GET /healthz |
-| `test_db_lifecycle.py` | App start/stop, migration runner |
+| `test_readiness.py` | Schema-aware readiness (head, ahead, behind, missing, unreachable) on real Alembic revisions |
+| `test_db_lifecycle.py` | App start/stop |
+| `test_lifespan_no_migration.py` | Startup never migrates |
+
+Integration and e2e tests get a migrated database from a shared fixture in `tests/conftest.py`; a test that
+needs another state overrides `_migrate_integration_and_e2e`.
 
 **Markers**: `@pytest.mark.integration`
 
@@ -279,7 +284,7 @@ The real-browser Playwright run is part of the `live` job.
 | Job | Tests |
 |-----|-------|
 | `chart` (`reusable-chart.yml`) | Lint + render the chart for every values file, with the pinned Helm |
-| `deploy-<env>` (`deploy.yml`) | `helm upgrade --install` by digest, migration hook, verify and smoke test |
+| `deploy-<env>` (`deploy.yml`) | `helm upgrade --install` by digest, migration Job, verify and smoke test |
 
 ---
 

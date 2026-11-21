@@ -176,7 +176,7 @@ After the release run succeeds, create a GitHub release:
 `release.yml` calls [`deploy.yml`](../.github/workflows/deploy.yml) when the repository variable `DEPLOY_ENABLED` is `true`:
 
 1. **helm-checks** — lints and renders the chart (validation gate)
-2. **deploy-dev**, **deploy-qa**, **deploy-production** — `helm upgrade --install` by image digest, migrations through the hook Job, verify, smoke test, and a rollback to the recorded revision if verify or smoke fails
+2. **deploy-dev**, **deploy-qa**, **deploy-production** — `helm upgrade --install` by image digest, migrations through the per-revision Job, verify, smoke test, and a rollback to the recorded revision if verify or smoke fails
 
 ### Manual Deployment (if needed)
 

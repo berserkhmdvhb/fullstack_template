@@ -29,7 +29,7 @@ Common issues and solutions for local development, Kubernetes, Docker, and CI/CD
 | Missing dependencies | `make develop` (uv sync --locked) |
 | Database not available | Check `DATABASE_URL`; SQLite fallback works without PostgreSQL |
 | Port already in use | Change `BACKEND_PORT` in `.env` |
-| Migration failure | Run `alembic upgrade head` manually |
+| Migration failure | Run `python -m your_service_name.backend.db.run_migrations` (or `alembic upgrade head`) manually |
 
 **Debug**:
 ```bash
@@ -363,6 +363,7 @@ docker compose up -d
 | Issue | Solution |
 |-------|----------|
 | Table already exists | Check `alembic current`; may need `alembic stamp head` |
+| `/health` returns 503 `schema_missing` or `schema_behind` | The migration has not run: see [Database operations](./database.md#readiness-and-liveness) |
 | Column type mismatch | Fix model, create new migration: `alembic revision --autogenerate -m "fix"` |
 | Foreign key error | Ensure referenced tables exist in migration order |
 

@@ -55,11 +55,11 @@ This runbook covers day-to-day operational tasks for running the service on Kube
 docker pull <registry>/your-service-name:<tag>
 
 # 2. Deploy + verify the whole stack (secrets → apply → wait → in-cluster checks) in one command.
-#    Reads charts/your-service-name/values.<environment>.yaml; the migration runs as a post-install hook.
+#    Reads charts/your-service-name/values.<environment>.yaml; the migration runs as a per-revision Job.
 ./scripts/e2e.sh --env <environment>                 # deploy (helm upgrade --install) then verify
 ./scripts/e2e.sh verify --env <environment>          # verify only — read-only, safe to re-run
 
-# 3. Verify the rollout (app ns + db ns). The migration Job appears as a short-lived hook pod.
+# 3. Verify the rollout (app ns + db ns). The migration Job (one per revision) is kept for 24 hours.
 kubectl -n your-service-name-<environment> rollout status deployment/your-service-name-backend
 kubectl -n your-service-name-<environment> rollout status deployment/your-service-name-frontend
 kubectl -n your-service-name-<environment> get pods
@@ -73,7 +73,7 @@ The release workflow handles deployment automatically — **Helm-native** (see [
 1. A push to `main` or a `v*` tag triggers `release.yml`
 2. Images are built and pushed to `ghcr.io`, and their digests are verified
 3. `helm-checks` lints and renders the chart (validation gate)
-4. `deploy-dev`, `deploy-qa` and (on a `v*` tag, after approval) `deploy-production` run `helm upgrade --install` by image digest, with migrations through the hook Job
+4. `deploy-dev`, `deploy-qa` and (on a `v*` tag, after approval) `deploy-production` run `helm upgrade --install` by image digest, with migrations through the per-revision Job (`--wait-for-jobs`)
 5. Each deploy job then verifies the rollout and runs the smoke test, and **rolls back to the recorded revision** if either fails
 
 Monitor the run in the repository's **Actions** tab.
@@ -95,19 +95,23 @@ kubectl -n your-service-name-<environment> rollout status deployment/your-servic
 
 ### Database Migrations
 
-Migrations run automatically as a Kubernetes Job on each deployment. To run manually:
+Migrations run automatically as a Kubernetes Job on each deployment: one Job per release revision,
+named `<release>-your-service-name-migrate-r<revision>`, kept 24 hours. Design and rules (never a hook,
+expand/contract, a database ahead of the code is ready): [Database operations](./database.md#database-operations).
 
 ```bash
 # Check migration job status
-kubectl -n your-service-name-<environment> get jobs
+kubectl -n your-service-name-<environment> get jobs -l app.kubernetes.io/component=migration
 
 # View migration logs
-kubectl -n your-service-name-<environment> logs job/your-service-name-migration
+kubectl -n your-service-name-<environment> logs job/<migration-job-name>
 
-# Re-run migration if needed
-kubectl -n your-service-name-<environment> create job your-service-name-migration-manual \
-  --from=job/your-service-name-migration
+# Re-run the migration if needed (a new Job from the newest one)
+kubectl -n your-service-name-<environment> create job your-service-name-migrate-manual \
+  --from=job/<migration-job-name>
 ```
+
+A Pod that stays unready with `reason: schema_behind` or `schema_missing` is waiting for that Job.
 
 ---
 
@@ -447,8 +451,8 @@ kubectl -n your-service-name-db exec <postgres-pod> -- \
 kubectl -n your-service-name-<environment> scale deployment/your-service-name-backend --replicas=2
 
 # 4. Run migrations (if needed)
-kubectl -n your-service-name-<environment> create job your-service-name-migration-restore \
-  --from=job/your-service-name-migration
+kubectl -n your-service-name-<environment> create job your-service-name-migrate-restore \
+  --from=job/<migration-job-name>
 ```
 
 ### Velero Cluster Backup

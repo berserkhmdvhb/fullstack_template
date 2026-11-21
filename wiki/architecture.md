@@ -220,7 +220,7 @@ flowchart LR
     CI --> Build["Build Image"]
     Build --> Push2["Push to Registry"]
     Push2 --> Helm["helm upgrade --install"]
-    Helm --> Migrate["Migration (post-install hook)"]
+    Helm --> Migrate["Migration Job (per revision)"]
     Migrate --> Rollout["Rolling Update"]
     Rollout --> Verify["Health Probes"]
 ```

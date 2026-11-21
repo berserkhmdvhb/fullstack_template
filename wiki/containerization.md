@@ -325,7 +325,7 @@ The `ci/deploy.yml` pipeline handles automated deployment — **Helm-native** (s
 
 1. **build** (`release.yml`) — builds and pushes the backend, frontend and nginx images, one matrix leg each
 2. **helm-checks** (`deploy.yml`) — lints + renders the chart for the target environment (validation gate)
-3. **deploy-<env>** — `helm upgrade --install` by digest (migrations via the hook Job), then rolling update
+3. **deploy-<env>** — `helm upgrade --install` by digest (migrations via the per-revision Job), then rolling update
 4. **verify and smoke** — post-deployment health checks inside each deploy job
 
 ### Updating the Image

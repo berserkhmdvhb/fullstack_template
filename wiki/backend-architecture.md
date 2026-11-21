@@ -113,8 +113,7 @@ The backend uses a `create_app()` factory pattern with a lifespan context manage
 flowchart LR
     Start["Application Start"] --> Lifespan["Lifespan Startup"]
     Lifespan --> InitDB["Initialize Database"]
-    InitDB --> RunMigrations["Run Alembic Migrations"]
-    RunMigrations --> Ready["Application Ready"]
+    InitDB --> Ready["Application Ready"]
     Ready --> Serve["Serve Requests"]
     Serve --> Shutdown["Lifespan Shutdown"]
     Shutdown --> CloseDB["Close Database"]
@@ -125,7 +124,7 @@ flowchart LR
 - Creates the FastAPI application with OpenAPI docs
 - Registers versioned routers under `/api/{version}/`
 - Configures middleware stack (CORS, rate limiting, logging)
-- Manages database lifecycle via `@asynccontextmanager` lifespan
+- Manages the database engine via `@asynccontextmanager` lifespan; it does **not** migrate (see [Database operations](./database.md#database-operations))
 
 ---
 

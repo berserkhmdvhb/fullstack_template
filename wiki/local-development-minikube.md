@@ -215,8 +215,8 @@ make rebuild-and-roll HELM_ENV=local   # build + verify + roll + health (needs a
 The stack is deployed with the **Helm chart** (`charts/your-service-name`), not
 `kubectl apply`. The chart creates **both** namespaces (app + `…-db`), renders
 the app Secret and the `…-db-credentials` Secret from `values.local.yaml` + your
-`values.secret.yaml`, and runs the DB migration as a **`post-install` hook** that
-auto-deletes on success — so you create nothing by hand.
+`values.secret.yaml`, and runs the DB migration as a per-revision Job (not a Helm hook; see
+[Database operations](./database.md#the-migration-job)) — so you create nothing by hand.
 
 - **`make deploy` / `e2e.sh deploy`** = the full gate: apply **and** in-cluster
   verify (Postgres Running, migration completed, backend on real Postgres).
@@ -265,7 +265,7 @@ make k8s-apply HELM_ENV=local \
 # Pods, services, and the one-shot migration job
 kubectl get pods        -n your-service-name-local
 kubectl get svc         -n your-service-name-local
-kubectl get jobs        -n your-service-name-local      # migration auto-deletes on success
+kubectl get jobs        -n your-service-name-local      # one migration Job per revision, kept 24 hours
 kubectl get pods        -n your-service-name-local-db
 
 # Wait for Ready (blocks until the rollout is complete)
@@ -688,7 +688,7 @@ minikube image load your-service-name-backend:local            # Minikube
 ```bash
 kubectl logs -n your-service-name-local <pod-name> --previous
 kubectl exec -n your-service-name-local <pod-name> -- env | grep -E 'DB_|BACKEND|FRONTEND'
-# Migration didn't complete? Re-apply — the post-install hook re-runs automatically:
+# Migration didn't complete? Re-apply — each upgrade creates a new per-revision Job:
 make deploy HELM_ENV=local HELM_ARGS="-f charts/your-service-name/values.secret.yaml"
 ```
 
