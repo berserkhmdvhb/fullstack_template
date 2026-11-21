@@ -2,8 +2,8 @@
 """
 Unit tests of the live header-set comparison helper, on canned responses (no stack needed).
 
-The helper lives in ``tests/live/test_header_set.py``, which is live-marked and runs only in CI's live
-job; these tests run in ``make test``. The comparison is strict both ways.
+The helper lives in ``tests/live/test_header_set.py``, which is live-marked and runs only in CI's
+live job; these tests run in ``make test``. The comparison is strict both ways.
 """
 
 from __future__ import annotations
