@@ -131,6 +131,35 @@ YAML
   grep -qF 'your_service_name' "$ROOT/agent/keep.py"
 }
 
+@test "service-name: a root README.md listed in excludes.txt keeps the placeholder" {
+  printf 'use your_service_name\n' > "$ROOT/README.md"
+  printf 'from your_service_name import echo\n' > "$ROOT/echo.py"
+  run bash "$SCRIPT" --root "$ROOT" -n acme
+  [ "$status" -eq 0 ]
+  grep -qF 'use your_service_name' "$ROOT/README.md"
+  grep -qF 'from acme import echo' "$ROOT/echo.py"
+}
+
+@test "service-name: a non-UTF-8 file is skipped with a warning, the rest is still rewritten" {
+  printf '\xff\xfe from your_service_name import x\n' > "$ROOT/binary.md"
+  printf 'from your_service_name import echo\n' > "$ROOT/echo.py"
+  run bash "$SCRIPT" --root "$ROOT" -n acme
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"binary.md"* ]]
+  grep -qF 'from acme import echo' "$ROOT/echo.py"
+}
+
+@test "service-name: tool installs and build output are never walked" {
+  for d in .tools node_modules frontend/.next output; do
+    mkdir -p "$ROOT/$d"; printf 'from your_service_name import x\n' > "$ROOT/$d/keep.py"
+  done
+  run bash "$SCRIPT" --root "$ROOT" -n acme
+  [ "$status" -eq 0 ]
+  for d in .tools node_modules frontend/.next output; do
+    grep -qF 'your_service_name' "$ROOT/$d/keep.py"
+  done
+}
+
 @test "service-name: real run backs up every touched file" {
   printf 'from your_service_name import echo\n' > "$ROOT/echo.py"
   run bash "$SCRIPT" --root "$ROOT" -n acme

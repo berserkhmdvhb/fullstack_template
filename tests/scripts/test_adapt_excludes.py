@@ -57,3 +57,9 @@ def test_adapter_help_names_the_shared_file() -> None:
         check=True,
     ).stdout
     assert "excludes.txt" in out
+
+
+def test_tool_installs_and_build_output_are_excluded() -> None:
+    required = {".tools", "node_modules", "frontend/node_modules", "frontend/.next", "output"}
+    required |= {".venv", ".adapt-backup"}
+    assert required <= set(LISTED)

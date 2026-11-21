@@ -157,8 +157,8 @@ def rewrite_tree(
 
         try:
             text = Path(full).read_text(encoding="utf-8")
-        except OSError as exc:
-            print(f"[adapt] WARNING: read failed for {relf}: {exc}", file=sys.stderr)
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"[adapt] WARNING: skipped {relf}: {exc}", file=sys.stderr)
             continue
 
         new_text = text

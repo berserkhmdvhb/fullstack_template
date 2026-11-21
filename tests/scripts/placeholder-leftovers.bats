@@ -89,3 +89,29 @@ commit_all() {
   run bash "$SCRIPT"
   [ "$status" -eq 0 ]
 }
+
+@test "a rename that is not staged or committed is still checked (working tree, not the index)" {
+  mkdir -p "$R/src/$OLD"
+  echo "x = 1" > "$R/src/$OLD/a.py"
+  commit_all
+  git -C "$R" -c user.email=t@t -c user.name=t commit -qm init
+  mv "$R/src/$OLD" "$R/src/acme"
+  echo "deploy $DASH" > "$R/notes.txt"
+  cd "$R"
+  run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"notes.txt:1"* ]]
+  [[ "$output" != *"src/$OLD"* ]]
+}
+
+@test "an unstaged rename with no leftover passes" {
+  mkdir -p "$R/src/$OLD"
+  echo "x = 1" > "$R/src/$OLD/a.py"
+  commit_all
+  git -C "$R" -c user.email=t@t -c user.name=t commit -qm init
+  mv "$R/src/$OLD" "$R/src/acme"
+  cd "$R"
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"none"* ]]
+}

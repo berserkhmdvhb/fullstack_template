@@ -12,7 +12,13 @@ __pycache__
 .ruff_cache
 .pytest_cache
 .adapt-backup
+node_modules
 frontend/node_modules
+frontend/.next
+.tools
+output
+htmlcov
+test-results
 # The adapter itself and its tests:
 infra/adapt
 infra/security/local/tests/adapt.bats
