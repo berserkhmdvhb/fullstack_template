@@ -120,3 +120,9 @@ def test_playwright_reports_upload_only_on_failure() -> None:
         if str(s.get("uses", "")).startswith("actions/upload-artifact@")
     ]
     assert every == ups
+
+
+def test_the_backend_live_suite_targets_the_frontend_as_the_public_port() -> None:
+    """test_full_stack.py skips without PUBLIC_PORT; the job must not leave it skipped."""
+    step = next(s for s in _live_job()["steps"] if s.get("name") == "Backend live suite")
+    assert 'PUBLIC_PORT="${FRONTEND_PORT:-3000}"' in step["run"]
