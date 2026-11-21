@@ -37,6 +37,9 @@ from _common import DEFAULT_INCLUDE_EXTS, load_excludes, rewrite_tree
 
 OLD_DOMAIN: Final[str] = "your-domain.example"
 OLD_REGISTRY: Final[str] = "registry.your-domain.example"
+# The GitHub repository in the SOURCE_URL default of every Dockerfile (the OCI `source` label).
+OLD_REPOSITORY: Final[str] = "your-org/your-repo"
+_REPOSITORY: Final = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 
 class _Config:
@@ -56,12 +59,22 @@ class _Config:
         self.dry = dry
 
 
-def build_patterns(domain: str, registry: str) -> list[tuple[re.Pattern[str], str]]:
-    """The two fixed old->new substitutions, registry first (see module docstring)."""
-    return [
+def build_patterns(
+    domain: str, registry: str, repository: str = ""
+) -> list[tuple[re.Pattern[str], str]]:
+    """The fixed old->new substitutions, registry first (see module docstring).
+
+    The repository (``owner/name``) is optional: unset, the placeholder stays.
+    """
+    patterns = [
         (re.compile(rf"\b{re.escape(OLD_REGISTRY)}\b"), registry),
         (re.compile(rf"\b{re.escape(OLD_DOMAIN)}\b"), domain),
     ]
+    if repository:
+        patterns.append(
+            (re.compile(rf"(?<![\w.-]){re.escape(OLD_REPOSITORY)}(?![\w.-])"), repository)
+        )
+    return patterns
 
 
 def parse_args() -> argparse.Namespace:
@@ -73,6 +86,12 @@ def parse_args() -> argparse.Namespace:
         "--registry",
         required=True,
         help="New image registry (replaces registry.your-domain.example)",
+    )
+    parser.add_argument(
+        "--repository",
+        default="",
+        help="GitHub repository as owner/name (replaces your-org/your-repo in the image "
+        "source label); unset keeps the placeholder",
     )
     parser.add_argument("--root", default=None, help="Repo root (default: the current directory)")
     parser.add_argument("--dry-run", action="store_true", help="Show changes only")
@@ -92,6 +111,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.repository and not _REPOSITORY.fullmatch(args.repository):
+        print(
+            f"[adopt] ERROR: --repository must be owner/name (got {args.repository!r})",
+            file=sys.stderr,
+        )
+        return 2
 
     include_exts: set[str] = {e.strip().lower() for e in args.include_exts.split(",") if e.strip()}
     excludes: set[str] = (
@@ -102,7 +127,7 @@ def main() -> int:
     config = _Config(include_exts, excludes, Path(args.backup_dir), dry=args.dry_run)
     root: Path = Path(args.root) if args.root else Path.cwd()
 
-    patterns = build_patterns(args.domain, args.registry)
+    patterns = build_patterns(args.domain, args.registry, args.repository)
     changed = rewrite_tree(root=root, patterns=patterns, config=config)
 
     if not changed:

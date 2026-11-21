@@ -51,7 +51,7 @@ ARG VCS_REF=unknown
 ARG VCS_BRANCH=unknown
 ARG BUILD_DATE=unknown
 # The repository the image belongs to; GHCR links the package to it. CI passes the real URL.
-ARG SOURCE_URL=https://github.com/your-org/your-service-name
+ARG SOURCE_URL=https://github.com/your-org/your-repo
 
 LABEL org.opencontainers.image.title="Your Service Name — Nginx" \
       org.opencontainers.image.version="${VERSION}" \

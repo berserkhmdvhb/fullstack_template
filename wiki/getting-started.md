@@ -83,6 +83,8 @@ infra/adapt/replace_service_name.sh -n awesome_solution
 
 The README badges (CI and OpenSSF Scorecard) use `<owner>/<your-service-name>`; replace `<owner>` with your GitHub organisation or user, and the repository name if it differs from the service name.
 
+The images' OCI `source` label defaults to `https://github.com/your-org/your-repo` for local and kind builds (CI passes the real URL). Set `REPOSITORY=owner/name` in `infra/adapt/adopt.conf` and run `infra/adapt/adopt.sh` to stamp it into the three Dockerfiles; see [Adaptation](adaptation.md#config-driven-adoption-kubernetes-deployments).
+
 ### Configure Ports (Optional)
 
 Ports are environment-driven — there is no adaptation script. The defaults

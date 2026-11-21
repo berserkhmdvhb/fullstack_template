@@ -36,7 +36,7 @@ For Kubernetes deployments the template is adapted in one config-driven pass fro
 - **Coordinates** — the ingress base domain and the image registry. Handled by `adopt_stamp.py`.
 
 ```bash
-# 1. edit infra/adapt/adopt.conf (SERVICE_NAME, DOMAIN, REGISTRY)
+# 1. edit infra/adapt/adopt.conf (SERVICE_NAME, DOMAIN, REGISTRY, optionally REPOSITORY)
 infra/adapt/adopt.sh --dry-run   # 2. preview — touches nothing
 infra/adapt/adopt.sh             # 3. apply (backs up every touched file to .adapt-backup/<ts>/)
 ```
@@ -44,7 +44,10 @@ infra/adapt/adopt.sh             # 3. apply (backs up every touched file to .ada
 `adopt.sh` is a thin wrapper that runs the name adapter and then the stamping step — both read the
 same `adopt.conf`, so one edit applies everywhere — forwarding `--dry-run`. The stamping replaces
 `your-domain.example` / `registry.your-domain.example` across the `Dockerfile*`, `pyproject.toml`,
-`values.*.yaml`, `Chart.yaml`, `ci/deploy.yml` and `infra/security/local/devsec.sh`.
+`values.*.yaml`, `Chart.yaml`, `ci/deploy.yml` and `infra/security/local/devsec.sh`. The optional
+`REPOSITORY` (`owner/name`) replaces `your-org/your-repo` in the `SOURCE_URL` default of the three
+Dockerfiles, the image's OCI `source` label for local and kind builds (CI passes the real URL); unset, the
+placeholder stays. The dry-run lists every file it would change.
 
 **Cluster structure is a separate, per-cluster layer.** The values that depend on *which cluster*
 you run on — the ingress controller class, the StorageClass, the TLS mode, the CI short image

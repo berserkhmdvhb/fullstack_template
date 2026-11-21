@@ -84,8 +84,10 @@ python3 "${SCRIPT_DIR}/replace_service_name.py" --new "${SERVICE_NAME}" "${commo
 echo
 
 # ---- 2) Deployment: domain + registry --------------------------------------
-echo "==> [2/2] Domain (${DOMAIN}) + registry (${REGISTRY})…"
-python3 "${SCRIPT_DIR}/adopt_stamp.py" --domain "${DOMAIN}" --registry "${REGISTRY}" "${common_args[@]}"
+echo "==> [2/2] Domain (${DOMAIN}) + registry (${REGISTRY})${REPOSITORY:+ + repository (${REPOSITORY})}…"
+stamp_args=( --domain "${DOMAIN}" --registry "${REGISTRY}" )
+[ -n "${REPOSITORY:-}" ] && stamp_args+=( --repository "${REPOSITORY}" )
+python3 "${SCRIPT_DIR}/adopt_stamp.py" "${stamp_args[@]}" "${common_args[@]}"
 echo
 
 if [ "${DRY_RUN}" == "true" ]; then

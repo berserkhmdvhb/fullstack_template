@@ -30,7 +30,7 @@ def test_each_image_labels_version_revision_created_and_source_from_build_args(n
 @pytest.mark.parametrize("name", DOCKERFILES)
 def test_the_source_default_is_a_placeholder_the_adapter_renames(name: str) -> None:
     text = (REPO / name).read_text(encoding="utf-8")
-    assert "ARG SOURCE_URL=https://github.com/your-org/your-service-name\n" in text
+    assert "ARG SOURCE_URL=https://github.com/your-org/your-repo\n" in text
 
 
 def _args_step() -> dict[str, Any]:
