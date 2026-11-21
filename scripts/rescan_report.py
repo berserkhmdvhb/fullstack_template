@@ -28,6 +28,8 @@ from typing import Any
 from rescan_collect import Gh, run_gh
 
 LABEL = "vuln"
+AUTHOR = "app/github-actions"  # only issues the workflow token made count as ours
+MAX_NEW = 20
 SEVERITIES = ("Critical", "High")
 SLA_DAYS = {"Critical": 7, "High": 30}
 KEY = re.compile(r"<!-- vuln-key: (.+?) -->")
@@ -70,6 +72,11 @@ def aggregate(digests: dict[str, Any], findings_dir: Path) -> tuple[dict[str, An
     return found, other
 
 
+def span(values: set[str]) -> str:
+    """Values as code spans, so `@org/team` cannot ping anyone and a URL is not autolinked."""
+    return ", ".join(f"`{v}`" for v in sorted(values) if v)
+
+
 def state_of(entry: dict[str, Any]) -> str:
     basis = [
         entry["severity"],
@@ -98,8 +105,8 @@ def body_of(key: str, entry: dict[str, Any]) -> str:
             f"`{a['image']}`",
             f"`{digest}`",
             ", ".join(f"`{w}`" for w in a["where"]),
-            ", ".join(sorted(a["versions"])) or "-",
-            ", ".join(sorted(a["fixed"])) or "none yet",
+            span(a["versions"]) or "-",
+            span(a["fixed"]) or "none yet",
         ]
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines) + "\n"
@@ -126,7 +133,18 @@ def ensure_label(gh: Gh) -> None:
 
 def open_issues(gh: Gh) -> dict[str, dict[str, Any]]:
     """Open `vuln` issues by key; the oldest wins when a key is duplicated."""
-    args = ["issue", "list", "--label", LABEL, "--state", "open", "--limit", "1000"]
+    args = [
+        "issue",
+        "list",
+        "--label",
+        LABEL,
+        "--author",
+        AUTHOR,
+        "--state",
+        "open",
+        "--limit",
+        "1000",
+    ]
     rows = json.loads(gh([*args, "--json", "number,body"]))
     out: dict[str, dict[str, Any]] = {}
     for row in sorted(rows, key=lambda r: r["number"]):
@@ -143,11 +161,15 @@ def report(gh: Gh, digests: dict[str, Any], findings_dir: Path) -> tuple[list[st
         return notes, other
     ensure_label(gh)
     existing = open_issues(gh)
+    created = 0
     for key, entry in sorted(found.items()):
         body = body_of(key, entry)
         title = f"{entry['id']} in {entry['package']}"
         old = existing.get(key)
-        if old is None:
+        if old is None and created >= MAX_NEW:
+            notes.append(f"not opened (limit {MAX_NEW} per run): {key} ({entry['severity']})")
+        elif old is None:
+            created += 1
             with body_file(body) as f:
                 gh(["issue", "create", "--title", title, "--label", LABEL, "--body-file", f])
             notes.append(f"opened: {key} ({entry['severity']})")

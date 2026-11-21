@@ -14,6 +14,7 @@ SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 D1 = "sha256:" + "1" * 64
 D2 = "sha256:" + "2" * 64
 MARKERS = 2
+MAX_NEW = 20
 
 
 def _mod() -> ModuleType:
@@ -50,11 +51,13 @@ class Gh:
     def __init__(self, labels: list[str], issues: list[dict]) -> None:  # type: ignore[type-arg]
         self.labels, self.issues = labels, issues
         self.calls: list[tuple[str, list[str], str]] = []
+        self.list_args: list[str] = []
 
     def __call__(self, args: list[str]) -> bytes:
         if args[:2] == ["label", "list"]:
             return json.dumps([{"name": n} for n in self.labels]).encode()
         if args[:2] == ["issue", "list"]:
+            self.list_args = args
             return json.dumps(self.issues).encode()
         body = (
             Path(args[args.index("--body-file") + 1]).read_text() if "--body-file" in args else ""
@@ -228,3 +231,38 @@ def test_main_puts_unscannable_digests_and_other_severities_in_the_summary(
     text = summary.read_text()
     assert "Medium: 1" in text
     assert "qa: not scannable: digest artifact expired (redeploy)" in text
+
+
+def test_versions_go_in_code_spans_so_a_mention_cannot_ping(tmp_path: Path) -> None:
+    m = _mod()
+    d = _setup(
+        tmp_path,
+        {"1": [_match("CVE-1", "High", "p", "@org/team", "https://x.example/@a")]},
+        {"1": ["dev"]},
+    )
+    gh = Gh(["vuln"], [])
+    _run(m, gh, d, tmp_path)
+    body = gh.calls[0][2]
+    assert "`@org/team`" in body
+    assert "`https://x.example/@a`" in body
+    assert " @org/team" not in body
+
+
+def test_at_most_twenty_new_issues_are_opened_and_the_rest_are_listed(tmp_path: Path) -> None:
+    m = _mod()
+    matches = [_match(f"CVE-{i:03d}", "High", "p") for i in range(25)]
+    d = _setup(tmp_path, {"1": matches}, {"1": ["dev"]})
+    gh = Gh(["vuln"], [])
+    notes = _run(m, gh, d, tmp_path)
+    assert gh.verbs().count("issue create") == MAX_NEW
+    deferred = [n for n in notes if n.startswith("not opened (limit")]
+    assert len(deferred) == len(matches) - MAX_NEW
+    assert all("High" in n for n in deferred)
+
+
+def test_only_issues_made_by_the_workflow_token_count_as_existing(tmp_path: Path) -> None:
+    m = _mod()
+    d = _setup(tmp_path, {"1": [_match("CVE-1", "High", "p")]}, {"1": ["dev"]})
+    gh = Gh(["vuln"], [])
+    _run(m, gh, d, tmp_path)
+    assert gh.list_args[gh.list_args.index("--author") + 1] == "app/github-actions"
