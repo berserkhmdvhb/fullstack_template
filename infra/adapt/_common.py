@@ -45,8 +45,11 @@ def norm_rel(p: Path) -> str:
     return str(p.as_posix().rstrip("/"))
 
 
-# The file types the adapters rewrite (the default of every --include-exts flag).
-DEFAULT_INCLUDE_EXTS: Final = ".py,.sh,.yml,.yaml,.toml,.cfg,.ini,.env,.def,.json,.ts,.bats,.md"
+# The file types the adapters rewrite (the default of every --include-exts flag). .lock is uv.lock,
+# which names the project.
+DEFAULT_INCLUDE_EXTS: Final = (
+    ".py,.sh,.yml,.yaml,.toml,.cfg,.ini,.env,.def,.json,.ts,.bats,.md,.lock"
+)
 EXCLUDES_FILE: Final = Path(__file__).with_name("excludes.txt")
 
 

@@ -11,7 +11,8 @@ description = "Description of your_service_name"
 authors = [{ name = "Your Name", email = "you@your-domain.example" }]
 keywords = ["cli", "template", "python", "packaging"]
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 
 dependencies = [
@@ -34,8 +35,9 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
 ]
 
-[project.optional-dependencies]
-develop = [
+# PEP 735 group: `uv sync` installs it, `uv sync --no-dev` and the runtime image leave it out.
+[dependency-groups]
+dev = [
   "asgi-lifespan>=2.1",
   "mypy>=1.10",
   "pydantic",
@@ -48,6 +50,12 @@ develop = [
   "ruff",
   "psycopg2-binary",
 ]
+
+# The 7-day rule for uv.lock: a locked release must be at least 7 days old. A relative span is stored
+# in the lock as `exclude-newer-span` and resolved when `uv lock` runs, so `uv lock --check` gives the
+# same answer on any later day (see wiki/getting-started.md).
+[tool.uv]
+exclude-newer = "7 days"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

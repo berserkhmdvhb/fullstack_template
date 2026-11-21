@@ -17,6 +17,12 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: uv-lock
+        name: uv lock --check
+        entry: scripts/ci/hook-run.sh uv uv lock --check --offline
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
       - id: prettier
         name: prettier --check
         entry: scripts/ci/hook-run.sh npm npm --prefix frontend run format-check

@@ -63,3 +63,8 @@ def test_tool_installs_and_build_output_are_excluded() -> None:
     required = {".tools", "node_modules", "frontend/node_modules", "frontend/.next", "output"}
     required |= {".venv", ".adapt-backup"}
     assert required <= set(LISTED)
+
+
+def test_the_adapter_rewrites_uv_lock_so_the_locked_project_name_follows_the_rename() -> None:
+    exts = _common().DEFAULT_INCLUDE_EXTS.split(",")  # type: ignore[attr-defined]
+    assert ".lock" in exts

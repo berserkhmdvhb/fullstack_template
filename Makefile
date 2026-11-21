@@ -1,5 +1,5 @@
 # your-service-name — adaptable service template (see wiki/getting-started.md)
-.PHONY: all help install develop \
+.PHONY: all help install develop lock lock-check \
     ruff-format ruff-format-check ruff-lint ruff-lint-fix mypy-check \
     openapi-gen openapi-drift-check \
     shellcheck tools tools-dry-run pins-refresh \
@@ -29,15 +29,16 @@
 # Prefer the project virtualenv so package-backed targets (openapi-*, tests, ...) work
 # without manually `source .venv/bin/activate`; fall back to a system Python otherwise.
 PYTHON := $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else command -v python3 || command -v python; fi)
-PIP := $(PYTHON) -m pip
+# uv: the pinned binary from tools/pins.tsv (scripts/tools.sh install uv) when present, else the one on PATH.
+UV := $(or $(wildcard .tools/bin/uv),uv)
 SERVICE := your_service_name
 # COV_FAIL_UNDER intentionally absent: the 85% gate is single-sourced in
 # pyproject [tool.coverage.report] fail_under, so any `--cov` run enforces it.
 
-# Auto-extract dev tools from pyproject.toml (names only; strip pins/extras)
+# Auto-extract dev tools from pyproject.toml [dependency-groups] dev (names only; strip pins/extras)
 ESC := $(shell printf '\033')
 DEV_TOOLS := $(shell \
-    $(PYTHON) -c "import re,tomllib,pathlib; d=tomllib.loads(pathlib.Path('pyproject.toml').read_text()); dev=d.get('project',{}).get('optional-dependencies',{}).get('develop',[]); names=[]; [names.append(re.split(r'[<>=!~\\[]', s, maxsplit=1)[0].strip()) for s in dev]; print(' '.join(sorted(set(filter(None,names)))))" \
+    $(PYTHON) -c "import re,tomllib,pathlib; d=tomllib.loads(pathlib.Path('pyproject.toml').read_text()); dev=[x for x in d.get('dependency-groups',{}).get('dev',[]) if isinstance(x,str)]; names=[]; [names.append(re.split(r'[<>=!~\\[]', s, maxsplit=1)[0].strip()) for s in dev]; print(' '.join(sorted(set(filter(None,names)))))" \
 )
 # -------------------------------------------------------------------
 # Default
@@ -50,8 +51,10 @@ all: help
 help::
 	@echo "Available Makefile commands:"
 	@echo ""
-	@echo "  install                  Install the package in editable mode (for production)"
-	@echo "  develop                  Install with all develop dependencies"
+	@echo "  install                  Install the locked runtime dependencies (uv sync --locked --no-dev)"
+	@echo "  develop                  Install the locked set with the dev group (uv sync --locked)"
+	@echo "  lock                     Re-resolve uv.lock (releases at least 7 days old; see wiki/getting-started.md)"
+	@echo "  lock-check               Fail if uv.lock is stale against pyproject.toml"
 	@echo ""
 	@echo "  ruff-format              Auto-format code using Ruff"
 	@echo "  ruff-format-check        Check code formatting (dry run)"
@@ -65,8 +68,8 @@ help::
 	@echo "  openapi-drift-check      Fail if committed openapi.json / types.gen.d.ts is stale (CI mirror)"
 	@echo ""
 	@echo "  dev-tools-list           Show dev tools detected from pyproject.toml"
-	@echo "  dev-tools-outdated       Dry-run upgrade check for all dev tools"
-	@echo "  dev-tools-upgrade        Upgrade all dev tools to latest (non-prod deps only)"
+	@echo "  dev-tools-outdated       List dev tools with a newer release (uv tree --outdated; read-only)"
+	@echo "  dev-tools-upgrade        Re-lock the dev tools to their newest allowed release, then sync"
 	@echo "  version-check-<pkg>      Check if an upgrade is available for a single package"
 	@echo ""
 	@echo "  test                     Run all hermetic test layers (unit + integration + e2e) using Pytest"
@@ -143,10 +146,16 @@ help::
 	@echo "  security-scan-search PATTERN=<re>  Grep a pattern across the JSON outputs"
 
 install:
-	$(PIP) install -e .
+	$(UV) sync --locked --no-dev
 
 develop:
-	$(PIP) install -e .[develop]
+	$(UV) sync --locked
+
+lock:
+	$(UV) lock
+
+lock-check:
+	$(UV) lock --check
 # -------------------------------------------------------------------
 # Develop Tools (Including Code Quality & Security Checks)
 # -------------------------------------------------------------------
@@ -236,22 +245,24 @@ pins-refresh:
 	@scripts/pins-refresh.sh
 
 dev-tools-list:
-	@echo "Dev tools from pyproject.toml (develop extra):"
+	@echo "Dev tools from pyproject.toml ([dependency-groups] dev):"
 	@printf "  - %s\n" $(DEV_TOOLS)
 
 version-check-:
 	@echo "Usage: make version-check-<package>"
 
+# Read-only and tolerant of a missing network: no answer from the index reads as "up to date".
 version-check-%:
 	@echo "Checking $* for updates..."
-	@if ! $(PIP) show $* >/dev/null 2>&1; then \
-		echo "  $(ESC)[31mERROR: '$*' is not installed$(ESC)[0m"; \
+	@out="$$($(UV) tree --outdated --depth 0 --frozen --package $* 2>/dev/null)"; \
+	if [ -z "$$out" ]; then \
+		echo "  $(ESC)[31mERROR: '$*' is not in uv.lock$(ESC)[0m"; \
 		exit 1; \
-	fi
-	@$(PIP) install --upgrade --dry-run $* 2>&1 \
-		| grep -q "Would install" \
-		&& echo "  $(ESC)[33mNEW VERSION AVAILABLE$(ESC)[0m" \
-		|| echo "  $(ESC)[32mUp to date$(ESC)[0m"
+	fi; \
+	case "$$out" in \
+		*latest:*) echo "  $(ESC)[33mNEW VERSION AVAILABLE$(ESC)[0m" ;; \
+		*) echo "  $(ESC)[32mUp to date$(ESC)[0m" ;; \
+	esac
 
 dev-tools-outdated:
 	@echo "Checking dev tools for available updates..."
@@ -259,8 +270,10 @@ dev-tools-outdated:
 		$(MAKE) --no-print-directory version-check-$$P ; \
     done
 
+# Re-lock only the dev tools (newest release at least 7 days old), then install the result.
 dev-tools-upgrade:
-	$(PIP) install -U $(DEV_TOOLS)
+	$(UV) lock $(foreach p,$(DEV_TOOLS),--upgrade-package $(p))
+	$(UV) sync --locked
 
 check-all: dev-tools-outdated ruff-format ruff-lint-fix mypy-check
 check-all-dry: dev-tools-outdated ruff-format-check ruff-lint mypy-check
@@ -340,7 +353,7 @@ clean-build:
 	$(PYTHON) -c "import shutil, pathlib; [shutil.rmtree(p, ignore_errors=True) for p in map(pathlib.Path, ['dist', 'build']) if p.exists()]; [shutil.rmtree(p, ignore_errors=True) for p in pathlib.Path('.').rglob('*.egg-info')]"
 
 check-updates:
-	$(PIP) list --outdated
+	$(UV) tree --outdated --depth 1 --frozen
 
 check-toml:
 	@$(PYTHON) -c "import tomllib; tomllib.load(open('pyproject.toml', 'rb')); print('pyproject.toml syntax is valid')"
