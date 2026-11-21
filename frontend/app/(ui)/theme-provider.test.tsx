@@ -10,7 +10,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders, screen } from '@/src/test/test-utils';
 
-import { ThemeProvider, useTheme } from './theme-provider';
+import { THEME_INIT_SCRIPT, ThemeProvider, useTheme } from './theme-provider';
 
 beforeAll(() => {
   // Mock matchMedia so prefers-color-scheme: light returns false (dark default)
@@ -97,5 +97,55 @@ describe('ThemeProvider', () => {
     // Toggle back to dark
     await user.click(screen.getByText('Toggle'));
     expect(screen.getByText('dark')).toBeInTheDocument();
+  });
+});
+
+describe('ThemeProvider and the <html> class', () => {
+  /** Test component that shows the theme and a toggle. */
+  function Probe() {
+    const { theme, toggleTheme } = useTheme();
+    return (
+      <div>
+        <span data-testid="theme">{theme}</span>
+        <button onClick={toggleTheme}>Toggle</button>
+      </div>
+    );
+  }
+
+  it('shows the theme the init script put on <html>', () => {
+    document.documentElement.classList.remove('dark');
+    document.documentElement.classList.add('light');
+
+    renderWithProviders(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId('theme')).toHaveTextContent('light');
+    document.documentElement.classList.remove('light');
+  });
+
+  it('swaps the <html> class and stores the choice when toggled', async () => {
+    const { userEvent } = await import('@testing-library/user-event');
+    document.documentElement.classList.remove('light', 'dark');
+    document.documentElement.classList.add('dark');
+    renderWithProviders(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+
+    await userEvent.setup().click(screen.getByText('Toggle'));
+
+    expect(document.documentElement.classList.contains('light')).toBe(true);
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(localStorage.getItem('theme')).toBe('light');
+    document.documentElement.classList.remove('light');
+  });
+
+  it('ships an init script that only touches the html class', () => {
+    expect(THEME_INIT_SCRIPT).toContain("document.documentElement.classList.add('dark')");
+    expect(THEME_INIT_SCRIPT).toContain('prefers-color-scheme: light');
   });
 });

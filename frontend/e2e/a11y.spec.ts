@@ -13,6 +13,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 import { lowContrastText } from './support/contrast';
+import { mockApi } from './support/mock-api';
 
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 // axe cannot sample the background of table cells and row buttons that the items table's horizontal scroll box clips (or the
@@ -23,31 +24,6 @@ const CLIPPED_TABLE_CELLS =
 
 const THEMES = ['light', 'dark'] as const;
 const WIDTHS = { desktop: 1280, phone: 390 } as const;
-
-const ITEMS = {
-  items: [
-    {
-      id: '11111111-1111-1111-1111-111111111111',
-      name: 'First item',
-      description: 'A described item',
-      is_active: true,
-      created_at: '2026-01-01T00:00:00Z',
-      updated_at: '2026-01-01T00:00:00Z',
-    },
-    {
-      id: '22222222-2222-2222-2222-222222222222',
-      name: 'Second item',
-      description: null,
-      is_active: false,
-      created_at: '2026-01-02T00:00:00Z',
-      updated_at: '2026-01-02T00:00:00Z',
-    },
-  ],
-  total: 2,
-  page: 1,
-  page_size: 20,
-  total_pages: 1,
-};
 
 type Scenario = {
   name: string;
@@ -129,12 +105,10 @@ for (const [size, width] of Object.entries(WIDTHS)) {
         await page.addInitScript((value) => {
           localStorage.setItem('theme', value);
         }, theme);
-        await page.route('**/api/v1/health', (route) =>
-          health === 'down' ? route.abort() : route.fulfill({ json: { status: 'ok' } }),
-        );
-        await page.route('**/api/v1/items?*', (route) =>
-          items === 'down' ? route.abort() : route.fulfill({ json: ITEMS }),
-        );
+        await mockApi(page, {
+          health: health === 'down' ? 'down' : 'up',
+          items: items === 'down' ? 'down' : 'up',
+        });
         await page.goto(path);
         await page.waitForLoadState('networkidle');
         await expect(page.locator('html')).toHaveClass(new RegExp(theme));

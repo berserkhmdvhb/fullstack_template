@@ -42,6 +42,13 @@ describe('RootLayout', () => {
     expect(view).toContain('nonce="abc123"');
   });
 
+  it('sets the theme before first paint with a script that carries the nonce', async () => {
+    requestHeaders.nonce = 'abc123';
+    const view = renderToStaticMarkup(await RootLayout({ children: null }));
+
+    expect(view).toMatch(/<head><script nonce="abc123">[^<]*classList\.add/);
+  });
+
   it('renders without a nonce when no header is present', async () => {
     requestHeaders.nonce = null;
     const view = renderToStaticMarkup(await RootLayout({ children: null }));

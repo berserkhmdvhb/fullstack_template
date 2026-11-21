@@ -30,9 +30,9 @@ import { useTheme } from './theme-provider';
 const API_ORIGIN = API_BASE.startsWith('http') ? new URL(API_BASE).origin : '';
 
 const NAV_LINKS = [
-  { href: '/', label: 'Home', icon: Home },
-  { href: '/items', label: 'Items', icon: List },
-  { href: `${API_ORIGIN}/docs`, label: 'API Docs', icon: BookOpen },
+  { href: '/', label: 'Home', icon: Home, prefetch: 'auto' as const },
+  { href: '/items', label: 'Items', icon: List, prefetch: 'auto' as const },
+  { href: `${API_ORIGIN}/docs`, label: 'API Docs', icon: BookOpen, prefetch: false as const },
 ];
 
 /**
@@ -72,6 +72,8 @@ export function GlobalHeader(): JSX.Element {
               <Link
                 key={link.href}
                 href={link.href}
+                // /docs is the backend's page: prefetching it would make the frontend proxy call the backend.
+                prefetch={link.prefetch}
                 className={`group flex min-h-9 items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                   isActive
                     ? 'bg-surfaceWeak text-textPrimary'

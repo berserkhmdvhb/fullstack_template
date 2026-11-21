@@ -91,8 +91,10 @@ export default function Home(): JSX.Element {
               <p className="text-xs text-textPrimary">CRUD operations</p>
             </div>
           </Link>
+          {/* The backend's page: prefetching it would make the frontend proxy call the backend. */}
           <Link
             href="/docs"
+            prefetch={false}
             className="group flex items-center gap-3 rounded-lg border border-borderWeak bg-surface p-4 text-sm text-textPrimary hover:bg-surfaceWeak hover:border-borderStrong hover:shadow-xs transition-all"
           >
             <BookOpen className="h-5 w-5 text-accentPurple shrink-0" />

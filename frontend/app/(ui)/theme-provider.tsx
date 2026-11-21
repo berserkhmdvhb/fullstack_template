@@ -12,9 +12,35 @@
 'use client';
 
 import type { ReactNode, JSX } from 'react';
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useSyncExternalStore } from 'react';
 
 type Theme = 'light' | 'dark';
+
+/**
+ * Runs in `<head>` before first paint (see the root layout) so the `html` class is right with no flash.
+ * It is the one place that decides the initial theme: the stored choice, else the system preference, else dark.
+ *
+ * @internal
+ */
+export const THEME_INIT_SCRIPT =
+  "try{var t=localStorage.getItem('theme');if(t!=='light'&&t!=='dark')t=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';document.documentElement.classList.add(t)}catch(e){document.documentElement.classList.add('dark')}";
+
+/** The theme the page is showing: the class the init script (or a toggle) put on `<html>`. */
+function getTheme(): Theme {
+  return document.documentElement.classList.contains('light') ? 'light' : 'dark';
+}
+
+/** Re-render when the `html` class changes. */
+function subscribe(onChange: () => void): () => void {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+  return () => {
+    observer.disconnect();
+  };
+}
+
+/** The server always renders dark; the browser then reads the real theme (no hydration mismatch). */
+const getServerTheme = (): Theme => 'dark';
 
 type ThemeContextType = {
   theme: Theme;
@@ -41,8 +67,8 @@ export function useTheme(): ThemeContextType {
  * ThemeProvider component.
  *
  * @remarks
- * - Reads theme from localStorage on mount
- * - Applies theme class to <html> element
+ * - Shows the theme the init script put on <html> (hydration-safe, see below)
+ * - Toggling swaps the <html> class and saves the choice to localStorage
  * - Provides toggle function to children
  *
  * @param props - Provider children.
@@ -51,25 +77,15 @@ export function useTheme(): ThemeContextType {
  * @public
  */
 export function ThemeProvider({ children }: { children: ReactNode }): JSX.Element {
-  // Initialize from localStorage, falling back to system preference.
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window === 'undefined') return 'dark';
-    const stored = localStorage.getItem('theme') as Theme | null;
-    if (stored === 'light' || stored === 'dark') return stored;
-    // Fall back to system preference
-    if (window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
-    return 'dark';
-  });
-
-  useEffect(() => {
-    // Apply theme to <html> element and persist to localStorage.
-    document.documentElement.classList.remove('light', 'dark');
-    document.documentElement.classList.add(theme);
-    localStorage.setItem('theme', theme);
-  }, [theme]);
+  // useSyncExternalStore is React's tool for a client-only value: it renders the server snapshot while
+  // hydrating, then re-renders with the real one (https://react.dev/reference/react/useSyncExternalStore).
+  const theme = useSyncExternalStore(subscribe, getTheme, getServerTheme);
 
   const toggleTheme = () => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+    const next: Theme = getTheme() === 'dark' ? 'light' : 'dark';
+    document.documentElement.classList.remove('light', 'dark');
+    document.documentElement.classList.add(next);
+    localStorage.setItem('theme', next);
   };
 
   return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>;
