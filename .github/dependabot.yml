@@ -1,7 +1,8 @@
 # Renovate owns every version update (see renovate.json5). Dependabot is kept only so GitHub can open
 # security-update pull requests: `open-pull-requests-limit: 0` turns version updates off for the ecosystem
 # while security updates still arrive. Whether they are on is a repository setting (Dependabot security
-# updates, plus the dependency graph and alerts), not something this file switches on.
+# updates, plus the dependency graph and alerts), not something this file switches on. The cooldown matches
+# Renovate's 7-day release age (security updates ignore it).
 version: 2
 updates:
   - package-ecosystem: pip
@@ -9,18 +10,26 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 0
+    cooldown:
+      default-days: 7
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
     open-pull-requests-limit: 0
+    cooldown:
+      default-days: 7
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 0
+    cooldown:
+      default-days: 7
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 0
+    cooldown:
+      default-days: 7
