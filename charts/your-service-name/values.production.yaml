@@ -34,8 +34,9 @@ config:
   LOG_LEVEL: WARNING
   # TLS to the managed database. Production refuses disable/require unless the DB host is loopback
   # (a Cloud SQL Auth Proxy sidecar, which encrypts itself: set externalDatabase.host to 127.0.0.1
-  # and DB_SSLMODE to "disable"). Set DB_SSLROOTCERT to a mounted CA file, or leave it unset to
-  # trust the image's system store. See wiki/database.md.
+  # and DB_SSLMODE to "disable"). A managed database's CA is usually not in the image's trust store:
+  # set database.tls.caSecret (an existing Secret with the CA certificate) below. It is left empty
+  # here on purpose, so a missing CA fails loudly at the first connection. See wiki/database.md.
   DB_SSLMODE: verify-full
   # An auth mode is REQUIRED in production: with ENV=production the backend refuses to start on
   # AUTH_MODE=none. Choose one (oidc or cloudflare-access for
@@ -74,6 +75,10 @@ externalDatabase:
   # external DB is selected (templates/validate-values.yaml) — set it, don't leave
   # it blank. Empty => default-deny egress stands and the DB is unreachable.
   egressCIDR: "10.0.0.0/16"
+
+# database:
+#   tls:
+#     caSecret: {name: your-db-ca, key: server-ca.pem}   # REQUIRED for a managed database
 
 secrets:
   # Externally-managed Opaque secret holding DB_USER / DB_PASSWORD / STATS_PASS,

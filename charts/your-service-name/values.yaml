@@ -62,6 +62,21 @@ backend:
   # backend Service names are always allowed). Empty by default. A local cluster that reaches the
   # backend through a port-forward sets "localhost,127.0.0.1" (values.local.yaml).
   extraAllowedHosts: ""
+  # Init containers rendered FIRST (before wait-for-db) in both the backend Deployment and the
+  # migration Job, for example a Cloud SQL Auth Proxy as a native sidecar (an init container with
+  # restartPolicy: Always, Kubernetes 1.29+). The chart does not ship the proxy image; see
+  # wiki/database.md. Empty by default.
+  extraInitContainers: []
+
+# TLS to the database. For a managed database whose CA is not in the image's trust store, name an
+# existing Secret holding the CA certificate: it is mounted read-only in the backend and the
+# migration Job and DB_SSLROOTCERT is set to it. Leave empty for DB_SSLMODE=disable or when the
+# system trust store is enough.
+database:
+  tls:
+    caSecret:
+      name: ""
+      key: ""
 
 replicas:
   backend: 2

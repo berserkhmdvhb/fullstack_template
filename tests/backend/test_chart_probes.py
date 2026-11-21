@@ -1,5 +1,5 @@
 # your-service-name — adaptable service template (see wiki/getting-started.md)
-"""Liveness is process-only; readiness (and startup) check the database schema."""
+"""Liveness and startup are process-only; only readiness checks the database schema."""
 
 from __future__ import annotations
 
@@ -23,6 +23,11 @@ def test_liveness_uses_the_process_only_path() -> None:
     assert _probe_path("livenessProbe") == f"{BASE}{paths.LIVENESS_ROUTE}"
 
 
-def test_readiness_and_startup_use_the_schema_aware_path() -> None:
+def test_only_readiness_checks_the_schema() -> None:
     assert _probe_path("readinessProbe") == f"{BASE}{paths.HEALTH_ROUTE}"
-    assert _probe_path("startupProbe") == f"{BASE}{paths.HEALTH_ROUTE}"
+
+
+def test_startup_uses_the_process_only_path() -> None:
+    """The Job may outlast the startup budget; a startup probe that waits for the schema would
+    kill every new Pod during a long migration."""
+    assert _probe_path("startupProbe") == f"{BASE}{paths.LIVENESS_ROUTE}"

@@ -61,6 +61,33 @@
         "extraAllowedHosts": {
           "description": "Comma-separated Host values appended to the backend's ALLOWED_HOSTS.",
           "type": "string"
+        },
+        "extraInitContainers": {
+          "description": "Init containers rendered first, before wait-for-db, in the backend Deployment and the migration Job.",
+          "type": "array",
+          "items": { "type": "object" }
+        }
+      }
+    },
+
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "caSecret": {
+              "description": "An existing Secret with the database CA certificate; mounted read-only and set as DB_SSLROOTCERT.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "key":  { "type": "string" }
+              }
+            }
+          }
         }
       }
     },

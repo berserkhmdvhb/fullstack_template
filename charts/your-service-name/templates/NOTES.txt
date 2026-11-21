@@ -8,7 +8,7 @@ has been installed into namespace "{{ .Release.Namespace }}".
 
 Verify the rollout:
   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
-  kubectl -n {{ .Release.Namespace }} get job {{ $fullname }}-migrate-r{{ .Release.Revision }}   # this revision's migration Job
+  kubectl -n {{ .Release.Namespace }} get job {{ include "chart.migrationJobName" . }}   # this revision's migration Job
 
 {{- if .Values.ingress.enabled }}
 

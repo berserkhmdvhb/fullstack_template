@@ -41,6 +41,10 @@ spec:
         fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
+      {{- with include "chart.extraInitContainers" . }}
+      initContainers:
+        {{- . | nindent 8 }}
+      {{- end }}
       containers:
         - name: backend
           image: {{ include "chart.image" (dict "image" .Values.images.backend) }}
@@ -64,15 +68,18 @@ spec:
           env:
             - name: DATABASE_URL
               value: {{ include "chart.databaseURL" . | quote }}
+            {{- include "chart.dbCaEnv" . | nindent 12 }}
           ports:
             - name: http
               containerPort: 8000
               protocol: TCP
           resources:
 {{- toYaml .Values.resources.backend | nindent 12 }}
+          # Startup and liveness are process-only (/healthz): the migration Job can outlast the startup
+          # budget, and a Pod must not be restarted for waiting on it. Only readiness checks the schema.
           startupProbe:
             httpGet:
-              path: /api/v1/health
+              path: /api/v1/healthz
               port: http
             failureThreshold: 30
             periodSeconds: 5
@@ -102,6 +109,7 @@ spec:
               mountPath: /tmp
             - name: logs
               mountPath: /app/logs
+            {{- include "chart.dbCaVolumeMount" . | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true   # writable paths are emptyDir below (C-L4)
@@ -115,6 +123,7 @@ spec:
         - name: logs
           emptyDir:
             sizeLimit: 256Mi
+        {{- include "chart.dbCaVolume" . | nindent 8 }}
       terminationGracePeriodSeconds: 60
       topologySpreadConstraints:
         - maxSkew: 1

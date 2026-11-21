@@ -23,11 +23,16 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ printf "%s-migrate-r%d" (include "chart.fullname" . | trunc 44 | trimSuffix "-") (.Release.Revision | int) }}
+  name: {{ include "chart.migrationJobName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
 {{- include "chart.labels" . | nindent 4 }}
     app.kubernetes.io/component: migration
+  annotations:
+    # Keep the Job when a rollback or upgrade removes this revision from the release (Helm skips
+    # deleting resources with this policy), so a failed migration's logs survive the automatic
+    # rollback. ttlSecondsAfterFinished still removes it after 24 hours.
+    "helm.sh/resource-policy": keep
 spec:
   backoffLimit: 3
   activeDeadlineSeconds: 300
@@ -49,6 +54,9 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
+        {{- with include "chart.extraInitContainers" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
         - name: wait-for-db
           image: {{ .Values.postgresql.clientImage }}
           command:
@@ -101,6 +109,14 @@ spec:
                 name: {{ include "chart.fullname" . }}-config
             - secretRef:
                 name: {{ include "chart.secretName" . }}
+          {{- with include "chart.dbCaEnv" . }}
+          env:
+            {{- . | nindent 12 }}
+          {{- end }}
+          {{- with include "chart.dbCaVolumeMount" . }}
+          volumeMounts:
+            {{- . | nindent 12 }}
+          {{- end }}
           resources:
             requests:
               cpu: 100m
@@ -112,3 +128,7 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+      {{- with include "chart.dbCaVolume" . }}
+      volumes:
+        {{- . | nindent 8 }}
+      {{- end }}

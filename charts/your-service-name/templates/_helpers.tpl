@@ -155,3 +155,48 @@ imagePullSecrets:
 {{- end -}}
 {{- join "," $hosts -}}
 {{- end -}}
+
+{{/*
+   The migration Job's name: one per release revision (a Job's spec is immutable). The release
+   fullname is cut to 44 characters so "-migrate-r<revision>" keeps the name within 63. Used by
+   the Job and by NOTES.txt, so they cannot disagree.
+*/}}
+{{- define "chart.migrationJobName" -}}
+{{- printf "%s-migrate-r%d" (include "chart.fullname" . | trunc 44 | trimSuffix "-") (.Release.Revision | int) -}}
+{{- end -}}
+
+{{/* Where a database CA from database.tls.caSecret is mounted (read-only), and its file. */}}
+{{- define "chart.dbCaDir" -}}/etc/db-ca{{- end -}}
+{{- define "chart.dbCaPath" -}}{{ include "chart.dbCaDir" . }}/ca.pem{{- end -}}
+
+{{/* Volume, mount and env for the database CA; each renders nothing unless the Secret is named. */}}
+{{- define "chart.dbCaVolume" -}}
+{{- with .Values.database.tls.caSecret }}{{ if .name }}
+- name: db-ca
+  secret:
+    secretName: {{ .name }}
+    items:
+      - key: {{ required "database.tls.caSecret.key is required with .name" .key }}
+        path: ca.pem
+{{- end }}{{ end }}
+{{- end -}}
+{{- define "chart.dbCaVolumeMount" -}}
+{{- if .Values.database.tls.caSecret.name }}
+- name: db-ca
+  mountPath: {{ include "chart.dbCaDir" . }}
+  readOnly: true
+{{- end }}
+{{- end -}}
+{{- define "chart.dbCaEnv" -}}
+{{- if .Values.database.tls.caSecret.name }}
+- name: DB_SSLROOTCERT
+  value: {{ include "chart.dbCaPath" . | quote }}
+{{- end }}
+{{- end -}}
+
+{{/* backend.extraInitContainers, rendered first (before any chart init container). */}}
+{{- define "chart.extraInitContainers" -}}
+{{- with .Values.backend.extraInitContainers }}
+{{ toYaml . }}
+{{- end }}
+{{- end -}}
