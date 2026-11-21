@@ -1,0 +1,305 @@
+# your-service-name — adaptable service template (see wiki/getting-started.md)
+"""
+Typed settings: the one place the backend reads its environment.
+
+Responsibilities
+----------------
+- Declare every environment variable the Python backend reads, with a type, the default
+  it always had and a description (``wiki/environment-variables.md`` is generated from
+  these fields by ``scripts/gen_env_docs.py``).
+- Validate them once, at startup, and fail loudly: an invalid environment raises a single
+  ``pydantic.ValidationError`` naming each invalid variable.
+
+Design
+------
+- Field names ARE the environment variable names (case-sensitive), so nothing changes for
+  adopters.
+- No import-time global: ``create_app`` builds (or receives) one ``Settings`` and stores it
+  on ``app.state.settings``; everything else is handed the values or reads them from there.
+- Secret-bearing values are ``SecretStr`` and ``hide_input_in_errors`` is on, so a bad value
+  never appears in an error or in ``repr(settings)``.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Annotated, Final, Literal
+
+from limits import parse as parse_rate_limit
+from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from your_service_name.utils.versioning_api import (
+    DEFAULT_API_VERSION,
+    MSG_ERROR_UNSUPPORTED_VERSION,
+    SUPPORTED_VERSIONS,
+)
+
+logger = logging.getLogger(__name__)
+
+# Default SQLite file, relative to the project root. Single source shared by the engine,
+# the migration runner and the seed script (via db/_constants.py). Overridable via SQLITE_PATH.
+DEFAULT_SQLITE_REL_PATH: Final[str] = "data/items.db"
+DEFAULT_RATE_LIMIT: Final[str] = "100/minute"
+
+# HMAC family only. RSA/ECDSA/`none` are deliberately rejected to avoid the classic
+# "alg confusion" attack (an attacker swapping alg to bypass the key).
+ALLOWED_JWT_ALGS: Final[frozenset[str]] = frozenset({"HS256", "HS384", "HS512"})
+
+AuthMode = Literal["none", "gateway", "bearer"]
+
+_BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
+    "ENV",
+    "AUTH_USER_ID_HEADER",
+    "AUTH_ROLES_HEADER",
+    "AUTH_JWT_USER_ID_CLAIM",
+    "SQLITE_PATH",
+    "LOG_LEVEL",
+    "DATABASE_URL",
+    "TEST_DATABASE_URL",
+    "LOG_REQUESTS",
+    "CORS_ALLOW_CREDENTIALS",
+    "ALLOW_ANONYMOUS",
+    "ALLOW_PRODUCTION_DOCS",
+)
+
+
+class Settings(BaseSettings):
+    """Every environment variable the backend reads, validated once at startup."""
+
+    model_config = SettingsConfigDict(
+        case_sensitive=True,
+        extra="ignore",
+        hide_input_in_errors=True,
+    )
+
+    # --- General --------------------------------------------------------------
+    ENV: str = Field(
+        default="dev",
+        description="Deployment environment. `production` (or `prod`) turns on the production "
+        "checks below; any other value leaves them off.",
+    )
+    LOG_LEVEL: str = Field(
+        default="INFO",
+        description="Root log level (name or number); an unknown value falls back to INFO.",
+    )
+    LOG_FORMAT: str = Field(
+        default="",
+        description="`json` emits structured JSON logs; they are also on when ENV is production.",
+    )
+    LOG_REQUESTS: bool = Field(
+        default=False,
+        description="Log every HTTP request (method, path, status, duration).",
+    )
+    API_VERSION: str = Field(
+        default=DEFAULT_API_VERSION,
+        description="Active API version; must be one of the supported versions.",
+    )
+    API_TITLE: str = Field(default="Backend Title", description="OpenAPI document title.")
+    API_DESCRIPTION: str = Field(
+        default="Minimal FastAPI backend",
+        description="OpenAPI document description.",
+    )
+    API_DOCS_URL: str | None = Field(
+        default=None,
+        description="Path of the Swagger UI. Unset means `/docs` (off in production); "
+        "an empty value turns it off.",
+        json_schema_extra={
+            "production": "Off unless ALLOW_PRODUCTION_DOCS=true; setting it to a path "
+            "without that flag is refused."
+        },
+    )
+    OPENAPI_URL: str | None = Field(
+        default=None,
+        description="Path of the OpenAPI JSON. Unset means `/openapi.json` (off in production); "
+        "an empty value turns it off.",
+        json_schema_extra={
+            "production": "Off unless ALLOW_PRODUCTION_DOCS=true; setting it to a path "
+            "without that flag is refused."
+        },
+    )
+    ALLOW_PRODUCTION_DOCS: bool = Field(
+        default=False,
+        description="Production only: allow the Swagger UI and the OpenAPI JSON to be served.",
+    )
+
+    # --- CORS -----------------------------------------------------------------
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        description="Comma-separated allowed origins. Empty means same-origin only.",
+        json_schema_extra={
+            "production": "Each origin must be a bare `scheme://host[:port]` (no path, no "
+            "trailing slash). With CORS_ALLOW_CREDENTIALS=true it must be non-empty and "
+            "must not contain `*`."
+        },
+    )
+    CORS_ALLOW_CREDENTIALS: bool = Field(
+        default=False,
+        description="Allow credentialed cross-origin requests. Outside production a `*` "
+        "origin is dropped (with a warning) when this is on.",
+    )
+    CORS_ALLOW_METHODS: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        description="Comma-separated allowed methods.",
+    )
+    CORS_ALLOW_HEADERS: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["Authorization", "Content-Type", "X-Requested-With"],
+        description="Comma-separated allowed request headers.",
+    )
+
+    # --- Rate limiting --------------------------------------------------------
+    RATE_LIMIT_DEFAULT: str = Field(
+        default=DEFAULT_RATE_LIMIT,
+        description="Per-IP rate limit in `limits` format, for example `100/minute`.",
+    )
+
+    # --- Auth -----------------------------------------------------------------
+    AUTH_MODE: AuthMode = Field(
+        default="none",
+        description="`none` (anonymous), `gateway` (trusted identity header) or `bearer` "
+        "(HMAC-signed JWT).",
+        json_schema_extra={"production": "`none` is refused unless ALLOW_ANONYMOUS=true."},
+    )
+    ALLOW_ANONYMOUS: bool = Field(
+        default=False,
+        description="Production only: explicitly accept AUTH_MODE=none (open endpoints).",
+    )
+    AUTH_USER_ID_HEADER: str = Field(
+        default="x-authenticated-user-id",
+        description="Gateway mode: header carrying the authenticated user id.",
+    )
+    AUTH_ROLES_HEADER: str = Field(
+        default="x-authenticated-user-roles",
+        description="Gateway mode: header carrying comma-separated roles.",
+    )
+    AUTH_JWT_SECRET: SecretStr | None = Field(
+        default=None,
+        description="Bearer mode: shared HMAC secret. Required when AUTH_MODE=bearer.",
+    )
+    AUTH_JWT_ALGORITHM: str = Field(
+        default="HS256",
+        description="Bearer mode: HMAC algorithm (`HS256`, `HS384` or `HS512`).",
+    )
+    AUTH_JWT_USER_ID_CLAIM: str = Field(
+        default="sub",
+        description="Bearer mode: token claim holding the user id.",
+    )
+
+    # --- Database -------------------------------------------------------------
+    DATABASE_URL: SecretStr | None = Field(
+        default=None,
+        description="Async SQLAlchemy database URL. Unset falls back to SQLite (SQLITE_PATH).",
+        json_schema_extra={"production": "Required, and not SQLite."},
+    )
+    TEST_DATABASE_URL: SecretStr | None = Field(
+        default=None,
+        description="Test-only: database URL that takes precedence over DATABASE_URL.",
+        json_schema_extra={"production": "Counts as the database URL, so it is checked too."},
+    )
+    SQLITE_PATH: str = Field(
+        default=DEFAULT_SQLITE_REL_PATH,
+        description="SQLite fallback file, relative to the project root.",
+        json_schema_extra={"production": "Ignored: SQLite is refused."},
+    )
+    DB_POOL_SIZE: int = Field(
+        default=10,
+        description="PostgreSQL connection pool size; a non-positive or invalid value "
+        "falls back to the default.",
+    )
+    DB_MAX_OVERFLOW: int = Field(
+        default=20,
+        description="PostgreSQL pool overflow; a non-positive or invalid value falls back "
+        "to the default.",
+    )
+
+    # --- Validators: parsing --------------------------------------------------
+
+    @staticmethod
+    def _is_blank(value: object) -> bool:
+        return isinstance(value, str) and not value.strip()
+
+    @classmethod
+    def _default_of(cls, name: str | None) -> object:
+        assert name is not None  # noqa: S101 — pydantic always supplies the field name
+        return cls.model_fields[name].get_default(call_default_factory=True)
+
+    @field_validator(*_BLANK_IS_DEFAULT, mode="before")
+    @classmethod
+    def _blank_is_default(cls, value: object, info: ValidationInfo) -> object:
+        """An empty variable means "not set" (the old reads used ``or default``)."""
+        return cls._default_of(info.field_name) if cls._is_blank(value) else value
+
+    @field_validator("CORS_ORIGINS", "CORS_ALLOW_METHODS", "CORS_ALLOW_HEADERS", mode="before")
+    @classmethod
+    def _csv(cls, value: object, info: ValidationInfo) -> object:
+        if not isinstance(value, str):
+            return value
+        items = [item.strip() for item in value.split(",") if item.strip()]
+        return items or cls._default_of(info.field_name)
+
+    @field_validator("DB_POOL_SIZE", "DB_MAX_OVERFLOW", mode="before")
+    @classmethod
+    def _positive_int_or_default(cls, value: object, info: ValidationInfo) -> object:
+        """Unset, garbage or non-positive falls back to the default (with a warning)."""
+        default = cls._default_of(info.field_name)
+        try:
+            number = int(str(value))
+        except ValueError:
+            number = 0
+        if number > 0:
+            return number
+        if not cls._is_blank(value):
+            logger.warning("Invalid %s; using %s", info.field_name, default)
+        return default
+
+    @field_validator("AUTH_MODE", mode="before")
+    @classmethod
+    def _normalise_mode(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower() or "none"
+        return value
+
+    @field_validator("AUTH_JWT_ALGORITHM", mode="before")
+    @classmethod
+    def _normalise_algorithm(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().upper() or "HS256"
+        return value
+
+    @field_validator("API_VERSION", mode="before")
+    @classmethod
+    def _supported_api_version(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        version = value.strip() or DEFAULT_API_VERSION
+        if version not in SUPPORTED_VERSIONS:
+            msg = "API_VERSION: " + MSG_ERROR_UNSUPPORTED_VERSION.format(version=version)
+            raise ValueError(msg)
+        return version
+
+    @field_validator("RATE_LIMIT_DEFAULT")
+    @classmethod
+    def _valid_rate_limit(cls, value: str) -> str:
+        try:
+            parse_rate_limit(value)
+        except ValueError as exc:
+            msg = "RATE_LIMIT_DEFAULT must be a `limits` spec such as 100/minute"
+            raise ValueError(msg) from exc
+        return value
+
+    # --- Validators: cross-field ----------------------------------------------
+
+    @model_validator(mode="after")
+    def _auth_mode_has_what_it_needs(self) -> Settings:
+        """Validate at startup what a mode needs, instead of failing the first request."""
+        if self.AUTH_MODE == "bearer":
+            problems: list[str] = []
+            if self.AUTH_JWT_SECRET is None or not self.AUTH_JWT_SECRET.get_secret_value():
+                problems.append("AUTH_JWT_SECRET is required when AUTH_MODE=bearer; set it")
+            if self.AUTH_JWT_ALGORITHM not in ALLOWED_JWT_ALGS:
+                problems.append(
+                    "AUTH_JWT_ALGORITHM must be one of " + ", ".join(sorted(ALLOWED_JWT_ALGS))
+                )
+            if problems:
+                raise ValueError("; ".join(problems))
+        return self
