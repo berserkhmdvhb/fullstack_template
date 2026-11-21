@@ -335,12 +335,13 @@ third-party page, so it is not scanned. Fix a violation in the component, not in
 axe files text it cannot decide (for example white text on a transparent button) under `incomplete`, not
 `violations`. The spec fails on those too, with a short allowlist (selector and reason) for nodes a phone-width scroll
 box clips, and measures the computed contrast of every visible text node itself (`e2e/support/contrast.ts`) as a
-backstop. The spec never retries.
+backstop (CSS opacity included; `e2e/contrast.spec.ts` checks the backstop itself). The spec never retries and
+allowlists nothing.
 
 Two more specs guard what axe cannot see. `e2e/console.spec.ts` fails on any console error, page error, failed
 response or `/docs` prefetch, in both themes (a React hydration mismatch is a console error), and checks that the theme
 choice survives a reload. `e2e/layout.spec.ts` checks the header at 390 and 1280 px: no overflow, the name on one line,
-every link fully visible.
+every link fully visible, and the items list at 390 to 1280 px: no sideways scroll, Edit and Delete inside the viewport.
 
 **Lighthouse CI** (advisory) builds the app, runs Lighthouse three times on `/` and `/items` in the Playwright Chromium,
 and checks the budgets in `frontend/lighthouserc.json`: a minimum score for performance, accessibility, best practices
