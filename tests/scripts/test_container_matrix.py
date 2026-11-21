@@ -7,6 +7,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -365,7 +366,7 @@ def test_harmless_run_args_are_accepted(run: Runner) -> None:
 
 def _platform_matrix(res: Result) -> list[dict[str, object]]:
     assert res.code == 0, res.stderr
-    return json.loads(res.outputs["platform_matrix"])["include"]
+    return cast("list[dict[str, object]]", json.loads(res.outputs["platform_matrix"])["include"])
 
 
 def test_unset_switch_builds_amd64_only_on_its_native_runner(run: Runner) -> None:

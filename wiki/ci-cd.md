@@ -43,7 +43,7 @@ flowchart LR
 | [`reusable-chart.yml`](../.github/workflows/reusable-chart.yml) | called by `ci` and `deploy` | `ct lint` (yamllint with `.github/ct-lintconf.yaml`, Chart.yaml schema `.github/ct-chart-schema.yaml`; yamllint and yamale come from hashed locks in `$RUNNER_TEMP` venvs, since runners have no uv), then Helm lint and render for every values file |
 | [`security.yml`](../.github/workflows/security.yml) | called by `ci`; weekly schedule; manual | `codeql`, `dependency-review`, `gitleaks`, `pip-audit`, and the `advisory` matrix (`osv`, `guarddog`, `checkov`, `kubescape`) |
 | [`release.yml`](../.github/workflows/release.yml) | push to `main` and `v*` | `plan`, `images` (calls `reusable-build.yml`), `digests`, `grant`, `vex`, `release-assets` (`v*` tags), then `deploy` |
-| [`reusable-build.yml`](../.github/workflows/reusable-build.yml) | called by `release` | `build` (build, push, verify the digest), `sbom`, `grype` (blocking gate), `image-checks` (the structure checks on the pushed digest), `sign-attest` |
+| [`reusable-build.yml`](../.github/workflows/reusable-build.yml) | called by `release` | `build` (one leg per image and platform, on that platform's native runner: push by digest, verify it), `merge` (one leg per image: the index, the tags, the index digest), `sbom` and `grype` (blocking gate; per platform), `image-checks` (the structure checks on each platform's pushed digest, natively), `sign-attest` (signs and attests the index) |
 | [`deploy.yml`](../.github/workflows/deploy.yml) | called by `release` | `helm-checks`, `deploy-notice` (the skip notice), then `deploy-dev`, `deploy-qa`, `deploy-production` |
 | [`deploy-ops.yml`](../.github/workflows/deploy-ops.yml) | manual | `rollback`, `history`, `cleanup` (a report) and `check` on one environment |
 | [`reusable-pins.yml`](../.github/workflows/reusable-pins.yml) | called by `ci` and `pins-drift` | `pins`: `scripts/pins-refresh.sh --check` (read-only) against the vendors' published checksums; on a pull request only the rows that differ from the base. See [dependency updates](./security.md#dependency-updates-and-pinned-checksums) |
@@ -82,12 +82,32 @@ SARIF from the scanners goes to code scanning with `continue-on-error`, so a rep
 Build, push, sign, attest and digest resolution happen only in [`reusable-build.yml`](../.github/workflows/reusable-build.yml), called by [`release.yml`](../.github/workflows/release.yml) on a push to `main` or a `v*` tag, never in a pull request. A pull request only builds images into its local daemon, in the `images` job, to check their structure ([Image structure checks](./containerization.md#image-structure-checks)); it never pushes.
 
 1. `plan` renders the image matrix and the version (`.github/scripts/container_matrix.py`, manifest `.github/container-images.yml`).
-2. `images` calls `reusable-build.yml`, which is the only workflow that may push, sign or attest an image (the hardening lint enforces it). Its `build` job pushes each image to `ghcr.io/<owner>/<repo>/<id>` with `docker/build-push-action` and checks that the registry digest equals the build digest.
-3. `sbom` and `grype` (the blocking gate) work by digest. `sign-attest` runs only after the gate: it signs each digest keyless with the pinned cosign, runs `cosign verify` against the workflow identity, then adds the provenance and SBOM attestations (`push-to-registry`). The identity and how to verify by hand are in [Security](./security.md#verifying-an-image).
+2. `images` calls `reusable-build.yml`, which is the only workflow that may push, sign or attest an image (the hardening lint enforces it). Its `build` job runs one leg per image and platform, each on that platform's native runner, and pushes the platform image to `ghcr.io/<owner>/<repo>/<id>` by digest, with no tag, using `docker/build-push-action`; it checks that the registry digest equals the build digest. Then `merge` runs once per image: `docker buildx imagetools create` builds the index from the platform digests, applies the tags and resolves the index digest, which becomes the image's `digest-<id>` artifact (what `digests`, `deploy`, the VEX and the release assets use).
+3. `sbom`, `grype` (the blocking gate) and `image-checks` run per platform, by that platform's digest; `image-checks` runs on the platform's native runner, so the container runs natively. `sign-attest` runs only after every platform passed: it signs the **index digest** keyless with the pinned cosign, runs `cosign verify` against the workflow identity, then adds the provenance attestation for the index digest and one SBOM attestation per platform, each against that platform's manifest digest (`push-to-registry`). The identity and how to verify by hand are in [Security](./security.md#verifying-an-image).
 4. Every `reusable-build.yml` job refuses to run unless the caller's event is a push to `main` or a `v*` tag. `digests` merges the per-image digests; `grant`, `vex` and `deploy` run after `images`, so nothing deploys unless the gate passed and the images are signed.
 5. `grant` and `vex` now start only after `images` succeeded, so a release that fails the gate leaves no licence or VEX evidence (by design). On a `v*` tag `release-assets` puts the SBOMs, the OpenVEX document, the licence report and the image digests (`image-digests.env`, `scan.env`) on a **draft** GitHub Release (created with `--verify-tag`, never published by the workflow).
 
-Tags: the immutable `<version>-<channel>-<sha>` on every release run, plus `latest` on a `v*` tag. See [Containerization](./containerization.md) and [Releasing](./releasing.md).
+Tags: the immutable `<version>-<channel>-<sha>` on every release run, plus `latest` on a `v*` tag; both point at the index.
+
+### Multi-architecture flow
+
+```mermaid
+flowchart LR
+    plan --> bamd["build linux/amd64<br/>ubuntu-24.04"]
+    plan --> barm["build linux/arm64<br/>ubuntu-24.04-arm"]
+    bamd --> merge["merge: index + tags"]
+    barm --> merge
+    bamd --> chk["sbom, grype, image-checks<br/>per platform"]
+    barm --> chk
+    merge --> sign["sign-attest: the index digest"]
+    chk --> sign
+```
+
+- The platforms an image supports are the `platforms` list of its entry in `.github/container-images.yml`; the manifest's `runners` map names the native runner of each platform. Nothing else names a runner for a platform, and no job uses QEMU or `binfmt`: a platform is built, scanned and checked only on a runner of its own architecture.
+- The repository variable `BUILD_ARM64` turns arm64 on (`true`). Unset, as in a fresh fork, only `linux/amd64` builds and the `plan` summary says arm64 was skipped and why; the flow is the same code path with one platform, and the index then holds one manifest.
+- Pull requests build and check `linux/amd64` only, whatever the variable says (the `images` job). arm64 is checked natively on the release path, on `main` and `v*` tags.
+- The per-platform artifacts are `platform-<id>.<platform>` (digests), `sbom-<id>.<platform>` and `grype-<id>.<platform>`; the SARIF category is `grype-<id>-<platform>`. The release assets carry one SBOM per image and platform, and the OpenVEX document merges the platforms' findings per image, pinned by the index digest.
+- The weekly re-scan reads the index digest and Grype scans the manifest for its own platform (amd64); the per-platform scans at release time cover arm64. See [Containerization](./containerization.md) and [Releasing](./releasing.md).
 
 ## Deploy chain
 
@@ -108,7 +128,7 @@ Setup of the cloud side: [GKE cluster setup](./gke-cluster-setup.md), [Cloudflar
 | uv (`setup-backend`) | `uv-<os>-<python>-<hash of uv.lock>` (pruned with `uv cache prune --ci` before the save) | a push to `main` only |
 | npm (`setup-frontend`) | `npm-<os>-<node>-<hash of frontend/package-lock.json>` | a push to `main` only |
 | dev tools (`.tools/`) | `tools-<os>-<hash of tools/pins.tsv>` | a push to `main` only |
-| image layers | the GitHub Actions cache, scoped per image id | `reusable-build.yml` (`mode=max`) |
+| image layers | the GitHub Actions cache, scoped per image id and platform | `reusable-build.yml` (`mode=max`) |
 
 Pull requests and tags restore caches and never save them, so a pull request cannot poison what `main` restores.
 

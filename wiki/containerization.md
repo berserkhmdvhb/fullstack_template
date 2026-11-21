@@ -190,9 +190,15 @@ flowchart TB
 | **Digest check** | The pushed manifest digest must equal the build's digest |
 | **Pinned actions** | Every action is pinned by a full commit SHA |
 
+### Multi-architecture
+
+Each image lists the platforms it supports (`platforms` in `.github/container-images.yml`, today `linux/amd64` and `linux/arm64`; every base image is pinned by a multi-arch index digest that includes both). The release builds one platform per job, on a runner of that architecture (the manifest's `runners` map), and never under emulation: no QEMU and no `binfmt`. Each platform is pushed by digest without a tag; a `merge` job then makes one index per image with `docker buildx imagetools create`, applies the tags to it and resolves its digest. So `ghcr.io/<owner>/<repo>/<id>:<tag>` and the digest that deploys, signing and admission use name the index, and a node pulls the manifest for its own architecture.
+
+arm64 is optional: set the repository variable `BUILD_ARM64` to `true` (see [GitHub repository settings](./github-repository-settings.md#the-vars-file)). Unset builds `linux/amd64` only, through the same steps. Pull requests build and check `linux/amd64` only; arm64 is checked natively on the release path. After `replace_service_name.sh` regenerates the `images:` block, every image lists `linux/amd64` only until you add `platforms` back. The full flow is in [CI/CD](./ci-cd.md#multi-architecture-flow).
+
 ### CI Configuration
 
-The image list is `.github/container-images.yml` (the single source), rendered into the matrix by `.github/scripts/container_matrix.py`; the build itself is the `build` job of [`.github/workflows/release.yml`](../.github/workflows/release.yml). Read those files rather than a copy here.
+The image list is `.github/container-images.yml` (the single source), rendered into the matrix by `.github/scripts/container_matrix.py`; the build itself is the `build` and `merge` jobs of [`.github/workflows/reusable-build.yml`](../.github/workflows/reusable-build.yml), called by [`.github/workflows/release.yml`](../.github/workflows/release.yml). Read those files rather than a copy here.
 
 ---
 
@@ -238,7 +244,7 @@ The `plan` job of `release.yml` generates the tag from the Git ref (see [Version
 | **Git tag** (e.g., `v1.2.3`) | `1.2.3-prod-abc1234`, `latest` |
 | **Push to `main`** | `0.0.0-main-abc1234` (baseline from the `VERSION` file) |
 
-A pull request never pushes an image. The tag is the same for all three images; each image has its own repository (`ghcr.io/<owner>/<repo>/backend`, `/frontend`, `/nginx`).
+A pull request never pushes an image. The tags name the multi-architecture index. The tag is the same for all three images; each image has its own repository (`ghcr.io/<owner>/<repo>/backend`, `/frontend`, `/nginx`).
 
 ---
 

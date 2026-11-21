@@ -82,12 +82,16 @@ Keep it **outside the repository**; the script refuses a path under the repo roo
 # Repository variables
 SERVICE_NAME=...
 DEPLOY_ENABLED=true
+# Optional: build native arm64 images too (see below)
+BUILD_ARM64=true
 # Environment variables: ENV_<environment>_<NAME>
 ENV_dev_GCP_DEPLOYER_SA=...
 # The release App id, and (optional) your numeric user id for the production reviewer
 RELEASE_APP_ID=...
 REVIEWER_USER_ID=...
 ```
+
+`BUILD_ARM64=true` adds native arm64 images (merged with amd64 into one index per image); unset builds `linux/amd64` only. It costs one more build, scan and check leg per image on a `ubuntu-24.04-arm` runner. Those runners are free on public repositories; on a private repository the minutes are billed like other GitHub-hosted Linux minutes, so check your plan first. A pull request builds `linux/amd64` only whatever it says.
 
 The accepted names are the `REPO_VARS` and `ENV_VARS` lists at the top of the script, kept in step with [Platform Setup's table](./platform-setup.md#variables-and-secrets) by a test. Environment names carry the prefix `ENV_dev_`, `ENV_qa_`, `ENV_production_` or `ENV_release_`. `RELEASE_APP_ID` and `REVIEWER_USER_ID` must be numbers. The script resolves the reviewer to a login and prints it; without `REVIEWER_USER_ID` it uses the owner, and stops if the owner is an organisation.
 

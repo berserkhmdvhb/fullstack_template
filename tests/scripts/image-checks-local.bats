@@ -13,6 +13,8 @@ setup() {
   export IMAGE_CHECKS_MANIFEST="$BATS_TEST_TMPDIR/images.yml"
   cat > "$IMAGE_CHECKS_MANIFEST" <<'YML'
 schema_version: 1
+runners:
+  linux/amd64: ubuntu-24.04
 images:
   - id: slim
     repository: "ghcr.io/${OWNER}/${REPO}/slim"

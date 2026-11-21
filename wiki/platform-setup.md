@@ -56,6 +56,7 @@ This is the single list. Every `vars.*` and `secrets.*` that a template workflow
 | `SERVICE_NAME` | variable | repository | the Helm release name (default: the chart name) **and** the namespace prefix: the app namespace is `<SERVICE_NAME>-<env>` | you |
 | `HELM_TIMEOUT` | variable | repository | optional: the Helm wait timeout (default `5m`) | you |
 | `HISTORY_KEEP` | variable | repository | optional: the revision count that the `cleanup` report flags (default `5`) | you |
+| `BUILD_ARM64` | variable | repository | optional: `true` also builds each image for linux/arm64, on a native arm runner, and merges it with amd64 into one index; unset builds linux/amd64 only. On a private repository the arm minutes are billed ([details](./github-repository-settings.md#the-vars-file)) | you |
 | `SCORECARD_ENABLED` | variable | repository | optional: set to `false` on a private copy to skip the OpenSSF Scorecard job (it is meant for public repositories); unset by default, which runs it | you |
 | `CODE_SECURITY` | variable | repository | optional: set to `off` only on a private copy without GitHub code security (CodeQL and dependency review skip); unset by default, which runs them | you |
 | `GITHUB_TOKEN` | secret | automatic | the workflow token; you set nothing | GitHub |
