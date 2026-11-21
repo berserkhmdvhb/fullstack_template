@@ -49,7 +49,12 @@ _WHOLE_EXPR = re.compile(r"^\$\{\{[^}]*\}\}$")
 _SECRET_REF = re.compile(r"(?<![\w.-])secrets\b(?:\s*\.\s*(\w+))?")
 _QUOTED = re.compile(r"'(?:[^']|'')*'")
 _OSV_RUN = re.compile(r"osv-scanner|scan-osv\.sh")
-_IMAGE_PUSH_RUN = re.compile(r"\bdocker\s+push\b|\bcosign\s+sign\b")
+_IMAGE_PUSH_RUN = re.compile(
+    r"\bdocker\s+(?:buildx\s+)?(?:build|bake)\b(?:\\\n|[^\n])*--push\b"
+    r"|\bdocker\s+(?:image\s+)?push\b|\bcosign\s+(?:sign|attest)\b"
+    r"|\b(?:buildah|podman|oras)\s+push\b|\bcrane\s+(?:push|copy|cp)\b"
+)
+_PUSH_ACTION = re.compile(r"^(?:[\w.-]+/)?[\w.-]*(?:build-push-action|bake-action)@")
 _COSIGN_SIGN = re.compile(r"\bcosign\s+sign\b")
 _COSIGN_VERIFY = re.compile(r"\bcosign\s+verify\b")
 
@@ -321,7 +326,7 @@ def check_image_digest(doc: Doc) -> list[Finding]:
 
 
 def _grants(perms: Any, scope: str) -> bool:
-    return isinstance(perms, LDict) and perms.get(scope) == "write"
+    return perms == "write-all" or (isinstance(perms, LDict) and perms.get(scope) == "write")
 
 
 def _effective_permissions(doc: Doc, job: LDict) -> Any:
@@ -332,56 +337,71 @@ def _pushes_images(step: LDict) -> str | None:
     """Why this step is an image operation (push, sign or attest), or None."""
     ref = str(step.get("uses", ""))
     with_ = step.get("with")
-    if ref.startswith("docker/build-push-action@") and (
+    if _PUSH_ACTION.match(ref) and (
         not isinstance(with_, LDict) or str(with_.get("push", "false")).strip().lower() != "false"
     ):
-        return "docker/build-push-action with push"
+        return f"{ref.split('@', maxsplit=1)[0]} with push"
     if ref.startswith("actions/attest"):
         return ref.split("@", maxsplit=1)[0]
     if _IMAGE_PUSH_RUN.search(str(step.get("run", ""))):
-        return "docker push or cosign sign"
+        return "a docker, cosign or registry push"
     return None
 
 
+def _isolation(doc: Doc, line: int, message: str) -> Finding:
+    return Finding(doc.name, line, "image-push-isolation", message)
+
+
+def _caller_isolation(doc: Doc, job_id: str, job: LDict, perms: Any) -> list[Finding]:
+    """A job that calls a workflow: what it may grant to that callee."""
+    callee = str(job.get("uses", "")).strip()
+    found: list[Finding] = []
+    if callee != _REUSABLE_REF:
+        found += [
+            _isolation(doc, job.line, f"job {job_id} grants {scope}: write to {callee}")
+            for scope in ("packages", "attestations")
+            if _grants(perms, scope)
+        ]
+    if callee not in {_REUSABLE_REF, _CLOUD_LOGIN_REF} and _grants(perms, "id-token"):
+        msg = f"job {job_id} grants id-token: write to {callee}; only signing and cloud login may"
+        found.append(_isolation(doc, job.line, msg))
+    return found
+
+
+def _runner_isolation(doc: Doc, job_id: str, job: LDict, perms: Any) -> list[Finding]:
+    """A job that runs steps, outside reusable-build.yml."""
+    found = [
+        _isolation(doc, job.line, f"job {job_id} holds {scope}: write; only reusable-build.yml may")
+        for scope in ("packages", "attestations")
+        if _grants(perms, scope)
+    ]
+    for step in job.get("steps", []):
+        what = _pushes_images(step) if isinstance(step, LDict) else None
+        if what:
+            msg = f"job {job_id} runs {what}; only reusable-build.yml may push, sign or attest"
+            found.append(_isolation(doc, job.line, msg))
+    return found
+
+
 def check_image_push_isolation(doc: Doc) -> list[Finding]:
-    """Only reusable-build.yml pushes, signs or attests images, and only it holds both grants."""
-    if doc.name.endswith(REUSABLE_BUILD):
-        return []
+    """Only reusable-build.yml pushes, signs or attests images; only its signing job attests."""
+    if not doc.is_workflow:  # a composite action: its steps run inside whatever job calls it
+        return [
+            _isolation(doc, step.line, f"composite action runs {what}; only reusable-build.yml may")
+            for step in doc.steps()
+            if (what := _pushes_images(step))
+        ]
     found: list[Finding] = []
     for job_id, job in doc.jobs():
         perms = _effective_permissions(doc, job)
-        callee = str(job.get("uses", "")).strip()
-        if callee:
-            allowed_id_token = {_REUSABLE_REF, _CLOUD_LOGIN_REF}
-            if callee != _REUSABLE_REF and _grants(perms, "packages"):
-                found.append(
-                    Finding(
-                        doc.name,
-                        job.line,
-                        "image-push-isolation",
-                        f"job {job_id} grants packages: write to {callee}; "
-                        "only reusable-build.yml may",
-                    )
-                )
-            if callee not in allowed_id_token and _grants(perms, "id-token"):
-                found.append(
-                    Finding(
-                        doc.name,
-                        job.line,
-                        "image-push-isolation",
-                        f"job {job_id} grants id-token: write to {callee}; only reusable-build.yml "
-                        "(signing) and deploy.yml (cloud login) may",
-                    )
-                )
-            continue
-        if _grants(perms, "packages"):
-            msg = f"job {job_id} holds packages: write; only reusable-build.yml may push images"
-            found.append(Finding(doc.name, job.line, "image-push-isolation", msg))
-        for step in job.get("steps", []):
-            what = _pushes_images(step) if isinstance(step, LDict) else None
-            if what:
-                msg = f"job {job_id} runs {what}; only reusable-build.yml may push, sign or attest"
-                found.append(Finding(doc.name, job.line, "image-push-isolation", msg))
+        if doc.name.endswith(REUSABLE_BUILD):
+            if job_id != SIGNING_JOB and _grants(perms, "attestations"):
+                msg = f"job {job_id} holds attestations: write; only {SIGNING_JOB} may"
+                found.append(_isolation(doc, job.line, msg))
+        elif "uses" in job:
+            found += _caller_isolation(doc, job_id, job, perms)
+        else:
+            found += _runner_isolation(doc, job_id, job, perms)
     return found
 
 

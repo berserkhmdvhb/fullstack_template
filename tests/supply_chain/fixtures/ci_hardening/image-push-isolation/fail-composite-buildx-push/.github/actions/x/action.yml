@@ -1,0 +1,7 @@
+name: C
+description: d
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: docker buildx build --push -t x .

@@ -75,10 +75,16 @@ def variants(prefix: str) -> list[tuple[str, str]]:
     ]
 
 
+ISOLATION = "image-push-isolation"
+
 # What each fail fixture must report, and nothing else; the default is the directory's check.
-EXPECTED = {
-    ("composite", "fail"): "pinned-uses",
-    ("composite", "fail-yaml-suffix"): "no-inline-secrets",
+EXPECTED: dict[tuple[str, str], set[str]] = {
+    ("composite", "fail"): {"pinned-uses"},
+    ("composite", "fail-yaml-suffix"): {"no-inline-secrets"},
+    # write-all also grants packages, id-token and attestations, so the isolation rule fires too.
+    ("environment-for-secrets", "fail-write-all"): {"environment-for-secrets", ISOLATION},
+    ("environment-for-secrets", "fail-top-write-all"): {"environment-for-secrets", ISOLATION},
+    ("documented-permissions", "fail-write-all"): {"documented-permissions", ISOLATION},
 }
 
 
@@ -95,10 +101,10 @@ def test_pass_fixture_is_clean(check: str, variant: str, tmp_path: Path) -> None
 
 @pytest.mark.parametrize(("check", "variant"), variants("fail"))
 def test_fail_fixture_reports_exactly_its_check(check: str, variant: str, tmp_path: Path) -> None:
-    expected = EXPECTED.get((check, variant), check)
+    expected = EXPECTED.get((check, variant), {check})
     root = staged(FIXTURES / check / variant, tmp_path, with_security=check != "osv-coverage")
     result = run_lint(root)
-    assert found(root) == {expected}, result.stdout
+    assert found(root) == expected, result.stdout
     assert result.returncode == 1
 
 

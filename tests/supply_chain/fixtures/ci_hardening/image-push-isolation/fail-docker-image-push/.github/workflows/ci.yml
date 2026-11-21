@@ -5,7 +5,7 @@ jobs:
   j:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    permissions: write-all # every scope, for the test
-    environment: dev
+    permissions:
+      contents: read
     steps:
-      - run: true
+      - run: docker image push x
