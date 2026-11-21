@@ -54,30 +54,58 @@ describe('mapApiError', () => {
     });
   });
 
-  it('should extract field errors from FastAPI 422 response', () => {
+  it('should extract field errors from a 422 problem body', () => {
     const error = new HttpError('Validation error', 422, {
-      detail: [
+      title: 'Unprocessable Content',
+      status: 422,
+      detail: 'The request did not pass validation.',
+      errors: [
+        { loc: ['body', 'name'], msg: 'Field required', type: 'missing' },
         {
-          loc: ['body', 'name'],
-          msg: 'Field required',
-          type: 'value_error.missing',
-        },
-        {
-          loc: ['body', 'email'],
-          msg: 'value is not a valid email address',
-          type: 'value_error.email',
+          loc: ['body', 'address', 'zip'],
+          msg: 'Input should be a valid string',
+          type: 'string_type',
         },
       ],
     });
 
-    const result = mapApiError(error);
-
-    expect(result).toEqual({
+    expect(mapApiError(error)).toEqual({
       message: 'Validation failed',
-      fieldErrors: {
-        name: 'Field required',
-        email: 'value is not a valid email address',
-      },
+      fieldErrors: { name: 'Field required', 'address.zip': 'Input should be a valid string' },
+    });
+  });
+
+  it('should use detail of a 422 problem without usable field errors', () => {
+    const error = new HttpError('Validation error', 422, {
+      title: 'Unprocessable Content',
+      detail: 'The request did not pass validation.',
+      errors: [],
+    });
+
+    expect(mapApiError(error)).toEqual({ message: 'The request did not pass validation.' });
+  });
+
+  it('should show the detail of a problem body', () => {
+    const error = new HttpError('Not found', 404, {
+      title: 'Not Found',
+      status: 404,
+      detail: 'Item not found',
+    });
+
+    expect(mapApiError(error)).toEqual({ message: 'Item not found' });
+  });
+
+  it('should fall back to title when detail is missing or not a string', () => {
+    const error = new HttpError('Too large', 413, { title: 'Content Too Large', detail: 7 });
+
+    expect(mapApiError(error)).toEqual({ message: 'Content Too Large' });
+  });
+
+  it('should keep the status message when the body is not a problem', () => {
+    const error = new HttpError('Server error', 500, { unrelated: true });
+
+    expect(mapApiError(error)).toEqual({
+      message: 'Service temporarily unavailable. Please try again later.',
     });
   });
 

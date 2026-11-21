@@ -15,9 +15,9 @@ import { HttpError } from './client';
  * @remarks
  * Handles:
  * - AbortError (request cancelled) → "Request aborted"
- * - FastAPI 422 validation errors → per-field message extraction
+ * - RFC 9457 problem details: 422 `errors` → per-field messages, then `detail`, then `title`
  * - Status-code-specific friendly messages (500, 404, 401, 403, etc.)
- * - Generic HttpError → detail field or raw text
+ * - Generic HttpError → status-specific message, else raw text
  * - Non-HttpError → Error.message or "Unknown error"
  *
  * @param err - The caught error from an API call.
@@ -32,12 +32,13 @@ export function mapApiError(err: unknown): MappedApiError {
   }
 
   if (err instanceof HttpError) {
-    const body = err.body as { detail?: unknown } | undefined;
+    // RFC 9457 problem details (application/problem+json) as the backend sends them.
+    const body = err.body as { detail?: unknown; title?: unknown; errors?: unknown } | undefined;
 
-    // FastAPI 422 validation error shape (highest priority — most specific)
-    if (err.status === 422 && body?.detail && Array.isArray(body.detail)) {
+    // 422 `errors`: a list of { loc, msg, type } (highest priority — most specific)
+    if (err.status === 422 && Array.isArray(body?.errors)) {
       const fieldErrors: Record<string, string> = {};
-      for (const item of body.detail) {
+      for (const item of body.errors) {
         const loc = (item as { loc?: unknown[] }).loc;
         const msg = (item as { msg?: string }).msg ?? 'Invalid value';
         if (loc && Array.isArray(loc)) {
@@ -53,11 +54,11 @@ export function mapApiError(err: unknown): MappedApiError {
       }
     }
 
-    // Body detail from the API (more specific than generic status messages)
-    const bodyDetail =
-      body && typeof body === 'object' && 'detail' in body ? String(body.detail) : undefined;
-    if (bodyDetail) {
-      return { message: bodyDetail };
+    // `detail`, then `title`: more specific than the generic status messages
+    for (const text of [body?.detail, body?.title]) {
+      if (typeof text === 'string' && text) {
+        return { message: text };
+      }
     }
 
     // Fall back to status-code-specific friendly messages
