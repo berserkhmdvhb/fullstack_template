@@ -709,7 +709,8 @@ def _classify_local(  # noqa: PLR0911
     if _LOCAL_WORKFLOW.fullmatch(path):
         if not job:
             return "refused", f"{ref} is a workflow used as a step"
-        return "local-workflow", None  # a missing file is another check's finding
+        # A missing file is no finding here: GitHub rejects the run before any job starts.
+        return "local-workflow", None
     if job:
         return "refused", f"{ref} is not a reusable workflow under .github/workflows/"
     if not path.startswith(".github/actions/"):
