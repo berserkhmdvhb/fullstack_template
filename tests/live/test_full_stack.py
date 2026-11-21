@@ -102,11 +102,12 @@ async def test_public_health() -> None:
 @pytest.mark.live
 @pytest.mark.asyncio
 async def test_public_healthz() -> None:
-    """GET /api/healthz via the public edge is the frontend's own probe."""
+    """GET /api/<version>/healthz (process-only liveness) is served by every topology."""
     public_url = _public_url()
+    api_base = _api_base()
 
     async with _client(base_url=public_url, timeout=10.0) as client:
-        res = await client.get("/api/healthz")
+        res = await client.get(f"{api_base}/healthz")
 
         assert res.status_code == status.HTTP_200_OK
         assert res.json() == {"status": "ok"}

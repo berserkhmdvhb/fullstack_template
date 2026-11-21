@@ -62,3 +62,10 @@ def test_a_bad_keep_alive_stops_the_launcher(tmp_path: Path, value: str) -> None
 def test_the_other_launchers_also_turn_uvicorns_proxy_headers_off(script: str) -> None:
     """One resolver only: the developer launchers must not run Uvicorn's own either."""
     assert "--no-proxy-headers" in (ROOT / script).read_text(encoding="utf-8")
+
+
+def test_the_entrypoint_hides_the_server_header() -> None:
+    """The backend must not advertise its software in the `server` header (the live test pins it)."""
+    assert "--no-server-header" in (ROOT / "infra/runtime/entrypoint.sh").read_text(
+        encoding="utf-8"
+    )

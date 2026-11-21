@@ -389,6 +389,7 @@ start_backend() {
     --log-level info
     # The app resolves the client IP itself (TRUSTED_PROXY_CIDRS); Uvicorn's resolver stays off.
     --no-proxy-headers
+    --no-server-header
     --timeout-graceful-shutdown "${BACKEND_GRACEFUL_TIMEOUT}"
   )
   [[ "${BACKEND_RELOAD}" == "true" ]] && args+=( --reload )
