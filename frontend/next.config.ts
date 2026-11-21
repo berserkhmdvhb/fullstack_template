@@ -21,10 +21,11 @@ const nextConfig: NextConfig = {
           { key: 'Referrer-Policy', value: 'no-referrer' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Permissions-Policy', value: 'geolocation=(), microphone=(), camera=()' },
-          {
-            key: 'Strict-Transport-Security',
-            value: 'max-age=15552000; includeSubDomains; preload',
-          },
+          // Cross-origin isolation (OWASP secure-headers baseline); deliberately no COEP.
+          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+          { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
+          // Strict-Transport-Security is not set here: HSTS is set once, at the edge
+          // (until the edge sets it, the backend sends it over https).
           // Content-Security-Policy is set per request in `proxy.ts`, not
           // here: it carries a fresh nonce on every render (see that file), and a
           // static build-time header from `headers()` could never provide one.
