@@ -311,3 +311,17 @@ def test_whitespace_and_newlines_only_impact_statement_is_rejected(tmp_path: Pat
     p, _ = _run(tmp_path, [_entry(impact_statement=" \n\n\t\n")])
     assert p.returncode != 0
     assert "invalid not_affected list" in p.stderr
+
+
+def test_a_report_larger_than_one_command_line_argument_still_renders(tmp_path: Path) -> None:
+    # Linux caps one argv string at 128 KiB (MAX_ARG_STRLEN), so jq must read scanner-derived JSON
+    # from files or stdin, never from --argjson. A real image report easily outgrows that.
+    n = 1500
+    report = {
+        "matches": [_match(f"CVE-2026-{10000 + i}", f"package-{i}", ["9.9"]) for i in range(n)],
+        "ignoredMatches": [],
+    }
+    p, stmts = _run_full(tmp_path, report=report)
+    assert p.returncode == 0, p.stderr
+    assert len(stmts) == n
+    assert len(json.dumps(stmts)) > 128 * 1024

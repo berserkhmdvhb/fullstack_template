@@ -222,18 +222,20 @@ for gj in "${GRYPE_DIR}"/*.image.vuln.grype.json; do
     ' "${gj}")" || die "cannot build VEX statements from ${gj}"
   [ -n "${res}" ] || die "cannot build VEX statements from ${gj} (empty report)"
   svc_stmts="$(jq -c .s <<<"${res}")" || die "cannot build VEX statements from ${gj}"
-  used="$(jq -c --argjson u "$(jq -c .u <<<"${res}")" '. + $u' <<<"${used}")" || die "cannot build VEX statements from ${gj}"
-  statements="$(jq -c --argjson a "${svc_stmts}" '. + $a' <<<"${statements}")" || die "cannot build VEX statements from ${gj}"
+  # Scanner-derived JSON reaches jq through a file (--slurpfile on a process substitution), never as
+  # an argument: Linux caps one argument at 128 KiB, and a real image report outgrows that.
+  used="$(jq -c --slurpfile r <(printf '%s' "${res}") '. + ($r[0].u // error("no used list"))' <<<"${used}")" || die "cannot build VEX statements from ${gj}"
+  statements="$(jq -c --slurpfile a <(printf '%s' "${svc_stmts}") '. + ($a[0] // error("no statements"))' <<<"${statements}")" || die "cannot build VEX statements from ${gj}"
 done
 
 # An entry that matched no finding produces no statement.
 while IFS= read -r line; do
   [ -n "${line}" ] && log "not_affected entry matched no finding: ${line}"
-done < <(jq -r --argjson used "${used}" --arg today "${TODAY}" \
-  'to_entries[] | select(.value.until >= $today and ((.key | IN($used[])) | not)) | "\(.value.vulnerability) \(.value.service) \(.value.package)"' "${NOT_AFFECTED_LIST}")
+done < <(jq -r --slurpfile used <(printf '%s' "${used}") --arg today "${TODAY}" \
+  'to_entries[] | select(.value.until >= $today and ((.key | IN($used[0][])) | not)) | "\(.value.vulnerability) \(.value.service) \(.value.package)"' "${NOT_AFFECTED_LIST}")
 
 # Assemble: base envelope + the real statements (replacing the placeholder one).
-echo "${base}" | jq --argjson s "${statements}" '.statements = $s' > "${OUT}"
+echo "${base}" | jq --slurpfile s <(printf '%s' "${statements}") '.statements = ($s[0] // error("no statements"))' > "${OUT}"
 
 jq -e . "${OUT}" >/dev/null || die "generate-vex: rendered VEX doc is not valid JSON"
 
