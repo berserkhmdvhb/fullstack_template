@@ -8,4 +8,3 @@ vitest.config.ts
 # API contract). Prettier would reflow its arrays and diverge it from the generator,
 # breaking the openapi-drift CI gate — so it is formatted by the backend, not Prettier.
 lib/api/openapi.json
-next-env.d.ts
