@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 import pytest
@@ -89,3 +90,30 @@ def test_a_bad_value_exits_non_zero_without_starting(
     assert serve.main() == 1
     assert name in capsys.readouterr().err
     assert not calls
+
+
+def test_the_banner_keeps_the_wording_of_the_launcher_it_replaced(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("uvicorn.run", lambda **_: None)
+    assert serve.main() == 0
+    assert "▶️  Backend — FastAPI / Uvicorn" in capsys.readouterr().out
+
+
+def test_main_does_not_validate_the_app_settings_a_second_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The app builds its Settings when uvicorn imports it; the launcher only needs the API version.
+    monkeypatch.setattr("uvicorn.run", lambda **_: None)
+    monkeypatch.delitem(sys.modules, "your_service_name.backend.settings", raising=False)
+    assert serve.main() == 0
+    assert "your_service_name.backend.settings" not in sys.modules
+
+
+def test_the_banner_shows_the_api_version_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("uvicorn.run", lambda **_: None)
+    monkeypatch.setenv("API_VERSION", "v7")
+    assert serve.main() == 0
+    assert "/api/v7/health" in capsys.readouterr().out
