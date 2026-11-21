@@ -206,6 +206,7 @@ never logging the URL), then acts on the database's revision:
 The app does **not** migrate at startup. Each entry point migrates first: the chart's Job, the compose
 `migrate` service (the backend waits for it), `./run_backend.sh`, `infra/runtime/entrypoint.sh` and the
 CI job that boots Uvicorn.
+The image's own launcher (`python -m your_service_name.backend.serve`) only serves; it never migrates.
 
 ---
 

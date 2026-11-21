@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 DOCKERFILE = (ROOT / "Dockerfile.backend").read_text(encoding="utf-8")
 UV_COPY = re.compile(
@@ -58,9 +60,45 @@ def test_code_and_config_copies_are_root_owned_and_only_the_writable_dirs_are_ch
     assert chown.split("chown ")[1].split() == ["appuser:appuser", "/app/logs", "/app/data"]
 
 
-def test_the_migrations_wrapper_finds_the_entrypoint_it_execs_in_the_image() -> None:
-    script = (ROOT / "infra/db/run_migrations.sh").read_text(encoding="utf-8")
-    target = re.search(r"exec (/app/\S+)", script)
-    assert target
-    copied = {m.group(1) for m in re.finditer(r" (/app/\S+\.sh)$", DOCKERFILE, re.MULTILINE)}
-    assert target.group(1) in copied
+def _runtime() -> list[str]:
+    return DOCKERFILE.split("AS runtime")[1].splitlines()
+
+
+def _instruction(name: str) -> str:
+    """One Dockerfile instruction of the runtime stage, continuation lines joined."""
+    text = "\n".join(_runtime()).replace("\\\n", " ")
+    return next(ln for ln in text.splitlines() if ln.startswith(name))
+
+
+def test_the_healthcheck_is_the_python_probe_in_exec_form() -> None:
+    check = _instruction("HEALTHCHECK")
+    assert '["/app/.venv/bin/python", "-m", "your_service_name.backend.healthcheck"]' in check
+    assert "curl" not in check
+    assert "--interval=10s --timeout=5s --start-period=30s --retries=5" in check
+
+
+def test_the_command_is_the_python_launcher() -> None:
+    assert _instruction("CMD") == (
+        'CMD ["/app/.venv/bin/python", "-m", "your_service_name.backend.serve"]'
+    )
+
+
+def test_the_runtime_stage_has_no_curl_and_no_bash() -> None:
+    code = [ln.split("#")[0] for ln in _runtime()]
+    assert not [ln for ln in code if re.search(r"\b(curl|bash)\b", ln)]
+
+
+def test_no_shell_script_is_copied_into_the_runtime_stage() -> None:
+    copies = [ln for ln in _runtime() if ln.startswith("COPY")]
+    assert not [ln for ln in copies if ".sh" in ln]
+
+
+def test_the_compose_healthcheck_runs_the_same_probe_as_the_image() -> None:
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    test = compose["services"]["backend"]["healthcheck"]["test"]
+    assert test == [
+        "CMD",
+        "/app/.venv/bin/python",
+        "-m",
+        "your_service_name.backend.healthcheck",
+    ]

@@ -81,7 +81,7 @@ services:
     workload: your-service-name-backend
     port: 8000
     health_path: /api/v1/health
-    probe_tool: curl                  # curl | wget | node — see below
+    probe_tool: python                # curl | wget | node | python — see below
     verify: 'test -f server.js && echo OK || { echo MISSING >&2; exit 1; }'
     # ... dockerfile, image, container, label
 ```
@@ -90,7 +90,8 @@ services:
 
 | tool | image | why |
 | --- | --- | --- |
-| `curl` | `python:3.12-slim` (backend) | curl is installed |
+| `python` | the backend image | no curl and no shell: the venv's own interpreter |
+| `curl` | an image that ships curl | curl is installed |
 | `wget` | `nginx:*-alpine` | busybox `wget` |
 | `node` | `node:*-slim` (frontend) | global `fetch`, no curl |
 

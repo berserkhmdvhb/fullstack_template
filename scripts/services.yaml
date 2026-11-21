@@ -20,7 +20,8 @@
 #   health_path  endpoint hit to confirm the component is serving
 #   probe_tool   how to speak HTTP from *inside* the pod. curl is NOT in every
 #                base image, so pick per service:
-#                  curl  -> python:3.12-slim backend (curl installed)
+#                  python -> the backend (its venv's interpreter; no curl, no shell)
+#                  curl  -> an image that ships curl
 #                  wget  -> nginx:alpine (busybox wget)
 #                  node  -> node:*-slim frontend (global fetch, no curl)
 #   scheme       http|https for the LOCAL port-forward URL (used by
@@ -51,7 +52,7 @@ services:
     container: backend
     port: 8000
     health_path: /api/v1/health
-    probe_tool: curl
+    probe_tool: python
     verify: 'test -d "$(dirname "$(python3 -c "import your_service_name.backend.db.run_migrations as m,inspect;print(inspect.getsourcefile(m))")")/migrations" && echo "migrations dir: OK" || { echo "migrations dir: MISSING" >&2; exit 1; }'
 
   - key: frontend

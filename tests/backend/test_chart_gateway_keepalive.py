@@ -15,16 +15,13 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.backend.test_chart_production_guard import CHART, ROOT, find_helm, require_helm
-
-LAUNCHER = ROOT / "infra" / "backend" / "run_backend.sh"
-DEFAULT = re.compile(r'BACKEND_KEEPALIVE_TIMEOUT="\$\{BACKEND_KEEPALIVE_TIMEOUT:-(\d+)\}"')
+from tests.backend.test_chart_production_guard import CHART, find_helm, require_helm
+from your_service_name.backend import serve
 
 
 def _backend_keepalive() -> int:
-    match = DEFAULT.search(LAUNCHER.read_text(encoding="utf-8"))
-    assert match, "the launcher no longer defaults BACKEND_KEEPALIVE_TIMEOUT"
-    return int(match.group(1))
+    """The launcher's default keep-alive (what the image runs when the chart sets nothing)."""
+    return int(serve.build_options({})["timeout_keep_alive"])
 
 
 def _load(name: str) -> dict[str, Any]:

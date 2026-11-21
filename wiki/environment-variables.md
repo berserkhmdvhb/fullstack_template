@@ -142,7 +142,7 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 | `BACKEND_PORT` | `8000` | Backend bind port |
 | `BACKEND_URL` | `http://localhost:${BACKEND_PORT}` | Full backend URL |
 | `BACKEND_BIND` | — | Override bind address (set to `0.0.0.0` in containers) |
-| `BACKEND_KEEPALIVE_TIMEOUT` | `75` | Launcher-level (`infra/backend/run_backend.sh`; the Python app never reads it): seconds Uvicorn keeps an idle connection open. Keep it longer than the gateway's upstream idle timeout (`waf.upstreamIdleTimeoutSeconds`, 60 in the chart), or the gateway can reuse a connection just closed and return a 502. The same holds for ingress-nginx's `upstream-keepalive-timeout` (default 60 s): never raise it past this value. |
+| `BACKEND_KEEPALIVE_TIMEOUT` | `75` | Launcher-level (`python -m your_service_name.backend.serve`; the app itself never reads it): seconds Uvicorn keeps an idle connection open. Keep it longer than the gateway's upstream idle timeout (`waf.upstreamIdleTimeoutSeconds`, 60 in the chart), or the gateway can reuse a connection just closed and return a 502. The same holds for ingress-nginx's `upstream-keepalive-timeout` (default 60 s): never raise it past this value. |
 | `BACKEND_GRACEFUL_TIMEOUT` | `30` | Launcher-level: seconds Uvicorn drains in-flight requests after SIGTERM before it exits. |
 | `CUDA_VISIBLE_DEVICES` | _(empty)_ | GPU visibility (leave empty if not using GPU) |
 

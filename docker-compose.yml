@@ -52,7 +52,8 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:${BACKEND_PORT:-8000}/api/${API_VERSION:-v1}/healthz"]
+      # The image has no curl: the same stdlib probe as its HEALTHCHECK (reads BACKEND_PORT, API_VERSION).
+      test: ["CMD", "/app/.venv/bin/python", "-m", "your_service_name.backend.healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 5

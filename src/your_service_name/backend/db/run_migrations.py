@@ -264,8 +264,8 @@ def _ensure_sqlite_dir(url: str) -> None:
 
 
 if __name__ == "__main__":
-    # `python -m your_service_name.backend.db.run_migrations`: the migration Job, and
-    # infra/db/run_migrations.sh. Without this guard the module would import and exit 0 without
+    # `python -m your_service_name.backend.db.run_migrations`: the migration Job and the compose
+    # `migrate` service. Without this guard the module would import and exit 0 without
     # migrating anything.
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"

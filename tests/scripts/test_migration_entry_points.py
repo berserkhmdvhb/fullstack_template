@@ -27,7 +27,7 @@ def test_the_runtime_entrypoint_migrates_with_the_module() -> None:
 
 def test_the_image_launcher_does_not_migrate() -> None:
     """The chart's Job (and compose's migrate service) migrates; Pods only serve."""
-    assert "run_migrations" not in _text("infra/backend/run_backend.sh")
+    assert "run_migrations" not in _text("src/your_service_name/backend/serve.py")
 
 
 def test_compose_runs_a_migration_before_the_backend() -> None:

@@ -87,7 +87,16 @@ def test_the_job_is_cleaned_up_and_bounded() -> None:
 def test_the_job_runs_the_migration_module_with_the_backend_image() -> None:
     pod = _job()["spec"]["template"]["spec"]
     container = pod["containers"][0]
-    assert "python -m your_service_name.backend.db.run_migrations" in " ".join(container["command"])
+    assert container["command"][-3:] == [
+        "/app/.venv/bin/python",
+        "-m",
+        "your_service_name.backend.db.run_migrations",
+    ]
+    assert "sh" not in {c.rsplit("/", 1)[-1] for c in container["command"]}, (
+        "the image has no shell"
+    )
+    env = {e["name"]: e["value"] for e in container["env"] if "value" in e}
+    assert env["DATABASE_URL"].startswith("postgresql+asyncpg://$(DB_USER):$(DB_PASSWORD)@")
     assert pod["securityContext"]["runAsNonRoot"] is True
     assert container["securityContext"]["allowPrivilegeEscalation"] is False
     assert "backend" in container["image"]

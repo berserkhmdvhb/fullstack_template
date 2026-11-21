@@ -9,7 +9,7 @@
 #   Next.js frontend proxy (see frontend/proxy.ts); there is no separate
 #   reverse proxy.
 # - Prints developer-friendly URLs while keeping binds on 127.0.0.1
-# Supports containers: /app/src/** (the backend image copies this script; run_migrations.sh hands off to it)
+# Supports containers: /app/src/** (the backend image does not ship this script; it runs `python -m your_service_name.backend.serve`)
 # Supports local run: ./src/**
 # =============================================================================
 

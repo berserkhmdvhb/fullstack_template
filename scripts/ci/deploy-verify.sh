@@ -103,13 +103,18 @@ done
 echo "all running images match the expected digests"
 
 echo "== Check 5: Health endpoints =="
+# The backend image has no curl, so its probe is the image's own Python (a non-2xx raises, so it
+# exits non-zero). The frontend probe is still curl.
+PY_PROBE='import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=5)'
 health() {
   local comp="$1" url="$2" pod
   pod="$("${K[@]}" get pods -l "app.kubernetes.io/component=${comp}" \
     -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.metadata.deletionTimestamp}{"\n"}{end}' \
     | awk -F'|' '$1 != "" && $2 == "" {print $1; exit}')"
   [[ -n "$pod" ]] || fail "no $comp pod to check"
-  "${K[@]}" exec "$pod" -- curl -fsS "$url" >/dev/null || fail "$comp health failed"
+  local probe=(curl -fsS "$url")
+  [[ "$comp" != backend ]] || probe=(/app/.venv/bin/python -c "$PY_PROBE" "$url")
+  "${K[@]}" exec "$pod" -- "${probe[@]}" >/dev/null || fail "$comp health failed"
   echo "$comp health: OK"
 }
 health backend "http://localhost:${BACKEND_PORT:-8000}/api/${API_VERSION:-v1}/health"

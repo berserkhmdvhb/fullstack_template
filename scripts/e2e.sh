@@ -336,9 +336,9 @@ check_http_contract() {
 check_backend_engine() {
   lib_sep "verify: backend DATABASE_URL + DB engine"
   local dburl
-  # shellcheck disable=SC2016  # ${DATABASE_URL} must expand inside the pod's sh, not in this shell
+  # The backend image has no shell: read the variable with its own Python.
   dburl="$(kubectl exec -n "${NAMESPACE}" deploy/your-service-name-backend -c backend \
-             -- sh -c 'echo ${DATABASE_URL}' 2>/dev/null || true)"
+             -- /app/.venv/bin/python -c 'import os; print(os.environ.get("DATABASE_URL", ""))' 2>/dev/null || true)"
   printf 'DATABASE_URL=%s\n' "$(mask_conn "${dburl}")"
   local logs
   logs="$(kubectl logs -n "${NAMESPACE}" deploy/your-service-name-backend --tail 60 2>&1 || true)"

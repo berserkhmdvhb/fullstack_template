@@ -74,29 +74,29 @@ FROM python:3.12-slim AS runtime
 LABEL org.opencontainers.image.title="Your Service Name"
 LABEL org.opencontainers.image.version="${VERSION}"
 
-RUN apt-get install -y libsqlite3-0 libpq5 bash tini curl ca-certificates
+RUN apt-get install -y libsqlite3-0 libpq5 tini ca-certificates   # no bash, no curl
 RUN useradd -m -u 10001 appuser
 COPY --from=builder /app/.venv /app/.venv   # root-owned: the app user cannot rewrite its code
 ENV PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
-COPY infra/db/run_migrations.sh /app/infra/db/run_migrations.sh
 COPY alembic.ini /app/alembic.ini
 
-HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
-  CMD curl -fsS "http://localhost:8000/api/${API_VERSION}/health" || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
+  CMD ["/app/.venv/bin/python", "-m", "your_service_name.backend.healthcheck"]
 
 USER appuser
 ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
-CMD ["/app/infra/backend/run_backend.sh"]
+CMD ["/app/.venv/bin/python", "-m", "your_service_name.backend.serve"]
 ```
 
 **Key features**:
 - **OCI metadata labels** — version, revision, branch, build date, vendor
 - **Non-root user** — runs as `appuser` (UID 10001)
 - **Tini init** — proper PID 1 for signal handling
-- **Health check** — curls backend `/health` endpoint
-- **Migration support** — includes `run_migrations.sh` for init containers
+- **Health check** — a stdlib Python probe (`python -m your_service_name.backend.healthcheck`) of `/healthz`, with a 4 s timeout; it reads `HEALTHCHECK_SCHEME`, `BACKEND_PORT` and `API_VERSION`, and treats a redirect or a TLS failure as unhealthy
+- **Launcher** — `python -m your_service_name.backend.serve` starts Uvicorn in-process (no shell, no curl); see [Environment Variables](./environment-variables.md)
+- **Migrations** — run by the chart's Job (and compose's `migrate` service) with `python -m your_service_name.backend.db.run_migrations`; the image ships no shell script
 
 ---
 
@@ -193,7 +193,7 @@ Each container starts its service directly via `CMD`:
 
 | Service | Init | Command | User |
 |---------|------|---------|------|
-| **Backend** | `tini` | `uvicorn` (one process, via `run_backend.sh`) | `appuser` (10001) |
+| **Backend** | `tini` | `python -m your_service_name.backend.serve` (one Uvicorn process) | `appuser` (10001) |
 | **Frontend** | — | `node server.js` | `appuser` (10001) |
 | **Nginx** | — | `nginx -g daemon off;` | `nginx` (101) |
 

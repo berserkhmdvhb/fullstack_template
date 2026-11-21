@@ -17,7 +17,7 @@
 #   - Services come from scripts/services.yaml — add a row to add a service.
 #   - Builds in the node daemon via `eval $(minikube docker-env)` (disable with
 #     --no-docker-env for a registry-based flow).
-#   - Per-service health probe tool is configurable (curl / wget / node) because
+#   - Per-service health probe tool is configurable (curl / wget / node / python) because
 #     curl is not present in every base image.
 #   - Sequential by default: a controlled blast radius — we never restart every
 #     workload at once. --dry-run prints the commands without running them.
@@ -216,7 +216,9 @@ build_probe() {                       # $1 tool  $2 port  $3 path  → echo snip
     # Dockerfile HEALTHCHECK relies on (Dockerfile.frontend line 94).
     node) echo "/nodejs/bin/node -e \"fetch('${url}').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"" ;;
     curl) echo "curl -fsS --max-time 5 '${url}'" ;;
-    *)    die "unknown probe_tool '${tool}' (use curl | wget | node)" ;;
+    # the backend image has no curl and no shell: its own interpreter (a non-2xx raises)
+    python) echo "/app/.venv/bin/python -c \"import urllib.request; urllib.request.urlopen('${url}', timeout=5)\"" ;;
+    *)    die "unknown probe_tool '${tool}' (use curl | wget | node | python)" ;;
   esac
 }
 

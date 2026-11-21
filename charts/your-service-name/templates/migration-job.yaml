@@ -98,21 +98,22 @@ spec:
         - name: migrate
           image: {{ include "chart.image" (dict "image" .Values.images.backend) }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
+          # No shell in the image: Kubernetes expands $(VAR) from the ConfigMap and Secret above.
           command:
-            - /bin/sh
-            - -c
-            - |
-              export DATABASE_URL="postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
-              exec /usr/bin/tini -- python -m your_service_name.backend.db.run_migrations
+            - /usr/bin/tini
+            - --
+            - /app/.venv/bin/python
+            - -m
+            - your_service_name.backend.db.run_migrations
           envFrom:
             - configMapRef:
                 name: {{ include "chart.fullname" . }}-config
             - secretRef:
                 name: {{ include "chart.secretName" . }}
-          {{- with include "chart.dbCaEnv" . }}
           env:
-            {{- . | nindent 12 }}
-          {{- end }}
+            - name: DATABASE_URL
+              value: {{ include "chart.databaseURL" . | quote }}
+            {{- include "chart.dbCaEnv" . | nindent 12 }}
           {{- with include "chart.dbCaVolumeMount" . }}
           volumeMounts:
             {{- . | nindent 12 }}

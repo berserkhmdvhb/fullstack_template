@@ -49,14 +49,15 @@ spec:
         - name: backend
           image: {{ include "chart.image" (dict "image" .Values.images.backend) }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
-          # Delegate to the image entrypoint, which serves the ASGI app with Uvicorn.
-          # run_backend.sh reads BACKEND_{BIND,PORT} and BACKEND_GRACEFUL_TIMEOUT from
-          # the ConfigMap.
+          # The Python launcher serves the ASGI app with Uvicorn, in this one process. It reads
+          # BACKEND_{BIND,PORT} and BACKEND_{GRACEFUL,KEEPALIVE}_TIMEOUT from the ConfigMap.
           command:
             - /usr/bin/tini
             - -s
             - --
-            - /app/infra/backend/run_backend.sh
+            - /app/.venv/bin/python
+            - -m
+            - your_service_name.backend.serve
           envFrom:
             - configMapRef:
                 name: {{ include "chart.fullname" . }}-config
@@ -121,7 +122,8 @@ spec:
           lifecycle:
             preStop:
               exec:
-                command: ["sh", "-c", "sleep 5"]   # let the LB drain before SIGTERM
+                # Let the LB drain before SIGTERM. Python, because the image has no shell or sleep.
+                command: ["/app/.venv/bin/python", "-c", "import time; time.sleep(5)"]
           volumeMounts:
             - name: tmp
               mountPath: /tmp

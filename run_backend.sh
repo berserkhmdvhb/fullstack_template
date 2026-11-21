@@ -8,7 +8,7 @@
 # - Loads .env if present
 # - Runs the database migrations before serving (the app never migrates itself)
 # - Developer launcher: Uvicorn with --reload (autoreload on code changes)
-# - The image uses infra/backend/run_backend.sh instead (no reload, production flags)
+# - The image uses `python -m your_service_name.backend.serve` instead (no reload, production flags)
 # ---------------------------------------------
 # Env (via .env or defaults):
 #   APP="your_service_name.backend.main:app"

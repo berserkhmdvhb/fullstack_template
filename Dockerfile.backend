@@ -73,9 +73,7 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
       libsqlite3-0 \
       libpq5 \
-      bash \
       tini \
-      curl \
       ca-certificates; \
     # Upgrade the OS packages the pinned slim base still ships below their published
     # security fix, so the grype gate stays clean without ignore entries: libpq5
@@ -101,25 +99,22 @@ RUN useradd -m -u 10001 appuser
 # own code, and its bytecode is already compiled, so nothing is written at start-up.
 COPY --from=py-builder /app/.venv /app/.venv
 
-# Config and scripts are root-owned: the app user can run them but not rewrite them.
-# alembic.ini is needed at runtime for migrations; run_migrations.sh hands off to entrypoint.sh.
+# Config is root-owned: the app user can read it but not rewrite it. alembic.ini is needed at
+# runtime for migrations. No shell script ships: the launcher and the probe are Python modules.
 COPY --chmod=644 alembic.ini /app/alembic.ini
-COPY --chmod=755 infra/db/run_migrations.sh /app/infra/db/run_migrations.sh
-COPY --chmod=755 infra/backend/run_backend.sh /app/infra/backend/run_backend.sh
-COPY --chmod=755 infra/runtime/entrypoint.sh /app/infra/runtime/entrypoint.sh
 
 # /app stays root-owned; only the dirs the app writes (logs, and data for the default SQLite database)
 # belong to the app user.
 RUN mkdir -p /app/logs /app/data && chown appuser:appuser /app/logs /app/data
 
-# Healthcheck — uses HTTPS when HEALTHCHECK_SCHEME=https
+# Healthcheck: a Python probe (no curl, no shell); it uses HTTPS when HEALTHCHECK_SCHEME=https
 ARG HEALTHCHECK_SCHEME=http
 ENV HEALTHCHECK_SCHEME="${HEALTHCHECK_SCHEME:-http}"
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
-  CMD ["sh", "-c", "curl -fsS \"${HEALTHCHECK_SCHEME}://localhost:${BACKEND_PORT:-8000}/api/${API_VERSION:-v1}/healthz\" || exit 1"]
+  CMD ["/app/.venv/bin/python", "-m", "your_service_name.backend.healthcheck"]
 
 USER 10001
 ENV PATH="/app/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
-CMD ["/app/infra/backend/run_backend.sh"]
+CMD ["/app/.venv/bin/python", "-m", "your_service_name.backend.serve"]
