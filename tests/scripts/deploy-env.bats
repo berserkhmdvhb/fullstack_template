@@ -21,7 +21,8 @@ case "$1" in
     [[ -n "${STUB_HISTORY-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
     echo "$STUB_HISTORY" ;;
   upgrade) exit "${STUB_UPGRADE_RC:-0}" ;;
-  get) printf -- '---\nkind: Job\nmetadata:\n  name: svc-migrate-r2\n  labels:\n    app.kubernetes.io/component: migration\n' ;;
+  get) [[ -z "${STUB_NO_RELEASE-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
+       printf -- '---\nkind: Job\nmetadata:\n  name: svc-migrate-r2\n  labels:\n    app.kubernetes.io/component: migration\n' ;;
 esac
 STUB
   cat > "$B/kubectl" <<'STUB'
@@ -29,6 +30,7 @@ STUB
 echo "kubectl $*" >> "$LOG"
 case "$*" in
   *port-forward*) exec sleep 30 ;;
+  *"get job -l"*"--sort-by"*) printf '%s\n' "${STUB_NEWEST-}" | awk -F'|' '$1=="svc" {print $2"|"$3"|"$4"|"$5}' ;;
   *"get job -l"*) printf '%s\n' "${STUB_LEFTOVER-}" | awk -F'|' '$1=="svc" {print $2"|"$3}' ;;
   *"get job svc-migrate-r2"*jsonpath*) echo "svc-migrate-r2||4|True" ;;
   *"get job"*) echo "job summary" ;;
@@ -118,10 +120,23 @@ STUB
 }
 
 @test "a failed upgrade prints the newest migration job's status and logs, then fails" {
-  STUB_UPGRADE_RC=1 run bash "$SCRIPT"
+  STUB_UPGRADE_RC=1 STUB_NEWEST=$'svc|svc-migrate-r2||4|True' run bash "$SCRIPT"
   [ "$status" -ne 0 ]
-  grep -q "helm get manifest svc -n svc-dev" "$LOG"
   grep -q "kubectl .*logs -l job-name=svc-migrate-r2 --tail" "$LOG"
+}
+
+@test "a failed first install (release gone) still prints the failed migration job and its logs" {
+  STUB_HISTORY="" STUB_UPGRADE_RC=1 STUB_NO_RELEASE=1 STUB_NEWEST=$'svc|svc-migrate-r1||4|True' run bash "$SCRIPT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"svc-migrate-r1"* ]]
+  grep -q "kubectl .*logs -l job-name=svc-migrate-r1 --tail" "$LOG"
+}
+
+@test "a failed upgrade prints the newest (failed) job, not the one the rolled-back manifest names" {
+  STUB_UPGRADE_RC=1 STUB_NEWEST=$'svc|svc-migrate-r2|1||\nsvc|svc-migrate-r3||4|True' run bash "$SCRIPT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"svc-migrate-r3"* ]]
+  grep -q "kubectl .*logs -l job-name=svc-migrate-r3 --tail" "$LOG"
 }
 
 @test "a first install deletes a leftover Failed migration job of this release before installing" {

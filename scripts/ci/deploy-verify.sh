@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy-verify.sh — read-only post-deploy sweep of one Helm release (kubectl only).
+# deploy-verify.sh — read-only post-deploy sweep of one Helm release (kubectl, plus `helm get manifest` for the migration Job).
 #
 # Checks (the first failure exits 1):
 #   1. the release is `deployed` (its newest Helm release Secret has status=deployed)

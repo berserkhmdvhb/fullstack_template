@@ -15,7 +15,8 @@
 #   migration_job_status NAMESPACE RELEASE            "name|succeeded|failed|FailedCondition" (empty: Job gone, e.g. TTL)
 #   migration_job_wait   NAMESPACE RELEASE SECONDS    waits for Complete or Failed
 #   migration_job_logs   NAMESPACE RELEASE [LINES]    bounded log tail of its Pods (default 50)
-#   migration_job_report NAMESPACE RELEASE            status line and logs; always returns 0 (for a failed deploy)
+#   migration_job_report NAMESPACE RELEASE            status line and logs of the manifest's Job; always returns 0
+#   migration_job_report_newest NAMESPACE RELEASE     the same for the NEWEST Job of the release (after a failed deploy was rolled back)
 #   migration_job_purge_failed NAMESPACE RELEASE      delete Failed migration Jobs of THIS release (first install)
 # MIGRATION_POLL_SLEEP (3) is the seconds between polls in migration_job_wait.
 
@@ -90,6 +91,25 @@ migration_job_report() {
   kubectl -n "$1" get job "$name" -o wide 2>&1 || true
   echo "migration job logs (last 50 lines per Pod):"
   migration_job_logs "$1" "$2" 50
+}
+
+# For the report after a FAILED deploy only. `--rollback-on-failure` has already acted, so the release
+# is gone (failed first install) or back on the previous revision, and its manifest no longer names the
+# Job that failed. The failed Job is still there (helm.sh/resource-policy keep), so take the NEWEST
+# migration Job of this release by creationTimestamp. Always returns 0.
+migration_job_report_newest() {
+  local ns="$1" release="$2" out rc=0 row name
+  out="$(kubectl -n "$ns" get job -l "app.kubernetes.io/component=migration,app.kubernetes.io/instance=$release" \
+    --sort-by=.metadata.creationTimestamp \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.status.succeeded}{"|"}{.status.failed}{"|"}{.status.conditions[?(@.type=="Failed")].status}{"\n"}{end}' 2>&1)" || rc=$?
+  if (( rc != 0 )); then echo "migration job: kubectl get job failed: $(tail -n 1 <<<"$out")"; return 0; fi
+  row="$(tail -n 1 <<<"$out")"
+  if [[ -z "$row" ]]; then echo "migration job: none found for release $release in $ns"; return 0; fi
+  name="${row%%|*}"
+  echo "migration job: $row  (name|succeeded|failed|FailedCondition)"
+  kubectl -n "$ns" get job "$name" -o wide 2>&1 || true
+  echo "migration job logs (last 50 lines per Pod):"
+  kubectl -n "$ns" logs -l "job-name=$name" --tail 50 --all-containers=true --ignore-errors=true 2>&1 || true
 }
 
 # A failed FIRST install is uninstalled, so the retry is revision 1 again and renders the same Job name;

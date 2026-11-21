@@ -78,7 +78,7 @@ helm upgrade --install "$SERVICE_NAME" "$CHART_DIR" \
   --rollback-on-failure --wait --wait-for-jobs --timeout "$HELM_TIMEOUT" || helm_rc=$?
 if (( helm_rc != 0 )); then
   echo "::group::migration Job of ${SERVICE_NAME} in ${DEPLOY_ENV} (the deploy failed)"
-  migration_job_report "$NAMESPACE" "$SERVICE_NAME" || true
+  migration_job_report_newest "$NAMESPACE" "$SERVICE_NAME" || true
   echo "::endgroup::"
   exit "$helm_rc"
 fi

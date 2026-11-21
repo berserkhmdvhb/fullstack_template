@@ -47,6 +47,9 @@ args="$*"
 echo "kubectl $args" >> "$STUB_LOG"
 [[ -z "${STUB_KUBECTL_FAIL-}" ]] || { echo "Unable to connect to the server: connection refused" >&2; exit 1; }
 case "$args" in
+  *"get job -l"*"--sort-by"*)
+    inst="$(sed -n 's/.*app.kubernetes.io\/instance=\([^, ]*\).*/\1/p' <<<"$args")"
+    awk -F'|' -v i="$inst" '$1==i {print $2"|"$3"|"$4"|"$5}' <<<"${STUB_NEWEST-}" ;;
   *"get job -l"*)
     inst="$(sed -n 's/.*app.kubernetes.io\/instance=\([^, ]*\).*/\1/p' <<<"$args")"
     awk -F'|' -v i="$inst" '$1==i {print $2"|"$3}' <<<"${STUB_LEFTOVER-}" ;;
@@ -178,4 +181,35 @@ STUB
   [ "$status" -eq 0 ]
   run grep -c "delete job" "$STUB_LOG"
   [ "$output" = "0" ]
+}
+
+@test "the failure report shows the newest Job of the release even when the release is gone (failed first install)" {
+  STUB_NO_RELEASE=1 STUB_NEWEST=$'rel|rel-migrate-r1||4|True\nother|other-migrate-r9|1||' run migration_job_report_newest ns rel
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"rel-migrate-r1"* ]]
+  [[ "$output" == *"log line from the migrate container"* ]]
+  grep -q "get job -l app.kubernetes.io/component=migration,app.kubernetes.io/instance=rel" "$STUB_LOG"
+  grep -q -- "--sort-by=.metadata.creationTimestamp" "$STUB_LOG"
+  grep -q -- "logs -l job-name=rel-migrate-r1 --tail 50" "$STUB_LOG"
+  run grep -q "helm get manifest" "$STUB_LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "the failure report shows the newest Failed Job, not the rolled-back revision's manifest Job (failed upgrade)" {
+  STUB_MANIFEST_JOB=rel-migrate-r2 STUB_NEWEST=$'rel|rel-migrate-r2|1||\nrel|rel-migrate-r3||4|True' run migration_job_report_newest ns rel
+  [[ "$output" == *"rel-migrate-r3"* ]]
+  [[ "$output" != *"rel-migrate-r2|1"* ]]
+  grep -q -- "logs -l job-name=rel-migrate-r3" "$STUB_LOG"
+}
+
+@test "the failure report says so when the release has no migration Job, and returns 0" {
+  STUB_NEWEST="" run migration_job_report_newest ns rel
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"none found"* ]]
+}
+
+@test "the failure report survives a kubectl failure" {
+  STUB_KUBECTL_FAIL=1 run migration_job_report_newest ns rel
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"kubectl"* ]]
 }
