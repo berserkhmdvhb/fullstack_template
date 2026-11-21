@@ -260,7 +260,9 @@ without the URL in the message. In the chart the URL comes from the app Secret (
 request and logs a warning (the exception type only) at most once a minute: an outage of the
 limiter must not take the API down. While Redis is unreachable a request can wait up to the timeout
 (0.2 s by default: well above a same-cluster round trip, short enough to bound the added latency).
-The ingress limit below still applies.
+The ingress limit below still applies. Every such request increments the Prometheus counter
+`rate_limit_storage_failures_total{reason="error"|"timeout"}` (on `/metrics`; a timeout also
+covers an overloaded event loop), so alert on it: while it grows the limit is not applying.
 
 > **Why not slowapi**: slowapi resolves the target route *handler* from the
 > top-level route table to decide which limits apply, but FastAPI assembles the
@@ -301,7 +303,8 @@ not API: it is not in the OpenAPI document, takes no authentication (browsers se
 - **Limits.** The body is capped at `CSP_REPORT_MAX_BYTES` (16384), checked from `Content-Length`
   and again while it streams in, never read unbounded: a 413. At most 10 reports are taken from one
   request. `CSP_REPORT_RATE_LIMIT` (`20/minute` per client, its own counter in the same limiter and
-  storage as above) answers 429 with `Retry-After`; a limited request is not read.
+  storage as above) answers 429 with `Retry-After`; a limited request is not read. The route is
+  exempt from `RATE_LIMIT_DEFAULT`, so browser reports never use up a user's API budget.
 - **What is logged.** One warning per violation, with a fixed set of fields: `document-uri`,
   `blocked-uri`, `violated-directive`, `effective-directive`, `disposition`, `status-code`,
   `source-file`, `line-number`, `column-number`. URLs lose their query string and fragment (they can

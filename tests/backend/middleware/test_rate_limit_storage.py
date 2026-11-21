@@ -191,3 +191,41 @@ class TestNoUrlLeak:
         assert caught.value.__cause__ is None
         assert caught.value.__context__ is None
         assert secret not in caplog.text
+
+
+class TestFailureMetric:
+    @staticmethod
+    def _count(reason: str) -> float:
+        from prometheus_client import REGISTRY  # noqa: PLC0415
+
+        return (
+            REGISTRY.get_sample_value("rate_limit_storage_failures_total", {"reason": reason})
+            or 0.0
+        )
+
+    async def test_an_error_is_counted(self) -> None:
+        before = self._count("error")
+        limiter = RateLimiter(_Raising(), prefix=PREFIX, timeout=1)
+        await limiter.hit(parse("1/minute"), "default", "c")
+        assert self._count("error") == before + 1
+
+    async def test_a_timeout_is_counted(self) -> None:
+        before = self._count("timeout")
+        limiter = RateLimiter(_Stalling(), prefix=PREFIX, timeout=0.01)
+        await limiter.hit(parse("1/minute"), "default", "c")
+        assert self._count("timeout") == before + 1
+
+    async def test_a_healthy_hit_counts_nothing(self) -> None:
+        before = (self._count("error"), self._count("timeout"))
+        await RateLimiter(MemoryStorage(), prefix=PREFIX, timeout=1).hit(
+            parse("1/minute"), "default", "c"
+        )
+        assert (self._count("error"), self._count("timeout")) == before
+
+    async def test_it_is_on_the_metrics_endpoint(self) -> None:
+        from your_service_name.backend.main import create_app  # noqa: PLC0415
+
+        await RateLimiter(_Raising(), prefix=PREFIX, timeout=1).hit(parse("1/minute"), "d", "c")
+        app = create_app(Settings())
+        response = await _get(app, "/metrics")
+        assert "rate_limit_storage_failures_total" in response.text

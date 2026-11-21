@@ -28,6 +28,7 @@ from urllib.parse import urlsplit
 
 from limits.aio.storage import MemoryStorage
 from limits.aio.strategies import FixedWindowRateLimiter
+from prometheus_client import Counter
 
 if TYPE_CHECKING:
     from limits import RateLimitItem
@@ -35,6 +36,13 @@ if TYPE_CHECKING:
     from starlette.requests import Request
 
 logger = logging.getLogger(__name__)
+
+#: Requests let through because the storage failed: the limit is not applying while this grows.
+STORAGE_FAILURES = Counter(
+    "rate_limit_storage_failures_total",
+    "Rate-limit storage failures that let a request through (fail open).",
+    ["reason"],
+)
 
 DEFAULT_WARN_INTERVAL_SECONDS: Final[float] = 60.0
 _REDIS_SCHEMES: Final[frozenset[str]] = frozenset({"redis", "rediss", "redis+unix"})
@@ -100,6 +108,9 @@ class RateLimiter:
             async with asyncio.timeout(self._timeout):
                 return await self._limiter.hit(item, self._prefix, namespace, client)
         except Exception as exc:  # noqa: BLE001 — fail open on anything the storage raises
+            # The cap above, or the client's own socket timeout (also on a starved event loop).
+            timed_out = isinstance(exc, TimeoutError) or type(exc).__name__ == "TimeoutError"
+            STORAGE_FAILURES.labels(reason="timeout" if timed_out else "error").inc()
             self._warn(exc)
             return True
 

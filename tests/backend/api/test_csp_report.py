@@ -235,6 +235,18 @@ class TestRateLimit:
         assert _violations(caplog) == []
 
 
+class TestDefaultLimitExemption:
+    async def test_reports_never_use_up_the_default_api_budget(self) -> None:
+        app = _app(RATE_LIMIT_DEFAULT="1/minute", CSP_REPORT_RATE_LIMIT="20/minute")
+        for _ in range(5):
+            assert (await _post(app, _legacy())).status_code == httpx.codes.NO_CONTENT
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://t"
+        ) as client:
+            codes = [(await client.get("/api/v1/nope")).status_code for _ in range(2)]
+        assert codes == [httpx.codes.NOT_FOUND, httpx.codes.TOO_MANY_REQUESTS]  # budget intact
+
+
 class TestSanitising:
     async def _one(self, caplog: pytest.LogCaptureFixture, **fields: object) -> dict[str, Any]:
         response = await _post(_app(), _legacy(**fields))

@@ -127,10 +127,10 @@ def test_403(client: TestClient) -> None:
 
 
 def test_404_unknown_route_hides_the_query(client: TestClient) -> None:
-    res = client.get("/nope?access_token=abc")
+    res = client.get("/nope?access_token=zq-secret-zq")
     body = _assert_problem(res, 404, "/nope")
     assert body["title"] == "Not Found"
-    assert "abc" not in res.text
+    assert "zq-secret-zq" not in res.text
 
 
 @pytest.mark.usefixtures("migrated_db")

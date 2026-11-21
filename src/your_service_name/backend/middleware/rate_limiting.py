@@ -175,5 +175,5 @@ def register_rate_limiting(app: FastAPI, settings: Settings) -> None:
         RateLimitMiddleware,
         limit=limit,
         limiter=limiter,
-        exempt_paths=paths.exempt_paths(settings.API_VERSION),
+        exempt_paths=paths.rate_limit_exempt_paths(settings.API_VERSION),
     )

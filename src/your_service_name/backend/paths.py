@@ -20,3 +20,12 @@ def exempt_paths(version: str) -> frozenset[str]:
     """
     base = f"{API_PREFIX}/{version}"
     return frozenset({f"{base}{HEALTH_ROUTE}", f"{base}{LIVENESS_ROUTE}", METRICS_PATH})
+
+
+def rate_limit_exempt_paths(version: str) -> frozenset[str]:
+    """The paths the default rate limit skips: the probes, ``/metrics`` and the CSP report route.
+
+    The report route has its own limit (``CSP_REPORT_RATE_LIMIT``), so browser reports never use up
+    a user's API budget.
+    """
+    return exempt_paths(version) | {f"{API_PREFIX}/{version}{CSP_REPORT_ROUTE}"}
