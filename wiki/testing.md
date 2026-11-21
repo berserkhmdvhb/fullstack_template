@@ -323,13 +323,24 @@ A failed run uploads its JUnit and coverage reports as an artifact (7 days).
 | `eslint`, `prettier`, `type-check`, `openapi-drift` | Lint, format, types, API-type drift |
 
 The other Playwright specs run in the `live` job, which also runs the axe spec against the full stack. The `a11y` job
-does not need a backend: `npm run test:a11y` serves the built app with `next start` (the Playwright `webServer`, switched
-on by `E2E_START_SERVER=1`) and the spec answers the API itself.
+does not need a backend: `npm run test:a11y` serves the built app with the standalone server the image ships
+(`frontend/scripts/serve-standalone.mjs`, the Playwright `webServer`, switched on by `E2E_START_SERVER=1`, on port 3100
+unless `E2E_SERVER_PORT` says otherwise) and the spec answers the API itself.
 
 **Accessibility.** `e2e/a11y.spec.ts` scans the home page (backend up and down), the items page (list, load failure,
 form errors, delete dialog) and the 404 page, in light and dark mode at 1280 and 390 px, for the WCAG 2.0/2.1 A and AA
 and 2.2 AA rules. A single violation fails the job. No rule is disabled; `/docs` is the backend's Swagger UI, a
 third-party page, so it is not scanned. Fix a violation in the component, not in the test.
+
+axe files text it cannot decide (for example white text on a transparent button) under `incomplete`, not
+`violations`. The spec fails on those too, with a short allowlist (selector and reason) for nodes a phone-width scroll
+box clips, and measures the computed contrast of every visible text node itself (`e2e/support/contrast.ts`) as a
+backstop. The spec never retries.
+
+Two more specs guard what axe cannot see. `e2e/console.spec.ts` fails on any console error, page error, failed
+response or `/docs` prefetch, in both themes (a React hydration mismatch is a console error), and checks that the theme
+choice survives a reload. `e2e/layout.spec.ts` checks the header at 390 and 1280 px: no overflow, the name on one line,
+every link fully visible.
 
 **Lighthouse CI** (advisory) builds the app, runs Lighthouse three times on `/` and `/items` in the Playwright Chromium,
 and checks the budgets in `frontend/lighthouserc.json`: a minimum score for performance, accessibility, best practices
