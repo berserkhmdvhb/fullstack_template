@@ -66,7 +66,7 @@ OIDC = ModeSpec(
     },
     headers=lambda token: {"Authorization": f"Bearer {token}"},
 )
-CF_TEAM = "team.example.com"
+CF_TEAM = "team.cloudflareaccess.com"
 CF_AUD = "0123456789abcdef"
 CF_HEADER = "Cf-Access-Jwt-Assertion"
 CF = ModeSpec(

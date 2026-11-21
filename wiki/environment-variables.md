@@ -92,11 +92,11 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 | `OIDC_CLOCK_SKEW_SECONDS` | int | `60` | OIDC mode: clock-skew tolerance for `exp`, `nbf` and `iat` (0 to 300). | — |
 | `OIDC_USER_ID_CLAIM` | str | `sub` | OIDC mode: token claim holding the user id. | — |
 | `OIDC_ROLES_CLAIM` | str | (unset) | OIDC mode: token claim holding the roles (a list of strings or a space-separated string). Unset means no roles. | — |
-| `CF_ACCESS_TEAM_DOMAIN` | str | (unset) | Cloudflare Access mode: the team domain, a bare hostname such as `<team>.cloudflareaccess.com` (no scheme, port or path). The issuer and the keys (`/cdn-cgi/access/certs`) are derived from it. Required when AUTH_MODE=cloudflare-access. | — |
+| `CF_ACCESS_TEAM_DOMAIN` | str | (unset) | Cloudflare Access mode: the team domain, exactly `<team>.cloudflareaccess.com` (lowercased; no scheme, port or path). The issuer and the keys (`/cdn-cgi/access/certs`) are derived from it. Required when AUTH_MODE=cloudflare-access. | — |
 | `CF_ACCESS_AUD` | str | (unset) | Cloudflare Access mode: the application's Audience (AUD) tag; the token's `aud` must contain it. Required when AUTH_MODE=cloudflare-access. | — |
-| `JWKS_CACHE_TTL_SECONDS` | int | `3600` | OIDC mode: how long fetched signing keys are used. | — |
-| `JWKS_MIN_REFETCH_SECONDS` | int | `30` | OIDC mode: at most one JWKS refetch per this interval across all requests (an unknown `kid` triggers one), so random `kid`s cannot hammer the provider. | — |
-| `JWKS_MAX_STALE_SECONDS` | int | `86400` | OIDC mode: when a refresh fails, keep serving the last good keys for up to this long; after that requests get a 503. | — |
+| `JWKS_CACHE_TTL_SECONDS` | int | `3600` | OIDC and Cloudflare Access modes: how long fetched signing keys are used. | — |
+| `JWKS_MIN_REFETCH_SECONDS` | int | `30` | OIDC and Cloudflare Access modes: at most one JWKS refetch per this interval across all requests (an unknown `kid` triggers one), so random `kid`s cannot hammer the provider. | — |
+| `JWKS_MAX_STALE_SECONDS` | int | `86400` | OIDC and Cloudflare Access modes: when a refresh fails, keep serving the last good keys for up to this long; after that requests get a 503. | — |
 | `DATABASE_URL` | secret | (secret) | Async SQLAlchemy database URL. Unset falls back to SQLite (SQLITE_PATH). | Required, and not SQLite. |
 | `TEST_DATABASE_URL` | secret | (secret) | Test-only: database URL that takes precedence over DATABASE_URL. | Refused when set: it is test-only and would take precedence. |
 | `SQLITE_PATH` | str | `data/items.db` | SQLite fallback file, relative to the project root. | Ignored: SQLite is refused. |

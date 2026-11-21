@@ -163,7 +163,7 @@ OIDC_AUDIENCE=api://your-service           # comma-separated; the token's `aud` 
   `OIDC_CLOCK_SKEW_SECONDS` (default 60, at most 300). The user id is the `OIDC_USER_ID_CLAIM`
   (default `sub`), which must be a non-empty string.
 - Keys: fetched over `https` (plain `http` only for `localhost` outside production) with 5 s
-  timeouts, no redirects and a 1 MiB cap, and cached for `JWKS_CACHE_TTL_SECONDS` (3600).
+  timeouts (and a 10 s deadline for the whole refresh), no redirects and a 1 MiB cap, and cached for `JWKS_CACHE_TTL_SECONDS` (3600).
   Concurrent cold requests make one fetch. An unknown `kid` triggers one refetch, at most once
   per `JWKS_MIN_REFETCH_SECONDS` (30) across all requests, so random `kid`s cannot hammer the
   provider. When a refresh fails the last good keys are kept for `JWKS_MAX_STALE_SECONDS`
@@ -179,13 +179,16 @@ OIDC_AUDIENCE=api://your-service           # comma-separated; the token's `aud` 
 
 ```bash
 AUTH_MODE=cloudflare-access
-CF_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com   # a bare hostname
+CF_ACCESS_TEAM_DOMAIN=team.cloudflareaccess.com   # exactly <team>.cloudflareaccess.com
 CF_ACCESS_AUD=<application AUD tag>
 ```
 
 The issuer is `https://<team domain>` and the keys are `https://<team domain>/cdn-cgi/access/certs`
 (both as [Cloudflare documents](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)),
-RS256 only; the claim checks and key cache are the ones above. The user id is `sub` and the
+RS256 only; the claim checks and key cache are the ones above, except that the clock skew is a
+fixed 60 s (`OIDC_CLOCK_SKEW_SECONDS` does not apply). `CF_ACCESS_TEAM_DOMAIN` must be exactly
+`<team>.cloudflareaccess.com` (lowercased; anything else is refused at startup, because the issuer and
+key URL derive from it). The user id is `sub` and the
 claims (including `email`, when present) are on the principal. Only the `Cf-Access-Jwt-Assertion`
 header is read: Cloudflare adds it on every request through the tunnel and recommends validating
 it rather than the `CF_Authorization` cookie, which is not guaranteed to be passed, and a cookie

@@ -88,9 +88,11 @@ OIDC_ALLOWED_ALGS: Final[frozenset[str]] = frozenset(
 )
 MAX_CLOCK_SKEW_SECONDS: Final[int] = 300
 
-# A DNS hostname of two or more labels, nothing else (no scheme, port, path or userinfo).
-_HOSTNAME: Final[re.Pattern[str]] = re.compile(
-    r"^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+# `<team>.cloudflareaccess.com`: one lowercase label (no leading or trailing hyphen) and the
+# Cloudflare domain, nothing else. The issuer and the key URL derive from it, so a lookalike
+# host must not pass.
+_CF_TEAM_DOMAIN: Final[re.Pattern[str]] = re.compile(
+    r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?\.cloudflareaccess\.com$"
 )
 
 _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
@@ -322,9 +324,9 @@ class Settings(BaseSettings):
     )
     CF_ACCESS_TEAM_DOMAIN: str | None = Field(
         default=None,
-        description="Cloudflare Access mode: the team domain, a bare hostname such as "
-        "`<team>.cloudflareaccess.com` (no scheme, port or path). The issuer and the keys "
-        "(`/cdn-cgi/access/certs`) are derived from it. Required when "
+        description="Cloudflare Access mode: the team domain, exactly "
+        "`<team>.cloudflareaccess.com` (lowercased; no scheme, port or path). The issuer and the "
+        "keys (`/cdn-cgi/access/certs`) are derived from it. Required when "
         "AUTH_MODE=cloudflare-access.",
     )
     CF_ACCESS_AUD: str | None = Field(
@@ -333,19 +335,22 @@ class Settings(BaseSettings):
         "`aud` must contain it. Required when AUTH_MODE=cloudflare-access.",
     )
     JWKS_CACHE_TTL_SECONDS: int = Field(
-        default=3600, gt=0, description="OIDC mode: how long fetched signing keys are used."
+        default=3600,
+        gt=0,
+        description="OIDC and Cloudflare Access modes: how long fetched signing keys are used.",
     )
     JWKS_MIN_REFETCH_SECONDS: int = Field(
         default=30,
         ge=0,
-        description="OIDC mode: at most one JWKS refetch per this interval across all requests "
-        "(an unknown `kid` triggers one), so random `kid`s cannot hammer the provider.",
+        description="OIDC and Cloudflare Access modes: at most one JWKS refetch per this "
+        "interval across all requests (an unknown `kid` triggers one), so random `kid`s "
+        "cannot hammer the provider.",
     )
     JWKS_MAX_STALE_SECONDS: int = Field(
         default=86400,
         gt=0,
-        description="OIDC mode: when a refresh fails, keep serving the last good keys for up to "
-        "this long; after that requests get a 503.",
+        description="OIDC and Cloudflare Access modes: when a refresh fails, keep serving the "
+        "last good keys for up to this long; after that requests get a 503.",
     )
 
     # --- Database -------------------------------------------------------------
@@ -563,10 +568,10 @@ class Settings(BaseSettings):
         problems: list[str] = []
         if not self.CF_ACCESS_TEAM_DOMAIN:
             problems.append("CF_ACCESS_TEAM_DOMAIN is required when AUTH_MODE=cloudflare-access")
-        elif not _HOSTNAME.match(self.CF_ACCESS_TEAM_DOMAIN):
+        elif not _CF_TEAM_DOMAIN.match(self.CF_ACCESS_TEAM_DOMAIN):
             problems.append(
-                "CF_ACCESS_TEAM_DOMAIN must be a bare hostname such as <team>.cloudflareaccess.com "
-                "(no scheme, port or path)"
+                "CF_ACCESS_TEAM_DOMAIN must be exactly <team>.cloudflareaccess.com "
+                "(lowercase; no scheme, port or path)"
             )
         if not self.CF_ACCESS_AUD:
             problems.append("CF_ACCESS_AUD is required when AUTH_MODE=cloudflare-access; set it")
