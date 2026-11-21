@@ -177,7 +177,7 @@ ignore_missing_imports = true
 | `eslint.config.mjs` | ESLint 9 flat config |
 | `prettier.config.cjs` | Prettier formatting rules |
 | `tsconfig.json` | TypeScript compiler options |
-| `tailwind.config.ts` | Tailwind CSS theme |
+| `styles/globals.css` | Tailwind CSS import and `@theme` tokens |
 | `vitest.config.ts` | Vitest test config |
 | `playwright.config.ts` | Playwright E2E config |
 

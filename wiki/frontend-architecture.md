@@ -27,7 +27,7 @@ The frontend is a **Next.js 16** application using the App Router, built with:
 | **Next.js 16** | Framework, App Router, SSR/SSG, standalone output |
 | **React 19** | UI library, hooks, concurrent features |
 | **TypeScript 6.0** | Type safety, strict mode |
-| **Tailwind CSS 3** | Utility-first styling with CSS variable theming |
+| **Tailwind CSS 4** | Utility-first styling with CSS variable theming |
 | **React Query v5** | Server state management, caching, refetching |
 | **React Hook Form** | Form handling with zero re-renders |
 | **Zod** | Runtime schema validation |
@@ -117,11 +117,10 @@ frontend/
 │   └── test-utils.tsx          # renderWithProviders helper
 │
 ├── styles/
-│   └── globals.css             # Tailwind base + custom CSS variables
+│   └── globals.css             # Tailwind import, @theme tokens, CSS variables, component classes
 │
 ├── package.json
 ├── next.config.ts              # Next.js configuration
-├── tailwind.config.ts          # Tailwind theme + dark mode
 ├── tsconfig.json               # TypeScript strict config
 ├── eslint.config.mjs           # ESLint 9 flat config
 ├── vitest.config.ts            # Base Vitest config
@@ -349,7 +348,7 @@ The `ItemForm` component switches between create and edit modes via the `editing
 
 ### Tailwind CSS + CSS Variables
 
-The frontend uses Tailwind CSS 3 with a **CSS variable-based theme** for light/dark mode:
+The frontend uses Tailwind CSS 4 (configured in CSS: `@theme` in `globals.css`, no `tailwind.config.ts`) with a **CSS variable-based theme** for light/dark mode:
 
 ```mermaid
 flowchart LR
@@ -368,6 +367,15 @@ flowchart LR
 | `--color-bg-main` | `#f0f2f5` | `#020617` |
 
 **Dark mode** is the default. Toggle via the theme button in the header.
+
+### npm overrides
+
+`frontend/package.json` keeps only the overrides still needed; recheck them after a major bump (remove one, run `npm install`, read `npm ls <name>` and `npm audit`):
+
+| Override | Why it stays |
+|----------|--------------|
+| `postcss` `^8.5.32` | Next.js pins its own older `postcss` (8.5.23); the override moves that copy to the override floor and keeps one version in the tree. |
+| `openapi-typescript` > `typescript` `$typescript` | TypeScript 6 is outside openapi-typescript's `^5.x` peer range; the generated types are byte-identical. |
 
 ---
 
