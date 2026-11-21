@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -22,7 +23,9 @@ GATES = {
     "unit",
     "integration",
     "playwright-list",
+    "a11y",
 }
+ADVISORY = {"lighthouse"}
 
 
 def _jobs() -> dict[str, Any]:
@@ -43,6 +46,8 @@ def test_jobs_exist_and_are_blocking() -> None:
     assert "workflow_call" in wf["on"]
     assert set(wf["jobs"]) >= GATES
     for name, job in wf["jobs"].items():
+        if name in ADVISORY:
+            continue
         assert "continue-on-error" not in job, name
         for step in job["steps"]:
             assert "continue-on-error" not in step, (name, step.get("name"))
@@ -265,3 +270,91 @@ def test_unit_job_uploads_its_report_only_on_failure() -> None:
     ups = failure_uploads(_jobs()["unit"])
     assert len(ups) == 1
     assert "test-results/junit.xml" in ups[0]["with"]["path"]
+
+
+# --- accessibility (axe, blocking) and Lighthouse CI (advisory) ---------------------------------
+
+
+def _frontend_json() -> dict[str, Any]:
+    path = Path(__file__).parents[2] / "frontend" / "package.json"
+    return cast("dict[str, Any]", json.loads(path.read_text(encoding="utf-8")))
+
+
+def test_a11y_job_is_blocking_scoped_and_reaches_ci_ok() -> None:
+    job = _jobs()["a11y"]
+    assert "continue-on-error" not in job
+    assert job["timeout-minutes"] <= 15  # noqa: PLR2004
+    assert job["permissions"] == {"contents": "read"}
+    assert job["if"] == "inputs.frontend-changed"
+    assert "build" in _needs(job)
+    runs = _runs(job).splitlines()
+    assert "npm run test:a11y" in [ln.strip() for ln in runs]
+    # The browser comes from the runner install, with its system packages, like the live job.
+    assert "npx playwright install --with-deps chromium" in [ln.strip() for ln in runs]
+    # Reached through the `frontend` job, which CI OK requires on every event.
+    assert "frontend" in workflow("ci.yml")["jobs"]["ci-ok"]["needs"]
+    assert workflow("ci.yml")["jobs"]["frontend"]["uses"].endswith("reusable-frontend.yml")
+
+
+def test_a11y_script_runs_the_spec_against_the_built_app() -> None:
+    root = Path(__file__).parents[2] / "frontend"
+    assert _frontend_json()["scripts"]["test:a11y"] == (
+        "E2E_START_SERVER=1 playwright test e2e/a11y.spec.ts"
+    )
+    config = (root / "playwright.config.ts").read_text(encoding="utf-8")
+    assert "webServer" in config
+    assert "next start" in config
+    spec = (root / "e2e" / "a11y.spec.ts").read_text(encoding="utf-8")
+    for tag in ("wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"):
+        assert f"'{tag}'" in spec, tag
+    assert "disableRules" not in spec, "no rule may be switched off"
+    assert ".exclude(" not in spec
+
+
+def test_the_live_job_runs_every_e2e_spec_including_axe() -> None:
+    """`npm run test:e2e` has no spec filter, so the a11y spec runs against the full stack."""
+    job = workflow("reusable-live.yml")["jobs"]["live"]
+    assert "npm run test:e2e" in _runs(job)
+    scripts = _frontend_json()["scripts"]
+    assert scripts["test:e2e"] == "playwright test"
+
+
+def test_lighthouse_job_is_advisory_and_not_a_blocking_gate() -> None:
+    job = _jobs()["lighthouse"]
+    assert job["continue-on-error"] is True
+    assert job["name"].endswith("(advisory)")
+    assert job["timeout-minutes"] <= 20  # noqa: PLR2004
+    assert job["permissions"] == {"contents": "read"}
+    assert job["if"] == "inputs.frontend-changed"
+    runs = _runs(job)
+    # Findings become warnings and a summary line; only a tool error fails the job.
+    assert "::warning title=Lighthouse (advisory)::" in runs
+    assert "GITHUB_STEP_SUMMARY" in runs
+    assert "assertion-results.json" in runs
+    assert "CHROME_PATH" in runs, "it must reuse the Playwright Chromium"
+    # Nothing waits on it, and CI OK sees only the `frontend` job.
+    for name, other in _jobs().items():
+        assert "lighthouse" not in _needs(other), name
+    assert "lighthouse" not in workflow("ci.yml")["jobs"]["ci-ok"]["needs"]
+    # No required-check entry names it.
+    doc = (Path(__file__).parents[2] / "wiki" / "github-repository-settings.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Lighthouse" not in doc.split("## Required status checks")[1].split("\n## ")[0]
+
+
+def test_lighthouse_budgets_cover_categories_and_bytes() -> None:
+    path = Path(__file__).parents[2] / "frontend" / "lighthouserc.json"
+    config = json.loads(path.read_text(encoding="utf-8"))["ci"]
+    assertions = config["assert"]["assertions"]
+    for category in ("performance", "accessibility", "best-practices", "seo"):
+        assert 0 < assertions[f"categories:{category}"][1]["minScore"] <= 1
+    assert assertions["resource-summary:script:size"][1]["maxNumericValue"] > 0
+    assert assertions["resource-summary:stylesheet:size"][1]["maxNumericValue"] > 0
+    assert config["collect"]["settings"]["chromeFlags"]
+
+
+def test_the_quality_gate_tools_are_pinned_exactly() -> None:
+    dev = _frontend_json()["devDependencies"]
+    for name in ("@axe-core/playwright", "@lhci/cli"):
+        assert re.fullmatch(r"\d+\.\d+\.\d+", dev[name]), name

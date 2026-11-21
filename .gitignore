@@ -43,6 +43,7 @@ __pycache__/
 node_modules/
 test-results/
 playwright-report/
+.lighthouseci/
 
 # --- Infrastructure as code (state and variable files never belong in Git) ---
 *.tfvars

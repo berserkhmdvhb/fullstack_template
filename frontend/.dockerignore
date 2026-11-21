@@ -8,6 +8,7 @@ out/
 # Testing
 test-results/
 playwright-report/
+.lighthouseci/
 
 # IDE
 .vscode/

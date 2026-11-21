@@ -166,3 +166,98 @@ jobs:
       - name: Playwright test discovery
         working-directory: frontend
         run: npx playwright test --list
+
+  # Blocking: axe scans the built app (frontend/e2e/a11y.spec.ts) through Playwright's webServer (`next start`),
+  # so a pull request is gated, not only main. The backend is not needed: the spec answers the API itself.
+  a11y:
+    name: Accessibility (axe)
+    if: inputs.frontend-changed
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-frontend
+      - name: Next.js build
+        working-directory: frontend
+        run: npm run build
+      # The version comes from the lockfile because npx runs the locally installed Playwright.
+      - name: Install the Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: axe accessibility scan
+        working-directory: frontend
+        run: npm run test:a11y
+      - name: Upload the test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frontend-a11y-reports
+          path: |
+            frontend/test-results
+            frontend/playwright-report
+          retention-days: 7
+
+  # Advisory, like the Python 3.14 leg of reusable-backend.yml: continue-on-error keeps a red job out of `frontend`,
+  # and so out of `CI OK`. Budget findings (frontend/lighthouserc.json) become ::warning annotations and a summary
+  # line; the job fails only on a tool error (the build, the browser, collect, or a broken config).
+  lighthouse:
+    name: Lighthouse CI (advisory)
+    if: inputs.frontend-changed
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-frontend
+      - name: Note the advisory job
+        run: echo 'Lighthouse CI is advisory, so budget findings are warnings and do not block the merge.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Next.js build
+        working-directory: frontend
+        run: npm run build
+      - name: Install the Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      # Lighthouse drives the Playwright Chromium (CHROME_PATH), so there is no second browser download.
+      - name: Collect the Lighthouse runs
+        working-directory: frontend
+        run: |
+          CHROME_PATH="$(node -p "require('@playwright/test').chromium.executablePath()")"
+          export CHROME_PATH
+          npx lhci collect --config=lighthouserc.json
+      # `lhci assert` exits 1 both for a failed budget and for a tool error. A budget failure leaves
+      # assertion-results.json with failed entries; anything else is a tool error and fails the job.
+      - name: Check the budgets
+        working-directory: frontend
+        run: |
+          rm -f .lighthouseci/assertion-results.json
+          code=0
+          npx lhci assert --config=lighthouserc.json || code=$?
+          if [[ "$code" -eq 0 ]]; then
+            echo 'Lighthouse CI: all budgets met' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          results=.lighthouseci/assertion-results.json
+          if [[ -f "$results" ]] && jq -e 'any(.[]; .passed == false)' "$results" >/dev/null; then
+            jq -r '.[] | select(.passed == false)
+              | "::warning title=Lighthouse (advisory)::\(.url) \(.auditId) \(.auditProperty // "") \(.name): expected \(.operator) \(.expected), found \(.actual)"' "$results"
+            echo "Lighthouse CI (advisory): $(jq '[.[] | select(.passed == false)] | length' "$results") budget finding(s); see the lighthouse-reports artifact" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          exit "$code"
+      - name: Upload the Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lighthouse-reports
+          path: frontend/.lighthouseci
+          retention-days: 7

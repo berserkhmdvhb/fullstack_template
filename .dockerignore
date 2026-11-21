@@ -26,6 +26,7 @@ test-results/
 playwright-report/
 frontend/test-results/
 frontend/playwright-report/
+frontend/.lighthouseci/
 
 # Every env file (secrets stay out of the build context; no Dockerfile copies `.env.example`)
 .env
