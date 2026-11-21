@@ -234,30 +234,20 @@ jobs:
           CHROME_PATH="$(node -p "require('@playwright/test').chromium.executablePath()")"
           export CHROME_PATH
           npx lhci collect --config=lighthouserc.json
-      # `lhci assert` exits 1 both for a failed budget and for a tool error. A budget failure leaves
-      # assertion-results.json with failed entries; anything else is a tool error and fails the job.
+      # A budget miss becomes ::warning annotations and a summary line (exit 0); anything else is a tool error.
       - name: Check the budgets
         working-directory: frontend
-        run: |
-          rm -f .lighthouseci/assertion-results.json
-          code=0
-          npx lhci assert --config=lighthouserc.json || code=$?
-          if [[ "$code" -eq 0 ]]; then
-            echo 'Lighthouse CI: all budgets met' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          results=.lighthouseci/assertion-results.json
-          if [[ -f "$results" ]] && jq -e 'any(.[]; .passed == false)' "$results" >/dev/null; then
-            jq -r '.[] | select(.passed == false)
-              | "::warning title=Lighthouse (advisory)::\(.url) \(.auditId) \(.auditProperty // "") \(.name): expected \(.operator) \(.expected), found \(.actual)"' "$results"
-            echo "Lighthouse CI (advisory): $(jq '[.[] | select(.passed == false)] | length' "$results") budget finding(s); see the lighthouse-reports artifact" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          exit "$code"
+        run: ../scripts/ci/lighthouse-assert.sh
       - name: Upload the Lighthouse reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lighthouse-reports
           path: frontend/.lighthouseci
+          include-hidden-files: true # the directory name starts with a dot
           retention-days: 7
+      - name: Warn that the job failed on a tool error
+        if: failure()
+        run: |
+          echo '::warning title=Lighthouse (advisory)::Lighthouse CI hit a tool error (build, browser, collect or the budget check), so no budgets were checked. This job is advisory and does not block the merge.'
+          echo 'Lighthouse CI FAILED on a tool error (not blocking).' >> "$GITHUB_STEP_SUMMARY"

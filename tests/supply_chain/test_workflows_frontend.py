@@ -303,12 +303,14 @@ def test_a11y_script_runs_the_spec_against_the_built_app() -> None:
     )
     config = (root / "playwright.config.ts").read_text(encoding="utf-8")
     assert "webServer" in config
-    assert "next start" in config
+    assert "scripts/serve-standalone.mjs" in config, "the server the image ships, not next start"
+    assert "next start" not in config
     spec = (root / "e2e" / "a11y.spec.ts").read_text(encoding="utf-8")
     for tag in ("wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"):
         assert f"'{tag}'" in spec, tag
     assert "disableRules" not in spec, "no rule may be switched off"
     assert ".exclude(" not in spec
+    assert "retries: 0" in spec, "no retry may hide an intermittent violation"
 
 
 def test_the_live_job_runs_every_e2e_spec_including_axe() -> None:
@@ -327,11 +329,16 @@ def test_lighthouse_job_is_advisory_and_not_a_blocking_gate() -> None:
     assert job["permissions"] == {"contents": "read"}
     assert job["if"] == "inputs.frontend-changed"
     runs = _runs(job)
-    # Findings become warnings and a summary line; only a tool error fails the job.
-    assert "::warning title=Lighthouse (advisory)::" in runs
-    assert "GITHUB_STEP_SUMMARY" in runs
-    assert "assertion-results.json" in runs
+    # The script turns budget findings into warnings and a summary line (test_lighthouse_assert.py);
+    # only a tool error fails the job, and that warns too.
+    assert "../scripts/ci/lighthouse-assert.sh" in runs
     assert "CHROME_PATH" in runs, "it must reuse the Playwright Chromium"
+    last = job["steps"][-1]
+    assert last["if"] == "failure()"
+    assert "::warning title=Lighthouse (advisory)::" in last["run"]
+    assert "GITHUB_STEP_SUMMARY" in last["run"]
+    upload = next(st for st in job["steps"] if "upload-artifact" in str(st.get("uses", "")))
+    assert upload["with"]["include-hidden-files"] is True, ".lighthouseci is a dot directory"
     # Nothing waits on it, and CI OK sees only the `frontend` job.
     for name, other in _jobs().items():
         assert "lighthouse" not in _needs(other), name
