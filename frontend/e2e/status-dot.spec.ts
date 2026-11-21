@@ -8,12 +8,21 @@
  * @packageDocumentation
  */
 
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import { dotContrast } from './support/contrast';
 import { mockApi } from './support/mock-api';
 
 const MIN = 3;
+
+/** Resolve once no CSS transition or animation is running (`getAnimations` flushes style, so a started one counts). */
+async function settled(page: Page): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length),
+    )
+    .toBe(0);
+}
 
 for (const theme of ['light', 'dark'] as const) {
   for (const [size, width] of [
@@ -36,10 +45,10 @@ for (const theme of ['light', 'dark'] as const) {
         expect(await dotContrast(page, selector), `${status} at rest`).toBeGreaterThanOrEqual(MIN);
         await page.locator(selector).first().hover();
         // The row's background transitions for 150 ms; measure once it has settled.
-        await page.waitForTimeout(300);
+        await settled(page);
         expect(await dotContrast(page, selector), `${status} hovered`).toBeGreaterThanOrEqual(MIN);
         await page.mouse.move(0, 0);
-        await page.waitForTimeout(300);
+        await settled(page);
       }
     });
   }
