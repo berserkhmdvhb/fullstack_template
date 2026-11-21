@@ -51,7 +51,7 @@ async def client(app: FastAPI) -> AsyncGenerator[httpx.AsyncClient, None]:
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_health_ok_when_initialized(client: httpx.AsyncClient) -> None:
-    """GET /health should return ok when DB is initialized."""
+    """GET /health should return ok when the DB is reachable and migrated."""
     res = await client.get(HEALTH_PATH)
 
     assert res.status_code == status.HTTP_200_OK
@@ -99,7 +99,7 @@ async def test_health_degraded_when_db_unavailable(
         res = await client.get(HEALTH_PATH)
 
     assert res.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
-    assert res.json() == {"status": "degraded"}
+    assert res.json() == {"status": "degraded", "reason": "database_unreachable"}
 
 
 # ---------------------------------------------------------------------------

@@ -77,6 +77,7 @@ def _request_ids(records: list[logging.LogRecord]) -> set[str | None]:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("migrated_db")
 async def test_request_id_reaches_downstream_logs(
     async_client: httpx.AsyncClient,
     captured: LogCaptureHandler,

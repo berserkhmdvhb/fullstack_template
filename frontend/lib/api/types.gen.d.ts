@@ -120,17 +120,18 @@ export interface paths {
          * Health Check
          * @description Readiness probe.
          *
-         *     Returns HTTP 200 ``{"status": "ok"}`` only when the database engine is
-         *     initialized AND a live ``SELECT 1`` succeeds. Returns HTTP 503
-         *     ``{"status": "degraded"}`` otherwise.
+         *     Returns HTTP 200 ``{"status": "ok"}`` when the database is reachable and its schema revision is
+         *     this release's head, or one this release does not know (a newer release migrated first; ready,
+         *     because migrations stay compatible with the previous release). Returns HTTP 503
+         *     ``{"status": "degraded", "reason": ...}`` otherwise, with ``reason`` one of
+         *     ``database_unreachable``, ``schema_missing`` (no version table or no row) or ``schema_behind``
+         *     (an older, known revision). The body never names a revision, a URL or an error.
          *
-         *     The status code IS the contract: Kubernetes' readinessProbe keys off it, so
-         *     a pod whose DB tier is down is removed from the Service endpoints instead of
-         *     silently serving 5xx to clients — the failure mode this hardening closes
-         *     (seen in an end-to-end run). Because the probe also runs a live query,
-         *     a transient post-startup DB blip recovers on the next successful check
-         *     without a restart. Liveness is separate (/healthz) and must never depend on
-         *     the DB, so a database outage degrades readiness without restart-looping.
+         *     The check is read-only. The status code IS the contract: Kubernetes' readinessProbe keys off it,
+         *     so a Pod that cannot serve is removed from the Service endpoints, and a rolling update keeps the
+         *     old Pods serving until the migration Job has brought the schema to the new head. Liveness is
+         *     separate (/healthz) and never touches the database or the schema, so a Pod is never restarted
+         *     for waiting on a migration.
          */
         get: operations["health_check_api_v1_health_get"];
         put?: never;

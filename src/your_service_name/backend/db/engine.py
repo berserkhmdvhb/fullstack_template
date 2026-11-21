@@ -10,7 +10,7 @@ Responsibilities:
 Public API:
 - `DbSession`: Annotated[AsyncSession, Depends(get_session)] for endpoint injection.
 - `get_session`: Async generator yielding a session per request.
-- `init_db`: Lifespan startup — creates the engine.
+- `init_db`: Lifespan startup — creates the engine and reads the expected schema head.
 - `close_db`: Lifespan shutdown — disposes engine.
 
 Operational:
@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from your_service_name.backend.db import schema
 from your_service_name.backend.db._constants import default_sqlite_path, project_root
 from your_service_name.backend.db.connect import app_connect_args
 
@@ -81,6 +82,8 @@ def _resolve_database_url(settings: Settings) -> str:
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 _db_initialized: bool = False
+# The revisions this code expects, read once at startup (readiness compares against them).
+_revisions: schema.Revisions | None = None
 
 
 def _engine_kwargs(url: str, settings: Settings) -> dict[str, Any]:
@@ -154,7 +157,8 @@ DbSession = Annotated[AsyncSession, Depends(get_session)]
 
 async def init_db(app: FastAPI) -> None:
     """
-    Lifespan startup hook: create the engine and session factory. It does not migrate.
+    Lifespan startup hook: create the engine and session factory, and read the expected head
+    revision from the bundled scripts (once). It does not migrate.
 
     Parameters
     ----------
@@ -168,8 +172,9 @@ async def init_db(app: FastAPI) -> None:
       (/health) answers 503 until the schema matches this release.
     - No connection is made here; an unreachable database shows up as a 503 readiness.
     """
-    global _db_initialized
+    global _db_initialized, _revisions
     settings: Settings = app.state.settings
+    _revisions = schema.load_revisions()
     _get_engine(settings)
     _db_initialized = True
     logger.info("Database engine ready.")
@@ -186,9 +191,10 @@ async def close_db(_app: FastAPI) -> None:
     """
     logger.info("Disposing database engine...")
     # ruff: noqa: PLW0603 — Lazy initialization requires module-level state.
-    global _engine, _session_factory, _db_initialized
+    global _engine, _session_factory, _db_initialized, _revisions
     if _engine is not None:
         await _engine.dispose()
         _engine = None
         _session_factory = None
         _db_initialized = False
+        _revisions = None

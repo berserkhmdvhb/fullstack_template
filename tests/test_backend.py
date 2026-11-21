@@ -79,11 +79,11 @@ def test_cors_star_removed_when_credentials_true(
 def test_api_router_is_included(api_base: str) -> None:
     """
     Rather than introspecting BaseRoute.path (which mypy doesn't like),
-    we validate router presence by calling a known health endpoint.
+    we validate router presence by calling the liveness endpoint (no database needed).
     """
     app = create_app()
     with TestClient(app) as client:
-        r = client.get(f"{api_base}/health")
+        r = client.get(f"{api_base}/healthz")
         assert r.status_code == status.HTTP_200_OK
 
 
