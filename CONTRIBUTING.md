@@ -79,7 +79,7 @@ infra/adapt/replace_service_name.sh -n <your_service> --dry-run   # preview the 
 infra/adapt/replace_service_name.sh -n <your_service>             # apply it
 scripts/tools.sh install uv && export PATH="$PWD/.tools/bin:$PATH"
 make develop && source .venv/bin/activate   # locked set; the uv workflow: wiki/getting-started.md#lock-file-and-the-7-day-rule
-cd frontend && npm ci && npm run dev # frontend at :3000
+cd frontend && npm ci --ignore-scripts && npm run dev # frontend at :3000 (no install scripts: wiki/frontend-deployment.md#install-scripts)
 # backend:  ./run_backend.sh  (migrates, then serves the API at :8000)
 ```
 
