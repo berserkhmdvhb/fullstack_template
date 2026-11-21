@@ -72,3 +72,15 @@ def test_every_npm_runner_checks_the_package_manager_version() -> None:
         assert text.index("node scripts/check-npm-version.mjs") < text.index("&& npm ci"), name
     package = json.loads((ROOT / "frontend/package.json").read_text(encoding="utf-8"))
     assert re.fullmatch(r"npm@\d+\.\d+\.\d+", package["packageManager"])
+
+
+def test_the_healthcheck_probes_the_frontends_own_health_route() -> None:
+    health = re.search(r"^HEALTHCHECK [^\n]*\\\n[^\n]*", DOCKERFILE, re.MULTILINE)
+    assert health
+    assert "/api/healthz`" in health.group(0)
+
+
+def test_the_image_binds_every_interface() -> None:
+    """Next's standalone server.js listens on $HOSTNAME, which docker sets to the container id."""
+    runtime = DOCKERFILE[DOCKERFILE.index(" AS runtime") :]
+    assert re.search(r"^ENV HOSTNAME=0\.0\.0\.0$", runtime, re.MULTILINE)

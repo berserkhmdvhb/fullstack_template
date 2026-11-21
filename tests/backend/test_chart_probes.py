@@ -12,8 +12,8 @@ from your_service_name.utils.versioning_api import DEFAULT_API_VERSION
 BASE = f"{paths.API_PREFIX}/{DEFAULT_API_VERSION}"
 
 
-def _probe_path(probe: str) -> str:
-    text = (CHART / "templates" / "backend-deployment.yaml").read_text(encoding="utf-8")
+def _probe_path(probe: str, template: str = "backend-deployment.yaml") -> str:
+    text = (CHART / "templates" / template).read_text(encoding="utf-8")
     match = re.search(rf"{probe}:\n\s+httpGet:\n\s+path: (\S+)", text)
     assert match, probe
     return match.group(1)
@@ -31,3 +31,9 @@ def test_startup_uses_the_process_only_path() -> None:
     """The Job may outlast the startup budget; a startup probe that waits for the schema would
     kill every new Pod during a long migration."""
     assert _probe_path("startupProbe") == f"{BASE}{paths.LIVENESS_ROUTE}"
+
+
+def test_the_frontend_probes_use_its_own_health_route() -> None:
+    """The home page renders per request and proxies nothing; /api/healthz is process-only."""
+    for probe in ("startupProbe", "readinessProbe", "livenessProbe"):
+        assert _probe_path(probe, "frontend-deployment.yaml") == "/api/healthz", probe

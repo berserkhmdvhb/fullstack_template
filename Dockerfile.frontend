@@ -77,6 +77,12 @@ LABEL org.opencontainers.image.title="Your Service Name — Frontend" \
       org.opencontainers.image.url="https://your-domain.example/" \
       org.opencontainers.image.authors="YourOrg"
 
+# Next's standalone server.js listens on $HOSTNAME, and docker sets HOSTNAME to the container id
+# in a plain `docker run`: the server would then bind that one address, and the HEALTHCHECK
+# (localhost) would be refused. Bind every interface. On an IPv6-only cluster override it
+# (for example HOSTNAME=::).
+ENV HOSTNAME=0.0.0.0
+
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1
 
@@ -93,7 +99,7 @@ COPY --from=builder --chown=10001:10001 /app/public ./public
 ARG HEALTHCHECK_SCHEME=http
 ENV HEALTHCHECK_SCHEME="${HEALTHCHECK_SCHEME:-http}"
 HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
-  CMD ["/nodejs/bin/node","-e","fetch(`${process.env.HEALTHCHECK_SCHEME||'http'}://localhost:${process.env.PORT||3000}/`).then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"]
+  CMD ["/nodejs/bin/node","-e","fetch(`${process.env.HEALTHCHECK_SCHEME||'http'}://localhost:${process.env.PORT||3000}/api/healthz`).then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"]
 
 USER 10001
 ENV PORT=3000
