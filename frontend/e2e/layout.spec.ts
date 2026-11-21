@@ -71,3 +71,47 @@ for (const [size, width] of [
     });
   }
 }
+
+// The items list: below 768 px each row is a stacked card, so Edit and Delete never hide behind a sideways scroll.
+for (const width of [390, 600, 767, 768, 1280]) {
+  test(`the items list shows its actions without sideways scroll (${String(width)}px)`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await mockApi(page);
+    await page.goto('/items');
+    await page.waitForLoadState('networkidle');
+    await expect(page.locator('td', { hasText: 'First item' })).toBeVisible();
+
+    const fit = await page.evaluate(() => {
+      const box = document.querySelector('.overflow-x-auto');
+      if (!box) throw new Error('no list box');
+      const buttons = [...document.querySelectorAll('button[aria-label$="First item"]')].map(
+        (b) => {
+          const r = b.getBoundingClientRect();
+          return {
+            name: b.getAttribute('aria-label'),
+            left: r.left,
+            right: r.right,
+            height: r.height,
+          };
+        },
+      );
+      return {
+        viewport: window.innerWidth,
+        pageOverflow: document.documentElement.scrollWidth - window.innerWidth,
+        listOverflow: box.scrollWidth - box.clientWidth,
+        buttons,
+      };
+    });
+
+    expect(fit.pageOverflow).toBeLessThanOrEqual(0);
+    expect(fit.listOverflow).toBeLessThanOrEqual(0);
+    expect(fit.buttons.map((b) => b.name)).toEqual(['Edit First item', 'Delete First item']);
+    for (const button of fit.buttons) {
+      expect(button.left, button.name ?? '').toBeGreaterThanOrEqual(0);
+      expect(button.right, button.name ?? '').toBeLessThanOrEqual(fit.viewport);
+      expect(button.height, button.name ?? '').toBeGreaterThanOrEqual(24);
+    }
+  });
+}

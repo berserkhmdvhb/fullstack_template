@@ -90,6 +90,27 @@ describe('ItemList', () => {
     expect(screen.getByText('First test item')).toBeInTheDocument();
   });
 
+  it('is one structure that adapts: a table with labelled cells and a visually hidden header on phones', async () => {
+    renderWithProviders(<ItemList onEdit={noop} />);
+
+    const cell = await screen.findByText('First test item');
+    const table = screen.getByRole('table');
+    const row = screen.getByRole('row', { name: /Alpha Item/ });
+    const cells = within(row).getAllByRole('cell');
+    expect(table).toHaveClass('max-md:block');
+    expect(screen.getAllByRole('rowgroup')[0]).toHaveClass('max-md:sr-only');
+    expect(row).toHaveClass('max-md:block');
+    // Each value is labelled for the stacked layout, and the actions live in the same row.
+    expect(cell).toHaveAttribute('data-label', 'Description');
+    expect(cells[2]).toHaveAttribute('data-label', 'Status');
+    expect(cells[3]).toHaveAttribute('data-label', 'Created');
+    expect(within(row).getByRole('button', { name: 'Edit Alpha Item' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Delete Alpha Item' })).toBeInTheDocument();
+    // The table is in the accessibility tree once, with its column headers.
+    expect(screen.getAllByRole('table')).toHaveLength(1);
+    expect(screen.getAllByRole('columnheader')).toHaveLength(5);
+  });
+
   it('shows active/inactive status indicators', async () => {
     renderWithProviders(<ItemList onEdit={noop} />);
 

@@ -19,6 +19,12 @@ import type { components } from '@/lib/api/types.gen';
 import { useItems, useDeleteItem } from '@/lib/hooks/useItems';
 import { useToast } from '@/lib/toast';
 
+/** A table cell; below md it becomes a block inside a stacked card. */
+const CELL = 'table-cell max-md:block max-md:px-0 max-md:py-1';
+/** Below md a cell shows its column name in front of the value (the header row is visually hidden there). */
+const LABELLED =
+  'max-md:before:mr-2 max-md:before:inline-block max-md:before:min-w-24 max-md:before:font-medium max-md:before:text-textSecondary max-md:before:content-[attr(data-label)]';
+
 type ItemResponse = components['schemas']['ItemResponse'];
 
 /**
@@ -152,9 +158,11 @@ export function ItemList({ onEdit }: ItemListProps): JSX.Element {
         </div>
       ) : (
         <>
+          {/* One structure for every width. Below md (768 px) each row is a stacked card (labelled fields, the actions in
+              view, no sideways scroll); the table fits from about 640 px, and thead stays for assistive tech. */}
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
+            <table className="w-full text-sm max-md:block">
+              <thead className="max-md:sr-only">
                 <tr className="border-b border-borderWeak">
                   <th className="text-left py-3 px-4 font-medium text-textPrimary">Name</th>
                   <th className="text-left py-3 px-4 font-medium text-textPrimary">Description</th>
@@ -163,12 +171,17 @@ export function ItemList({ onEdit }: ItemListProps): JSX.Element {
                   <th className="text-right py-3 px-4 font-medium text-textPrimary">Actions</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="max-md:block">
                 {items.map((item) => (
-                  <tr key={item.id} className="border-b border-borderWeak table-row-hover">
-                    <td className="table-cell text-textPrimary font-medium">{item.name}</td>
-                    <td className="table-cell text-textPrimary">{item.description || '—'}</td>
-                    <td className="table-cell">
+                  <tr
+                    key={item.id}
+                    className="border-b border-borderWeak table-row-hover max-md:block max-md:py-3"
+                  >
+                    <td className={`${CELL} text-textPrimary font-medium`}>{item.name}</td>
+                    <td className={`${CELL} ${LABELLED} text-textPrimary`} data-label="Description">
+                      {item.description || '—'}
+                    </td>
+                    <td className={`${CELL} ${LABELLED}`} data-label="Status">
                       <span className="badge-status">
                         <span className={item.is_active ? 'active' : 'inactive'} />
                         <span className="text-textPrimary">
@@ -176,10 +189,13 @@ export function ItemList({ onEdit }: ItemListProps): JSX.Element {
                         </span>
                       </span>
                     </td>
-                    <td className="table-cell text-textPrimary text-xs">
+                    <td
+                      className={`${CELL} ${LABELLED} text-textPrimary text-xs`}
+                      data-label="Created"
+                    >
                       {new Date(item.created_at).toLocaleDateString()}
                     </td>
-                    <td className="table-cell text-right">
+                    <td className={`${CELL} text-right max-md:text-left`}>
                       <div className="inline-flex items-center gap-1">
                         <button
                           onClick={() => onEdit(item)}
