@@ -31,7 +31,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     Notes
     -----
     - Controlled by the ``log_requests`` argument (the `LOG_REQUESTS` setting, default: false).
-    - Logs at INFO level with format: ``METHOD /path STATUS 0.123s``.
+    - Logs at INFO level with format: ``METHOD /path STATUS 0.123s client=IP``, where the IP is the
+      one resolved by ``ClientIpMiddleware`` (the TCP peer unless it is a trusted proxy).
     - Skips logging for health-check endpoints to reduce noise.
     """
 
@@ -69,10 +70,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         duration = time.perf_counter() - start
 
         logger.info(
-            "%s %s %s %.3fs",
+            "%s %s %s %.3fs client=%s",
             request.method,
             request.url.path,
             response.status_code,
             duration,
+            request.client.host if request.client else "-",
         )
         return response  # type: ignore[no-any-return]

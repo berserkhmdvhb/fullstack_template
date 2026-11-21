@@ -19,6 +19,7 @@ Notes
 from __future__ import annotations
 
 import asyncio
+import logging
 from logging.config import fileConfig
 
 from alembic import context
@@ -30,8 +31,10 @@ from your_service_name.backend.db.models import Base
 # Alembic Config object
 config = context.config
 
-# Interpret the config file for Python logging
-if config.config_file_name is not None:
+# Interpret the config file for Python logging, but only when nothing configured logging yet (the
+# alembic CLI). Run in-process by the app, fileConfig would replace the app's handlers, drop the
+# root level to WARN and disable every existing logger, silencing the request logs.
+if config.config_file_name is not None and not logging.getLogger().handlers:
     fileConfig(config.config_file_name)
 
 # Target metadata for autogenerate support

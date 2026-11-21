@@ -13,6 +13,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from starlette.datastructures import Address
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -76,6 +77,7 @@ class TestLoggingEnabled:
         mock_request = MagicMock(spec=Request)
         mock_request.method = "GET"
         mock_request.url.path = "/api/test"
+        mock_request.client = Address("203.0.113.5", 4242)
 
         with patch("your_service_name.backend.middleware.logging.logger") as mock_logger:
             response = await middleware.dispatch(mock_request, mock_call_next)
@@ -83,8 +85,9 @@ class TestLoggingEnabled:
             mock_logger.info.assert_called_once()
             call_args = mock_logger.info.call_args[0]
 
-            # Check log format: METHOD /path STATUS duration
-            assert call_args[0] == "%s %s %s %.3fs"
+            # Check log format: METHOD /path STATUS duration client=IP
+            assert call_args[0] == "%s %s %s %.3fs client=%s"
+            assert call_args[5] == "203.0.113.5"
             assert call_args[1] == "GET"
             assert call_args[2] == "/api/test"
             assert call_args[3] == EXPECTED_STATUS_CODE

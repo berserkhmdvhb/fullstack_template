@@ -50,6 +50,7 @@ from your_service_name.backend.api import build_api_router
 from your_service_name.backend.db import close_db
 from your_service_name.backend.logging.correlation import RequestIdFilter
 from your_service_name.backend.logging.json_formatter import JsonLogFormatter
+from your_service_name.backend.middleware.client_ip import ClientIpMiddleware
 from your_service_name.backend.middleware.correlation import CorrelationIdMiddleware
 from your_service_name.backend.middleware.logging import RequestLoggingMiddleware
 from your_service_name.backend.middleware.rate_limiting import register_rate_limiting
@@ -230,6 +231,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # while handling the request — including the request-logging middleware and route handlers.
     # ``add_middleware`` inserts at the front of the stack, so it is added LAST to end up outermost.
     app.add_middleware(CorrelationIdMiddleware)
+
+    # The client IP is resolved FIRST (outermost, added last) so correlation, the request logs, the
+    # rate limiter and CORS all see one address. Forwarding headers count only from a peer in
+    # TRUSTED_PROXY_CIDRS; Uvicorn's own proxy-header handling is off (see the launcher).
+    app.add_middleware(
+        ClientIpMiddleware,
+        trusted=settings.TRUSTED_PROXY_CIDRS,
+        trust_cf=settings.TRUST_CF_CONNECTING_IP,
+    )
 
     # --- Router assembly under a canonical prefix --------------------------------
     app.include_router(build_api_router(prefix="/api", version=settings.API_VERSION))

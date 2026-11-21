@@ -161,7 +161,7 @@ def register_rate_limiting(app: FastAPI, settings: Settings) -> None:
     Notes
     -----
     - Rate limit is controlled by the ``RATE_LIMIT_DEFAULT`` setting.
-    - Key: client IP address.
+    - Key: the client IP resolved by ``ClientIpMiddleware`` (the TCP peer unless trusted proxy).
     - The 429 response is JSON (with a ``Retry-After`` header) for API consistency.
     """
     limit = settings.RATE_LIMIT_DEFAULT
