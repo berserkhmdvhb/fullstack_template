@@ -186,3 +186,79 @@ def test_signing_reads_the_digest_the_build_verified() -> None:
     assert "sha256:[0-9a-f]{64}" in ref["run"]
     names = [s["with"]["name"] for s in _uses(job, "actions/download-artifact@")]
     assert names == ["digest-${{ matrix.id }}", "sbom-${{ matrix.id }}"]
+
+
+# --- assertions carried over from the release workflow tests when the jobs moved here -------------
+
+
+def test_one_buildx_one_login_one_build_push_and_only_the_digest_upload_in_build() -> None:
+    job = _jobs()["build"]
+    for prefix in (
+        "docker/setup-buildx-action@",
+        "docker/login-action@",
+        "docker/build-push-action@",
+    ):
+        assert len(_uses(job, prefix)) == 1, prefix
+    assert len(_uses(job, "actions/upload-artifact@")) == 1  # only the digest upload
+    assert "fromJSON(inputs.matrix)" in str(job["strategy"]["matrix"])
+
+
+def test_login_token_goes_through_with_not_run() -> None:
+    seen = 0
+    for name, job in _jobs().items():
+        for step in _uses(job, "docker/login-action@"):
+            seen += 1
+            assert step["with"]["registry"] == "ghcr.io"
+            assert step["with"]["username"] == "${{ github.actor }}"
+            assert step["with"]["password"] == "${{ secrets.GITHUB_TOKEN }}"  # noqa: S105 — a workflow expression, not a credential
+        assert not re.search(r"secrets\.|GITHUB_TOKEN|docker login", _runs(job)), name
+    assert seen == 3  # noqa: PLR2004 — build, sbom and sign-attest
+
+
+def test_digest_verify_stops_the_job_on_a_mismatch() -> None:
+    step = next(s for s in _jobs()["build"]["steps"] if "imagetools inspect" in s.get("run", ""))
+    run = step["run"]
+    assert "exit 1" in run
+    assert "docker buildx imagetools inspect" in run
+    assert "{{.Manifest.Digest}}" in run
+    assert step["env"] == {"BUILD_DIGEST": "${{ steps.build.outputs.digest }}"}
+
+
+def test_latest_tag_is_one_conditional_line() -> None:
+    tags = _uses(_jobs()["build"], "docker/build-push-action@")[0]["with"]["tags"]
+    latest = [t.strip() for t in tags.split("\n") if t.strip()][1]
+    assert latest.count(":latest") == 1
+    assert latest.endswith("|| '' }}")
+
+
+def test_grype_installs_the_pinned_tool_and_names_no_severity() -> None:
+    job = _jobs()["grype"]
+    assert "infra/security/tools-install.sh grype" in _runs(job)
+    assert "infra/security/scan-vulnerabilities.sh" in _runs(job)
+    raw = str(job).lower().replace("security-events", "")
+    assert not re.search(r"\b(high|critical)\b", raw)
+
+
+def test_grype_sarif_failure_warns_and_the_report_artifact_is_always_kept() -> None:
+    job = _jobs()["grype"]
+    (sarif,) = _uses(job, "github/codeql-action/upload-sarif@")
+    assert sarif["with"]["category"] == "grype-${{ matrix.id }}"
+    warn = [s for s in job["steps"] if "steps.sarif.outcome == 'failure'" in str(s.get("if", ""))]
+    assert len(warn) == 1
+    assert "::warning" in warn[0]["run"]
+    assert "GITHUB_STEP_SUMMARY" in warn[0]["run"]
+    artifacts = _uses(job, "actions/upload-artifact@")
+    assert artifacts[0]["if"] == "always()"
+    assert artifacts[0]["with"]["retention-days"] == ARTIFACT_RETENTION_DAYS
+
+
+def test_every_job_writes_a_step_summary() -> None:
+    for name, job in _jobs().items():
+        assert "GITHUB_STEP_SUMMARY" in _runs(job), name
+
+
+def test_no_pull_request_or_manual_trigger_and_no_hard_coded_owner() -> None:
+    for step in steps_of(_wf()):
+        assert "pull_request" not in str(step.get("if", ""))
+    assert set(_wf()["on"]) == {"workflow_call"}
+    assert "ghcr.io/" not in str(_wf()).replace("ghcr.io/${{", "")
