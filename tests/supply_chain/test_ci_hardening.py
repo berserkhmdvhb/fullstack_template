@@ -382,3 +382,8 @@ def test_a_pull_request_caller_of_the_reusable_build_is_flagged() -> None:
     out = run_lint(FIXTURES / "image-push-isolation" / "fail-caller-pull-request").stdout
     assert "pull_request" in out
     assert "image-push-isolation" in out
+
+
+def test_a_nested_composite_action_is_linted() -> None:
+    out = run_lint(FIXTURES / "image-push-isolation" / "fail-composite-nested").stdout
+    assert ".github/actions/docker/publish/action.yml:" in out

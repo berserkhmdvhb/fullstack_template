@@ -181,12 +181,14 @@ def test_vex_waits_for_the_gate_through_success_not_a_status_override() -> None:
 
 
 GH_STUB = """#!/usr/bin/env bash
-if [[ "$1" == api ]]; then cat "$RELEASES_JSON"; exit 0; fi
+if [[ "$1" == api ]]; then [[ -n "${API_FAILS:-}" ]] && exit 1; cat "$RELEASES_JSON"; exit 0; fi
 echo "gh $*" >> "$CALLS"
 """
 
 
-def _run_upload(tmp_path: Path, releases: list[dict[str, Any]]) -> tuple[int, str, str]:
+def _run_upload(
+    tmp_path: Path, releases: list[dict[str, Any]], *, api_fails: bool = False
+) -> tuple[int, str, str]:
     step = next(s for s in _assets()["steps"] if s.get("name") == "Upload to the draft release")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -203,6 +205,7 @@ def _run_upload(tmp_path: Path, releases: list[dict[str, Any]]) -> tuple[int, st
         "GH_REPO": "o/r",
         "TAG": "v1.0.0",
         "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
+        "API_FAILS": "1" if api_fails else "",
     }
     done = subprocess.run(
         [BASH, "-e", "-c", step["run"]],
@@ -254,3 +257,20 @@ def test_upload_refuses_a_published_or_ambiguous_release(
     assert "::error::" in out
     assert "gh release upload" not in calls
     assert "gh release create" not in calls
+
+
+def test_a_failing_release_listing_fails_the_step_instead_of_looking_like_no_release(
+    tmp_path: Path,
+) -> None:
+    code, _, calls = _run_upload(tmp_path, [], api_fails=True)
+    assert code != 0
+    assert "gh release create" not in calls
+    assert "gh release upload" not in calls
+
+
+def test_steps_that_pipe_commands_fail_on_the_first_failing_stage() -> None:
+    # The default step shell is `bash -e`, which does not set pipefail.
+    merge = next(s for s in _jobs()["digests"]["steps"] if s.get("id") == "merge")
+    upload = next(s for s in _assets()["steps"] if s.get("name") == "Upload to the draft release")
+    for step in (merge, upload):
+        assert step["run"].lstrip().startswith("set -euo pipefail"), step.get("name")

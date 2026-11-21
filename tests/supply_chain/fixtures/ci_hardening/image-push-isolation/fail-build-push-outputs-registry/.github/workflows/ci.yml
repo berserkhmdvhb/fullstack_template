@@ -1,0 +1,13 @@
+name: T
+on: [push]
+permissions: {}
+jobs:
+  j:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: docker/build-push-action@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v7.4.0
+        with:
+          outputs: type=registry,name=ghcr.io/o/r

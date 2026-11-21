@@ -88,6 +88,7 @@ jobs:
       - name: Write image-digests.env and scan.env
         id: merge
         run: |
+          set -euo pipefail
           cat parts/*.digest.env | LC_ALL=C sort > image-digests.env
           cat parts/*.scan.env | LC_ALL=C sort > scan.env
           # The same digests as one JSON object, for the deploy workflow.
@@ -236,6 +237,7 @@ jobs:
           cp assets/grant/summary.json release-assets/licence-summary.json
       - name: Upload to the draft release
         run: |
+          set -euo pipefail
           # Several releases can share a tag (drafts can), so select them all and decide on the set.
           releases="$(gh api "repos/${GH_REPO}/releases" --paginate | jq -s -c --arg tag "${TAG}" '[.[][] | select(.tag_name == $tag)]')"
           published="$(jq '[.[] | select(.draft | not)] | length' <<<"${releases}")"

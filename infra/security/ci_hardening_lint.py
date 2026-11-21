@@ -51,9 +51,13 @@ _QUOTED = re.compile(r"'(?:[^']|'')*'")
 _OSV_RUN = re.compile(r"osv-scanner|scan-osv\.sh")
 _IMAGE_PUSH_RUN = re.compile(
     r"\bdocker\s+(?:buildx\s+)?(?:build|bake)\b(?:\\\n|[^\n])*--push\b"
-    r"|\bdocker\s+(?:image\s+)?push\b|\bcosign\s+(?:sign|attest)\b"
+    r"|\bdocker\s+(?:--[\w-]+(?:=|\s+)\S+\s+)*(?:image\s+)?push\b"
+    r"|\bdocker(?:\s+compose|-compose)\b[^\n]*\bpush\b"
+    r"|\bdocker\s+buildx\s+imagetools\s+create\b|\bskopeo\s+copy\b"
+    r"|\bcosign\s+(?:sign|attest)\b"
     r"|\b(?:buildah|podman|oras)\s+push\b|\bcrane\s+(?:push|copy|cp)\b"
 )
+_REGISTRY_OUTPUT = re.compile(r"type=registry|\bpush=true\b")
 _PUSH_ACTION = re.compile(r"^(?:[\w.-]+/)?[\w.-]*(?:build-push-action|bake-action)@")
 _COSIGN_SIGN = re.compile(r"\bcosign\s+sign\b")
 _COSIGN_VERIFY = re.compile(r"\bcosign\s+verify\b")
@@ -338,7 +342,9 @@ def _pushes_images(step: LDict) -> str | None:
     ref = str(step.get("uses", ""))
     with_ = step.get("with")
     if _PUSH_ACTION.match(ref) and (
-        not isinstance(with_, LDict) or str(with_.get("push", "false")).strip().lower() != "false"
+        not isinstance(with_, LDict)
+        or str(with_.get("push", "false")).strip().lower() != "false"
+        or _REGISTRY_OUTPUT.search(str(with_.get("outputs", "")))
     ):
         return f"{ref.split('@', maxsplit=1)[0]} with push"
     if ref.startswith("actions/attest"):
@@ -653,7 +659,12 @@ def gather(root: Path) -> tuple[list[Doc], list[str]]:
     """Parse every workflow and composite action; return (docs, parse-error lines)."""
     wf, ac = root / ".github" / "workflows", root / ".github" / "actions"
     paths = sorted(
-        [*wf.glob("*.yml"), *wf.glob("*.yaml"), *ac.glob("*/action.yml"), *ac.glob("*/action.yaml")]
+        [
+            *wf.glob("*.yml"),
+            *wf.glob("*.yaml"),
+            *ac.glob("**/action.yml"),
+            *ac.glob("**/action.yaml"),
+        ]
     )
     docs: list[Doc] = []
     errors: list[str] = []

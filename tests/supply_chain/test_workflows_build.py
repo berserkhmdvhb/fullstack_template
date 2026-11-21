@@ -301,3 +301,17 @@ PUSH_GUARD = (
 def test_every_job_refuses_to_run_outside_a_push_to_main_or_a_v_tag() -> None:
     for name, job in _jobs().items():
         assert _expr({"if": job["if"]}) == PUSH_GUARD, name
+
+
+def test_the_digest_step_pipes_with_pipefail() -> None:
+    step = next(s for s in _jobs()["build"]["steps"] if "imagetools inspect" in s.get("run", ""))
+    assert step["run"].lstrip().startswith("set -euo pipefail")
+
+
+def test_the_skipped_attestation_note_names_the_visibility_and_how_to_opt_in() -> None:
+    job = _jobs()["sign-attest"]
+    (note,) = [s for s in job["steps"] if "ATTESTATIONS_ENABLED" in str(s.get("run", ""))]
+    assert note["env"] == {"VISIBILITY": "${{ github.event.repository.visibility }}"}
+    assert "not public (visibility: ${VISIBILITY})" in note["run"]
+    assert "ATTESTATIONS_ENABLED" in note["run"]
+    assert "is private" not in note["run"]
