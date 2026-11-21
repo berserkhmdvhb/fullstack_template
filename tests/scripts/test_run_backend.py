@@ -65,7 +65,7 @@ def test_the_other_launchers_also_turn_uvicorns_proxy_headers_off(script: str) -
 
 
 def test_the_entrypoint_hides_the_server_header() -> None:
-    """The backend must not advertise its software in the `server` header (the live test pins it)."""
+    """The backend must not advertise its software in `server` (the live test pins it)."""
     assert "--no-server-header" in (ROOT / "infra/runtime/entrypoint.sh").read_text(
         encoding="utf-8"
     )

@@ -105,7 +105,9 @@ def test_cache_control_is_set_once_by_add_header_not_by_expires() -> None:
 
 
 def test_next_internals_are_hidden_from_proxied_responses() -> None:
-    """x-middleware-rewrite carries the backend URL; http-level, so every proxy location inherits it."""
+    """x-middleware-rewrite carries the backend URL; http-level, so proxy locations inherit it."""
     http = CONF[: CONF.index("  server {")]
-    hidden = set(re.findall(r"^\s*proxy_hide_header\s+(\S+);", re.sub(r"#.*", "", http), re.M))
+    hidden = set(
+        re.findall(r"^\s*proxy_hide_header\s+(\S+);", re.sub(r"#.*", "", http), re.MULTILINE)
+    )
     assert hidden == {"X-Middleware-Rewrite", "X-Powered-By"}
