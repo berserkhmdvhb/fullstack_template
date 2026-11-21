@@ -17,7 +17,7 @@ make check-all            # same, but auto-formats (rewrites files)
 make precommit            # every pre-commit hook on all files (install the git hook once: .tools/bin/pre-commit install)
 make test                 # backend unit + integration + e2e (hermetic; excludes live)
 make test-unit            # backend unit only
-make test-integration / test-e2e / test-live
+make test-integration / test-e2e / test-contract / test-live
 make shellcheck           # lint every tracked *.sh + *.bats
 make pins-refresh         # after bumping a pin: write the vendor checksums and regenerate the hashed locks
 cd frontend && npm run lint && npm run typecheck && npm run test   # frontend gates

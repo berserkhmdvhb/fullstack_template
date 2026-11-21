@@ -9,6 +9,7 @@ Four-layer testing pyramid for both backend and frontend, with CI integration.
 - [Overview](#overview)
 - [Backend Testing](#backend-testing)
 - [Frontend Testing](#frontend-testing)
+- [PostgreSQL, contract tests and the two gates](#postgresql-contract-tests-and-the-two-gates)
 - [Test Markers & Filtering](#test-markers--filtering)
 - [CI Integration](#ci-integration)
 - [Coverage Targets](#coverage-targets)
@@ -92,7 +93,8 @@ In-process ASGI tests that wire multiple components:
 | `test_lifespan_no_migration.py` | Startup never migrates |
 
 Integration and e2e tests get a migrated database from a shared fixture in `tests/conftest.py`; a test that
-needs another state overrides `_migrate_integration_and_e2e`.
+needs another state overrides `_migrate_integration_and_e2e`. They run on SQLite, or on PostgreSQL when
+`TEST_DATABASE_URL` is a PostgreSQL URL (see [below](#postgresql-contract-tests-and-the-two-gates)).
 
 **Markers**: `@pytest.mark.integration`
 
@@ -214,6 +216,42 @@ cd frontend && npm run test:e2e
 
 ---
 
+## PostgreSQL, contract tests and the two gates
+
+**Unit tests always use SQLite.** Integration, e2e and contract tests use PostgreSQL when `TEST_DATABASE_URL` is a
+`postgresql+asyncpg://` URL, and a per-test SQLite file otherwise; the same tests pass on both. The schema is made
+by the migrations (never `create_all`), once, and every test empties the application tables afterwards. A test that
+needs PostgreSQL is marked `postgres_only` (skipped on SQLite).
+
+```bash
+# a throwaway local PostgreSQL 16 (pick any password; the port is published on loopback only)
+docker run --rm -d --name pg-test -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=<password> postgres:16-alpine
+export TEST_DATABASE_URL='postgresql+asyncpg://postgres:<password>@127.0.0.1:5432/postgres'
+make test-integration test-e2e test-contract
+docker rm -f pg-test
+```
+
+CI does the same with a `postgres` service container in `reusable-backend.yml`, pinned by digest to the same major
+version and variant as the chart's in-cluster database (`postgresql.image`); a test keeps the two in step, and
+Renovate updates the digest. `tests/integration/test_migration_round_trip.py` upgrades to head, downgrades to base
+and upgrades again, on whichever database is selected.
+
+**Contract tests** (`tests/contract/`, `make test-contract`): [Schemathesis](https://schemathesis.readthedocs.io/)
+generates requests from the app's live OpenAPI document and sends them to the ASGI app in process. Checks: no server
+error, status code, content type and response schema conformance (the documented problem responses included).
+Deterministic: Hypothesis `derandomize` and 50 examples per operation. A failure prints the request that reproduces it.
+
+**The two gates** (both block, both behind `CI OK`):
+
+- **squawk** lints the migrations rendered offline for PostgreSQL (`alembic upgrade base:head --sql`, no database) with
+  the pinned [squawk](https://squawkhq.com/): `bash scripts/ci/squawk.sh`. Its rules are the defaults; the one
+  exception, with its reason, is in `.squawk.toml`.
+- **oasdiff** compares the OpenAPI snapshot with the base branch's and blocks breaking changes unless the pull
+  request has the `breaking-change` label: `BASE_REV=<revision> bash scripts/ci/oasdiff.sh` locally. See
+  [API lifecycle](./api-lifecycle.md).
+
+---
+
 ## Test Markers & Filtering
 
 ### Backend Markers
@@ -223,6 +261,9 @@ cd frontend && npm run test:e2e
 | `integration` | Hermetic tests wiring multiple components | **Excluded** |
 | `e2e` | End-to-end tests through public API | **Excluded** |
 | `live` | Tests requiring a running external server | **Excluded** |
+| `contract` | Schemathesis property tests from the OpenAPI document (`make test-contract`) | **Excluded**, and not in `make test` |
+| `postgres_only` | Needs PostgreSQL; skipped on SQLite | Runs with its layer |
+| `sqlite_only` | Edits a SQLite database file directly; skipped on PostgreSQL | Runs with its layer |
 
 Default `pytest` run excludes integration, e2e, and live tests (runs unit only):
 
@@ -257,10 +298,10 @@ flowchart LR
 
 | Job | Tests |
 |-----|-------|
-| `lint` | ruff format, ruff lint, mypy |
+| `lint` | ruff format, ruff lint, mypy, squawk on the migration SQL |
 | `unit` | Unit (matrix: Python 3.12, 3.13, and the advisory 3.14), with coverage |
-| `integration` | Integration (starts the backend) |
-| `e2e` | E2E (ASGI in-process) |
+| `integration` | Integration (starts the backend) and the contract tests, on a PostgreSQL service container |
+| `e2e` | E2E (ASGI in-process), on a PostgreSQL service container |
 | `live` (`reusable-live.yml`) | Live (starts the full stack): the backend suite, then Playwright; advisory on pull requests |
 
 A failed run uploads its JUnit and coverage reports as an artifact (7 days).

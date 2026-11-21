@@ -10,7 +10,7 @@ Production-grade template for API-based services with a FastAPI backend, Next.js
 |----------|-----------|
 | **Getting Started** | [Getting Started](./getting-started.md) · [Environment Variables](./environment-variables.md) · [Adaptation](./adaptation.md) |
 | **Architecture** | [System Overview](./architecture.md) · [Backend](./backend-architecture.md) · [Frontend](./frontend-architecture.md) · [Infrastructure](./infrastructure.md) |
-| **API** | [API Reference](./api-reference.md) |
+| **API** | [API Reference](./api-reference.md) · [API lifecycle](./api-lifecycle.md) |
 | **Development** | [Developer Guide](./developer-guide.md) · [Code Quality](./code-quality.md) · [Database](./database.md) |
 | **Testing** | [Testing Strategy](./testing.md) |
 | **CI/CD & Deploy** | [CI/CD Pipeline](./ci-cd.md) · [Supply-Chain Security](./supply-chain-security.md) · [Containerization](./containerization.md) · [Frontend Deployment](./frontend-deployment.md) |
