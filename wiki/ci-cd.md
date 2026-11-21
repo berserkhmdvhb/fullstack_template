@@ -128,9 +128,10 @@ Setup of the cloud side: [GKE cluster setup](./gke-cluster-setup.md), [Cloudflar
 | uv (`setup-backend`) | `uv-<os>-<python>-<hash of uv.lock>` (pruned with `uv cache prune --ci` before the save) | a push to `main` only |
 | npm (`setup-frontend`) | `npm-<os>-<node>-<hash of frontend/package-lock.json>` | a push to `main` only |
 | dev tools (`.tools/`) | `tools-<os>-<hash of tools/pins.tsv>` | a push to `main` only |
-| image layers | the GitHub Actions cache, scoped per image id and platform | `reusable-build.yml` (`mode=max`) |
 
 Pull requests and tags restore caches and never save them, so a pull request cannot poison what `main` restores.
+
+**The release build uses no cache at all.** `reusable-build.yml` has no `cache-from`, `cache-to` or `actions/cache`, and neither it nor `release.yml` (nor `deploy.yml` and `reusable-chart.yml`, which it calls) uses a `setup-*` cache, so every release builds every layer cold, from the commit, the pinned base images and the locked dependencies. The caches above serve test jobs only; nothing they hold is signed. The hardening lint enforces this (`no-release-cache`). The reason is in [Security](./security.md#a-release-build-starts-cold).
 
 ## Where each tool is pinned
 

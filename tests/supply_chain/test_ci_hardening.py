@@ -36,6 +36,7 @@ CHECKS = (
     "timeouts",
     "no-dry-run-env",
     "documented-permissions",
+    "no-release-cache",
 )
 USAGE_ERROR = 2
 FINDING = re.compile(r"^(?P<file>\S+?):(?P<line>\d+): (?P<check>[a-z-]+) ", re.MULTILINE)

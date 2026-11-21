@@ -186,7 +186,7 @@ flowchart TB
 | Feature | Benefit |
 |---------|---------|
 | **Matrix legs** | The three images build in parallel |
-| **GitHub Actions layer cache** | `cache-from` / `cache-to` of type `gha`, scoped per image |
+| **Cold builds** | The release build uses no layer cache, so every layer is built from the commit, the pinned bases and the locked dependencies |
 | **Digest check** | The pushed manifest digest must equal the build's digest |
 | **Pinned actions** | Every action is pinned by a full commit SHA |
 

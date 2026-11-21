@@ -158,11 +158,19 @@ def test_build_pushes_by_digest_only_without_a_tag() -> None:
     assert step["with"]["sbom"] is False
 
 
-def test_the_cache_is_scoped_per_image_and_platform() -> None:
+CACHE_WORDS = ("cache-from", "cache-to", "type=gha", "type=registry", "actions/cache")
+
+
+def test_release_builds_use_no_cache() -> None:
     (step,) = _uses(_jobs()["build"], "docker/build-push-action@")
-    scope = "scope=${{ matrix.id }}-${{ matrix.slug }}"
-    assert step["with"]["cache-from"] == f"type=gha,{scope}"
-    assert step["with"]["cache-to"] == f"type=gha,mode=max,{scope}"
+    assert not {"cache-from", "cache-to"} & set(step["with"])
+    for name in ("reusable-build.yml", "release.yml"):
+        text = (WORKFLOWS / name).read_text(encoding="utf-8")
+        for word in CACHE_WORDS:
+            assert word not in text, (name, word)
+        for job_step in steps_of(workflow(name)):
+            assert "cache" not in (job_step.get("with") or {}), (name, job_step)
+            assert not str(job_step.get("uses", "")).startswith("./.github/actions/setup-"), name
 
 
 def test_the_merge_job_builds_the_index_from_the_per_platform_digests() -> None:

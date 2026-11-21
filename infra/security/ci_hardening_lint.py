@@ -13,7 +13,8 @@ Checks (ids are stable):
   pinned-uses, top-permissions, no-prt-checkout, no-inline-secrets, image-digest,
   image-push-isolation (only reusable-build.yml pushes, signs or attests images), provenance
   (when a workflow calls reusable-build.yml, it must sign, verify and attest), osv-coverage,
-  environment-for-secrets, timeouts, no-dry-run-env, documented-permissions.
+  environment-for-secrets, timeouts, no-dry-run-env, documented-permissions, no-release-cache
+  (the release path uses no build cache, no actions/cache and no setup-* cache).
 
 Known limitation: image-digest accepts a value that is one whole ``${{ }}`` expression (a digest
 computed at run time, verified by the image-verify step); it cannot see through the expression.
@@ -604,6 +605,59 @@ def check_environment_for_secrets(doc: Doc) -> list[Finding]:
     return found
 
 
+# The workflows that build, push, sign or attest an image, and the ones they call. Their output is
+# signed, so they must start cold: a cache that another job on main can write could inject a layer
+# that the signature and provenance then vouch for.
+RELEASE_PATH = tuple(
+    f".github/workflows/{n}"
+    for n in ("release.yml", "reusable-build.yml", "deploy.yml", "reusable-chart.yml")
+)
+_CACHE_WORDS = re.compile(r"--cache-(?:from|to)\b|\btype=(?:gha|registry|local|s3|azblob)\b")
+NO_CACHE_REASON = (
+    "the release path must use no cache (SLSA Build L3 isolation: one build must not be able to "
+    "inject into a cache another build reads, and the output must not depend on one)"
+)
+
+
+def _with_cache(ref: str, with_: LDict) -> str | None:
+    """The cache a step's `with:` block turns on, or None."""
+    action = ref.split("@", maxsplit=1)[0]
+    for key in ("cache-from", "cache-to"):
+        if key in with_:
+            return f"{key} on {action or 'a step'}"
+    if action.startswith("actions/setup-") and str(with_.get("cache", "false")).lower() != "false":
+        return f"cache: {with_.get('cache')} on {action}"
+    if any(_CACHE_WORDS.search(v) for v in _scalars(with_)):
+        return "a build cache type"
+    return None
+
+
+def _step_cache(step: LDict) -> str | None:
+    """What cache this step reads or writes, or None."""
+    ref = str(step.get("uses", ""))
+    with_ = step.get("with")
+    found = None
+    if ref.startswith("actions/cache"):
+        found = ref.split("@", maxsplit=1)[0]
+    elif ref.startswith("./.github/actions/setup-"):
+        found = f"{ref} (it caches its tool downloads)"
+    elif isinstance(with_, LDict):
+        found = _with_cache(ref, with_)
+    if found is None and _CACHE_WORDS.search(str(step.get("run", ""))):
+        found = "a build cache flag in a run script"
+    return found
+
+
+def check_no_release_cache(doc: Doc) -> list[Finding]:
+    if not doc.name.endswith(RELEASE_PATH):
+        return []
+    return [
+        Finding(doc.name, step.line, "no-release-cache", f"{what}: {NO_CACHE_REASON}")
+        for step in doc.steps()
+        if (what := _step_cache(step))
+    ]
+
+
 def check_timeouts(doc: Doc) -> list[Finding]:
     return [
         Finding(doc.name, job.line, "timeouts", f"job {job_id} has no timeout-minutes")
@@ -675,6 +729,7 @@ PER_DOC_CHECKS: tuple[Check, ...] = (
     check_timeouts,
     check_no_dry_run_env,
     check_documented_permissions,
+    check_no_release_cache,
 )
 
 

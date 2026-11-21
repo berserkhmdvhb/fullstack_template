@@ -91,8 +91,6 @@ jobs:
           outputs: type=image,name=${{ matrix.repository }},push-by-digest=true,name-canonical=true,push=true
           provenance: false
           sbom: false
-          cache-from: type=gha,scope=${{ matrix.id }}-${{ matrix.slug }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.id }}-${{ matrix.slug }}
       - name: Verify the pushed digest
         env:
           BUILD_DIGEST: ${{ steps.build.outputs.digest }}

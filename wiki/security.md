@@ -478,6 +478,10 @@ Two files pin tools with checksums: `tools/pins.tsv` (the dev toolchain, read by
 
 No bot writes checksums or holds a write token for it. `scripts/pins-refresh.sh --check` is the read-only form CI runs: on a pull request only the rows that differ from the base, on `main` and weekly ([`pins-drift.yml`](../.github/workflows/pins-drift.yml)) every row. The check also reads every hashed lock under `tools/requirements/`: each entry's hashes must be published by PyPI for that version and the files the lock records must be at least 7 days old; `make pins-refresh` regenerates with `--exclude-newer` (now minus 7 days) and keeps one pyyaml across locks. A lock line that is not part of a hash-pinned entry (an index option, `-r`, a one-line requirement) fails the check. A url that does not start with the vendor's expected prefix fails the check, so a look-alike org cannot turn it green. `scripts/pins_refresh.py` holds the one table that says where each tool's checksum comes from (a vendor checksum file, the GitHub release-asset digest for the two tools that publish none, the tag archive for bats, PyPI for the Python tools).
 
+### A release build starts cold
+
+The release build reads and writes no build cache: no `cache-from`, no `cache-to`, no `actions/cache` and no `setup-*` cache in `reusable-build.yml` or the workflows it is called from. A cache that any job on `main` can write (a test job that runs third-party packages, or any third-party action) could put a poisoned layer into an image that the pipeline then signs and attests as built from its commit, and the signature and provenance would look valid. SLSA v1.0 Build L3 requires that one build cannot inject entries into a cache another build uses, and that the output does not depend on the cache. Each release therefore builds every layer from the commit, the pinned base images and the locked dependencies, at the cost of build time. The hardening lint (`no-release-cache`) fails any cache there; the cacheless pull-request `images` job is unchanged.
+
 ### Verifying an image
 
 Every image the release workflow pushes is signed keyless (Sigstore, no key to keep) and carries a
