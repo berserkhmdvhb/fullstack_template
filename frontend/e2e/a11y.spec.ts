@@ -10,16 +10,9 @@
  */
 
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
-// The home page shows a status that depends on the backend, so both states are scanned.
-const PAGES = [
-  { name: '/', path: '/', health: 'up' },
-  { name: '/ (backend down)', path: '/', health: 'down' },
-  { name: '/items', path: '/items', health: 'up' },
-  { name: '/no-such-page', path: '/no-such-page', health: 'up' },
-] as const;
 const THEMES = ['light', 'dark'] as const;
 const WIDTHS = { desktop: 1280, phone: 390 } as const;
 
@@ -48,9 +41,71 @@ const ITEMS = {
   total_pages: 1,
 };
 
+type Scenario = {
+  name: string;
+  path: string;
+  health?: 'down';
+  items?: 'down';
+  /** Reach the state under test; it runs after the page has loaded. */
+  arrange: (page: Page) => Promise<void>;
+};
+
+const nothing = async (): Promise<void> => {};
+
+// States that depend on the backend or on what the user does are scanned too, not only the first paint.
+const SCENARIOS: Scenario[] = [
+  {
+    name: '/',
+    path: '/',
+    arrange: async (page) => {
+      await expect(page.locator('main')).toContainText('Backend healthy');
+    },
+  },
+  {
+    name: '/ (backend down)',
+    path: '/',
+    health: 'down',
+    arrange: async (page) => {
+      await expect(page.locator('main')).toContainText('Backend unreachable');
+    },
+  },
+  {
+    name: '/items',
+    path: '/items',
+    arrange: async (page) => {
+      await expect(page.locator('td', { hasText: 'First item' })).toBeVisible();
+    },
+  },
+  {
+    name: '/items (list failed)',
+    path: '/items',
+    items: 'down',
+    arrange: async (page) => {
+      await expect(page.locator('main')).toContainText('Failed to load items.');
+    },
+  },
+  {
+    name: '/items (form errors)',
+    path: '/items',
+    arrange: async (page) => {
+      await page.locator('button[type="submit"]').click();
+      await expect(page.locator('#name-error')).toBeVisible();
+    },
+  },
+  {
+    name: '/items (delete dialog)',
+    path: '/items',
+    arrange: async (page) => {
+      await page.locator('button[aria-label="Delete First item"]').click();
+      await expect(page.locator('[role="dialog"]')).toBeVisible();
+    },
+  },
+  { name: '/no-such-page', path: '/no-such-page', arrange: nothing },
+];
+
 for (const [size, width] of Object.entries(WIDTHS)) {
   for (const theme of THEMES) {
-    for (const { name, path, health } of PAGES) {
+    for (const { name, path, health, items, arrange } of SCENARIOS) {
       test(`${name} has no axe violation (${theme}, ${size} ${String(width)}px)`, async ({
         page,
       }) => {
@@ -59,19 +114,15 @@ for (const [size, width] of Object.entries(WIDTHS)) {
           localStorage.setItem('theme', value);
         }, theme);
         await page.route('**/api/v1/health', (route) =>
-          health === 'up' ? route.fulfill({ json: { status: 'ok' } }) : route.abort(),
+          health === 'down' ? route.abort() : route.fulfill({ json: { status: 'ok' } }),
         );
-        await page.route('**/api/v1/items?*', (route) => route.fulfill({ json: ITEMS }));
+        await page.route('**/api/v1/items?*', (route) =>
+          items === 'down' ? route.abort() : route.fulfill({ json: ITEMS }),
+        );
         await page.goto(path);
         await page.waitForLoadState('networkidle');
         await expect(page.locator('html')).toHaveClass(new RegExp(theme));
-        if (path === '/') {
-          await expect(page.locator('main')).toContainText(
-            health === 'up' ? 'Backend healthy' : 'Backend unreachable',
-          );
-        }
-        if (path === '/items')
-          await expect(page.locator('td', { hasText: 'First item' })).toBeVisible();
+        await arrange(page);
 
         const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
 
