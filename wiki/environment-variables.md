@@ -54,6 +54,9 @@ rules in the last column are enforced at startup, and a violation stops the back
 leaves them off, and an unset `ENV` is `dev`. The chart's production values set `ENV=production`, so
 the rules are on there.
 
+`TRUSTED_PROXY_CIDRS` and `TRUST_CF_CONNECTING_IP` decide which forwarding headers the backend
+believes when it resolves the client IP; the model is in [Client IP](security.md#client-ip).
+
 | Variable | Type | Default | Description | Production rule |
 |---|---|---|---|---|
 | `ENV` | str | `dev` | Deployment environment. `production` (or `prod`) turns on the production checks below; any other value leaves them off. | — |
@@ -102,14 +105,13 @@ the rules are on there.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BACKEND_ENTRY` | `your_service_name.backend.main:app` | ASGI entry point for Gunicorn |
+| `BACKEND_ENTRY` | `your_service_name.backend.main:app` | ASGI entry point for Uvicorn |
 | `BACKEND_HOST` | `127.0.0.1` | Backend bind host |
 | `BACKEND_PORT` | `8000` | Backend bind port |
 | `BACKEND_URL` | `http://localhost:${BACKEND_PORT}` | Full backend URL |
 | `BACKEND_BIND` | — | Override bind address (set to `0.0.0.0` in containers) |
-| `GUNICORN_WORKERS` | `1` | Number of Gunicorn worker processes (1 per pod; Kubernetes scales pods, and a single readiness probe must observe the only worker) |
-| `GUNICORN_TIMEOUT` | `120` | Gunicorn worker timeout (seconds) |
-| `GUNICORN_RELOAD` | `false` | Auto-reload on code changes (development only) |
+| `BACKEND_KEEPALIVE_TIMEOUT` | `75` | Launcher-level (`infra/backend/run_backend.sh`; the Python app never reads it): seconds Uvicorn keeps an idle connection open. Keep it longer than the gateway's upstream idle timeout (`waf.upstreamIdleTimeoutSeconds`, 60 in the chart), or the gateway can reuse a connection just closed and return a 502. |
+| `BACKEND_GRACEFUL_TIMEOUT` | `30` | Launcher-level: seconds Uvicorn drains in-flight requests after SIGTERM before it exits. |
 | `CUDA_VISIBLE_DEVICES` | _(empty)_ | GPU visibility (leave empty if not using GPU) |
 
 ---
@@ -145,7 +147,7 @@ the rules are on there.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SERVICE_MODE` | `backend` | Which services `infra/runtime/entrypoint.sh` starts: `backend`, `frontend`, `nginx` or `all`. No longer used in production, where each container runs one service directly (gunicorn for backend, node for frontend, nginx for the edge proxy). |
+| `SERVICE_MODE` | `backend` | Which services `infra/runtime/entrypoint.sh` starts: `backend`, `frontend`, `nginx` or `all`. No longer used in production, where each container runs one service directly (uvicorn for backend, node for frontend, nginx for the edge proxy). |
 
 ---
 

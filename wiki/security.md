@@ -10,6 +10,7 @@ Security headers, CORS, rate limiting, supply-chain scanning, container hardenin
 - [HTTP Security Headers](#http-security-headers)
 - [CORS Configuration](#cors-configuration)
 - [Rate Limiting](#rate-limiting)
+- [Client IP](#client-ip)
 - [Supply-Chain Security (CI)](#supply-chain-security-ci)
 - [Container Security](#container-security)
 - [Kubernetes Security](#kubernetes-security)
@@ -201,9 +202,46 @@ metadata:
 
 ### Behavior
 
-- Rate limit is applied **per IP address**
+- Rate limit is applied **per client IP address** (the resolved address, see [Client IP](#client-ip))
 - Exceeding the limit returns `429 Too Many Requests`
 - Response includes `Retry-After` header (seconds until reset)
+
+---
+
+## Client IP
+
+Behind the gateway (and, in the Cloudflare Tunnel edge mode, `cloudflared`) the TCP peer of the
+backend is a proxy Pod. The backend resolves the real client once, in
+`backend/middleware/client_ip.py`, the outermost middleware, which rewrites `request.client` so the
+rate limiter and the request logs see one value. Uvicorn's own proxy-header handling is off
+(`--no-proxy-headers`): it cannot read `CF-Connecting-IP`, and two resolvers would be two trust lists.
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `TRUSTED_PROXY_CIDRS` | empty | The cloudflared and gateway Pod ranges of your cluster (comma-separated IPv4/IPv6 CIDRs). An invalid entry stops startup. |
+| `TRUST_CF_CONNECTING_IP` | `false` | Believe `CF-Connecting-IP` from a trusted peer. Set it only in the Tunnel edge mode. |
+
+Rules, in order:
+
+1. A peer that is missing, is not an IP, or is **not** in `TRUSTED_PROXY_CIDRS`: the peer is the
+   client, and every forwarding header is ignored. A client cannot forge its own address.
+2. A trusted peer with `TRUST_CF_CONNECTING_IP` on and a `CF-Connecting-IP` holding exactly one valid
+   IP: that IP. Cloudflare overwrites the header at its edge; in the other edge modes nothing does,
+   so trusting it would let anyone forge it.
+3. Otherwise a trusted peer's `X-Forwarded-For` is read **from the right**, skipping trusted hops;
+   the first untrusted valid IP is the client. A value that is not an IP stops the walk at the last
+   trusted hop, never at something left of it. If every entry is trusted, the leftmost is used.
+4. Otherwise the peer.
+
+A trusted peer's `X-Forwarded-Proto` (`http` or `https`) also sets the request scheme.
+
+**Why the default trusts nothing.** Pod CIDRs are cluster-specific, so the chart guesses none. With
+the default every client behind a proxy shares the proxy's address, so one rate-limit bucket: safe
+but coarse. Set the ranges for your cluster (`values.yaml`, `config:`); production refuses
+`TRUST_CF_CONNECTING_IP=true` with no ranges.
+
+The **edge rate limit** (Cloudflare, or the Ingress annotations above) is the first line of defence;
+this per-IP limit is the second.
 
 ---
 

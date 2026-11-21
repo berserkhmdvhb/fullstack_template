@@ -9,7 +9,7 @@ Responsibilities:
 
 Public API (import from `backend.main`):
 - `create_app`: Factory to construct the FastAPI application.
-- `app`: ASGI application instance (for Uvicorn/Gunicorn), `your_service_name.backend.main:app`.
+- `app`: ASGI application instance (for Uvicorn), `your_service_name.backend.main:app`.
 
 Operational:
 - Concurrency: Async endpoints; lifespan handles startup/shutdown.

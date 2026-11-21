@@ -50,7 +50,7 @@ flowchart TB
 
 | Dockerfile | Service | Base Image | Port |
 |------------|---------|-----------|------|
-| `Dockerfile.backend` | FastAPI + Gunicorn | `python:3.12-slim` | 8000 |
+| `Dockerfile.backend` | FastAPI + Uvicorn | `python:3.12-slim` | 8000 |
 | `Dockerfile.frontend` | Next.js standalone | `node:22-slim` | 3000 |
 | `Dockerfile.nginx` | Static assets | `nginx:alpine` | 8081 |
 
@@ -88,8 +88,7 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
 
 USER appuser
 ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
-CMD ["gunicorn", "your_service_name.backend.main:create_app()", \
-     "--bind", "0.0.0.0:8000", "--workers", "4"]
+CMD ["/app/infra/backend/run_backend.sh"]
 ```
 
 **Key features**:
@@ -200,7 +199,7 @@ Each container starts its service directly via `CMD`:
 
 | Service | Init | Command | User |
 |---------|------|---------|------|
-| **Backend** | `tini` | `gunicorn + uvicorn workers` | `appuser` (10001) |
+| **Backend** | `tini` | `uvicorn` (one process, via `run_backend.sh`) | `appuser` (10001) |
 | **Frontend** | — | `node server.js` | `appuser` (10001) |
 | **Nginx** | — | `nginx -g daemon off;` | `nginx` (101) |
 

@@ -12,7 +12,7 @@ Responsibilities
 Public API
 ----------
 - `create_app`: Construct and configure the FastAPI application.
-- `app`: ASGI application instance for Uvicorn/Gunicorn.
+- `app`: ASGI application instance for Uvicorn.
 
 Operational
 -----------
@@ -137,7 +137,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # the DB is healthy — so a broken DB tier can never hide behind a green
     # /health or serve 5xx to clients (seen in an end-to-end run). In production
     # migrations normally run in the migration Job / init container before
-    # Gunicorn starts; this is the in-process safety net (also used by tests).
+    # Uvicorn starts; this is the in-process safety net (also used by tests).
     try:
         from your_service_name.backend.db.engine import (  # noqa: PLC0415 — scoped import to isolate DB init failure
             init_db,
@@ -254,5 +254,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-# ASGI app for uvicorn/gunicorn
+# ASGI app for Uvicorn
 app = create_app()

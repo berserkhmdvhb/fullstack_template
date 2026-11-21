@@ -27,7 +27,7 @@ Local development workflow, Makefile commands, code quality tools, Kubernetes de
 
 ### Hot Reload
 
-- **Backend**: Set `GUNICORN_RELOAD=true` in `.env` for auto-reload on code changes
+- **Backend**: run `./run_backend.sh` (Uvicorn with `--reload`) for auto-reload on code changes
 - **Frontend**: `npm run dev` includes hot module replacement (HMR) by default
 
 ---
@@ -259,7 +259,7 @@ kubectl -n your-service-name-local port-forward svc/your-service-name-backend 80
 DEBUG=TRUE LOG_LEVEL=DEBUG python -m your_service_name.backend.main
 
 # Run with auto-reload
-GUNICORN_RELOAD=true python -m your_service_name.backend.main
+./run_backend.sh
 
 # Check database connectivity
 python -c "from your_service_name.backend.db.engine import get_session; print('OK')"

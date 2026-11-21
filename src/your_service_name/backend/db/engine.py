@@ -222,7 +222,7 @@ async def init_db(app: FastAPI) -> None:
       module-level engine/session factory.
     - Sets ``_db_initialized`` only on success; the readiness probe keys off it.
     - In production migrations normally run in the migration Job / init container
-      before Gunicorn starts; this is the belt-and-suspenders in-process path
+      before the server starts; this is the belt-and-suspenders in-process path
       (also used by tests via LifespanManager).
     """
     global _db_initialized

@@ -42,6 +42,9 @@ the backend with one error naming each problem. Names are case-sensitive.
 rules in the last column are enforced at startup, and a violation stops the backend. Any other value
 leaves them off, and an unset `ENV` is `dev`. The chart's production values set `ENV=production`, so
 the rules are on there.
+
+`TRUSTED_PROXY_CIDRS` and `TRUST_CF_CONNECTING_IP` decide which forwarding headers the backend
+believes when it resolves the client IP; the model is in [Client IP](security.md#client-ip).
 """
 
 

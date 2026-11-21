@@ -33,7 +33,7 @@ It ensures:
 ```text
 .
 ├── docker-compose.yml      # Local development stack (optional)
-├── Dockerfile.backend      # Backend image (FastAPI + Gunicorn)
+├── Dockerfile.backend      # Backend image (FastAPI + Uvicorn)
 ├── Dockerfile.frontend     # Frontend image (Next.js standalone)
 ├── Dockerfile.nginx        # NGINX static-asset image
 ├── charts/your-service-name/  # Helm chart (dev/qa/production/local via values.<env>.yaml)

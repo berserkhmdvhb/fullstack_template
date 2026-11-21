@@ -76,7 +76,7 @@ flowchart TB
 .
 ├── .github/                    # GitHub Actions workflows, composite actions, helper scripts
 ├── docker-compose.yml          # Local dev stack (4 services)
-├── Dockerfile.backend          # Backend container (FastAPI + Gunicorn)
+├── Dockerfile.backend          # Backend container (FastAPI + Uvicorn)
 ├── Dockerfile.frontend         # Frontend container (Next.js)
 ├── Dockerfile.nginx            # Nginx static assets container
 ├── Makefile                    # Development shortcuts
