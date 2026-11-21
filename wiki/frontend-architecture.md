@@ -26,7 +26,7 @@ The frontend is a **Next.js 16** application using the App Router, built with:
 |-----------|---------|
 | **Next.js 16** | Framework, App Router, SSR/SSG, standalone output |
 | **React 19** | UI library, hooks, concurrent features |
-| **TypeScript 5.9** | Type safety, strict mode |
+| **TypeScript 6.0** | Type safety, strict mode |
 | **Tailwind CSS 3** | Utility-first styling with CSS variable theming |
 | **React Query v5** | Server state management, caching, refetching |
 | **React Hook Form** | Form handling with zero re-renders |

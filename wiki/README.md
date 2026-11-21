@@ -58,7 +58,7 @@ flowchart TB
 | Layer | Technology | Version |
 |-------|-----------|---------|
 | **Backend** | Python, FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2 | 3.12+ |
-| **Frontend** | Next.js 16, React 19, TypeScript 5.9, Tailwind CSS 3 | Node 26+ |
+| **Frontend** | Next.js 16, React 19, TypeScript 6.0, Tailwind CSS 3 | Node 26+ |
 | **Edge/Gateway** | NGINX Ingress Controller (Kubernetes) | — |
 | **Static** | Nginx (light, in-cluster) | — |
 | **Database** | PostgreSQL 16 (asyncpg) / SQLite fallback | — |
