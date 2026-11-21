@@ -18,6 +18,10 @@ IDENTITY = (
     '/.github/workflows/reusable-build.yml@${GITHUB_REF}"'
 )
 ISSUER = "--certificate-oidc-issuer https://token.actions.githubusercontent.com"
+REPOSITORY_CLAIM = '--certificate-github-workflow-repository "${GITHUB_REPOSITORY}"'
+ATTEST_GUARD = (
+    "github.event.repository.visibility == 'public' || vars.ATTESTATIONS_ENABLED == 'true'"
+)
 WORKFLOW_SHA = '--certificate-github-workflow-sha "${GITHUB_SHA}"'
 ATTESTATIONS = ("actions/attest-build-provenance@", "actions/attest-sbom@")
 
@@ -36,6 +40,11 @@ def _runs(job: dict[str, Any]) -> str:
 
 def _uses(job: dict[str, Any], prefix: str) -> list[dict[str, Any]]:
     return [s for s in job["steps"] if str(s.get("uses", "")).startswith(prefix)]
+
+
+def _expr(step: dict[str, Any]) -> str:
+    """The step's `if:` without the `${{ }}` wrapper."""
+    return re.sub(r"^\$\{\{\s*(.*?)\s*\}\}$", r"\1", str(step["if"]).strip())
 
 
 def _index(job: dict[str, Any], needle: str) -> int:
@@ -162,6 +171,7 @@ def test_verify_pins_the_workflow_identity_issuer_and_commit() -> None:
     assert IDENTITY in verify
     assert ISSUER in verify
     assert WORKFLOW_SHA in verify
+    assert REPOSITORY_CLAIM in verify  # a foreign repo can call this workflow and get our SAN
     assert "--certificate-identity-regexp" not in verify
     sign = job["steps"][_index(job, "cosign sign")]["run"]
     assert "cosign sign --yes " in sign
@@ -262,3 +272,21 @@ def test_no_pull_request_or_manual_trigger_and_no_hard_coded_owner() -> None:
         assert "pull_request" not in str(step.get("if", ""))
     assert set(_wf()["on"]) == {"workflow_call"}
     assert "ghcr.io/" not in str(_wf()).replace("ghcr.io/${{", "")
+
+
+def test_attestations_run_only_on_public_repos_or_when_enabled_and_signing_always_runs() -> None:
+    job = _jobs()["sign-attest"]
+    for prefix in ATTESTATIONS:
+        (step,) = _uses(job, prefix)
+        assert _expr(step) == ATTEST_GUARD
+    for needle in ("cosign sign", "cosign verify"):
+        assert "if" not in job["steps"][_index(job, needle)]
+
+
+def test_skipped_attestations_warn_and_say_how_to_enable_them() -> None:
+    job = _jobs()["sign-attest"]
+    (note,) = [s for s in job["steps"] if "ATTESTATIONS_ENABLED" in str(s.get("run", ""))]
+    assert _expr(note) == f"!({ATTEST_GUARD})"
+    assert "::warning::" in note["run"]
+    assert "GITHUB_STEP_SUMMARY" in note["run"]
+    assert "${{" not in note["run"]

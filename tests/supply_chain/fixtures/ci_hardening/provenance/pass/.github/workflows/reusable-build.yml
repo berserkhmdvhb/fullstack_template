@@ -25,11 +25,13 @@ jobs:
       - name: Verify
         run: cosign verify "${REF}"
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: github.event.repository.visibility == 'public' || vars.ATTESTATIONS_ENABLED == 'true'
         with:
           subject-name: x
           subject-digest: y
           push-to-registry: true
       - uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        if: github.event.repository.visibility == 'public' || vars.ATTESTATIONS_ENABLED == 'true'
         with:
           subject-name: x
           push-to-registry: true

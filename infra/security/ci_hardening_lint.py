@@ -409,12 +409,26 @@ def _step_index(steps: list[Any], match: Callable[[LDict], bool]) -> int | None:
     return next((i for i, s in enumerate(steps) if isinstance(s, LDict) and match(s)), None)
 
 
+ATTEST_GUARD = (
+    "github.event.repository.visibility == 'public' || vars.ATTESTATIONS_ENABLED == 'true'"
+)
+
+
+def _guard_text(step: LDict) -> str:
+    """The step's `if:` without `${{ }}` and with single spaces; empty when it has none."""
+    expr = str(step.get("if", "")).strip()
+    expr = re.sub(r"^\$\{\{(.*)\}\}$", r"\1", expr, flags=re.DOTALL)
+    return " ".join(expr.split())
+
+
 def _attest_pushes(step: LDict, action: str) -> bool:
+    """The step attests with push-to-registry, guarded by exactly ATTEST_GUARD."""
     with_ = step.get("with")
     return (
         str(step.get("uses", "")).startswith(f"actions/{action}@")
         and isinstance(with_, LDict)
         and str(with_.get("push-to-registry", "")).strip().lower() == "true"
+        and _guard_text(step) == ATTEST_GUARD
     )
 
 
@@ -430,7 +444,7 @@ def _signing_gaps(doc: Doc, job_id: str, job: LDict) -> list[Finding]:
     if verify is None:
         gaps.append("a cosign verify step after the cosign sign step")
     gaps += [
-        f"actions/{action} with push-to-registry: true"
+        f"actions/{action} with push-to-registry: true and the guard `if: {ATTEST_GUARD}`"
         for action in ("attest-build-provenance", "attest-sbom")
         if _step_index(steps, lambda s, a=action: _attest_pushes(s, a)) is None  # type: ignore[misc]
     ]

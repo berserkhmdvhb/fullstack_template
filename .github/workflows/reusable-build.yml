@@ -265,15 +265,25 @@ jobs:
           cosign verify "${REPOSITORY}@${DIGEST}" \
             --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/reusable-build.yml@${GITHUB_REF}" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-github-workflow-repository "${GITHUB_REPOSITORY}" \
             --certificate-github-workflow-sha "${GITHUB_SHA}" > /dev/null
           echo "- \`${REPOSITORY}@${DIGEST}\` signed and verified" >> "$GITHUB_STEP_SUMMARY"
+      # Artifact attestations need a public repository (or GitHub Enterprise Cloud); a private one
+      # opts in with the variable ATTESTATIONS_ENABLED. Signing above always runs.
+      - name: Note skipped attestations
+        if: ${{ !(github.event.repository.visibility == 'public' || vars.ATTESTATIONS_ENABLED == 'true') }}
+        run: |
+          echo "::warning::provenance and SBOM attestations skipped: this repository is private; set the variable ATTESTATIONS_ENABLED to true if its plan supports them"
+          echo "- attestations skipped (private repository; set ATTESTATIONS_ENABLED=true to enable)" >> "$GITHUB_STEP_SUMMARY"
       - name: Attest the build provenance
+        if: ${{ github.event.repository.visibility == 'public' || vars.ATTESTATIONS_ENABLED == 'true' }}
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ matrix.repository }}
           subject-digest: ${{ steps.ref.outputs.digest }}
           push-to-registry: true
       - name: Attest the SBOM
+        if: ${{ github.event.repository.visibility == 'public' || vars.ATTESTATIONS_ENABLED == 'true' }}
         uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
         with:
           sbom-path: ${{ env.SEC_OUTPUT_DIR }}/sbom/${{ matrix.id }}.image.sbom.cdx.json
