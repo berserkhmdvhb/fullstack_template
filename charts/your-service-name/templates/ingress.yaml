@@ -49,36 +49,6 @@ spec:
     - host: {{ .Values.ingress.hosts.app | quote }}
       http:
         paths:
-          - path: /_next/static
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "chart.fullname" . }}-nginx
-                port: { number: 8081 }
-          - path: /logo.png
-            pathType: Exact
-            backend:
-              service:
-                name: {{ include "chart.fullname" . }}-nginx
-                port: { number: 8081 }
-          - path: /favicon.ico
-            pathType: Exact
-            backend:
-              service:
-                name: {{ include "chart.fullname" . }}-nginx
-                port: { number: 8081 }
-          - path: /robots.txt
-            pathType: Exact
-            backend:
-              service:
-                name: {{ include "chart.fullname" . }}-nginx
-                port: { number: 8081 }
-          - path: /sitemap.xml
-            pathType: Exact
-            backend:
-              service:
-                name: {{ include "chart.fullname" . }}-nginx
-                port: { number: 8081 }
           - path: /
             pathType: Prefix
             backend:
@@ -107,12 +77,6 @@ spec:
               service:
                 name: {{ include "chart.apiBackendService" . }}
                 port: { number: 8000 }
-          - path: /_next/static
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "chart.fullname" . }}-nginx
-                port: { number: 8081 }
           - path: /
             pathType: Prefix
             backend:

@@ -1,8 +1,8 @@
 apiVersion: v2
 name: your-service-name
 description: >-
-  Helm chart for the your-service-name 3-tier stack (FastAPI backend + Next.js
-  frontend + nginx static) with a gated in-cluster PostgreSQL tier (external DB
+  Helm chart for the your-service-name stack (FastAPI backend + Next.js
+  frontend) with a gated in-cluster PostgreSQL tier (external DB
   for production). Per-environment, per-tier namespaces.
 type: application
 version: 0.1.0

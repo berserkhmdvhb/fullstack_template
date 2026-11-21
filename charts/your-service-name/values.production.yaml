@@ -18,15 +18,6 @@ imagePullPolicy: Always
 images:
   backend: {repository: your-service-name-backend, tag: latest, registry: registry.your-domain.example}
   frontend: {repository: your-service-name-frontend, tag: latest, registry: registry.your-domain.example}
-  nginx: {repository: your-service-name-nginx, tag: latest, registry: registry.your-domain.example}
-
-# nginx has no static replica here on purpose: the nginx HPA (below) owns it and
-# keeps >=2 for high availability, so the static-asset tier is not a SPOF (C-L12).
-hpa:
-  nginx:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 4
 
 config:
   ENV: production

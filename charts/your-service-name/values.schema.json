@@ -48,8 +48,7 @@
       "additionalProperties": false,
       "properties": {
         "backend":  { "$ref": "#/definitions/image" },
-        "frontend": { "$ref": "#/definitions/image" },
-        "nginx":    { "$ref": "#/definitions/image" }
+        "frontend": { "$ref": "#/definitions/image" }
       }
     },
 
@@ -135,8 +134,7 @@
       "additionalProperties": false,
       "properties": {
         "backend":  { "type": "integer", "minimum": 1 },
-        "frontend": { "type": "integer", "minimum": 1 },
-        "nginx":    { "type": "integer", "minimum": 1 }
+        "frontend": { "type": "integer", "minimum": 1 }
       }
     },
 
@@ -145,8 +143,7 @@
       "additionalProperties": false,
       "properties": {
         "backend":  { "$ref": "#/definitions/resources" },
-        "frontend": { "$ref": "#/definitions/resources" },
-        "nginx":    { "$ref": "#/definitions/resources" }
+        "frontend": { "$ref": "#/definitions/resources" }
       }
     },
 
@@ -215,8 +212,7 @@
       "additionalProperties": false,
       "properties": {
         "backend":  { "$ref": "#/definitions/hpa" },
-        "frontend": { "$ref": "#/definitions/hpa" },
-        "nginx":    { "$ref": "#/definitions/hpa" }
+        "frontend": { "$ref": "#/definitions/hpa" }
       }
     },
 

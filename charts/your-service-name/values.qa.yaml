@@ -8,7 +8,6 @@ imagePullPolicy: Always
 images:
   backend: {repository: your-service-name-backend, tag: latest, registry: registry.your-domain.example}
   frontend: {repository: your-service-name-frontend, tag: latest, registry: registry.your-domain.example}
-  nginx: {repository: your-service-name-nginx, tag: latest, registry: registry.your-domain.example}
 
 config:
   ENV: qa

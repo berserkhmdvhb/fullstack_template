@@ -50,11 +50,6 @@ images:
     tag: dev
     registry: ""
     digest: ""
-  nginx:
-    repository: your-service-name-nginx
-    tag: dev
-    registry: ""
-    digest: ""
 
 # Backend-only settings.
 backend:
@@ -112,7 +107,6 @@ database:
 replicas:
   backend: 2
   frontend: 2
-  nginx: 1
 
 # Per-workload resources (kept faithful to the base manifests).
 resources:
@@ -122,9 +116,6 @@ resources:
   frontend:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {cpu: "1", memory: 1Gi}
-  nginx:
-    requests: {cpu: 50m, memory: 64Mi}
-    limits: {cpu: 200m, memory: 128Mi}
 
 # ---- Config (non-secret) -> ConfigMap ------------------------------------
 # DB_HOST is intentionally absent: it is computed in the template from the db
@@ -146,9 +137,6 @@ config:
   FRONTEND_PORT: "3000"
   FRONTEND_ROOT: /app/frontend
   FRONTEND_REACT_SERVER: /app/frontend/.next/standalone/server.js
-  NGINX_HOST: "0.0.0.0"
-  NGINX_PORT: "8081"
-  NGINX_CONF: /app/infra/nginx/nginx.conf
   DB_PORT: "5432"
   DB_NAME: service_template
   LOG_DIR: /app/logs
@@ -266,14 +254,6 @@ hpa:
     enabled: true
     minReplicas: 2
     maxReplicas: 5
-    targetCPU: 70
-    targetMemory: 80
-  # Static-asset tier. Off by default (low-variance load); production turns it on
-  # with minReplicas:2 so nginx is not a single point of failure (C-L12).
-  nginx:
-    enabled: false
-    minReplicas: 1
-    maxReplicas: 3
     targetCPU: 70
     targetMemory: 80
 

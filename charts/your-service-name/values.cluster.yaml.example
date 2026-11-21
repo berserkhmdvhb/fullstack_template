@@ -8,7 +8,7 @@
 #   * the ingress controller class      (cilium vs ingress-nginx vs ...)
 #   * the Postgres + backup StorageClass (tripleo vs standard vs gp3 vs ...)
 #   * the TLS mode                       (plain HTTP vs a real cert secret)
-#   * the CI-built SHORT image names      (backend / frontend / nginx)
+#   * the CI-built SHORT image names      (backend / frontend)
 #   * the registry pull secret name
 #
 # The identity + coordinates (service name, domain, image registry) are handled
@@ -29,7 +29,7 @@
 # =============================================================================
 
 # --- Images (registry-pull) -------------------------------------------------
-# CI builds SHORT names (backend / frontend / nginx) under the project path, but
+# CI builds SHORT names (backend / frontend) under the project path, but
 # the chart's default `repository:` is the LOCAL bare name (your-service-name-backend,
 # built into the node daemon via scripts/services.yaml). For a registry pull you
 # must override BOTH registry AND repository, else the chart looks for
@@ -41,7 +41,6 @@
 images:
   backend:  { repository: backend,  registry: registry.your-domain.example, tag: latest }
   frontend: { repository: frontend, registry: registry.your-domain.example, tag: latest }
-  nginx:    { repository: nginx,    registry: registry.your-domain.example, tag: latest }
 
 global:
   # The docker-registry secret, created once in the app namespace:

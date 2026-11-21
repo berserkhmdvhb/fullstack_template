@@ -40,25 +40,6 @@ spec:
 {{- include "chart.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: frontend
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "chart.fullname" . }}-nginx
-  namespace: {{ .Release.Namespace }}
-  labels:
-{{- include "chart.labels" . | nindent 4 }}
-    app.kubernetes.io/component: nginx
-spec:
-  type: ClusterIP
-  ports:
-    - name: http
-      port: 8081
-      targetPort: http
-      protocol: TCP
-  selector:
-{{- include "chart.selectorLabels" . | nindent 4 }}
-    app.kubernetes.io/component: nginx
----
 {{/* Internal Postgres headless-ish Service in the db namespace (for the StatefulSet). */}}
 {{- if .Values.postgresql.enabled }}
 apiVersion: v1
