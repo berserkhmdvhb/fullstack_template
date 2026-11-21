@@ -1,0 +1,67 @@
+# Admits only this repository's images, and only when they are signed and carry build provenance.
+#
+# Replace <owner> with the GitHub owner (lowercase). The adapter rewrites your-service-name
+# to the adopted service name. Read wiki/admission-control.md before applying it.
+#
+# Kyverno 1.20's ImageValidatingPolicy is used because it verifies cosign v3 Sigstore bundles,
+# the format GitHub's artifact attestations are stored in. The older ClusterPolicy verifyImages
+# rule is not used. The Deny action below is the Enforce equivalent.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: verify-your-service-name-images
+  annotations:
+    policies.kyverno.io/title: Verify signed and attested service images
+    policies.kyverno.io/category: Software Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/minversion: 1.20.0
+    policies.kyverno.io/description: >-
+      Requires a keyless cosign signature from this repository's reusable build workflow and a
+      SLSA build provenance attestation signed by the same identity.
+spec:
+  validationActions:
+    - Deny
+  failurePolicy: Fail
+  webhookConfiguration:
+    timeoutSeconds: 30
+  matchConstraints:
+    resourceRules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pods
+  matchImageReferences:
+    - glob: ghcr.io/<owner>/your-service-name/*
+  validationConfigurations:
+    mutateDigest: true
+    verifyDigest: true
+    required: true
+  attestors:
+    - name: github
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subjectRegExp: '^https://github\.com/<owner>/your-service-name/\.github/workflows/reusable-build\.yml@refs/(heads/main|tags/v[^/]+)$'
+          additionalExtensions:
+            githubWorkflowRepository: <owner>/your-service-name
+        ctlog:
+          url: https://rekor.sigstore.dev
+  attestations:
+    - name: provenance
+      intoto:
+        type: https://slsa.dev/provenance/v1
+  variables:
+    - name: allImages
+      expression: images.?containers.orValue([]) + images.?initContainers.orValue([]) + images.?ephemeralContainers.orValue([])
+  validations:
+    - expression: variables.allImages.map(image, verifyImageSignatures(image, [attestors.github])).all(count, count > 0)
+      message: Images must be signed by this repository's build workflow (see wiki/admission-control.md).
+    - expression: variables.allImages.map(image, verifyAttestationSignatures(image, attestations.provenance, [attestors.github])).all(count, count > 0)
+      message: Images must carry a SLSA build provenance attestation from this repository's build workflow.

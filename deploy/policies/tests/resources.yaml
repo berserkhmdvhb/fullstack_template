@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: foreign-image
+spec:
+  containers:
+    - name: app
+      image: docker.io/library/nginx:1.27
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: other-owner-image
+spec:
+  containers:
+    - name: app
+      image: ghcr.io/someone-else/your-service-name/backend:1.0.0
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: matched-image-unverifiable
+spec:
+  containers:
+    - name: app
+      image: ghcr.io/<owner>/your-service-name/backend:1.0.0
