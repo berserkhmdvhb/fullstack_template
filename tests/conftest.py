@@ -60,9 +60,9 @@ def _set_test_database_url(
     Select the test database for each test.
 
     PostgreSQL layers share one database that was migrated once (the schema is made by the
-    migrations, never ``create_all``) and are emptied by a truncate after each test. Everything
-    else gets a unique file-based SQLite database, so migrations and application queries share
-    one file (``:memory:`` would not).
+    migrations, never ``create_all``) and are emptied by a truncate before and after each test.
+    Every other layer gets a unique file-based SQLite database, so migrations and application
+    queries share one file (``:memory:`` would not).
     """
     postgres = _uses_postgres(request)
     if request.node.get_closest_marker("postgres_only") and not postgres:
@@ -73,6 +73,7 @@ def _set_test_database_url(
         assert POSTGRES_TEST_URL is not None
         monkeypatch.setenv("TEST_DATABASE_URL", POSTGRES_TEST_URL)
         migrate_database()
+        _truncate_all_tables(POSTGRES_TEST_URL)  # before as well: rows left by an interrupted run
         yield
         _truncate_all_tables(POSTGRES_TEST_URL)
     else:

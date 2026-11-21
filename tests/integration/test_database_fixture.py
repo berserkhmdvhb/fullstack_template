@@ -26,17 +26,18 @@ def test_the_selected_database_matches_the_environment() -> None:
         assert url.startswith("sqlite")
 
 
-@pytest.mark.postgres_only
-async def test_data_does_not_leak_between_tests_first(
-    async_client: httpx.AsyncClient, api_base: str
-) -> None:
-    res = await async_client.post(f"{api_base}/items", json={"name": "leak-check"})
+async def _create_one_and_count(client: httpx.AsyncClient, api_base: str) -> int:
+    res = await client.post(f"{api_base}/items", json={"name": "leak-check"})
     assert res.status_code == CREATED
+    return int((await client.get(f"{api_base}/items")).json()["total"])
 
 
 @pytest.mark.postgres_only
-async def test_data_does_not_leak_between_tests_second(
-    async_client: httpx.AsyncClient, api_base: str
-) -> None:
-    res = await async_client.get(f"{api_base}/items")
-    assert res.json()["total"] == 0
+async def test_isolation_a(async_client: httpx.AsyncClient, api_base: str) -> None:
+    assert await _create_one_and_count(async_client, api_base) == 1
+
+
+@pytest.mark.postgres_only
+async def test_isolation_b(async_client: httpx.AsyncClient, api_base: str) -> None:
+    """Whichever of the two runs second still sees exactly its own row."""
+    assert await _create_one_and_count(async_client, api_base) == 1
