@@ -14,15 +14,23 @@ locally is in [Testing](./testing.md#postgresql-contract-tests-and-the-two-gates
 - **Notice.** Deprecate first, set a sunset date at least one release cycle later, and say so in the
   [changelog](./changelog.md). A deprecated route keeps working and keeps its behaviour; only headers change.
 - **The gate.** The `api-compat` job runs [oasdiff](https://github.com/oasdiff/oasdiff) on every pull request,
-  comparing the committed snapshot `frontend/lib/api/openapi.json` with the base branch's, and fails on any
+  comparing the committed snapshot `frontend/lib/api/openapi.json` with the base's (the first parent of the merge
+  commit the job checks out, which GitHub rebuilds on the current base branch), and fails on any
   error-level breaking change (`oasdiff breaking BASE REVISION --fail-on ERR`, see the
   [breaking-changes catalogue](https://github.com/oasdiff/oasdiff/blob/main/docs/BREAKING-CHANGES.md)).
 - **The label.** A deliberate breaking change passes the gate when the pull request carries the `breaking-change`
-  label. Create the label once (`gh label create breaking-change`). Only users with triage permission or above can
+  label (`scripts/github-settings.sh` creates it). Only users with triage permission or above can
   add or remove a label, so the author of a fork's pull request cannot wave their own change through. Adding or
   removing the label re-runs the whole workflow (every job), so the gate sees it.
 
 ## Deprecating an endpoint
+
+Mark the route `deprecated=True` in its FastAPI decorator, so the OpenAPI document says so (add an `x-sunset`
+date in RFC 3339 form with `openapi_extra={"x-sunset": "2026-07-01"}` if you set one). oasdiff reads only the OpenAPI
+document, not the response headers: a deprecated endpoint can be removed without a breaking-change error (after its
+`x-sunset` date, when there is one), while removing an endpoint that was never marked deprecated needs the label
+([oasdiff on deprecation](https://github.com/oasdiff/oasdiff/blob/main/docs/DEPRECATION.md)). Then tell clients
+with the headers:
 
 [`api/deprecation.py`](../src/your_service_name/backend/api/deprecation.py) builds the headers; `mark_deprecated`
 sets them on the FastAPI `Response`:
@@ -40,7 +48,7 @@ mark_deprecated(
 |---|---|---|
 | `Deprecation` | a structured-field Date: `@` and the Unix time in seconds, for example `Deprecation: @1688169599` | [RFC 9745, section 2](https://www.rfc-editor.org/rfc/rfc9745#section-2) (the Date type of [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651#section-3.3.7)) |
 | `Sunset` | an HTTP-date in GMT, for example `Sunset: Sun, 30 Jun 2024 23:59:59 GMT` | [RFC 8594, section 3](https://www.rfc-editor.org/rfc/rfc8594#section-3) |
-| `Link` | `<url>; rel="deprecation"` and/or `<url>; rel="sunset"` | [RFC 9745, section 3](https://www.rfc-editor.org/rfc/rfc9745#section-3), [RFC 8594, section 4](https://www.rfc-editor.org/rfc/rfc8594#section-4) |
+| `Link` | `<url>; rel="deprecation"` and/or `<url>; rel="sunset"` | [RFC 9745, section 3](https://www.rfc-editor.org/rfc/rfc9745#section-3), [RFC 8594, section 6](https://www.rfc-editor.org/rfc/rfc8594#section-6) |
 
 The sunset must not be earlier than the deprecation date (RFC 9745, section 4); the helper refuses it, and refuses a
 datetime without a time zone. Mark a route deprecated only after the notice above has gone out; no route in this

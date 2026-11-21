@@ -244,10 +244,11 @@ Deterministic: Hypothesis `derandomize` and 50 examples per operation. A failure
 **The two gates** (both block, both behind `CI OK`):
 
 - **squawk** lints the migrations rendered offline for PostgreSQL (`alembic upgrade base:head --sql`, no database) with
-  the pinned [squawk](https://squawkhq.com/): `bash scripts/ci/squawk.sh`. Its rules are the defaults; the one
-  exception, with its reason, is in `.squawk.toml`.
+  the pinned [squawk](https://squawkhq.com/): `bash scripts/ci/squawk.sh`. Every revision gets the default rules,
+  except that `prefer-text-field` is excluded for revision `0001` alone (the reason is in `.squawk.toml`).
 - **oasdiff** compares the OpenAPI snapshot with the base branch's and blocks breaking changes unless the pull
-  request has the `breaking-change` label: `BASE_REV=<revision> bash scripts/ci/oasdiff.sh` locally. See
+  request has the `breaking-change` label. It reads the base snapshot from the first parent of the merge commit, so
+  locally run `EVENT_NAME=pull_request bash scripts/ci/oasdiff.sh` on a merge commit. See
   [API lifecycle](./api-lifecycle.md).
 
 ---
@@ -300,7 +301,7 @@ flowchart LR
 |-----|-------|
 | `lint` | ruff format, ruff lint, mypy, squawk on the migration SQL |
 | `unit` | Unit (matrix: Python 3.12, 3.13, and the advisory 3.14), with coverage |
-| `integration` | Integration (starts the backend) and the contract tests, on a PostgreSQL service container |
+| `integration` | Integration twice (SQLite, then PostgreSQL with the backend started), then the contract tests, on a PostgreSQL service container |
 | `e2e` | E2E (ASGI in-process), on a PostgreSQL service container |
 | `live` (`reusable-live.yml`) | Live (starts the full stack): the backend suite, then Playwright; advisory on pull requests |
 

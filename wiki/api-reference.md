@@ -134,8 +134,8 @@ List items with pagination, search, and sorting.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `search` | string | — | Filter by name/description (case-insensitive) |
-| `page` | integer | 1 | Page number (1-indexed) |
+| `search` | string | — | Filter by name/description (case-insensitive); a NUL character is a `422` |
+| `page` | integer | 1 | Page number (1-indexed); a page past the last (however large) is an empty page |
 | `page_size` | integer | 20 | Items per page |
 | `sort_field` | string | `created_at` | Sort by: `name`, `created_at`, `is_active` |
 | `sort_direction` | string | `desc` | `asc` or `desc` |

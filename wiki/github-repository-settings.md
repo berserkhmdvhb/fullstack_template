@@ -35,6 +35,7 @@ The advisory scanner legs of `security.yml` (named `<id> (advisory)`) are the sa
 | Environments | `dev` and `qa`: deployment rules **branch** `main` and **tag** `v*`; any other rule is deleted | the deploy chain runs from `main` and from release tags |
 | Environments | `production`: **tag** `v*` only; you as the required reviewer; self-review allowed | one owner has to approve their own deploys (a single-owner repository) |
 | Environments | `release`: **branch** `main` only | holds the release App's private key |
+| Labels | the `breaking-change` label (created, or updated in place) | the `api-compat` job lets a pull request with this label pass a breaking OpenAPI change ([API lifecycle](./api-lifecycle.md)); only users with triage permission or above can add it |
 | Variables | repository and environment variables from your vars-file | the scopes of [Platform Setup](./platform-setup.md#variables-and-secrets) |
 | Actions policy | default token read-only; Actions can't approve pull requests | a job asks for anything more itself |
 | Actions policy | allowed actions: selected, the list derived from the `uses:` lines | one source of truth: the workflows |
