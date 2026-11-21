@@ -61,8 +61,21 @@ def test_job_obeys_the_publishing_restrictions() -> None:
     assert all("run" not in s for s in job["steps"])
 
 
-def test_job_only_runs_on_public_repositories() -> None:
-    assert _job()["if"] == "github.event.repository.visibility == 'public'"
+GUARD = (
+    "vars.SCORECARD_ENABLED != 'false' && "
+    "(github.event_name == 'schedule' || github.event.repository.visibility == 'public')"
+)
+
+
+def test_job_guard_is_the_opt_out_variable_and_public_or_schedule() -> None:
+    assert _job()["if"] == GUARD
+
+
+def test_guard_does_not_depend_solely_on_the_repository_payload() -> None:
+    # A schedule event has no repository object, so the schedule branch must be in the guard.
+    cond = _job()["if"]
+    assert "github.event_name == 'schedule' ||" in cond
+    assert cond.index("github.event_name == 'schedule'") < cond.index("visibility")
 
 
 def test_every_uses_is_sha_pinned_with_a_version_comment() -> None:

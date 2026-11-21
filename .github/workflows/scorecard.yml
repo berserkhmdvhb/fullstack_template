@@ -5,7 +5,8 @@ name: Scorecard
 # The Scorecard API refuses published results when the workflow breaks the action's restrictions:
 # no top-level env or defaults, no workflow-level write permission, and in the analysis job no
 # env, container or services, an Ubuntu hosted runner, no run steps, and only the approved actions.
-# Meant for public repositories; the job is skipped on a private one.
+# Meant for public repositories. A scheduled run carries no repository payload, so the guard lets it
+# through; a private repository opts out by setting the repository variable SCORECARD_ENABLED to false.
 on:
   schedule:
     - cron: "17 3 * * 1"
@@ -22,7 +23,7 @@ concurrency:
 jobs:
   analysis:
     name: Scorecard analysis
-    if: github.event.repository.visibility == 'public'
+    if: vars.SCORECARD_ENABLED != 'false' && (github.event_name == 'schedule' || github.event.repository.visibility == 'public')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
