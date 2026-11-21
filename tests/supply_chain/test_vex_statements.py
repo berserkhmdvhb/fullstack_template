@@ -70,20 +70,26 @@ def _entry(**over: str) -> dict[str, Any]:
     return e
 
 
-def _run(
-    tmp_path: Path, entries: list[Any] | None = None, raw_list: str | None = None
-) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
+def _run_full(
+    tmp_path: Path,
+    entries: list[Any] | None = None,
+    raw_list: str | None = None,
+    report: dict[str, Any] | None = None,
+    raw_report: str | None = None,
+) -> tuple[subprocess.CompletedProcess[str], list[dict[str, Any]]]:
     grype = tmp_path / "out/grype"
     grype.mkdir(parents=True)
-    report = {
-        "matches": [
-            _match("CVE-2026-0001", "openssl", ["1.1", "1.2"]),
-            _match("CVE-2026-0002", "zlib", []),
-            _match("CVE-2026-0003", "libc", ["2.0"]),
-        ],
-        "ignoredMatches": [_match("CVE-2026-0004", "node", ["22.1"])],
-    }
-    (grype / "backend.image.vuln.grype.json").write_text(json.dumps(report))
+    if report is None:
+        report = {
+            "matches": [
+                _match("CVE-2026-0001", "openssl", ["1.1", "1.2"]),
+                _match("CVE-2026-0002", "zlib", []),
+                _match("CVE-2026-0003", "libc", ["2.0"]),
+            ],
+            "ignoredMatches": [_match("CVE-2026-0004", "node", ["22.1"])],
+        }
+    gj = grype / "backend.image.vuln.grype.json"
+    gj.write_text(raw_report if raw_report is not None else json.dumps(report))
     (tmp_path / "digests.env").write_text(f"BACKEND_IMAGE_DIGEST={DIGEST}\n")
     (tmp_path / "scan.env").write_text("BACKEND_IMAGE=ghcr.io/o/r/backend:v1\n")
     lst = tmp_path / "list.json"
@@ -96,12 +102,14 @@ def _run(
         capture_output=True, text=True, check=False, cwd=tmp_path, env=env,
     )  # fmt: skip
     doc = out / "vex/openvex.json"
-    stmts = (
-        {s["vulnerability_id"]: s for s in json.loads(doc.read_text())["statements"]}
-        if doc.exists()
-        else {}
-    )
-    return p, stmts
+    return p, (json.loads(doc.read_text())["statements"] if doc.exists() else [])
+
+
+def _run(
+    tmp_path: Path, entries: list[Any] | None = None, raw_list: str | None = None
+) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
+    p, stmts = _run_full(tmp_path, entries, raw_list)
+    return p, {s["vulnerability_id"]: s for s in stmts}
 
 
 def test_findings_are_affected_with_action_statements(tmp_path: Path) -> None:
@@ -115,7 +123,9 @@ def test_findings_are_affected_with_action_statements(tmp_path: Path) -> None:
     )
     assert s["CVE-2026-0004"]["status"] == "affected"  # an ignoredMatch is still present
     assert s["CVE-2026-0001"]["@id"] == "https://osv.dev/vulnerability/CVE-2026-0001"
-    assert s["CVE-2026-0001"]["products"][0]["@id"].startswith(f"pkg:oci/backend@{DIGEST}?")
+    assert s["CVE-2026-0001"]["products"][0]["@id"] == (
+        f"pkg:oci/backend@{DIGEST}?repository_url=o/r/backend&tag=v1"
+    )
     assert s["CVE-2026-0001"]["products"][0]["subcomponents"][0]["@id"] == "pkg:pypi/openssl@1.0"
 
 
@@ -147,7 +157,7 @@ def test_entry_for_another_service_or_package_does_not_match(tmp_path: Path) -> 
 
 
 def test_expired_entry_is_ignored_with_a_warning(tmp_path: Path) -> None:
-    p, s = _run(tmp_path, [_entry(until=PAST)])
+    p, s = _run(tmp_path, [_entry(reviewed=PAST, until=PAST)])
     assert p.returncode == 0
     assert s["CVE-2026-0003"]["status"] == "affected"
     assert "expired" in p.stderr
@@ -161,26 +171,99 @@ def test_unmatched_entry_produces_nothing(tmp_path: Path) -> None:
     assert "matched no finding" in p.stdout
 
 
-@pytest.mark.parametrize(
-    "bad",
-    [
-        _entry(justification="fixed_version"),
-        _entry(impact_statement=""),
-        _entry(until="2026-13-45"),
-        _entry(reviewed="yesterday"),
-        {k: v for k, v in _entry().items() if k != "package"},
-    ],
-    ids=["justification", "impact", "until", "reviewed", "package-missing"],
-)
-def test_invalid_entry_fails(tmp_path: Path, bad: dict[str, Any]) -> None:
+REQUIRED = ("vulnerability", "service", "package", "justification", "impact_statement")
+BAD_ENTRIES: list[Any] = [
+    _entry(justification="fixed_version"),
+    _entry(impact_statement=""),
+    _entry(impact_statement="  \t "),
+    _entry(until="2026-13-45"),
+    _entry(reviewed="yesterday"),
+    _entry(reviewed=FUTURE, until=FUTURE),
+    _entry(reviewed=TODAY.isoformat(), until=PAST),
+    "not-an-object",
+    *({k: v for k, v in _entry().items() if k != key} for key in REQUIRED),
+    *(_entry(**{key: "   "}) for key in REQUIRED),
+]
+
+
+@pytest.mark.parametrize("bad", BAD_ENTRIES)
+def test_invalid_entry_fails(tmp_path: Path, bad: Any) -> None:  # noqa: ANN401
     p, _ = _run(tmp_path, [bad])
     assert p.returncode != 0
     assert "invalid not_affected list" in p.stderr
 
 
-def test_non_array_list_fails(tmp_path: Path) -> None:
-    p, _ = _run(tmp_path, raw_list="{}")
+def test_duplicate_entries_fail_naming_the_vulnerability(tmp_path: Path) -> None:
+    p, _ = _run(tmp_path, [_entry(), _entry(impact_statement="Other text.")])
     assert p.returncode != 0
+    assert "duplicate entry for CVE-2026-0003" in p.stderr
+
+
+@pytest.mark.parametrize("raw", ["", "{}", "null", "[] []", "[] [{}]", "[", "7"])
+def test_list_must_be_exactly_one_json_array(tmp_path: Path, raw: str) -> None:
+    p, _ = _run(tmp_path, raw_list=raw)
+    assert p.returncode != 0
+    assert not (tmp_path / "out/vex/openvex.json").exists()
+
+
+def test_until_is_inclusive(tmp_path: Path) -> None:
+    today = TODAY.isoformat()
+    p, s = _run(tmp_path, [_entry(until=today)])
+    assert p.returncode == 0, p.stderr
+    assert s["CVE-2026-0003"]["status"] == "not_affected"  # valid through the until day
+    yesterday = (TODAY - timedelta(days=1)).isoformat()
+    p, s = _run(tmp_path / "y", [_entry(reviewed=yesterday, until=yesterday)])
+    assert s["CVE-2026-0003"]["status"] == "affected"
+    assert "expired" in p.stderr
+
+
+@pytest.mark.parametrize("raw", ['{"matches":[', ""], ids=["truncated", "zero-bytes"])
+def test_malformed_grype_report_fails_closed(tmp_path: Path, raw: str) -> None:
+    p, stmts = _run_full(tmp_path, raw_report=raw)
+    assert p.returncode != 0
+    assert "cannot build VEX statements from" in p.stderr
+    assert "backend.image.vuln.grype.json" in p.stderr
+    assert not stmts
+
+
+def test_non_string_fix_version_fails_closed(tmp_path: Path) -> None:
+    bad = _match("CVE-2026-0005", "pkg", [])
+    bad["vulnerability"]["fix"]["versions"] = [7]
+    p, _ = _run_full(tmp_path, report={"matches": [bad]})
+    assert p.returncode != 0
+    assert "cannot build VEX statements from" in p.stderr
+
+
+def test_duplicate_findings_collapse_to_one_statement(tmp_path: Path) -> None:
+    m = _match("CVE-2026-0001", "openssl", ["1.1"])
+    p, stmts = _run_full(tmp_path, report={"matches": [m, m], "ignoredMatches": [m]})
+    assert p.returncode == 0, p.stderr
+    assert len(stmts) == 1
+
+
+def test_different_subcomponents_stay_separate_statements(tmp_path: Path) -> None:
+    a, b = _match("CVE-2026-0001", "openssl", ["1.1"]), _match("CVE-2026-0001", "zlib", ["1.1"])
+    p, stmts = _run_full(tmp_path, report={"matches": [a, b]})
+    assert p.returncode == 0, p.stderr
+    assert len(stmts) == 2  # noqa: PLR2004
+
+
+@pytest.mark.parametrize(
+    ("artifact", "expected"),
+    [
+        ({"purl": "pkg:npm/x@1"}, "Upgrade pkg:npm/x@1 to 2 or later."),
+        ({"name": "  ", "purl": "pkg:npm/x@1"}, "Upgrade pkg:npm/x@1 to 2 or later."),
+        ({}, "Upgrade the affected package to 2 or later."),
+    ],
+)
+def test_action_text_without_a_package_name(
+    tmp_path: Path, artifact: dict[str, Any], expected: str
+) -> None:
+    m = _match("CVE-2026-0001", "x", ["2"])
+    m["artifact"] = artifact
+    p, stmts = _run_full(tmp_path, report={"matches": [m]})
+    assert p.returncode == 0, p.stderr
+    assert stmts[0]["action_statement"] == expected
 
 
 def test_default_list_is_an_empty_json_array() -> None:

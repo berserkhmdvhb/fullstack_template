@@ -83,26 +83,37 @@ TODAY="$(date -u +%Y-%m-%d)"
 # Validate the reviewed not_affected list; any problem fails the script. Justifications
 # are OpenVEX's five (spec: "Status Justifications"); dates are YYYY-MM-DD.
 JUSTIFICATIONS='["component_not_present","vulnerable_code_not_present","vulnerable_code_not_in_execute_path","vulnerable_code_cannot_be_controlled_by_adversary","inline_mitigations_already_exist"]'
-problems="$(jq -r --argjson just "${JUSTIFICATIONS}" '
+# Builtins used by the date check (all in jq 1.6+): test, strptime("%Y-%m-%d"), mktime, todate.
+problems="$(jq -rs --argjson just "${JUSTIFICATIONS}" --arg today "${TODAY}" '
   def isdate: type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
     and ((try (strptime("%Y-%m-%d") | mktime | todate[0:10]) catch null) == .);
-  if type != "array" then "the list must be a JSON array"
-  else to_entries[] | .key as $i | .value as $e
-    | if ($e | type) != "object" then "entry \($i): not an object"
-      else
-        ( ["vulnerability","service","package","justification","impact_statement"][]
-          | . as $k | select(($e[$k] | type) != "string" or $e[$k] == "") | "entry \($i): missing or empty \($k)" ),
-        ( select(($e.justification | type) == "string" and $e.justification != ""
-                 and (($just | index([$e.justification])) == null))
-          | "entry \($i): unknown justification \($e.justification)" ),
-        ( ["reviewed","until"][] | . as $k | select(($e[$k] | isdate) | not)
-          | "entry \($i): \($k) must be a valid YYYY-MM-DD date" )
-      end
+  def blank: type != "string" or test("^\\s*$");
+  if length != 1 or (.[0] | type) != "array" then "the not_affected list must be one JSON array"
+  else .[0] as $l
+    | ( $l | to_entries[] | .key as $i | .value as $e
+        | if ($e | type) != "object" then "entry \($i): not an object"
+          else
+            ( ["vulnerability","service","package","justification","impact_statement"][]
+              | . as $k | select($e[$k] | blank) | "entry \($i): missing or empty \($k)" ),
+            ( select(($e.justification | type) == "string" and ($e.justification | blank | not)
+                     and (($just | index([$e.justification])) == null))
+              | "entry \($i): unknown justification \($e.justification)" ),
+            ( ["reviewed","until"][] | . as $k | select(($e[$k] | isdate) | not)
+              | "entry \($i): \($k) must be a valid YYYY-MM-DD date" ),
+            ( select(($e.reviewed | isdate) and ($e.until | isdate) and $e.reviewed > $e.until)
+              | "entry \($i): reviewed is after until" ),
+            ( select(($e.reviewed | isdate) and $e.reviewed > $today)
+              | "entry \($i): reviewed is in the future" )
+          end ),
+      ( [ $l[] | select(type == "object") | [.vulnerability, .service, .package] ]
+        | group_by(.)[] | select(length > 1)
+        | "duplicate entry for \(.[0][0]) (service \(.[0][1]), package \(.[0][2]))" )
   end' "${NOT_AFFECTED_LIST}")" || die "not_affected list is not valid JSON: ${NOT_AFFECTED_LIST}"
 if [ -n "${problems}" ]; then
   printf '%s\n' "${problems}" >&2
   die "invalid not_affected list: ${NOT_AFFECTED_LIST}"
 fi
+# An entry is valid through the end of its `until` day; it expires when today > until.
 while IFS= read -r line; do
   [ -n "${line}" ] && warn "not_affected entry expired (until ${line}); ignored, the finding stays affected"
 done < <(jq -r --arg today "${TODAY}" '.[] | select(.until < $today) | "\(.until) \(.vulnerability) \(.service) \(.package)"' "${NOT_AFFECTED_LIST}")
@@ -171,6 +182,8 @@ for gj in "${GRYPE_DIR}"/*.image.vuln.grype.json; do
     | [ (.matches[]?, .ignoredMatches[]?)
         | . as $m
         | (.vulnerability.fix.versions // []) as $fix
+        | (.vulnerability.id | if type == "string" and . != "" then . else error("finding without a vulnerability id") end) as $vid
+        | ((.artifact.name | select(type == "string" and test("[^\\s]"))) // (.artifact.purl | select(type == "string" and test("[^\\s]"))) // "the affected package") as $pkg
         | ($live | map(select(.value.vulnerability == $m.vulnerability.id and .value.package == $m.artifact.name)) | first) as $na
         | {
             # statement @id is the OSV advisory reference for the match id,
@@ -192,17 +205,18 @@ for gj in "${GRYPE_DIR}"/*.image.vuln.grype.json; do
             else
               { status: "affected",
                 action_statement: (if ($fix | length) > 0
-                  then "Upgrade " + .artifact.name + " to " + $fix[0] + " or later."
+                  then "Upgrade " + $pkg + " to " + ($fix[0] | if type == "string" then . else error("fix version is not a string") end) + " or later."
                   else "No upstream fix is available yet; the scheduled re-scan tracks it." end) }
             end)
           + { _used: ($na.key // null) }
       ]
     | unique_by([.vulnerability_id, .products[0].subcomponents[0]["@id"]]) as $all
     | { s: ($all | map(del(._used))), u: ($all | map(._used) | map(select(. != null))) }
-    ' "${gj}" 2>/dev/null || echo '{"s":[],"u":[]}')"
-  svc_stmts="$(jq -c .s <<<"${res}")"
-  used="$(jq -c --argjson u "$(jq -c .u <<<"${res}")" '. + $u' <<<"${used}")"
-  statements="$(jq -c --argjson a "${svc_stmts}" '. + $a' <<<"${statements}")"
+    ' "${gj}")" || die "cannot build VEX statements from ${gj}"
+  [ -n "${res}" ] || die "cannot build VEX statements from ${gj} (empty report)"
+  svc_stmts="$(jq -c .s <<<"${res}")" || die "cannot build VEX statements from ${gj}"
+  used="$(jq -c --argjson u "$(jq -c .u <<<"${res}")" '. + $u' <<<"${used}")" || die "cannot build VEX statements from ${gj}"
+  statements="$(jq -c --argjson a "${svc_stmts}" '. + $a' <<<"${statements}")" || die "cannot build VEX statements from ${gj}"
 done
 
 # An entry that matched no finding produces no statement.
