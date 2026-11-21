@@ -117,3 +117,54 @@ export async function lowContrastText(page: Page): Promise<TextContrastIssue[]> 
     return issues;
   });
 }
+
+/**
+ * Contrast of an element's `::before` fill (a status dot) against what is painted behind it.
+ *
+ * @remarks
+ * The backdrop is the element's ancestors' backgrounds painted over white, exactly as for text. Hover a row
+ * first to measure the hover background.
+ *
+ * @param page - The page.
+ * @param selector - CSS selector of the element that owns the `::before`.
+ * @returns The WCAG contrast ratio.
+ */
+export async function dotContrast(page: Page, selector: string): Promise<number> {
+  return page
+    .locator(selector)
+    .first()
+    .evaluate((el) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) throw new Error('no 2d canvas to resolve CSS colours');
+      const rgba = (css: string): number[] => {
+        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = '#000';
+        ctx.fillStyle = css;
+        ctx.fillRect(0, 0, 1, 1);
+        const [r = 0, g = 0, b = 0, a = 0] = ctx.getImageData(0, 0, 1, 1).data;
+        return [r, g, b, a / 255];
+      };
+      const over = (top: number[], below: number[]): number[] => {
+        const a = top[3] ?? 1;
+        return [0, 1, 2].map((i) => (top[i] ?? 0) * a + (below[i] ?? 0) * (1 - a)).concat([1]);
+      };
+      const lum = (c: number[]): number => {
+        const [r = 0, g = 0, b = 0] = c.slice(0, 3).map((v) => {
+          const s = v / 255;
+          return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      let backdrop = [255, 255, 255, 1];
+      const chain: Element[] = [];
+      for (let up: Element | null = el; up; up = up.parentElement) chain.unshift(up);
+      for (const node of chain)
+        backdrop = over(rgba(getComputedStyle(node).backgroundColor), backdrop);
+      const dot = over(rgba(getComputedStyle(el, '::before').backgroundColor), backdrop);
+      const [hi, lo] = [lum(dot), lum(backdrop)].sort((x, y) => y - x) as [number, number];
+      return (hi + 0.05) / (lo + 0.05);
+    });
+}
