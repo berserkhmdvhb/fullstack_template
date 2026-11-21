@@ -26,6 +26,7 @@ import ipaddress
 import logging
 import re
 from typing import Annotated, Final, Literal
+from urllib.parse import urlsplit
 
 from limits import parse as parse_rate_limit
 from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
@@ -56,6 +57,27 @@ PRODUCTION_ENVS: Final[frozenset[str]] = frozenset({"production", "prod"})
 
 # A bare origin: scheme://host[:port], no path, query or trailing slash.
 _BARE_ORIGIN: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://[^/?#\s]+$")
+
+_LOCAL_HTTP_HOSTS: Final[frozenset[str]] = frozenset({"localhost", "127.0.0.1"})
+
+
+def jwks_url_problem(url: str, *, production: bool) -> str | None:
+    """Why ``url`` may not serve signing keys, or ``None`` when it may.
+
+    ``https`` always; plain ``http`` only for ``localhost``/``127.0.0.1`` and never in production.
+    The reason never echoes the URL (it may carry a query).
+    """
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+    except ValueError:
+        return "is not a valid URL"
+    if parts.scheme == "https" and host:
+        return None
+    if parts.scheme == "http" and host in _LOCAL_HTTP_HOSTS:
+        return "must be https in production" if production else None
+    return "must be an https URL (http is allowed only for localhost outside production)"
+
 
 AuthMode = Literal["none", "gateway", "bearer"]
 
