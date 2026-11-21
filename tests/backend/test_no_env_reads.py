@@ -36,12 +36,12 @@ def _dotenv_import(node: ast.AST) -> list[str]:
     return []
 
 
-def _settings_class(node: ast.AST) -> list[str]:
-    """A ``BaseSettings`` subclass: a second Settings class outside ``settings.py``."""
+def _settings_class(node: ast.AST, base_names: set[str]) -> list[str]:
+    """A ``BaseSettings`` subclass (also through an alias): a second class outside settings.py."""
     if not isinstance(node, ast.ClassDef):
         return []
     names = [b.attr if isinstance(b, ast.Attribute) else getattr(b, "id", "") for b in node.bases]
-    return [f"class {node.name}(BaseSettings)"] if "BaseSettings" in names else []
+    return [f"class {node.name}(BaseSettings)"] if base_names & set(names) else []
 
 
 def _scan(tree: ast.AST) -> list[tuple[int, str]]:
@@ -53,9 +53,16 @@ def _scan(tree: ast.AST) -> list[tuple[int, str]]:
         for a in node.names
         if a.name == "os"
     }
+    base_names = {"BaseSettings"} | {
+        a.asname
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for a in node.names
+        if a.name == "BaseSettings" and a.asname
+    }
     found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
-        what = _os_access(node, os_names) + _dotenv_import(node) + _settings_class(node)
+        what = _os_access(node, os_names) + _dotenv_import(node) + _settings_class(node, base_names)
         found += [(getattr(node, "lineno", 0), w) for w in what]
     return found
 
@@ -93,6 +100,8 @@ def test_src_has_no_environment_reads_outside_settings() -> None:
         "from dotenv import load_dotenv",
         "from pydantic_settings import BaseSettings\nclass S(BaseSettings): ...",
         "import pydantic_settings\nclass S(pydantic_settings.BaseSettings): ...",
+        "from pydantic_settings import BaseSettings as BS\nclass S(BS): ...",
+        "import pydantic_settings as ps\nclass S(ps.BaseSettings): ...",
     ],
 )
 def test_the_scanner_catches_each_form(tmp_path: Path, source: str) -> None:

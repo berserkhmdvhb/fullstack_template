@@ -54,3 +54,20 @@ jobs:
             helm template "${SERVICE_NAME}" "${CHART_DIR}" -f "${f}" > "${RUNNER_TEMP}/rendered-${name}.yaml"
             echo "- \`${name}\`: lint and template ok ($(wc -l < "${RUNNER_TEMP}/rendered-${name}.yaml") lines)" >> "$GITHUB_STEP_SUMMARY"
           done
+      # The negative render: a production release whose config.ENV is not production would run the
+      # backend with its production checks off, so validate-values.yaml must refuse it. The step fails
+      # if that render succeeds, and if it fails for any other reason than the guard.
+      - name: A production release with a dev ENV must not render
+        run: |
+          : "${CHART_DIR:?CHART_DIR is required}"
+          err="${RUNNER_TEMP}/production-guard.err"
+          if helm template "${SERVICE_NAME}" "${CHART_DIR}" --set environment=production --set config.ENV=dev > /dev/null 2> "${err}"; then
+            echo "::error::the production guard did not fire: environment=production rendered with config.ENV=dev"
+            exit 1
+          fi
+          if ! grep -q "environment is production but config.ENV" "${err}"; then
+            echo "::error::the render failed, but not with the production guard's message:"
+            cat "${err}"
+            exit 1
+          fi
+          echo "- production guard: a dev ENV under environment=production is refused" >> "$GITHUB_STEP_SUMMARY"

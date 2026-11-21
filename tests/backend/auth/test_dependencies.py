@@ -238,6 +238,27 @@ class TestBearerMode:
             res = client.get(ME_PATH, headers={"Authorization": f"Bearer {token}"})
         assert res.status_code == status.HTTP_401_UNAUTHORIZED
 
+    def test_alg_confusion_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A token whose header alg differs from the configured one is rejected."""
+        monkeypatch.setenv("AUTH_MODE", "bearer")
+        monkeypatch.setenv("AUTH_JWT_ALGORITHM", "HS256")
+        monkeypatch.setenv("AUTH_JWT_SECRET", DEFAULT_SIGNING_KEY)
+        # Signed HS256 but the header *claims* HS384 — must not be accepted.
+        token = make_jwt({"sub": "user-42"}, alg="HS384")
+        with TestClient(_make_app()) as client:
+            res = client.get(ME_PATH, headers={"Authorization": f"Bearer {token}"})
+        assert res.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_unsupported_algorithm_is_refused_at_startup(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A non-HMAC algorithm is refused outright (no key-confusion surface)."""
+        monkeypatch.setenv("AUTH_MODE", "bearer")
+        monkeypatch.setenv("AUTH_JWT_ALGORITHM", "none")
+        monkeypatch.setenv("AUTH_JWT_SECRET", DEFAULT_SIGNING_KEY)
+        with pytest.raises(ValidationError, match="AUTH_JWT_ALGORITHM"):
+            _make_app()
+
 
 # --- unsupported mode ---------------------------------------------------------
 
