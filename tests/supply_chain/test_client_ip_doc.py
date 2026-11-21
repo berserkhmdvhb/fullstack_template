@@ -46,3 +46,11 @@ def test_the_section_documents_the_host_bits_rule() -> None:
 def test_the_keep_alive_docs_name_the_ingress_nginx_setting() -> None:
     for path in ("wiki/environment-variables.md", "charts/your-service-name/values.yaml"):
         assert "upstream-keepalive-timeout" in (ROOT / path).read_text(encoding="utf-8"), path
+
+
+def test_the_section_documents_the_forwarded_proto_limit_and_the_cloudflare_wording() -> None:
+    section = _section()
+    assert "`X-Forwarded-Proto: http`" in section
+    assert "overwrites the header at its edge" not in section
+    for path in ("wiki/environment-variables.md", "src/your_service_name/backend/settings.py"):
+        assert "Cloudflare overwrites" not in (ROOT / path).read_text(encoding="utf-8"), path

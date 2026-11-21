@@ -180,7 +180,8 @@ class Settings(BaseSettings):
     TRUST_CF_CONNECTING_IP: bool = Field(
         default=False,
         description="Trust `CF-Connecting-IP` from a peer in TRUSTED_PROXY_CIDRS. Set it only in "
-        "the Cloudflare Tunnel edge mode, where Cloudflare overwrites the header.",
+        "the Cloudflare Tunnel edge mode: Cloudflare sends the header on traffic from its edge, so "
+        "trust it only when cloudflared is the only way in.",
         json_schema_extra={"production": "Refused when TRUSTED_PROXY_CIDRS is empty."},
     )
 

@@ -67,8 +67,10 @@ def test_the_rendered_envoy_cluster_carries_the_idle_timeout() -> None:
     assert f"idle_timeout: {_gateway_idle()}s" in out.stdout
 
 
-def test_the_envoy_cluster_trusts_the_ingress_forwarded_proto() -> None:
-    """One trusted hop (the ingress) keeps its X-Forwarded-Proto; zero would rewrite it to http."""
+def test_the_envoy_config_leaves_the_trusted_hops_at_the_default() -> None:
+    """``xff_num_trusted_hops`` also picks Envoy's trusted client address (the (N+1)th XFF entry
+    from the right). The ingress writes one entry, so N=1 would make Envoy fall back to the ingress
+    Pod and hide the client from Coraza and Envoy's logs. Do not add it without that trade-off."""
     helm = require_helm(find_helm(), ci=bool(os.environ.get("CI")))
     out = subprocess.run(
         [helm, "template", "svc", str(CHART), "--set", "waf.enabled=true"],
@@ -77,4 +79,5 @@ def test_the_envoy_cluster_trusts_the_ingress_forwarded_proto() -> None:
         check=False,
     )
     assert out.returncode == 0, out.stderr
-    assert "xff_num_trusted_hops: 1" in out.stdout
+    assert "http_connection_manager" in out.stdout
+    assert not re.search(r"xff_num_trusted_hops:\s*[1-9]", out.stdout)

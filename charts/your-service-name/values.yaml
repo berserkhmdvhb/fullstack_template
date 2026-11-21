@@ -105,7 +105,8 @@ config:
   # (comma-separated CIDRs; Pod CIDRs are cluster-specific, so none is guessed here). Empty trusts
   # no forwarding header and the TCP peer is the client, so behind a proxy every client then shares
   # one rate-limit bucket. Set TRUST_CF_CONNECTING_IP "true" only in the Cloudflare Tunnel edge
-  # mode, where Cloudflare overwrites the header; elsewhere a client could forge it.
+  # mode, and only when cloudflared is the only way in (Cloudflare sends the header on traffic
+  # from its edge); elsewhere a client could forge it.
   TRUSTED_PROXY_CIDRS: ""
   TRUST_CF_CONNECTING_IP: "false"
 

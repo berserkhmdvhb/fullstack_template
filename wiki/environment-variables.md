@@ -75,7 +75,7 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 | `CORS_ALLOW_HEADERS` | comma-separated list | `Authorization,Content-Type,X-Requested-With` | Comma-separated allowed request headers. | — |
 | `RATE_LIMIT_DEFAULT` | str | `100/minute` | Per-IP rate limit in `limits` format, for example `100/minute`. | — |
 | `TRUSTED_PROXY_CIDRS` | comma-separated list | (empty) | Comma-separated IPv4/IPv6 CIDRs of the proxies (the gateway and, in the Tunnel edge mode, cloudflared) whose forwarding headers are trusted. Empty trusts nothing: the TCP peer is the client. An invalid entry stops startup, and so does one with host bits set (`10.1.2.3/8`; write `10.0.0.0/8`). | — |
-| `TRUST_CF_CONNECTING_IP` | bool | `false` | Trust `CF-Connecting-IP` from a peer in TRUSTED_PROXY_CIDRS. Set it only in the Cloudflare Tunnel edge mode, where Cloudflare overwrites the header. | Refused when TRUSTED_PROXY_CIDRS is empty. |
+| `TRUST_CF_CONNECTING_IP` | bool | `false` | Trust `CF-Connecting-IP` from a peer in TRUSTED_PROXY_CIDRS. Set it only in the Cloudflare Tunnel edge mode: Cloudflare sends the header on traffic from its edge, so trust it only when cloudflared is the only way in. | Refused when TRUSTED_PROXY_CIDRS is empty. |
 | `AUTH_MODE` | one of `none`, `gateway`, `bearer` | `none` | `none` (anonymous), `gateway` (trusted identity header) or `bearer` (HMAC-signed JWT). | `none` is refused unless ALLOW_ANONYMOUS=true. |
 | `ALLOW_ANONYMOUS` | bool | `false` | Production only: explicitly accept AUTH_MODE=none (open endpoints). | — |
 | `AUTH_USER_ID_HEADER` | str | `x-authenticated-user-id` | Gateway mode: header carrying the authenticated user id. | — |

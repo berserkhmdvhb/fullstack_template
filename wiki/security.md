@@ -262,11 +262,15 @@ versions you run.
   Its `upstream-keepalive-timeout` (default 60 s) must also stay below the backend keep-alive
   (`BACKEND_KEEPALIVE_TIMEOUT`, 75 s): raising it past that causes intermittent 502s.
 - **Envoy (the WAF).** Without `use_remote_address` (the chart's setting) Envoy runs in a transparent
-  mode and does not modify `X-Forwarded-For`, and it trusts a downstream `X-Forwarded-Proto` only when
+  mode and does not modify `X-Forwarded-For`. It trusts a downstream `X-Forwarded-Proto` only when
   `xff_num_trusted_hops` is non-zero; at zero it overwrites the header with `http` or `https` from its
-  own connection. The chart sets `xff_num_trusted_hops: 1`, so the ingress's value reaches the backend.
-  That is safe only because ingress-nginx in front has already set the headers: **nothing but the
+  own connection. The same field also selects the trusted client address (the (N+1)th `X-Forwarded-For`
+  entry from the right, falling back to the peer), so a value of 1 would make Envoy see the ingress Pod
+  instead of the client; the chart leaves it at 0. **Limit:** with the WAF on, the backend sees
+  `X-Forwarded-Proto: http` for https clients; the client IP is unaffected.
+  The WAF is safe only because ingress-nginx in front has already set the headers: **nothing but the
   ingress may reach the WAF Pod.**
+  Both behaviours (the `X-Forwarded-Proto` overwrite at zero, and the trusted-client-address rule) are in the
   [Envoy header reference](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_conn_man/headers).
 - **Trusting a range trusts every Pod in it.** A Pod inside `TRUSTED_PROXY_CIDRS` can send any
   `X-Forwarded-For` and be believed, so a [NetworkPolicy](#networkpolicy) must limit the backend port

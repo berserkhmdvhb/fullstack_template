@@ -72,10 +72,11 @@ spec:
                             typed_config:
                               "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
                               stat_prefix: waf
-                              # One trusted hop: the ingress in front of this Envoy. With zero,
-                              # Envoy overwrites X-Forwarded-Proto with http, so the backend would
-                              # see http for https clients. Nothing but the ingress may reach it.
-                              xff_num_trusted_hops: 1
+                              # xff_num_trusted_hops is left at 0 on purpose: it also selects
+                              # Envoy's trusted client address, so a non-zero value would hide the
+                              # client behind the ingress Pod. The cost: Envoy overwrites
+                              # X-Forwarded-Proto (wiki/security.md, Client IP). Nothing but the
+                              # ingress may reach this Envoy.
                               http_filters:
                                 - name: coraza.coraza
                                   typed_config:
