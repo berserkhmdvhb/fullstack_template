@@ -121,7 +121,8 @@ const testBlock = {
   rules: {
     ...testingLibrary.configs['flat/react'].rules,
     'vitest/no-conditional-tests': 'error',
-    'vitest/expect-expect': 'warn',
+    // assertFunctionNames pinned to the old default; the plugin now also counts `assert`
+    'vitest/expect-expect': ['warn', { assertFunctionNames: ['expect'] }],
   },
 };
 
