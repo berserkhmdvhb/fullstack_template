@@ -10,6 +10,7 @@ Security headers, CORS, rate limiting, supply-chain scanning, container hardenin
 - [HTTP Security Headers](#http-security-headers)
 - [CORS Configuration](#cors-configuration)
 - [Rate Limiting](#rate-limiting)
+- [Request Limits and Trusted Hosts](#request-limits-and-trusted-hosts)
 - [Client IP](#client-ip)
 - [Supply-Chain Security (CI)](#supply-chain-security-ci)
 - [Container Security](#container-security)
@@ -203,8 +204,33 @@ metadata:
 ### Behavior
 
 - Rate limit is applied **per client IP address** (the resolved address, see [Client IP](#client-ip))
-- Exceeding the limit returns `429 Too Many Requests`
+- Exceeding the limit returns `429 Too Many Requests` as a problem body (see [Error Responses](api-reference.md#error-responses))
 - Response includes `Retry-After` header (seconds until reset)
+
+---
+
+## Request Limits and Trusted Hosts
+
+Two pure-ASGI middlewares in `backend/middleware/request_limits.py` refuse a request before anything
+else reads it. They answer with the [problem body](api-reference.md#error-responses), carrying the
+request id.
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `MAX_REQUEST_BODY_BYTES` | `10485760` (10 MiB) | A `Content-Length` over it is a `413` straight away; a body without a length (chunked) is cut off with a `413` once it streams past it |
+| `ALLOWED_HOSTS` | `*` (production refuses `*` and an empty list) | A `Host` header that matches no entry is a `400`; `*.example.com` matches subdomains (not the apex), and the port is ignored |
+
+- The body limit default is the chart's ingress `nginx.ingress.kubernetes.io/proxy-body-size`
+  (`10m`, which nginx reads as MiB), so the edge and the service agree; a test fails if they diverge.
+  Change both together.
+- The probe and metrics paths (`health`, `healthz`, `metrics`, the rate limiter's exempt list) skip
+  the host check, because Kubernetes probes and Prometheus send the Pod IP as `Host`.
+- The chart sets `ALLOWED_HOSTS` from `ingress.hosts` (`api`, `app`, `root`) plus the backend
+  Service names (`<svc>`, `<svc>.<ns>`, `<svc>.<ns>.svc`, `<svc>.<ns>.svc.cluster.local`): the
+  frontend's server-side calls reach the backend by Service name. Set `config.ALLOWED_HOSTS` to take
+  the list over, for example to add a custom domain.
+- These refusals sit outside the security-headers and CORS middlewares, so a browser on another
+  origin sees them as a failed request rather than a readable `413`.
 
 ---
 

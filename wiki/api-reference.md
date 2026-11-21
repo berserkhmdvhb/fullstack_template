@@ -306,50 +306,64 @@ Soft-delete an item (sets `deleted_at` timestamp).
 
 ## Error Responses
 
-### 400 Bad Request
+Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem with the content type
+`application/problem+json`, whichever layer produced it (a route, validation, the rate limiter, the
+request limits, an unknown path). Members:
 
-```json
-{
-  "detail": "Unsupported API version: v99"
-}
-```
+| Member | Meaning |
+|--------|---------|
+| `type` | Always `about:blank` (the status says it all) |
+| `title` | The HTTP reason phrase |
+| `status` | The HTTP status code |
+| `detail` | A safe, human-readable explanation. A 500 always carries the same generic text |
+| `instance` | The request path, never the query string (it can carry tokens) |
+| `request_id` | The `X-Request-Id` of the request, also in the response header and every log line |
+| `trace_id` | The W3C trace id, only when the caller sent a valid `traceparent` |
+| `errors` | 422 only: a list of `{loc, msg, type}`; the submitted values are never echoed |
+
+Headers an error carries are kept (`Retry-After`, `WWW-Authenticate`, `Allow`). No stack trace, file
+path or exception text is ever in a body; the exception is logged server-side under the `request_id`.
+The schemas are `ProblemDetails` and `ValidationProblem` in the OpenAPI document, which replace
+FastAPI's default `HTTPValidationError`.
+
+| Status | When |
+|--------|------|
+| `400` | A bad request, or a `Host` header that is not in `ALLOWED_HOSTS` |
+| `401` / `403` | No or invalid identity / not allowed (see [Authentication](security.md#authentication--authorization)) |
+| `404` / `405` | Unknown item or path / method not allowed |
+| `413` | The body is over `MAX_REQUEST_BODY_BYTES` ([Request limits](security.md#request-limits-and-trusted-hosts)) |
+| `422` | Validation failed |
+| `429` | Rate limit exceeded; `Retry-After` is the seconds until the window resets |
+| `500` | Unexpected error |
 
 ### 404 Not Found
 
 ```json
 {
-  "detail": "Item not found"
+  "type": "about:blank",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Item not found",
+  "instance": "/api/v1/items/0b9d6f6e-6a2b-4d3a-9d7e-6f2f4c1b8a10",
+  "request_id": "9f0c2a3b4d5e46f7a8b9c0d1e2f3a4b5"
 }
 ```
 
-### 422 Unprocessable Entity (Validation Error)
+### 422 Unprocessable Content (Validation Error)
 
 ```json
 {
-  "detail": [
-    {
-      "type": "string_too_short",
-      "loc": ["body", "name"],
-      "msg": "String should have at least 1 character",
-      "input": ""
-    }
+  "type": "about:blank",
+  "title": "Unprocessable Content",
+  "status": 422,
+  "detail": "The request did not pass validation.",
+  "instance": "/api/v1/items",
+  "request_id": "9f0c2a3b4d5e46f7a8b9c0d1e2f3a4b5",
+  "errors": [
+    {"loc": ["body", "name"], "msg": "String should have at least 1 character", "type": "string_too_short"}
   ]
 }
 ```
-
-### 429 Too Many Requests
-
-```json
-{
-  "detail": "Rate limit exceeded"
-}
-```
-
-**Headers**:
-
-| Header | Value |
-|--------|-------|
-| `Retry-After` | Seconds until rate limit resets |
 
 ---
 
