@@ -27,6 +27,11 @@ jobs:
         run: make mypy-check
       - name: Environment-variable doc is current
         run: make env-docs-check
+      # Blocking: the migrations rendered offline for PostgreSQL, linted by the pinned squawk (.squawk.toml).
+      - name: Install the pinned squawk
+        run: scripts/tools.sh install squawk
+      - name: Migration SQL lint (squawk)
+        run: bash scripts/ci/squawk.sh
 
   unit:
     name: Unit (Python ${{ matrix.python-version }})

@@ -63,3 +63,15 @@ def test_no_expression_in_a_run_script() -> None:
     for name, job in _jobs().items():
         for step in job["steps"]:
             assert "${{" not in str(step.get("run", "")), (name, step.get("name"))
+
+
+def test_the_lint_job_runs_squawk_on_the_pinned_binary() -> None:
+    runs = "\n".join(str(s.get("run", "")) for s in _jobs()["lint"]["steps"])
+    assert runs.index("scripts/tools.sh install squawk") < runs.index("bash scripts/ci/squawk.sh")
+    assert "continue-on-error" not in _jobs()["lint"]
+
+
+def test_the_repo_job_installs_squawk_for_its_bats_test() -> None:
+    runs = "\n".join(str(s.get("run", "")) for s in workflow("ci.yml")["jobs"]["repo"]["steps"])
+    assert "install shellcheck bats yq kyverno squawk" in runs
+    assert "bats tests/scripts/" in runs
