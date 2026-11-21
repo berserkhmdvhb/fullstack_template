@@ -362,7 +362,7 @@ flowchart LR
 | Token | Light Mode | Dark Mode |
 |-------|-----------|-----------|
 | `--color-text-primary` | `#111827` | `#f8fafc` |
-| `--color-surface` | `#ffffff` | `#1e293b` |
+| `--surface-base` | `#ffffff` | `#1e293b` |
 | `--color-accent-blue` | `#2563eb` | `#3b82f6` |
 | `--color-bg-main` | `#f0f2f5` | `#020617` |
 
@@ -376,6 +376,8 @@ flowchart LR
 |----------|--------------|
 | `postcss` `^8.5.32` | Next.js pins its own older `postcss` (8.5.23); the override moves that copy to the override floor and keeps one version in the tree. |
 | `openapi-typescript` > `typescript` `$typescript` | TypeScript 6 is outside openapi-typescript's `^5.x` peer range; the generated types are byte-identical. |
+
+Vite 8 verified with the suites; the next lock refresh may move to it.
 
 ---
 
