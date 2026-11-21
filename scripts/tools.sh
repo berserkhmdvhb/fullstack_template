@@ -42,6 +42,7 @@ exes_for() {
     bats) echo "bats-core-$VER/bin/bats:bats" ;;
     shellcheck) echo "shellcheck-v$VER/shellcheck:shellcheck" ;;
     node) echo "node-v$VER-linux-x64/bin/node:node node-v$VER-linux-x64/bin/npm:npm node-v$VER-linux-x64/bin/npx:npx" ;;
+    uv) echo "uv-x86_64-unknown-linux-gnu/uv:uv uv-x86_64-unknown-linux-gnu/uvx:uvx" ;;
     helm-unittest) echo "" ;;
     *) echo "$1:$1" ;;
   esac
@@ -87,6 +88,9 @@ link_exes() { # dir of the unpacked artifact
     run ln -sfn "$1/$rel" "$TOOLS_DIR/bin/$name"
   done
 }
+
+# The pinned uv, once installed, is the one every uv: row uses.
+use_pinned_uv() { [[ -x "$TOOLS_DIR/bin/uv" ]] && PATH="$TOOLS_DIR/bin:$PATH"; return 0; }
 
 pin_version() { # name -> version of that pin (platform "any")
   awk -F'\t' -v n="$1" '!/^#/ && $1==n && $3=="any" {print $2; exit}' "$PINS"
@@ -159,6 +163,7 @@ install_pin() { # uses NAME VER URL SHA
   else
     run mkdir -p "$TOOLS_DIR/bin"
     link_exes "$dest"
+    [[ "$NAME" != uv ]] || use_pinned_uv
   fi
 }
 
@@ -177,6 +182,12 @@ split_row() {
 cmd_install() {
   local wanted=" $* " found=" " line helm_default n NAME VER PLAT URL SHA
   [[ -r "$PINS" ]] || die "cannot read $PINS"
+  use_pinned_uv
+  # A named Python tool needs the pinned uv: install it first when it is not there yet.
+  if [[ $# -gt 0 && ! -x "$TOOLS_DIR/bin/uv" ]] \
+    && awk -F'\t' -v w="$wanted" '!/^#/ && index(w, " " $1 " ") && $4 ~ /^uv:/ {f=1} END {exit !f}' "$PINS"; then
+    wanted+="uv "
+  fi
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" || "$line" == \#* ]] && continue
     split_row "$line"

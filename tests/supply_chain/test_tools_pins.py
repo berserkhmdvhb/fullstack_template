@@ -24,7 +24,7 @@ PLATFORM = "linux-amd64"
 REQUIRED = {
     "helm3", "helm4", "kind", "kubeconform", "ct", "helm-unittest", "actionlint", "hadolint",
     "gitleaks", "squawk", "oasdiff", "cosign", "kyverno", "yq", "bats", "node",
-    "zizmor", "schemathesis", "pre-commit", "python", "kubectl",
+    "zizmor", "schemathesis", "pre-commit", "python", "kubectl", "uv",
 }  # fmt: skip
 
 
@@ -367,3 +367,19 @@ def test_real_node_tarball_still_installs_and_npm_works(tmp_path: Path) -> None:
         [str(tools / "bin/npm"), "--version"], capture_output=True, text=True, check=False, env=env
     )
     assert out.returncode == 0, out.stderr
+
+
+def test_uv_is_pinned_from_the_vendor_release_and_installed_before_every_uv_row() -> None:
+    names = [r[0] for r in rows()]
+    uv = next(r for r in rows() if r[0] == "uv")
+    assert uv[2] == PLATFORM
+    assert uv[3] == (
+        f"https://github.com/astral-sh/uv/releases/download/{uv[1]}/"
+        "uv-x86_64-unknown-linux-gnu.tar.gz"
+    )
+    first_uv_row = next(i for i, r in enumerate(rows()) if r[3].startswith("uv:"))
+    assert names.index("uv") < first_uv_row, "uv must be installed before the rows that use it"
+
+
+def test_tools_sh_prefers_the_pinned_uv() -> None:
+    assert 'PATH="$TOOLS_DIR/bin:$PATH"' in SRC

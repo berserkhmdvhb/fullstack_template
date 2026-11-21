@@ -4,10 +4,12 @@
 # Rule: a pin is the newest stable release published at least 7 days before it was pinned
 # (Renovate minimumReleaseAge). Pinned on 2026-11-20. The sha256 comes from the vendor's checksum
 # file (helm: <asset>.sha256sum; node: SHASUMS256.txt; kind, kubeconform, ct, helm-unittest, actionlint,
-# hadolint, gitleaks, oasdiff, cosign, kyverno: the release checksum file; yq: the sha256 column of
+# hadolint, gitleaks, oasdiff, cosign, kyverno: the release checksum file; uv: the <asset>.sha256 beside the asset; yq: the sha256 column of
 # the release `checksums`). squawk and shellcheck publish no checksum file: their sha256 is the GitHub
 # release-asset digest, confirmed against the downloaded bytes. bats is the GitHub tag archive (no
 # vendor checksum exists), hashed on download; a changed archive is refused.
+# The uv row comes first: scripts/tools.sh installs it to .tools/bin/uv, and every uv:<pkg> row below uses it.
+# The backend image copies uv from the official image at the same version (a test keeps the two equal).
 # Rows with url uv:<pkg> are Python tools. Each is installed into its own venv,
 # .tools/uv-tools/<name>, with `uv pip install --require-hashes -r tools/requirements/<name>.txt`
 # (every transitive dependency hash-pinned; `make pins-refresh` regenerates a lock in place with
@@ -27,6 +29,8 @@
 # kubectl (bare binary from dl.k8s.io, sha256 from <binary>.sha256 beside it): must stay within one
 # minor version of the cluster (the Kubernetes version-skew policy); change the pin when the cluster moves.
 #
+uv	0.13.8	linux-amd64	https://github.com/astral-sh/uv/releases/download/0.13.8/uv-x86_64-unknown-linux-gnu.tar.gz	5acfd9177cfecf0bf87578f059728215ccc884388988f55f7a65041b57387d91
+
 # Helm major: see the default-helm line. Both majors are installed
 # (helm3, helm4); `helm` links to the default.
 #default-helm: 4

@@ -26,7 +26,7 @@
         "(?m)^(?<depName>[a-z0-9-]+)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://github\\.com/(?<packageName>[^/\\t]+/[^/\\t]+)/(?:releases/download|archive/refs/tags)/[^\\t]+)\\t"
       ],
       "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.+)$"
+      "extractVersionTemplate": "^v?(?<version>.+)$"
     },
     {
       "customType": "regex",

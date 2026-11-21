@@ -69,6 +69,7 @@ USAGE = "usage: pins-refresh.sh [--check] [--base REF] [name...]"
 SOURCES: dict[str, tuple[str, str, str]] = {
     "helm3": ("sumfile", "{url}.sha256sum", "https://get.helm.sh/"),
     "helm4": ("sumfile", "{url}.sha256sum", "https://get.helm.sh/"),
+    "uv": ("hashfile", "{url}.sha256", "https://github.com/astral-sh/uv/releases/download/"),
     "kubectl": ("hashfile", "{url}.sha256", "https://dl.k8s.io/release/"),
     "kind": (
         "sumfile",
