@@ -49,6 +49,7 @@ flowchart LR
 | [`reusable-pins.yml`](../.github/workflows/reusable-pins.yml) | called by `ci` and `pins-drift` | `pins`: `scripts/pins-refresh.sh --check` (read-only) against the vendors' published checksums; on a pull request only the rows that differ from the base. See [dependency updates](./security.md#dependency-updates-and-pinned-checksums) |
 | [`pins-drift.yml`](../.github/workflows/pins-drift.yml) | weekly (Monday 04:41 UTC); manual | `pins` over every row |
 | [`scorecard.yml`](../.github/workflows/scorecard.yml) | weekly (Monday 03:17 UTC); push to `main` | `analysis`: the OpenSSF Scorecard, published and uploaded as SARIF. Public repositories only; never a gate |
+| [`rescan.yml`](../.github/workflows/rescan.yml) | weekly (Wednesday 05:41 UTC); manual | `collect` (digests from deployments and the latest release), `scan` (Grype by digest, with the release VEX), `report` (opens or updates `vuln` issues). See [vulnerability management](./vulnerability-management.md) |
 | [`dast.yml`](../.github/workflows/dast.yml) | after `Release` succeeds; manual | The ZAP baseline against the backend image just pushed |
 
 `ci.yml` jobs: `repo` runs shellcheck, the secret-template check and the bats suites; `hadolint` lints every tracked Dockerfile with the pinned hadolint (`scripts/ci/hadolint.sh`, also a pre-commit hook); `workflows` runs the CI hardening lint, actionlint and zizmor over `.github/`.
@@ -82,7 +83,7 @@ Build, push, sign, attest and digest resolution happen only in [`reusable-build.
 2. `images` calls `reusable-build.yml`, which is the only workflow that may push, sign or attest an image (the hardening lint enforces it). Its `build` job pushes each image to `ghcr.io/<owner>/<repo>/<id>` with `docker/build-push-action` and checks that the registry digest equals the build digest.
 3. `sbom` and `grype` (the blocking gate) work by digest. `sign-attest` runs only after the gate: it signs each digest keyless with the pinned cosign, runs `cosign verify` against the workflow identity, then adds the provenance and SBOM attestations (`push-to-registry`). The identity and how to verify by hand are in [Security](./security.md#verifying-an-image).
 4. Every `reusable-build.yml` job refuses to run unless the caller's event is a push to `main` or a `v*` tag. `digests` merges the per-image digests; `grant`, `vex` and `deploy` run after `images`, so nothing deploys unless the gate passed and the images are signed.
-5. `grant` and `vex` now start only after `images` succeeded, so a release that fails the gate leaves no licence or VEX evidence (by design). On a `v*` tag `release-assets` puts the SBOMs, the OpenVEX document and the licence report on a **draft** GitHub Release (created with `--verify-tag`, never published by the workflow).
+5. `grant` and `vex` now start only after `images` succeeded, so a release that fails the gate leaves no licence or VEX evidence (by design). On a `v*` tag `release-assets` puts the SBOMs, the OpenVEX document, the licence report and the image digests (`image-digests.env`, `scan.env`) on a **draft** GitHub Release (created with `--verify-tag`, never published by the workflow).
 
 Tags: the immutable `<version>-<channel>-<sha>` on every release run, plus `latest` on a `v*` tag. See [Containerization](./containerization.md) and [Releasing](./releasing.md).
 

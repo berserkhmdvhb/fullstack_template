@@ -18,7 +18,7 @@ Git tag policy, the release workflow, GitHub release notes, Kubernetes deploymen
 
 ## Overview
 
-Releases are triggered by **Git tags**. A `v*` tag runs [`release.yml`](../.github/workflows/release.yml): it computes the version from the tag, builds and pushes the three images, verifies their digests, scans them, signs and attests them, attaches the SBOMs, the VEX document and the licence report to a draft GitHub Release, and deploys to Kubernetes by digest. The quality gate ([`ci.yml`](../.github/workflows/ci.yml)) runs on the same tag.
+Releases are triggered by **Git tags**. A `v*` tag runs [`release.yml`](../.github/workflows/release.yml): it computes the version from the tag, builds and pushes the three images, verifies their digests, scans them, signs and attests them, attaches the SBOMs, the VEX document, the licence report and the image digests to a draft GitHub Release, and deploys to Kubernetes by digest. The quality gate ([`ci.yml`](../.github/workflows/ci.yml)) runs on the same tag.
 
 ```mermaid
 flowchart LR
@@ -83,7 +83,7 @@ flowchart TB
 | **Image tags** | immutable `<version>-main-<sha>` | immutable `<version>-prod-<sha>` plus `latest` |
 | **Deploy** | `dev`, then `qa` (when `DEPLOY_ENABLED` is `true`) | + `production`, behind the environment's reviewer |
 
-On a `v*` tag, `release-assets` creates the GitHub Release for the tag as a **draft** and uploads the SBOMs, the OpenVEX document and the licence report to it. The workflow never publishes it: edit the notes and publish by hand once the run is green (immutable releases reject assets added after publication, so the draft must be complete first; if the release is already published the job fails with a message). To check a released image, see [Verifying an image](./security.md#verifying-an-image).
+On a `v*` tag, `release-assets` creates the GitHub Release for the tag as a **draft** and uploads the SBOMs, the OpenVEX document, the licence report and the image digests (`image-digests.env`, `scan.env`; the weekly re-scan reads them) to it. The workflow never publishes it: edit the notes and publish by hand once the run is green (immutable releases reject assets added after publication, so the draft must be complete first; if the release is already published the job fails with a message). To check a released image, see [Verifying an image](./security.md#verifying-an-image).
 
 A pull request never reaches `release.yml`: no image is built, pushed, signed or deployed from one.
 
