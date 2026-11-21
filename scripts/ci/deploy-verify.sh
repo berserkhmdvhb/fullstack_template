@@ -20,6 +20,9 @@
 #   BACKEND_PORT (8000), FRONTEND_PORT (3000), API_VERSION (v1)
 set -Eeuo pipefail
 
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/migration-job-lib.sh"
+
 die_usage() { echo "deploy-verify: $*" >&2; exit 2; }
 fail() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -55,9 +58,8 @@ found="$("${K[@]}" get secret -l "owner=helm,name=${RELEASE},status=deployed" -o
 echo "release deployed"
 
 echo "== Check 2: Migration Job =="
-# One Job per release revision stays until its TTL; only the newest is this deploy's.
-migs="$("${K[@]}" get job -l app.kubernetes.io/component=migration --sort-by=.metadata.creationTimestamp \
-  -o jsonpath='{range .items[*]}{.status.succeeded}{"|"}{.status.failed}{"|"}{.status.conditions[?(@.type=="Failed")].status}{"\n"}{end}' | tail -n 1)"
+# One Job per release revision stays until its TTL; only the newest one of THIS release is this deploy's.
+migs="$(migration_job_status "$NAMESPACE" "$RELEASE" | cut -d'|' -f2-)"
 if [[ -z "$migs" ]]; then
   echo "no migration job (cleaned up after its TTL): ok"
 else

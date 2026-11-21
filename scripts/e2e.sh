@@ -47,6 +47,8 @@ set -o errtrace
 
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/ci/migration-job-lib.sh"
 trap 'lib_err_trap "e2e" "${LINENO}" "${BASH_COMMAND}" "$?"' ERR
 trap 'echo; log_err "interrupted — aborting"; exit 130' INT TERM
 
@@ -291,27 +293,19 @@ check_deployments() {
 }
 
 check_migration() {
-  lib_sep "verify: migration (post-install hook)"
-  # The migration runs as a post-install,post-upgrade hook with delete-policy
-  # before-hook-creation,hook-succeeded, so a *successful* hook removes itself once
-  # it completes — there is no Job to find afterwards. Helm blocks the release on
-  # the hook (a failed hook leaves the release `failed`, as it did on the first
-  # run), so `helm status` = `deployed` is the durable proof the migration ran. A
-  # leftover failed Job (hook still retrying/backing off) still fails the check.
-  local status any_failed
-  status="$(helm status "${HELM_RELEASE}" -n "${NAMESPACE}" 2>/dev/null \
-              | awk -F': ' '/^STATUS/{gsub(/ /,"",$2); print $2}' 2>/dev/null || true)"
-  any_failed="$(kubectl get job -n "${NAMESPACE}" \
-                  -o jsonpath='{range .items[?(@.status.failed>0)]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
-  if [ "${status}" = "deployed" ]; then
-    record "migration completed" PASS "release deployed (post-install migration hook succeeded)"
-  elif [ -n "${any_failed}" ]; then
-    record "migration completed" FAIL "migration Job(s) recorded failures: $(echo "${any_failed}" | tr '\n' ' ')"
-    kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/component=migration --tail 20 2>&1 | tail -20 || true
-  else
-    record "migration completed" WARN "migration unresolved (release status='${status:-unknown}'); hook may still be running"
-    kubectl logs -n "${NAMESPACE}" -l app.kubernetes.io/component=migration --tail 15 2>&1 | tail -15 || true
-  fi
+  lib_sep "verify: migration (per-revision Job)"
+  # The migration is a plain Job named <fullname>-migrate-r<revision>, not a Helm hook, and k8s-env.sh
+  # deploys without --wait: `helm status` = deployed says nothing about it. Find the NEWEST migration
+  # Job of this release (scripts/ci/migration-job-lib.sh), wait for its Complete condition, fail on Failed.
+  local timeout="${MIGRATION_WAIT_SECONDS:-300}" msg rc=0
+  msg="$(migration_job_wait "${NAMESPACE}" "${HELM_RELEASE}" "${timeout}")" || rc=$?
+  case "${rc}" in
+    0) record "migration completed" PASS "${msg}" ;;
+    1) record "migration completed" FAIL "${msg}"
+       migration_job_report "${NAMESPACE}" "${HELM_RELEASE}" ;;
+    *) record "migration completed" FAIL "${msg}"
+       migration_job_report "${NAMESPACE}" "${HELM_RELEASE}" ;;
+  esac
 }
 
 check_http_contract() {
@@ -420,12 +414,12 @@ cmd_verify() {
 
 # ===========================================================================
 # deploy — apply the chart via k8s-env.sh (helm upgrade --install: migration
-# post-install hook, secrets from values.<env>.yaml, both namespaces created),
+# per-revision migration Job, secrets from values.<env>.yaml, both namespaces created),
 # then verify. No secret is injected here.
 # ===========================================================================
 cmd_deploy() {
   lib_banner "e2e deploy" "env=${ENV_NAME}  app=${NAMESPACE}  db=${DB_NAMESPACE}"
-  # The chart apply (helm upgrade --install, migration post-install hook, secrets
+  # The chart apply (helm upgrade --install, per-revision migration Job, secrets
   # from values.<env>.yaml, both namespaces created) is owned by k8s-env.sh —
   # reuse it rather than reimplementing the flow. No secret is injected here.
   local -a args=("apply" "--env" "${ENV_NAME}" "--release" "${HELM_RELEASE}")

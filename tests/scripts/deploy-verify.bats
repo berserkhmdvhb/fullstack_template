@@ -22,7 +22,7 @@ echo "$args" >> "${STUB_LOG:-/dev/null}"
 comp() { sed -n 's/.*app.kubernetes.io\/component=\([a-z-]*\).*/\1/p' <<<"$args"; }
 case "$args" in
   *"get secret"*) printf '%s\n' "${STUB_RELEASE-secret/sh.helm.release.v1.rel.v3}" ;;
-  *"get job"*) printf '%s\n' "${STUB_JOBS-}" ;;
+  *"get job"*) printf '%s\n' "${STUB_JOBS-}" | awk 'NF{print "job-r1|"$0}' ;;
   *"get pods"*containerStatuses*)
     c="$(comp)"; c="${c//-/_}"; v="STUB_IMAGES_${c^^}"
     printf '%s\n' "${!v-}" ;;

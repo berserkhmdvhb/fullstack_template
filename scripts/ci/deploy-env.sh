@@ -4,7 +4,8 @@
 # 1. image values from the manifest plus the release digests (every digest must be sha256:<64 hex>)
 # 2. record the last `deployed` Helm revision (none on a first install)
 # 3. helm upgrade --install --rollback-on-failure --wait --wait-for-jobs (Helm rolls a failed upgrade back
-#    itself; --wait-for-jobs makes a failed migration Job fail the release)
+#    itself; --wait-for-jobs makes a failed migration Job fail the release; a failed deploy prints the
+#    newest migration Job's status and logs first)
 # 4. deploy-verify.sh, then scripts/smoke-test.sh through a port-forward
 # 5. when verify or smoke fails: helm rollback to the recorded revision, then exit 1
 #
@@ -16,6 +17,8 @@
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=/dev/null
+source "$ROOT/scripts/ci/migration-job-lib.sh"
 fail() { echo "::error::$*" >&2; exit 1; }
 
 for v in SERVICE_NAME DEPLOY_ENV CHART_DIR DEPLOY_IMAGES DIGESTS IMAGE_TAG HELM_TIMEOUT BACKEND_PORT API_VERSION; do
@@ -60,11 +63,19 @@ history="$(helm history "$SERVICE_NAME" -n "$NAMESPACE" -o json 2>/dev/null || e
 recorded="$(jq -r '[.[] | select(.status == "deployed")] | last | .revision // empty' <<<"$history")"
 echo "last deployed revision before this deploy: ${recorded:-none (first install)}"
 
-# 3. deploy
+# 3. deploy. The migration Job carries helm.sh/resource-policy keep, so Helm's own rollback leaves
+# a failed Job (and its Pods) in place: print its status and logs before failing.
+helm_rc=0
 helm upgrade --install "$SERVICE_NAME" "$CHART_DIR" \
   -f "$CHART_DIR/values.${DEPLOY_ENV}.yaml" -f "$VALUES" \
   --namespace "$NAMESPACE" \
-  --rollback-on-failure --wait --wait-for-jobs --timeout "$HELM_TIMEOUT"
+  --rollback-on-failure --wait --wait-for-jobs --timeout "$HELM_TIMEOUT" || helm_rc=$?
+if (( helm_rc != 0 )); then
+  echo "::group::migration Job of ${SERVICE_NAME} in ${DEPLOY_ENV} (the deploy failed)"
+  migration_job_report "$NAMESPACE" "$SERVICE_NAME" || true
+  echo "::endgroup::"
+  exit "$helm_rc"
+fi
 helm history "$SERVICE_NAME" -n "$NAMESPACE" --max 5
 
 # 4. verify and smoke

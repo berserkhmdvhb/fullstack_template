@@ -26,7 +26,12 @@ STUB
   cat > "$B/kubectl" <<'STUB'
 #!/usr/bin/env bash
 echo "kubectl $*" >> "$LOG"
-case "$*" in *port-forward*) exec sleep 30 ;; esac
+case "$*" in
+  *port-forward*) exec sleep 30 ;;
+  *"get job"*"succeeded"*) echo "svc-migrate-r2||4|True" ;;
+  *"get job"*) echo "svc-migrate-r2" ;;
+  *logs*) echo "migration log" ;;
+esac
 STUB
   printf '#!/usr/bin/env bash\nexit 0\n' > "$B/curl"
   cat > "$BATS_TEST_TMPDIR/matrix.sh" <<'STUB'
@@ -108,6 +113,13 @@ STUB
   [ "$status" -ne 0 ]
   run grep -q "^verify" "$LOG"
   [ "$status" -ne 0 ]
+}
+
+@test "a failed upgrade prints the newest migration job's status and logs, then fails" {
+  STUB_UPGRADE_RC=1 run bash "$SCRIPT"
+  [ "$status" -ne 0 ]
+  grep -q "kubectl .*get job .*app.kubernetes.io/instance=svc" "$LOG"
+  grep -q "kubectl .*logs -l job-name=svc-migrate-r2 --tail" "$LOG"
 }
 
 @test "a non-sha256 digest is refused before any helm upgrade" {

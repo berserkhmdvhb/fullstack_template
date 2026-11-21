@@ -17,7 +17,7 @@
 # Why this exists
 #   `make k8s-apply` installs the chart but does not wait, and says nothing about
 #   whether the rollout actually succeeded. This script closes both gaps. The
-#   chart creates both namespaces and runs the migration as a post-install hook,
+#   chart creates both namespaces and a per-revision migration Job (not a Helm hook),
 #   so — unlike the retired Kustomize flow — there is no namespace to pre-create,
 #   no dev secret to inject, and no migration Job to delete-recreate by hand.
 #
@@ -184,8 +184,8 @@ wait_for_services() {
 
 # NOTE: the retired Kustomize flow injected the local-dev app secret and
 # delete-recreated the migration Job by hand. The chart supersedes both:
-# secrets come from values.<env>.yaml, and the migration runs as a
-# post-install,post-upgrade hook that re-runs on every upgrade automatically.
+# secrets come from values.<env>.yaml, and every release revision creates its own
+# migration Job (<fullname>-migrate-r<revision>, not a Helm hook).
 
 # ===========================================================================
 # Actions
@@ -196,9 +196,9 @@ cmd_apply() {
   log_info "namespace: ${NAMESPACE}"
 
   # helm upgrade --install is idempotent: the first install and every later deploy
-  # use the same command. The chart creates both namespaces and runs the migration
-  # as a post-install,post-upgrade hook, so there is no namespace to pre-create and
-  # no migration Job to delete-recreate. Extra -f files (from --values) override
+  # use the same command. The chart creates both namespaces and a new migration Job
+  # per release revision, so there is no namespace to pre-create and no migration
+  # Job to delete-recreate. Extra -f files (from --values) override
   # values.<env>.yaml; --set KEY=VALUE (repeatable) overrides individual values.
   local -a helm=(upgrade --install "${HELM_RELEASE}" "${LIB_CHART_DIR}" -f "${VALUES_FILE}")
   local vf s

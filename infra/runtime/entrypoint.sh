@@ -224,8 +224,9 @@ resolve_ca_bundle() {
 
 ensure_log_dir() { local d="${LOG_DIR:-./logs}"; mkdir -p "$d" || true; chmod 750 "$d" 2>/dev/null || true; }
 
-# Autodetect standalone server path (search multiple locations)
-if [[ "${FRONTEND_IMPL}" == "react" ]]; then
+# Autodetect standalone server path (search multiple locations). Only the modes that start the
+# frontend need it: a backend-only run must not depend on a frontend build existing.
+if [[ "${FRONTEND_IMPL}" == "react" && ( "${SERVICE_MODE}" == "frontend" || "${SERVICE_MODE}" == "all" ) ]]; then
   if [[ ! -f "${FRONTEND_REACT_SERVER}" ]]; then
     # Search order: explicit path, container path, local path, find in common locations
     for candidate in \
@@ -240,7 +241,8 @@ if [[ "${FRONTEND_IMPL}" == "react" ]]; then
 
     # Last resort: find server.js in any .next/standalone directory
     if [[ ! -f "${FRONTEND_REACT_SERVER}" ]]; then
-      local_found="$(find . /app -name "server.js" -path "*/.next/standalone/*" -type f 2>/dev/null | head -n1)"
+      # `|| true`: find exits non-zero when /app is absent, which pipefail and the ERR trap would turn into an abort
+      local_found="$(find . /app -name "server.js" -path "*/.next/standalone/*" -type f 2>/dev/null | head -n1 || true)"
       if [[ -n "$local_found" ]]; then
         FRONTEND_REACT_SERVER="$local_found"
       fi
