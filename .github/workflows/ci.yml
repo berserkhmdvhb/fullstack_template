@@ -126,7 +126,7 @@ jobs:
           key: tools-repo-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
       - name: Install the pinned tools
         run: |
-          scripts/tools.sh install shellcheck bats yq
+          scripts/tools.sh install shellcheck bats yq kyverno
           echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.tools-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -141,6 +141,8 @@ jobs:
         run: |
           LIB_TS=0 bats infra/security/local/tests/
           bats tests/scripts/
+      - name: Admission policy tests
+        run: kyverno test deploy/policies/tests --require-tests
 
   # Blocking, always runs: every tracked Dockerfile through the pinned hadolint (scripts/tools.sh).
   hadolint:
