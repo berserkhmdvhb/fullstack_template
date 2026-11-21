@@ -138,6 +138,8 @@ _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
     "TRACING_ENABLED",
     "OTEL_EXPORTER_OTLP_ENDPOINT",
     "OTEL_EXPORTER_OTLP_HEADERS",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
     "OTEL_SERVICE_NAME",
     "TRACING_SAMPLE_RATIO",
     "RATE_LIMIT_STORAGE",
@@ -395,6 +397,16 @@ class Settings(BaseSettings):
         default=None,
         description="Tracing: headers for the collector, `name=value,name2=value2` (for "
         "example its auth token). A secret.",
+    )
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: str | None = Field(
+        default=None,
+        description="Refused when set: the SDK would take it over OTEL_EXPORTER_OTLP_ENDPOINT. "
+        "Use OTEL_EXPORTER_OTLP_ENDPOINT.",
+    )
+    OTEL_EXPORTER_OTLP_TRACES_HEADERS: SecretStr | None = Field(
+        default=None,
+        description="Refused when set: the SDK would take it over OTEL_EXPORTER_OTLP_HEADERS and "
+        "skip the production check on cleartext headers. Use OTEL_EXPORTER_OTLP_HEADERS.",
     )
     OTEL_SERVICE_NAME: str = Field(
         default=DEFAULT_SERVICE_NAME,
@@ -822,6 +834,12 @@ class Settings(BaseSettings):
         credentials). Runs after the per-field parsing above, so it sees typed values.
         """
         problems = self._auth_problems()
+        for name, use in (
+            ("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_EXPORTER_OTLP_ENDPOINT"),
+            ("OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_EXPORTER_OTLP_HEADERS"),
+        ):
+            if getattr(self, name):
+                problems.append(f"{name} is not supported; set {use} instead")
         if self.TRACING_ENABLED and not self.OTEL_EXPORTER_OTLP_ENDPOINT:
             problems.append(
                 "OTEL_EXPORTER_OTLP_ENDPOINT is required when TRACING_ENABLED=true; set the "

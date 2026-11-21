@@ -120,3 +120,26 @@ def test_outside_production_headers_over_http_are_fine(monkeypatch: pytest.Monke
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "a=b")
     Settings()
+
+
+@pytest.mark.parametrize(
+    ("name", "use_instead"),
+    [
+        ("OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_EXPORTER_OTLP_HEADERS"),
+        ("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_EXPORTER_OTLP_ENDPOINT"),
+    ],
+)
+@pytest.mark.parametrize("env", ["dev", "production"])
+def test_the_per_signal_variables_are_refused(
+    monkeypatch: pytest.MonkeyPatch, name: str, use_instead: str, env: str
+) -> None:
+    monkeypatch.setenv("ENV", env)
+    if env == "production":
+        for key, value in PROD.items():
+            monkeypatch.setenv(key, value)
+        monkeypatch.setenv("TRACING_ENABLED", "false")
+    monkeypatch.setenv(name, f"authorization={FAKE_HEADER}")
+    with pytest.raises(ValidationError, match=use_instead) as caught:
+        Settings()
+    assert name in str(caught.value)
+    assert FAKE_HEADER not in str(caught.value)

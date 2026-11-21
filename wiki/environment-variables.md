@@ -82,6 +82,8 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 | `TRACING_ENABLED` | bool | `false` | Export OpenTelemetry traces over OTLP/HTTP (server spans for the API, database spans for statement text). Off, nothing of OpenTelemetry beyond its small API package is loaded. Needs OTEL_EXPORTER_OTLP_ENDPOINT. | — |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | str | (unset) | Tracing: the collector's base URL (`http://host:4318`); `/v1/traces` is appended. Required when TRACING_ENABLED=true. | — |
 | `OTEL_EXPORTER_OTLP_HEADERS` | secret | (secret) | Tracing: headers for the collector, `name=value,name2=value2` (for example its auth token). A secret. | — |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | str | (unset) | Refused when set: the SDK would take it over OTEL_EXPORTER_OTLP_ENDPOINT. Use OTEL_EXPORTER_OTLP_ENDPOINT. | — |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | secret | (secret) | Refused when set: the SDK would take it over OTEL_EXPORTER_OTLP_HEADERS and skip the production check on cleartext headers. Use OTEL_EXPORTER_OTLP_HEADERS. | — |
 | `OTEL_SERVICE_NAME` | str | `your_service_name` | Tracing: the `service.name` resource attribute. | — |
 | `TRACING_SAMPLE_RATIO` | float | `1.0` | Tracing: the share of new traces recorded (0 to 1). A caller's sampled `traceparent` is always honoured, whatever this says. | — |
 | `MAX_REQUEST_BODY_BYTES` | int | `10485760` | Largest accepted request body in bytes; more is a 413. The default (10 MiB) is the chart's ingress `proxy-body-size`, so the edge and the service agree. | — |

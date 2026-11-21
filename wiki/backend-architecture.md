@@ -371,8 +371,10 @@ nothing) and header capture is pinned off. The SDK and the exporter still read t
 variables themselves, which the template leaves to the operator: `OTEL_SDK_DISABLED`; the span
 limits (`OTEL_SPAN_*_LIMIT`, `OTEL_ATTRIBUTE_*_LIMIT`); the exporter's TLS files
 (`OTEL_EXPORTER_OTLP_CERTIFICATE`, `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE`,
-`OTEL_EXPORTER_OTLP_CLIENT_KEY`, and their `*_TRACES_*` forms) and its `*_TRACES_HEADERS` override;
-and `OTEL_SEMCONV_STABILITY_OPT_IN`. `OTEL_RESOURCE_ATTRIBUTES` is not read. FastAPI's own
+`OTEL_EXPORTER_OTLP_CLIENT_KEY`, and their `*_TRACES_*` forms) and
+`OTEL_SEMCONV_STABILITY_OPT_IN`. The per-signal `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and
+`OTEL_EXPORTER_OTLP_TRACES_HEADERS` are refused at startup (they would bypass the production header
+rule): use the two non-signal variables. `OTEL_RESOURCE_ATTRIBUTES` is not read. FastAPI's own
 telemetry is switched off in `create_app`.
 
 In production `OTEL_EXPORTER_OTLP_HEADERS` with an `http://` endpoint to a non-loopback host is

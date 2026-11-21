@@ -153,6 +153,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     tracing = getattr(app.state, "tracing", None)
     if tracing is not None:
+        tracing.start()
         from your_service_name.backend.db.engine import (  # noqa: PLC0415 — only with tracing on
             current_engine,
         )

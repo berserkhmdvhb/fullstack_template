@@ -44,6 +44,26 @@ def _settings(*, ratio: float = 1.0, name: str = "your_service_name") -> Setting
     )
 
 
+@pytest.fixture(autouse=True)
+def _reset_tracing_state() -> Iterator[None]:
+    """Process-wide tracing state (the app count, the span-id hook) starts and ends clean."""
+    from opentelemetry import propagate  # noqa: PLC0415
+    from opentelemetry.trace.propagation.tracecontext import (  # noqa: PLC0415
+        TraceContextTextMapPropagator,
+    )
+
+    from your_service_name.backend.logging import correlation  # noqa: PLC0415
+
+    def reset() -> None:
+        tracing._active_handles = 0
+        correlation.set_span_ids_provider(None)
+        propagate.set_global_textmap(TraceContextTextMapPropagator())
+
+    reset()
+    yield
+    reset()
+
+
 @pytest.fixture
 def exporter(monkeypatch: pytest.MonkeyPatch) -> InMemorySpanExporter:
     memory = InMemorySpanExporter()
@@ -186,7 +206,7 @@ class TestCaptureAndExclusion:
 
 class TestProcessWideState:
     @pytest.mark.usefixtures("migrated_db")
-    async def test_a_second_app_keeps_its_database_spans_after_the_first_shuts_down(
+    async def test_the_hook_lives_until_the_last_started_app_shuts_down(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         second_exporter = InMemorySpanExporter()
@@ -195,17 +215,27 @@ class TestProcessWideState:
         from your_service_name.backend.logging import correlation  # noqa: PLC0415
 
         first, second = create_app(_settings()), create_app(_settings())
+        assert correlation._span_ids_provider is None  # built, not started: nothing installed
         async with LifespanManager(first):
-            pass  # the first app starts and shuts down; the second is built but not started yet
-        assert correlation._span_ids_provider is not None
-        async with LifespanManager(second):
-            transport = httpx.ASGITransport(app=second)
-            async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
-                response = await client.post("/api/v1/items", json={"name": "zq-two"})
-            assert response.status_code == httpx.codes.CREATED
-            spans = _spans(second_exporter, second)
+            async with LifespanManager(second):
+                assert correlation._span_ids_provider is not None
+                transport = httpx.ASGITransport(app=second)
+                async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+                    response = await client.post("/api/v1/items", json={"name": "zq-two"})
+                assert response.status_code == httpx.codes.CREATED
+                spans = _spans(second_exporter, second)
+            assert correlation._span_ids_provider is not None  # the first is still running
+        assert correlation._span_ids_provider is None
         assert any(s.kind == SpanKind.CLIENT for s in spans)
         assert [s for s in spans if s.kind == SpanKind.SERVER]
+
+    @pytest.mark.usefixtures("exporter")
+    def test_an_app_built_but_never_started_leaves_no_process_state(self) -> None:
+        from your_service_name.backend.logging import correlation  # noqa: PLC0415
+
+        create_app(_settings())
+        create_app(_settings())
+        assert tracing._active_handles == 0
         assert correlation._span_ids_provider is None
 
     @pytest.mark.usefixtures("exporter")
@@ -326,7 +356,7 @@ class TestFailingExporter:
         started = time.monotonic()
         response = await _run(app, "GET", "/api/v1/items")  # includes the bounded shutdown
         assert response.status_code == httpx.codes.OK
-        assert time.monotonic() - started < 2.5  # noqa: PLR2004 — well under the 3 s stall
+        assert time.monotonic() - started < 2.5  # noqa: PLR2004
 
 
 def test_the_default_exporter_gets_explicit_values() -> None:

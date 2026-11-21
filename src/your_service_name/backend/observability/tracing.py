@@ -165,7 +165,21 @@ class TracingHandle:
     """What the lifespan needs: instrument the database engine, flush and stop the exporter."""
 
     provider: TracerProvider
+    _started: bool = False
     _stopped: bool = False
+
+    def start(self) -> None:
+        """Count this app as traced and install the span-id hook (the lifespan's start).
+
+        Paired with ``shutdown``: an app that is built but never started holds nothing.
+        """
+        global _active_handles  # noqa: PLW0603 — counts the traced apps of this process
+        with _handles_lock:
+            if self._started:
+                return
+            self._started = True
+            _active_handles += 1
+            set_span_ids_provider(_active_span_ids)
 
     def instrument_engine(self, engine: Engine) -> None:
         """Trace the app engine's statements (text only; no parameters, no SQL commenter).
@@ -188,9 +202,10 @@ class TracingHandle:
             return
         self._stopped = True
         with _handles_lock:
-            _active_handles -= 1
-            if _active_handles <= 0:
-                set_span_ids_provider(None)  # the last traced app leaving clears the hook
+            if self._started:
+                _active_handles -= 1
+                if _active_handles <= 0:
+                    set_span_ids_provider(None)  # the last traced app leaving clears the hook
         worker = threading.Thread(target=self.provider.shutdown, daemon=True)
         worker.start()
         worker.join(SHUTDOWN_TIMEOUT_SECONDS)
@@ -239,10 +254,6 @@ def install_tracing(app: FastAPI, settings: Settings) -> TracingHandle:
     # W3C Trace Context, as the correlation middleware parses it: OTEL_PROPAGATORS must not change
     # how the inbound header is read.
     set_global_textmap(TraceContextTextMapPropagator())
-    global _active_handles  # noqa: PLW0603 — counts the traced apps of this process
-    with _handles_lock:
-        _active_handles += 1
-        set_span_ids_provider(_active_span_ids)
     handle = TracingHandle(provider)
     app.state.tracing = handle
     logger.info(
