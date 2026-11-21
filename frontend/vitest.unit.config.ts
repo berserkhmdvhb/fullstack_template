@@ -25,6 +25,7 @@ export default defineConfig({
       'lib/config.test.ts',
       'lib/api/error-map.test.ts',
       'features/items/lib/schemas.test.ts',
+      'styles/globals.test.ts',
     ],
   },
 });

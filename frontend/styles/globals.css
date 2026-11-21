@@ -7,8 +7,9 @@
 
 /*
   Design tokens (moved from tailwind.config.ts). Colours backed by the runtime CSS variables below use
-  `inline`, so a utility such as `bg-surface` compiles to `var(--color-surface)` and resolves per theme;
-  without `inline` the theme variable `--color-surface` would shadow the runtime one of the same name.
+  `inline`: a utility such as `bg-surface` compiles to `var(--surface-base)` (the theme variable itself is
+  not emitted), which resolves per theme. The runtime variables never share a name with a theme variable,
+  so no `var()` cycle can form.
 */
 @theme inline {
   /* Text colors */
@@ -18,7 +19,7 @@
   --color-textMuted: var(--color-text-muted);
 
   /* Surface colors */
-  --color-surface: var(--color-surface);
+  --color-surface: var(--surface-base);
   --color-surfaceAlt: var(--color-surface-alt);
   --color-surfaceWeak: var(--color-surface-weak);
   --color-surfaceStrong: var(--color-surface-strong);
@@ -69,6 +70,25 @@
     border-color: var(--color-gray-200, currentcolor);
   }
 
+  /* Element rules live in the base layer so utilities (for example `min-h-screen`) override them,
+     as in Tailwind 3; an unlayered rule would beat every utility. */
+  html,
+  body {
+    min-height: 100%;
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition:
+      background-color 0.2s ease,
+      color 0.2s ease;
+  }
+
+  header {
+    transition:
+      background-color 0.2s ease,
+      border-color 0.2s ease;
+  }
+
   /* Tailwind 4 buttons default to `cursor: default` (3: pointer). Keep the pointer. */
   button:not(:disabled),
   [role='button']:not(:disabled) {
@@ -79,6 +99,7 @@
 /* ───────────────────────────────────────────
    THEME VARIABLES
    ─────────────────────────────────────────── */
+/* Runtime theme tokens: unlayered on purpose (custom properties only; no utility sets them). */
 :root,
 html.light {
   /* Light mode palette */
@@ -87,7 +108,7 @@ html.light {
   --color-text-tertiary: #6b7280;
   --color-text-muted: #374151;
 
-  --color-surface: #ffffff;
+  --surface-base: #ffffff;
   --color-surface-alt: #f9fafb;
   --color-surface-weak: #f3f4f6;
   --color-surface-strong: #ffffff;
@@ -114,7 +135,7 @@ html.dark {
   --color-text-tertiary: #cbd5e1;
   --color-text-muted: #e2e8f0;
 
-  --color-surface: #1e293b;
+  --surface-base: #1e293b;
   --color-surface-alt: #334155;
   --color-surface-weak: #475569;
   --color-surface-strong: #0f172a;
@@ -137,17 +158,6 @@ html.dark {
 /* ───────────────────────────────────────────
    GLOBAL BACKGROUND
    ─────────────────────────────────────────── */
-html,
-body {
-  min-height: 100%;
-  background-attachment: fixed;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
-}
-
 html.dark body {
   background: var(--color-bg-main);
   color: var(--color-text-primary);
@@ -178,7 +188,7 @@ html.dark body::before {
    SHARED UI UTILITIES
    ─────────────────────────────────────────── */
 .card {
-  background: var(--color-surface);
+  background: var(--surface-base);
   border: 1px solid var(--color-border-subtle);
   border-radius: 0.75rem;
   padding: 1.5rem;
@@ -198,7 +208,7 @@ html.dark .card {
 }
 
 .panel {
-  background: var(--color-surface);
+  background: var(--surface-base);
   border: 1px solid var(--color-border-weak);
   border-radius: 0.75rem;
   padding: 1.5rem;
@@ -214,7 +224,7 @@ html.dark .panel {
 
 /* Ensure bg-surface elements inside panels also get dark background */
 html.dark .bg-surface {
-  background-color: var(--color-surface) !important;
+  background-color: var(--surface-base) !important;
 }
 
 html.dark .bg-surfaceWeak {
@@ -227,7 +237,7 @@ html.dark .bg-surfaceStrong {
 
 .input-base,
 .input {
-  background: var(--color-surface);
+  background: var(--surface-base);
   border: 1px solid var(--color-border-weak);
   border-radius: 0.5rem;
   padding: 0.625rem 0.875rem;
@@ -342,12 +352,6 @@ html.dark .table-row-hover:hover {
 /* ───────────────────────────────────────────
    HEADER
    ─────────────────────────────────────────── */
-header {
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease;
-}
-
 /* ───────────────────────────────────────────
    GLOBAL BUTTON COMPOSITION
    ─────────────────────────────────────────── */
@@ -398,7 +402,7 @@ header {
 
   .btn-neutral {
     border: 1px solid var(--color-border-subtle);
-    background: var(--color-surface);
+    background: var(--surface-base);
     color: var(--color-text-primary);
     transition:
       background-color 0.15s,
@@ -516,7 +520,7 @@ html.dark .skeleton {
   background: linear-gradient(
     90deg,
     var(--color-surface-weak) 25%,
-    var(--color-surface) 50%,
+    var(--surface-base) 50%,
     var(--color-surface-weak) 75%
   );
   background-size: 200% 100%;
