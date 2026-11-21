@@ -226,7 +226,7 @@ export function ItemForm({ editingItem, onCancelEdit }: ItemFormProps): JSX.Elem
             id="is_active"
             type="checkbox"
             {...register('is_active')}
-            className="h-4 w-4 rounded border-borderWeak accent-accentBlue"
+            className="h-4 w-4 rounded-sm border-borderWeak accent-accentBlue"
           />
           <label htmlFor="is_active" className="text-sm text-textPrimary">
             Active

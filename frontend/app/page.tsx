@@ -73,7 +73,7 @@ export default function Home(): JSX.Element {
                   : 'Checking...'}
             </span>
           </div>
-          {status === 'checking' && <span className="skeleton h-4 w-20 rounded" />}
+          {status === 'checking' && <span className="skeleton h-4 w-20 rounded-sm" />}
         </div>
       </section>
 
@@ -83,7 +83,7 @@ export default function Home(): JSX.Element {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Link
             href="/items"
-            className="group flex items-center gap-3 rounded-lg border border-borderWeak bg-surface p-4 text-sm text-textPrimary hover:bg-surfaceWeak hover:border-borderStrong hover:shadow-sm transition-all"
+            className="group flex items-center gap-3 rounded-lg border border-borderWeak bg-surface p-4 text-sm text-textPrimary hover:bg-surfaceWeak hover:border-borderStrong hover:shadow-xs transition-all"
           >
             <ClipboardList className="h-5 w-5 text-accentBlue shrink-0" />
             <div>
@@ -93,7 +93,7 @@ export default function Home(): JSX.Element {
           </Link>
           <Link
             href="/docs"
-            className="group flex items-center gap-3 rounded-lg border border-borderWeak bg-surface p-4 text-sm text-textPrimary hover:bg-surfaceWeak hover:border-borderStrong hover:shadow-sm transition-all"
+            className="group flex items-center gap-3 rounded-lg border border-borderWeak bg-surface p-4 text-sm text-textPrimary hover:bg-surfaceWeak hover:border-borderStrong hover:shadow-xs transition-all"
           >
             <BookOpen className="h-5 w-5 text-accentPurple shrink-0" />
             <div>
@@ -103,7 +103,7 @@ export default function Home(): JSX.Element {
           </Link>
           <a
             href="/api/v1/health"
-            className="group flex items-center gap-3 rounded-lg border border-borderWeak bg-surface p-4 text-sm text-textPrimary hover:bg-surfaceWeak hover:border-borderStrong hover:shadow-sm transition-all"
+            className="group flex items-center gap-3 rounded-lg border border-borderWeak bg-surface p-4 text-sm text-textPrimary hover:bg-surfaceWeak hover:border-borderStrong hover:shadow-xs transition-all"
           >
             <HeartPulse className="h-5 w-5 text-accentPink shrink-0" />
             <div>

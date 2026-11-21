@@ -88,7 +88,7 @@ export function ToastProvider({ children }: PropsWithChildren): JSX.Element {
       {children}
       {/* Portal target for toasts */}
       {typeof document !== 'undefined' && (
-        <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-2">
+        <div className="fixed bottom-4 right-4 z-200 flex flex-col gap-2">
           {toasts.map((t) => (
             <ToastItem key={t.id} toast={t} onDismiss={() => remove(t.id)} />
           ))}

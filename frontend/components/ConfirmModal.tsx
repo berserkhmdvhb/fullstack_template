@@ -92,14 +92,14 @@ export function ConfirmModal({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded px-4 py-2 text-sm text-textSecondary hover:bg-surfaceWeak"
+            className="rounded-sm px-4 py-2 text-sm text-textSecondary hover:bg-surfaceWeak"
           >
             {cancelLabel}
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="rounded bg-statusFailed px-4 py-2 text-sm font-medium text-white hover:bg-statusFailed/90"
+            className="rounded-sm bg-statusFailed px-4 py-2 text-sm font-medium text-white hover:bg-statusFailed/90"
           >
             {confirmLabel}
           </button>
