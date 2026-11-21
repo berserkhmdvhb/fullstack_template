@@ -75,7 +75,7 @@ def test_every_npm_runner_checks_the_package_manager_version() -> None:
 
 
 def test_every_npm_runner_ignores_dependency_install_scripts() -> None:
-    """The install is `npm ci --ignore-scripts` everywhere; allowScripts in package.json records the policy."""
+    """The install is `npm ci --ignore-scripts` everywhere; `allowScripts` records the policy."""
     action = (ROOT / ".github/actions/setup-frontend/action.yml").read_text(encoding="utf-8")
     assert re.search(r"^\s+run: npm ci --ignore-scripts$", action, re.MULTILINE)
     for name in ("Dockerfile.frontend", "Dockerfile.nginx"):
