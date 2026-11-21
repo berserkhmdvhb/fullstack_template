@@ -61,7 +61,7 @@ flowchart TB
         NonRoot["Non-root user"]
         Tini["Tini init"]
         Minimal["Minimal base image"]
-        NoShell["No curl; no shell started in the backend"]
+        NoShell["No shell, no curl in the backend"]
     end
 
     Edge --> App --> K8s --> CI --> Container
@@ -546,13 +546,16 @@ ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
 
 ### Minimal Base Image
 
-- `python:3.12-slim` — Debian slim variant
-- Only necessary runtime packages installed
-- No build tools in runtime image (build happens in separate stage)
-- Apt cache cleaned after install
-- The backend image installs **no `curl` and no `bash`** and starts no shell. The base image itself still ships `sh` and `bash`, so do not count a shell-free image as a control (for example against `kubectl exec`). Its command (`python -m your_service_name.backend.serve`) and its HEALTHCHECK (`python -m your_service_name.backend.healthcheck`, standard library only) are Python, and no shell script is copied in. That removes `curl` and the scripts from what an attacker who reaches the container can use
+- The backend runtime is distroless Python (`gcr.io/distroless/python3-debian13`, by digest); the build stage is Debian 13
+- The backend image has **no shell, no `curl`, no package manager and no `pip`**: an attacker who reaches the container finds no `sh`, `bash`, `apt`, `dpkg` or `pip` to use. Its command (`python -m your_service_name.backend.serve`) and its HEALTHCHECK (`python -m your_service_name.backend.healthcheck`, standard library only) are Python, and no shell script is copied in. Do not run `kubectl exec` with a shell on it; use the interpreter (`/app/.venv/bin/python -c ...`) for a probe
+- No build tools in the runtime image (build happens in a separate stage), and the runtime stage has no `RUN`
+- `tini` is copied from the Debian package with its dpkg record, so an SBOM lists it like the base's own packages
 
 ### Installed Runtime Packages
+
+The backend installs nothing at build time: its runtime is the distroless Python base (which carries
+`ca-certificates`, `libsqlite3-0` for the fallback database and the Debian interpreter) plus `tini`,
+copied from the Debian package. There is no `libpq`: the driver is asyncpg.
 
 | Package | Purpose |
 |---------|---------|
@@ -561,9 +564,6 @@ ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
 | `curl` | Health checks (the nginx image only; the backend probe is Python) |
 | `ca-certificates` | TLS certificate validation |
 | `gettext-base` | `envsubst` for config templating |
-| `dpkg` | Package management |
-| `libsqlite3-0` | SQLite runtime (fallback DB) |
-| `libpq5` | PostgreSQL client library |
 
 ---
 

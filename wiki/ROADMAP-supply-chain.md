@@ -68,20 +68,17 @@ Why it is deferred:
 
 ---
 
-## 2. Distroless / hardened backend base — *roadmap*
+## 2. Distroless / hardened backend base — *done*
 
-Migrate the backend runtime base from `python:3.12-slim` (Debian, `apt`, a package manager and a
-shell present at runtime) to a **distroless / Chainguard** base, so the production image has no
-package manager, no shell, and a materially smaller CVE surface. The frontend is already distroless
-(Next.js standalone on distroless `nodejs26-debian13` / static); the backend is the remaining large base.
+The backend runtime is `gcr.io/distroless/python3-debian13`, pinned by digest: no shell, no `curl`, no
+package manager and no `pip`, and a materially smaller CVE surface. The builder is a Debian 13 image with
+the same Debian interpreter, so the copied virtual environment always matches. The image's command and
+HEALTHCHECK are Python modules, `tini` is copied from the Debian package with its dpkg record (so the SBOM
+lists it), and every consumer that used to run a shell or `curl` inside the container now uses the
+image's own interpreter. The frontend was already distroless; nginx stays on its pinned Alpine image.
 
-Why it is deferred:
-
-- A distroless Python base changes the health-check / migration / `tini` story (no shell, no
-  `curl`) and must be re-proven through the live suite — a separate, careful migration.
-- It is a **runtime-hardening** item, downstream of the supply-chain *attestation* work above.
-
-See the container-hardening notes in [`wiki/security.md`](./security.md).
+See [`wiki/containerization.md`](./containerization.md) and the container-hardening notes in
+[`wiki/security.md`](./security.md).
 
 ---
 
@@ -160,6 +157,7 @@ on the SBOM + VEX work being in place first.
 flowchart LR
     subgraph Delivered["Delivered (baseline)"]
         V["build + digests<br/>digest-pin"]
+        D["Distroless backend base"]
         X["vex<br/>OpenVEX"]
         S["sign-attest<br/>signatures + attestations"]
         M["osv<br/>MAL-*"] & H["workflows<br/>hardening lint"]
@@ -167,7 +165,6 @@ flowchart LR
 
     subgraph Roadmap["Roadmap"]
         K["Kyverno admission<br/>(enforces the delivered signatures)"]
-        D["Distroless backend base"]
         I["OIDC build identity"]
         P["environment-scoped secrets<br/>(repository setting)"]
         W["Workload identity<br/>(deploy-side of I)"]

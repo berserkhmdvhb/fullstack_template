@@ -8,15 +8,14 @@ ignore:
   # brand-new 3.15 purely for this Medium is higher-risk than the residual
   # exposure, so it is accepted until the team validates 3.15.
   #
-  # Not version-scoped on purpose: the base is the floating python:3.13-slim
-  # tag and grype matches the ignore `version` EXACTLY (verified: "3.13" does
+  # Not version-scoped on purpose: the interpreter is the Debian python3.13 of the
+  # distroless base, which a digest bump moves, and grype matches the ignore `version` EXACTLY (verified: "3.13" does
   # not match the SBOM's full "3.13.x"), so a version pin would silently stop
   # matching on the next base bump and re-fail the high gate. The `until:` date
-  # is the expiry mechanism; pin the base image to a digest if you want the
-  # ignore to auto-drop when the interpreter is bumped.
+  # is the expiry mechanism.
   - vulnerability: CVE-2025-15367
     package:
-      # No version: matches whatever 3.13.x the slim base currently pins.
+      # No version: matches whatever 3.13.x the distroless base currently ships.
       name: python
     reason: >
       poplib command injection (stdlib POP3 client). Not fixable in any GA

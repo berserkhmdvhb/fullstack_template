@@ -161,7 +161,7 @@ Everything in the control table above is **delivered**, and the image-touching j
 `main` and `v*` tags (a pull request author can never resolve a production digest). Image **signing +
 SLSA provenance are delivered** too (see [Verifying an image](./security.md#verifying-an-image)). What is **not** implemented yet, in
 [`ROADMAP-supply-chain.md`](./ROADMAP-supply-chain.md) —
-cryptographic **admission enforcement** (Kyverno), a **distroless** backend base, OpenSSF Scorecard,
+cryptographic **admission enforcement** (Kyverno), OpenSSF Scorecard,
 and the SBOM-consumption / VEX-actuation loop — is that same roadmap. Together they cover the known gaps: signing, provenance and admission, malicious dependencies, the CI's own
 supply chain, and the adjacent runtime and cluster items.
 

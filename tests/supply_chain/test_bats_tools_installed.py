@@ -13,6 +13,7 @@ STUBBED = {
     "kind": "an awk variable in the migration helper, never the binary",
     "cosign": "named in an error message the scaffolder tests print",
     "python": "the backend virtualenv's interpreter, not a downloaded pin",
+    "node": "named in the probe commands rebuild-and-roll.sh prints; docker and kubectl are stubs",
 }
 # A tool name in command position: line start, after a pipe, `;`, `&&`, `$(`, a backtick, or a
 # keyword that runs its argument (`run`, `command -v`, `need_cmd`, ...).

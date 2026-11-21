@@ -50,7 +50,7 @@ flowchart TB
 
 | Dockerfile | Service | Base Image | Port |
 |------------|---------|-----------|------|
-| `Dockerfile.backend` | FastAPI + Uvicorn | `python:3.12-slim` | 8000 |
+| `Dockerfile.backend` | FastAPI + Uvicorn | `debian:13-slim` (build), distroless `python3-debian13` (runtime) | 8000 |
 | `Dockerfile.frontend` | Next.js standalone | `node:26-trixie-slim` (build), distroless `nodejs26-debian13` (runtime) | 3000 |
 | `Dockerfile.nginx` | Static assets | `nginx:alpine` | 8081 |
 
@@ -59,10 +59,14 @@ flowchart TB
 ## Dockerfile.backend
 
 ```dockerfile
-FROM python:3.12-slim AS builder
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
+FROM gcr.io/distroless/python3-debian13@sha256:<digest> AS runtime-base   # declared once, by digest
+
+FROM debian:13-slim@sha256:<digest> AS py-builder
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON=/usr/bin/python3.13 \
+    UV_PYTHON_DOWNLOADS=never UV_PYTHON_PREFERENCE=only-system
 COPY --from=ghcr.io/astral-sh/uv:<version>@sha256:<digest> /uv /bin/uv   # same version as tools/pins.tsv
-RUN apt-get update && apt-get install -y build-essential libpq-dev
+RUN apt-get update -y && apt-get install -y --no-install-recommends python3.13 tini
+# ... the tini dpkg record, and passwd/group with the app user (10001) added to the base's entries
 WORKDIR /app
 COPY pyproject.toml uv.lock /app/
 RUN uv sync --frozen --no-dev --no-install-project --no-editable   # locked dependencies, hash-checked
@@ -70,33 +74,38 @@ COPY README.md LICENSE alembic.ini /app/
 COPY src /app/src
 RUN uv sync --frozen --no-dev --no-editable
 
-FROM python:3.12-slim AS runtime
+FROM runtime-base AS runtime
 LABEL org.opencontainers.image.title="Your Service Name"
-LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.source="${SOURCE_URL}"   # plus version, revision, ref.name and created
 
-RUN apt-get install -y libsqlite3-0 libpq5 tini ca-certificates   # installs no bash and no curl
-RUN useradd -m -u 10001 appuser
-COPY --from=builder /app/.venv /app/.venv   # root-owned: the app user cannot rewrite its code
+COPY --from=py-builder /usr/bin/tini /usr/bin/tini      # and its dpkg record and licence, for the SBOM
+COPY --from=py-builder /out/etc/passwd /out/etc/group /etc/
+COPY --from=py-builder /app/.venv /app/.venv   # root-owned: the app user cannot rewrite its code
+COPY --chmod=644 alembic.ini /app/alembic.ini
+COPY --from=py-builder --chown=10001:10001 /out/app/logs /app/logs   # and /app/data, the only writable dirs
 ENV PATH="/app/.venv/bin:$PATH"
-
-WORKDIR /app
-COPY alembic.ini /app/alembic.ini
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
   CMD ["/app/.venv/bin/python", "-m", "your_service_name.backend.healthcheck"]
 
-USER appuser
+USER 10001
 ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
 CMD ["/app/.venv/bin/python", "-m", "your_service_name.backend.serve"]
 ```
 
+The runtime is **distroless**: no shell, no `curl`, no package manager and no `pip`, and the runtime stage has no `RUN`.
+One Debian interpreter serves both stages (`/usr/bin/python3.13`), so the copied virtual environment always
+matches; the builder needs no compiler, because every runtime dependency ships a wheel. The database driver
+is asyncpg, so no `libpq` is installed. A test pins the digests, the Debian major of both stages and the
+absence of `RUN`.
+
 **Key features**:
-- **OCI metadata labels** — version, revision, branch, build date, vendor
-- **Non-root user** — runs as `appuser` (UID 10001)
+- **OCI metadata labels** — version, revision, branch, build date, vendor, and `source` (the repository URL, from the `SOURCE_URL` build argument; GHCR links the package to it). All three images carry them, and the build workflow fills each one: the commit SHA, the branch or tag, the commit time (UTC, RFC 3339) and `${{ github.server_url }}/${{ github.repository }}`
+- **Non-root user** — runs as `appuser` (UID 10001, with a passwd and group entry and a home directory)
 - **Tini init** — proper PID 1 for signal handling
 - **Health check** — a stdlib Python probe (`python -m your_service_name.backend.healthcheck`) of `/healthz`, with a 4 s timeout; it reads `HEALTHCHECK_SCHEME`, `BACKEND_PORT` and `API_VERSION`, and treats a redirect or a TLS failure as unhealthy
-- **Launcher** — `python -m your_service_name.backend.serve` starts Uvicorn in-process (no shell is started, no curl); see [Environment Variables](./environment-variables.md)
-- **Migrations** — run by the chart's Job (and compose's `migrate` service) with `python -m your_service_name.backend.db.run_migrations`; the image ships no shell script
+- **Launcher** — `python -m your_service_name.backend.serve` starts Uvicorn in-process (no shell, no curl); see [Environment Variables](./environment-variables.md)
+- **Migrations** — run by the chart's Job (and compose's `migrate` service) with `python -m your_service_name.backend.db.run_migrations`; the image ships no shell script and no shell
 
 ---
 
@@ -288,8 +297,7 @@ exists, a build-time signature is assurance the runtime never checks. The harden
 - The OpenVEX document (the `vex` job) also pins the product by the captured digest.
 
 > **Roadmap** (not yet implemented): Kyverno admission to *enforce* the delivered
-> signatures and provenance at deploy time, a distroless
-> backend base. See
+> signatures and provenance at deploy time. See
 > [`wiki/ROADMAP-supply-chain.md`](./ROADMAP-supply-chain.md).
 
 ---

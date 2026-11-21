@@ -47,7 +47,7 @@ STUB
   [[ "$output" == *"--entrypoint /app/.venv/bin/python your-service-name-backend:dev -c import "* ]]
 }
 
-@test "the frontend image is still verified with its own node" {
+@test "the frontend image is still verified with its own interpreter, passed with -e" {
   run bash "$SCRIPT" --dry-run --no-docker-env --only frontend
   [[ "$output" == *"--entrypoint /nodejs/bin/node your-service-name-frontend:dev -e "* ]]
 }
