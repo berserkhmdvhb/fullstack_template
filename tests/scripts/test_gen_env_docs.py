@@ -120,7 +120,7 @@ class TestConsistency:
     def test_env_example_lists_only_names_the_docs_define(self) -> None:
         """A typo or a leftover name in .env.example matches neither Settings nor the doc."""
         doc = DOC.read_text(encoding="utf-8")
-        doc_names = set(re.findall(r"`([A-Z][A-Z0-9_]*)`", doc))
+        doc_names = set(re.findall(r"^\|\s*`([A-Z][A-Z0-9_]*)`\s*\|", doc, re.MULTILINE))
         example = ENV_EXAMPLE.read_text(encoding="utf-8")
         listed = set(re.findall(r"^(?:#\s*)?([A-Z][A-Z0-9_]*)=", example, re.MULTILINE))
         assert listed - doc_names == set()

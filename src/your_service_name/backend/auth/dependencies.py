@@ -219,18 +219,19 @@ def _principal_from_bearer(request: Request, settings: Settings) -> Principal:
         msg = "Empty Bearer token (AUTH_MODE=bearer)."
         raise NotAuthenticatedError(msg)
 
-    # Settings validation already refuses bearer mode without a secret; failing closed here
-    # covers a Settings built without validation.
-    if settings.AUTH_JWT_SECRET is None:
+    # Settings validation already refuses bearer mode without a secret or with a non-HMAC
+    # algorithm; failing closed here covers a Settings built without validation.
+    secret = settings.AUTH_JWT_SECRET
+    if secret is None or not secret.get_secret_value():
         msg = "AUTH_JWT_SECRET is not set (AUTH_MODE=bearer)."
+        raise NotAuthenticatedError(msg)
+    alg = settings.AUTH_JWT_ALGORITHM
+    if alg not in JWT_HASHLIB:
+        msg = f"Unsupported JWT algorithm: {alg!r}."
         raise NotAuthenticatedError(msg)
 
     try:
-        payload = _verify_hs(
-            token,
-            settings.AUTH_JWT_SECRET.get_secret_value().encode(),
-            settings.AUTH_JWT_ALGORITHM,
-        )
+        payload = _verify_hs(token, secret.get_secret_value().encode(), alg)
     except InvalidTokenError as exc:
         msg = f"Invalid auth token: {exc}"
         raise NotAuthenticatedError(msg) from exc

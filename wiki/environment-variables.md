@@ -141,7 +141,9 @@ the rules are on there.
 
 > **Note**: No reverse proxy is used. The NGINX Ingress Controller serves as the edge gateway in Kubernetes. For local development, `infra/runtime/entrypoint.sh` can start the backend, frontend and nginx together (`--mode all`) or individually (`--mode backend` / `frontend` / `nginx`).
 
-> `SERVICE_MODE` (valid: `backend` \| `frontend` \| `nginx` \| `all`, default `backend`) is **no longer used** in production, where each container runs one service directly (gunicorn for backend, node for frontend, nginx for the edge proxy). Locally it selects which services `infra/runtime/entrypoint.sh` starts.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SERVICE_MODE` | `backend` | Which services `infra/runtime/entrypoint.sh` starts: `backend`, `frontend`, `nginx` or `all`. No longer used in production, where each container runs one service directly (gunicorn for backend, node for frontend, nginx for the edge proxy). |
 
 ---
 

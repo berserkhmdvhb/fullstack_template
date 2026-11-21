@@ -26,7 +26,7 @@ from typing import Annotated, Any
 import pytest
 from fastapi import Depends, FastAPI, status
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from your_service_name.backend.auth import (
     Principal,
@@ -211,34 +211,32 @@ class TestBearerMode:
         with pytest.raises(ValidationError, match="AUTH_JWT_SECRET"):
             _make_app()
 
-    def test_secret_missing_on_a_built_app_fails_closed(self) -> None:
-        """Defence in depth: settings built without validation still 401, never 200."""
+    @pytest.mark.parametrize(
+        ("unvalidated", "token_kwargs"),
+        [
+            ({"AUTH_JWT_SECRET": None}, {}),
+            # An empty HMAC key would accept a token signed with the empty key.
+            ({"AUTH_JWT_SECRET": SecretStr("")}, {"signing_key": ""}),
+            (
+                {"AUTH_JWT_SECRET": SecretStr(DEFAULT_SIGNING_KEY), "AUTH_JWT_ALGORITHM": "RS256"},
+                {"header": {"alg": "RS256", "typ": "JWT"}},
+            ),
+            (
+                {"AUTH_JWT_SECRET": SecretStr(DEFAULT_SIGNING_KEY), "AUTH_JWT_ALGORITHM": "none"},
+                {"header": {"alg": "none", "typ": "JWT"}},
+            ),
+        ],
+    )
+    def test_unvalidated_bearer_settings_fail_closed_with_401(
+        self, unvalidated: dict[str, Any], token_kwargs: dict[str, Any]
+    ) -> None:
+        """Defence in depth: settings built without validation give 401, never 200 or a 500."""
         app = _make_app()
-        app.state.settings = Settings.model_construct(AUTH_MODE="bearer", AUTH_JWT_SECRET=None)
-        with TestClient(app) as client:
-            res = client.get(ME_PATH, headers={"Authorization": "Bearer whatever"})
-        assert res.status_code == status.HTTP_401_UNAUTHORIZED
-
-    def test_alg_confusion_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A token whose header alg differs from the configured one is rejected."""
-        monkeypatch.setenv("AUTH_MODE", "bearer")
-        monkeypatch.setenv("AUTH_JWT_ALGORITHM", "HS256")
-        monkeypatch.setenv("AUTH_JWT_SECRET", DEFAULT_SIGNING_KEY)
-        # Signed HS256 but the header *claims* HS384 — must not be accepted.
-        token = make_jwt({"sub": "user-42"}, alg="HS384")
-        with TestClient(_make_app()) as client:
+        app.state.settings = Settings.model_construct(AUTH_MODE="bearer", **unvalidated)
+        token = make_jwt({"sub": "u1"}, **token_kwargs)
+        with TestClient(app, raise_server_exceptions=False) as client:
             res = client.get(ME_PATH, headers={"Authorization": f"Bearer {token}"})
         assert res.status_code == status.HTTP_401_UNAUTHORIZED
-
-    def test_unsupported_algorithm_is_refused_at_startup(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A non-HMAC algorithm is refused outright (no key-confusion surface)."""
-        monkeypatch.setenv("AUTH_MODE", "bearer")
-        monkeypatch.setenv("AUTH_JWT_ALGORITHM", "none")
-        monkeypatch.setenv("AUTH_JWT_SECRET", DEFAULT_SIGNING_KEY)
-        with pytest.raises(ValidationError, match="AUTH_JWT_ALGORITHM"):
-            _make_app()
 
 
 # --- unsupported mode ---------------------------------------------------------
