@@ -14,7 +14,7 @@ replicas:
 
 # Mirror the single-replica intent in the HPA too: minReplicas:1, else the base
 # HPA min (2) would scale the pods back up and re-introduce the replica-drift bug
-# (E2E-FINDINGS #4). qa/production keep minReplicas:2 and are unaffected.
+# seen in an end-to-end run. qa/production keep minReplicas:2 and are unaffected.
 hpa:
   backend: {minReplicas: 1}
   frontend: {minReplicas: 1}

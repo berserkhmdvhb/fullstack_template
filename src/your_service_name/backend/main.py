@@ -190,7 +190,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # that crash the process: the pod stays up (liveness stays green) but the
     # readiness probe (/health → 503) keeps it out of the Service rotation until
     # the DB is healthy — so a broken DB tier can never hide behind a green
-    # /health or serve 5xx to clients (docs/E2E-FINDINGS.md §5.12). In production
+    # /health or serve 5xx to clients (seen in an end-to-end run). In production
     # migrations normally run in the migration Job / init container before
     # Gunicorn starts; this is the in-process safety net (also used by tests).
     try:

@@ -11,7 +11,7 @@ images:
   nginx: {repository: your-service-name-nginx, tag: dev, registry: registry.your-domain.example}
 
 # Kustomize dev overlay ran a single replica; mirror that here and drop the HPA
-# min to 1 so it can't scale back up (E2E-FINDINGS #4). qa/production stay at 2.
+# min to 1 so it can't scale back up (replica drift seen in an end-to-end run). qa/production stay at 2.
 replicas:
   backend: 1
   frontend: 1

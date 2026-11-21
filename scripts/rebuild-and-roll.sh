@@ -5,7 +5,7 @@
 # =============================================
 # Purpose
 #   For every component listed in scripts/services.yaml, run the same four-step
-#   loop the RUNBOOK (§10) describes by hand:
+#   loop that is otherwise done by hand:
 #     1. build the image in the minikube node daemon
 #     2. verify the fix is baked into the image (optional per-image check)
 #     3. kubectl rollout restart the workload
@@ -75,8 +75,8 @@ run_shell() {                     # shell snippet run on the HOST (kubectl exec 
 
 # run_in_image — run a verify snippet INSIDE the just-built image (throwaway
 # container, entrypoint overridden), so it inspects the image's own filesystem /
-# Python, not the host's. This is what services.yaml documents and what RUNBOOK
-# §10 step 2 does; `run_shell` here had it running on the host, so every verify
+# Python, not the host's. This is what services.yaml documents and what the
+# by-hand step does; `run_shell` here had it running on the host, so every verify
 # checked the laptop and failed. `docker run` honours `minikube docker-env`, so
 # it sees the image built into the node daemon in the normal flow.
 #
@@ -199,7 +199,7 @@ PY
 cd "${REPO_ROOT}"
 
 # Build in the node daemon so the kubelet picks the new image up directly
-# (RUNBOOK §10: `minikube image load` can leave a stale imageID). Skipped under
+# (`minikube image load` can leave a stale imageID). Skipped under
 # --dry-run (nothing is executed) and --no-docker-env (registry-based flow).
 if [ "${DOCKER_ENV}" = "true" ] && [ "${DRY_RUN}" != "true" ] && command -v minikube >/dev/null 2>&1; then
   eval "$(minikube docker-env)"

@@ -81,7 +81,7 @@ async def test_health_degraded_when_db_unavailable(
 
     This is the readiness-probe contract: a pod whose database is unavailable
     must be pulled from the Service rotation rather than silently serving 5xx
-    behind a green health check (see docs/E2E-FINDINGS.md §5.12).
+    behind a green health check (seen in an end-to-end run).
 
     We force the shared engine module into the "not initialized" state. This
     client intentionally skips the lifespan, and monkeypatch restores the prior

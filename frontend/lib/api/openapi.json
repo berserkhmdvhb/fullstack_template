@@ -395,7 +395,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "description": "Readiness probe.\n\nReturns HTTP 200 ``{\"status\": \"ok\"}`` only when the database engine is\ninitialized AND a live ``SELECT 1`` succeeds. Returns HTTP 503\n``{\"status\": \"degraded\"}`` otherwise.\n\nThe status code IS the contract: Kubernetes' readinessProbe keys off it, so\na pod whose DB tier is down is removed from the Service endpoints instead of\nsilently serving 5xx to clients \u2014 the failure mode this hardening closes\n(see docs/E2E-FINDINGS.md \u00a75.12). Because the probe also runs a live query,\na transient post-startup DB blip recovers on the next successful check\nwithout a restart. Liveness is separate (/healthz) and must never depend on\nthe DB, so a database outage degrades readiness without restart-looping.",
+        "description": "Readiness probe.\n\nReturns HTTP 200 ``{\"status\": \"ok\"}`` only when the database engine is\ninitialized AND a live ``SELECT 1`` succeeds. Returns HTTP 503\n``{\"status\": \"degraded\"}`` otherwise.\n\nThe status code IS the contract: Kubernetes' readinessProbe keys off it, so\na pod whose DB tier is down is removed from the Service endpoints instead of\nsilently serving 5xx to clients \u2014 the failure mode this hardening closes\n(seen in an end-to-end run). Because the probe also runs a live query,\na transient post-startup DB blip recovers on the next successful check\nwithout a restart. Liveness is separate (/healthz) and must never depend on\nthe DB, so a database outage degrades readiness without restart-looping.",
         "operationId": "health_check_api_v1_health_get",
         "responses": {
           "200": {

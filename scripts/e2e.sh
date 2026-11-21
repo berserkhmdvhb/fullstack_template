@@ -364,7 +364,7 @@ check_replicas_quota() {
   kubectl get resourcequota -n "${NAMESPACE}" 2>&1 || true
   kubectl describe resourcequota -n "${NAMESPACE}" 2>&1 | sed -n '/Name:/,/Resource/p' || true
   # Quota headroom depends on the node + HPA maxReplicas; assert nothing here, just
-  # surface it. See docs/E2E-FINDINGS.md (HPA vs quota consistency) for the rule.
+  # surface it. The rule: the HPA maxReplicas must fit the ResourceQuota.
   record "replicas / quota reported" PASS "see HPA + ResourceQuota above"
 }
 

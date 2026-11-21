@@ -57,7 +57,7 @@ async def health_check() -> JSONResponse:
     The status code IS the contract: Kubernetes' readinessProbe keys off it, so
     a pod whose DB tier is down is removed from the Service endpoints instead of
     silently serving 5xx to clients — the failure mode this hardening closes
-    (see docs/E2E-FINDINGS.md §5.12). Because the probe also runs a live query,
+    (seen in an end-to-end run). Because the probe also runs a live query,
     a transient post-startup DB blip recovers on the next successful check
     without a restart. Liveness is separate (/healthz) and must never depend on
     the DB, so a database outage degrades readiness without restart-looping.
