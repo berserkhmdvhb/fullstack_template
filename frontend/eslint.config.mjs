@@ -156,7 +156,7 @@ const jsdocBlock = {
 };
 
 // ---- 6) zod only through lib/zod-config.ts (it sets `jitless` before any schema exists) ----
-const zodBlock = {
+export const zodBlock = {
   files: ['**/*.{ts,tsx}'],
   rules: {
     'no-restricted-imports': [
@@ -172,7 +172,10 @@ const zodBlock = {
     ],
   },
 };
-const zodConfigBlock = { files: ['lib/zod-config.ts'], rules: { 'no-restricted-imports': 'off' } };
+export const zodConfigBlock = {
+  files: ['lib/zod-config.ts'],
+  rules: { 'no-restricted-imports': 'off' },
+};
 
 export default defineConfig([
   {
