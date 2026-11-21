@@ -11,7 +11,6 @@
     build \
     compose-up compose-down compose-down-v compose-ps compose-logs compose-restart \
     compose-build compose-pull \
-    export-requirements check-requirements-sync \
     dev-tools-list dev-tools-outdated dev-tools-upgrade version-check- \
     k8s-apply k8s-delete k8s-build k8s-status k8s-pods k8s-services k8s-port-forward \
     k8s-wait k8s-logs k8s-port-forward-all deploy rebuild-and-roll smoke-test \
@@ -110,8 +109,6 @@ help::
 	@echo "  compose-build            Rebuild all service images"
 	@echo "  compose-pull             Pull latest base images"
 	@echo ""
-	@echo "  export-requirements      Export requirements.txt from pyproject.toml (via Poetry)"
-	@echo "  check-requirements-sync  Check if requirements.txt matches pyproject.toml (via Poetry)"
 	@echo ""
 	@echo "  k8s-apply                Deploy via Helm (HELM_ENV=dev|qa|production; HELM_VALUES=...)"
 	@echo "  k8s-delete               Uninstall the Helm release (HELM_ENV=dev|qa|production)"
@@ -253,24 +250,28 @@ dev-tools-list:
 version-check-:
 	@echo "Usage: make version-check-<package>"
 
-# Read-only and tolerant of a missing network: no answer from the index reads as "up to date".
+# Read-only. Membership is checked against uv.lock alone (no network); a failed index query
+# (offline, rate limit) is reported as "could not check" and does not fail the target.
 version-check-%:
 	@echo "Checking $* for updates..."
-	@out="$$($(UV) tree --outdated --depth 0 --frozen --package $* 2>/dev/null)"; \
-	if [ -z "$$out" ]; then \
+	@if [ -z "$$($(UV) tree --frozen --depth 0 --package $* 2>/dev/null)" ]; then \
 		echo "  $(ESC)[31mERROR: '$*' is not in uv.lock$(ESC)[0m"; \
 		exit 1; \
 	fi; \
-	case "$$out" in \
-		*latest:*) echo "  $(ESC)[33mNEW VERSION AVAILABLE$(ESC)[0m" ;; \
-		*) echo "  $(ESC)[32mUp to date$(ESC)[0m" ;; \
-	esac
+	if out="$$($(UV) tree --outdated --depth 0 --frozen --package $* 2>/dev/null)"; then \
+		case "$$out" in \
+			*latest:*) echo "  $(ESC)[33mNEW VERSION AVAILABLE$(ESC)[0m" ;; \
+			*) echo "  $(ESC)[32mUp to date$(ESC)[0m" ;; \
+		esac; \
+	else \
+		echo "  $(ESC)[33mcould not check (offline?)$(ESC)[0m"; \
+	fi
 
 dev-tools-outdated:
 	@echo "Checking dev tools for available updates..."
-	@for P in $(DEV_TOOLS); do \
-		$(MAKE) --no-print-directory version-check-$$P ; \
-    done
+	@rc=0; for P in $(DEV_TOOLS); do \
+		$(MAKE) --no-print-directory version-check-$$P || rc=1; \
+	done; exit $$rc
 
 # Re-lock only the dev tools (newest release at least 7 days old), then install the result.
 dev-tools-upgrade:
@@ -382,25 +383,10 @@ clean-all: clean-build clean-logs clean-cache clean-coverage clean-pyc
 	@echo "All build, test, log, and cache artifacts have been removed."
 
 # -------------------------------------------------------------------
-# Build & requirements (pip-compile)
+# Build
 # -------------------------------------------------------------------
 build:
 	$(PYTHON) -m build
-
-export-requirements:
-	@echo "Exporting requirements.txt from pyproject.toml..."
-	pip-compile pyproject.toml --output-file requirements.txt --no-annotate --no-header
-	@echo "Done: requirements.txt updated."
-
-check-requirements-sync:
-	@echo "Checking if requirements.txt is up-to-date..."
-	pip-compile pyproject.toml --output-file .requirements.txt.check --no-annotate --no-header
-	@$(PYTHON) -m difflib $(shell test -f requirements.txt && echo requirements.txt || echo /dev/null) .requirements.txt.check >/dev/null 2>&1 || true
-	@$(PYTHON) -c "import sys; a=open('requirements.txt').read() if __import__('pathlib').Path('requirements.txt').exists() else ''; b=open('.requirements.txt.check').read(); sys.exit(0) if a == b else sys.exit(1)" || \
-	    (echo "" && \
-	    echo "requirements.txt is out of sync with pyproject.toml." && \
-	    echo "   Run 'make export-requirements' to fix it." && exit 1)
-	@$(PYTHON) -c "import os; os.remove('.requirements.txt.check')"
 
 # -------------------------------------------------------------------
 # Docker Compose

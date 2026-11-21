@@ -102,8 +102,6 @@ Local development workflow, Makefile commands, code quality tools, Kubernetes de
 | Command | Description |
 |---------|-------------|
 | `make build` | Build Python package for distribution |
-| `make export-requirements` | Export requirements.txt from pyproject.toml |
-| `make check-requirements-sync` | Verify requirements.txt matches pyproject.toml |
 
 ---
 
