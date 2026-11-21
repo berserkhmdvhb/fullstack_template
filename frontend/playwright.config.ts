@@ -7,6 +7,7 @@
  * - Test directory: e2e/
  * - Reporter: list + html
  * - Timeout: 30s per test
+ * - `webServer`: only with `E2E_START_SERVER=1` (see below)
  * - One worker (serial execution for reliability)
  *
  * Usage:
@@ -47,6 +48,8 @@ function resolveFrontendPort(): string {
   return '3000';
 }
 
+const port = resolveFrontendPort();
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -59,7 +62,7 @@ export default defineConfig({
     // Target the Next.js frontend — the single entry point. It serves the app routes
     // and proxies /api, /docs, /openapi.json to the backend (see
     // frontend/proxy.ts). Port follows the running stack (see resolveFrontendPort).
-    baseURL: `http://localhost:${resolveFrontendPort()}`,
+    baseURL: `http://localhost:${port}`,
     // Traces keep request headers, so they are only recorded on a retry after a failure. The CI
     // upload (failure-only) is safe because the stack under test is hermetic: localhost, no real
     // credentials, and the job holds no secrets. An adopter who adds real auth to the live stack
@@ -67,6 +70,18 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
+  // Set `E2E_START_SERVER=1` (the `test:a11y` script does) to serve the built app with `next start`, so a
+  // spec that needs no backend runs on its own. Without it the suite targets a stack that is already up.
+  ...(process.env['E2E_START_SERVER']
+    ? {
+        webServer: {
+          command: `npx next start -H 127.0.0.1 -p ${port}`,
+          url: `http://127.0.0.1:${port}/api/healthz`,
+          reuseExistingServer: false,
+          timeout: 60_000,
+        },
+      }
+    : {}),
   projects: [
     {
       name: 'chromium',
