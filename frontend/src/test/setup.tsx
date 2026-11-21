@@ -84,7 +84,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 // Start MSW server before all tests
-beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }));
+beforeAll(() => server.listen({ onUnhandledFrame: 'bypass' }));
 
 // Reset handlers after each test
 afterEach(() => server.resetHandlers());

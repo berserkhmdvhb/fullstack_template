@@ -4,7 +4,7 @@
  * @packageDocumentation
  */
 
-import { http, HttpResponse } from 'msw';
+import { http, HttpResponse } from 'msw/http';
 import { describe, expect, it, afterEach } from 'vitest';
 
 import { getEchoHistory, getHealth, getHealthz, postEcho } from '@/lib/api/endpoints';

@@ -7,7 +7,7 @@
  * @packageDocumentation
  */
 
-import { HttpResponse, http } from 'msw';
+import { HttpResponse, http } from 'msw/http';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 

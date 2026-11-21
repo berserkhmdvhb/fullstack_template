@@ -4,7 +4,7 @@
  * @packageDocumentation
  */
 
-import { http, HttpResponse } from 'msw';
+import { http, HttpResponse } from 'msw/http';
 import { describe, expect, it, vi } from 'vitest';
 
 import { httpJSON } from '@/lib/api/client';
