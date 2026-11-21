@@ -284,7 +284,7 @@ environment() { # env
   body='{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}'
   backup "/repos/$REPO/environments/$env"
   if [[ "$env" == production ]]; then
-    # Spec section 6: one owner, so self-approval stays allowed. Reviewers need a public repo or Enterprise.
+    # One owner, so self-approval stays allowed. Reviewers need a public repo or Enterprise.
     with="$(jq -n --argjson id "$REVIEWER_ID" '{prevent_self_review: false, reviewers: [{type: "User", id: $id}],
       deployment_branch_policy: {protected_branches: false, custom_branch_policies: true}}')"
     if ! try PUT "/repos/$REPO/environments/$env" "$with"; then
@@ -365,6 +365,9 @@ actions_policy() {
 repo_security() {
   soft "secret scanning and push protection" PATCH "/repos/$REPO" '{"security_and_analysis": {"secret_scanning": {"status": "enabled"}, "secret_scanning_push_protection": {"status": "enabled"}}}'
   soft "private vulnerability reporting" PUT "/repos/$REPO/private-vulnerability-reporting"
+  # Dependabot is limited to security updates (.github/dependabot.yml): these two switch them on. Nothing to back up (both are plain flags).
+  soft "Dependabot alerts" PUT "/repos/$REPO/vulnerability-alerts"
+  soft "Dependabot security updates" PUT "/repos/$REPO/automated-security-fixes"
   soft "immutable releases" PUT "/repos/$REPO/immutable-releases"
   if ((TEMPLATE)); then api PATCH "/repos/$REPO" '{"is_template": true}'; fi
 }

@@ -39,7 +39,7 @@ The advisory scanner legs of `security.yml` (named `<id> (advisory)`) are the sa
 | Actions policy | default token read-only; Actions can't approve pull requests | a job asks for anything more itself |
 | Actions policy | allowed actions: selected, the list derived from the `uses:` lines | one source of truth: the workflows |
 | Actions policy | full-length SHA pinning required; approval for all outside contributors | a fork can't run workflows unreviewed |
-| Security | immutable releases; secret scanning and push protection; private vulnerability reporting | a published release can't be changed; a leaked secret is blocked at push |
+| Security | immutable releases; secret scanning and push protection; private vulnerability reporting; Dependabot alerts and security updates | a published release can't be changed; a leaked secret is blocked at push; a vulnerable dependency gets a fix pull request while Renovate is off or between runs |
 | Template | marked as a template, only with `--template` | the upstream template repository sets it; an adopter's copy leaves it off |
 | Runners | none self-hosted (checked, never set) | the repository settings script; `--apply` refuses while any exist |
 

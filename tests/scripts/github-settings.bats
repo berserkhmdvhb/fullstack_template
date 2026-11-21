@@ -437,3 +437,17 @@ applied_state() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"unknown variable EVIL"* ]]
 }
+
+@test "the repository security step turns on Dependabot alerts and security updates" {
+  run "$SCRIPT" --repo o/r --vars-file "$VARS"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"DRY-RUN PUT /repos/o/r/vulnerability-alerts"* ]]
+  [[ "$output" == *"DRY-RUN PUT /repos/o/r/automated-security-fixes"* ]]
+}
+
+@test "refused Dependabot settings are skipped, summarised, and exit 3" {
+  echo 'PUT /repos/o/r/(vulnerability-alerts|automated-security-fixes)' > "$STUB_DIR/FAIL"
+  run "$SCRIPT" --repo o/r --vars-file "$VARS" --apply
+  [ "$status" -eq 3 ]
+  [[ "$output" == *"Dependabot alerts"* && "$output" == *"Dependabot security updates"* ]]
+}
