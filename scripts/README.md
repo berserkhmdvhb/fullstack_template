@@ -1,7 +1,7 @@
 # `scripts/` — local Kubernetes & infra operations toolkit
 
-A small, cohesive set of bash tools for running the three-image stack
-(**backend** / **frontend** / **nginx**) on a local cluster (minikube / kind).
+A small, cohesive set of bash tools for running the two-image stack
+(**backend** / **frontend**) on a local cluster (minikube / kind).
 Every script is config-driven, shares one runtime (`_lib.sh`), and follows the
 same conventions so they compose into a predictable workflow.
 
@@ -92,7 +92,7 @@ services:
 | --- | --- | --- |
 | `python` | the backend image | no curl, starts no shell: the venv's own interpreter |
 | `curl` | an image that ships curl | curl is installed |
-| `wget` | `nginx:*-alpine` | busybox `wget` |
+| `wget` | an image with busybox | busybox `wget` |
 | `node` | `node:*-slim` (frontend) | global `fetch`, no curl |
 
 ---
@@ -108,7 +108,7 @@ recorded and reported, not fatal to the others.
 ```bash
 ./scripts/rebuild-and-roll.sh                 # build+verify+roll+health, all services
 ./scripts/rebuild-and-roll.sh --env qa        # namespace + tag from values.qa.yaml
-./scripts/rebuild-and-roll.sh --only backend,nginx
+./scripts/rebuild-and-roll.sh --only backend,frontend
 ./scripts/rebuild-and-roll.sh --no-health --tag "$(date +%Y%m%d)"
 ./scripts/rebuild-and-roll.sh --no-docker-env # registry-based build flow
 ./scripts/rebuild-and-roll.sh --dry-run

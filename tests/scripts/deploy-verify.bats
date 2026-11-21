@@ -9,7 +9,7 @@
 
 D_BACKEND="sha256:$(printf 'a%.0s' {1..64})"
 D_FRONTEND="sha256:$(printf 'b%.0s' {1..64})"
-D_NGINX="sha256:$(printf 'c%.0s' {1..64})"
+D_OTHER="sha256:$(printf 'c%.0s' {1..64})"
 
 setup() {
   SCRIPT="$(dirname "$BATS_TEST_DIRNAME")/../scripts/ci/deploy-verify.sh"
@@ -49,9 +49,8 @@ STUB
   export STUB_PODS=$'p1|Running|\np2|Running|'
   export STUB_IMAGES_BACKEND="p1||registry/img@$D_BACKEND "
   export STUB_IMAGES_FRONTEND="p1||registry/img@$D_FRONTEND "
-  export STUB_IMAGES_NGINX="p1||registry/img@$D_NGINX "
   export RELEASE=rel NAMESPACE=rel-dev SERVICE_NAME=svc
-  export BACKEND_IMAGE_DIGEST="$D_BACKEND" FRONTEND_IMAGE_DIGEST="$D_FRONTEND" NGINX_IMAGE_DIGEST="$D_NGINX"
+  export BACKEND_IMAGE_DIGEST="$D_BACKEND" FRONTEND_IMAGE_DIGEST="$D_FRONTEND"
 }
 
 @test "all five checks pass" {
@@ -151,9 +150,9 @@ STUB
 }
 
 @test "check 4 fails when a component has no pods" {
-  STUB_IMAGES_NGINX="" run bash "$SCRIPT"
+  STUB_IMAGES_FRONTEND="" run bash "$SCRIPT"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"ERROR: no nginx pods found"* ]]
+  [[ "$output" == *"ERROR: no frontend pods found"* ]]
 }
 
 @test "check 5 fails when the backend health route fails" {
@@ -191,10 +190,10 @@ STUB
 }
 
 @test "a missing expected digest is a usage error" {
-  unset NGINX_IMAGE_DIGEST
+  unset FRONTEND_IMAGE_DIGEST
   run bash "$SCRIPT"
   [ "$status" -eq 2 ]
-  [[ "$output" == *"NGINX_IMAGE_DIGEST"* ]]
+  [[ "$output" == *"FRONTEND_IMAGE_DIGEST"* ]]
 }
 
 @test "a malformed expected digest is a usage error" {
@@ -236,8 +235,8 @@ STUB
 }
 
 @test "a hyphenated component uses a sanitised digest variable" {
-  export COMPONENTS="backend web-ui" WEB_UI_IMAGE_DIGEST="$D_NGINX"
-  export STUB_IMAGES_WEB_UI="p1||registry/img@$D_NGINX "
+  export COMPONENTS="backend web-ui" WEB_UI_IMAGE_DIGEST="$D_OTHER"
+  export STUB_IMAGES_WEB_UI="p1||registry/img@$D_OTHER "
   run bash "$SCRIPT"
   [ "$status" -eq 0 ]
 }

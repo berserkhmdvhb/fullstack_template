@@ -22,7 +22,7 @@
 #                base image, so pick per service:
 #                  python -> the backend (its venv's interpreter; no curl, starts no shell)
 #                  curl  -> an image that ships curl
-#                  wget  -> nginx:alpine (busybox wget)
+#                  wget  -> an image with busybox wget
 #                  node  -> node:*-slim frontend (global fetch, no curl)
 #   scheme       http|https for the LOCAL port-forward URL (used by
 #                scripts/port-forward.sh; default http). The pods serve
@@ -67,14 +67,3 @@ services:
     probe_tool: node
     verify_entrypoint: /nodejs/bin/node
     verify: 'process.exit(require("fs").existsSync("/app/server.js")?0:1)'
-
-  - key: nginx
-    label: Nginx — static assets
-    dockerfile: Dockerfile.nginx
-    image: your-service-name-nginx:dev
-    workload: your-service-name-nginx
-    container: nginx
-    port: 8081
-    health_path: /healthz
-    probe_tool: wget
-    verify: 'test -d /usr/share/nginx/html/.next/static && echo ".next/static: OK" || { echo ".next/static: MISSING" >&2; exit 1; }'

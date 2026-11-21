@@ -100,8 +100,8 @@ class TestDotenv:
 
 
 def test_no_backend_image_can_contain_a_dotenv() -> None:
-    """The backend and nginx images copy named paths only; no Dockerfile copies the repo root."""
-    for name in ("Dockerfile.backend", "Dockerfile.nginx"):
+    """The backend and frontend images copy named paths only; no Dockerfile copies the repo root."""
+    for name in ("Dockerfile.backend", "Dockerfile.frontend"):
         for line in (ROOT / name).read_text(encoding="utf-8").splitlines():
             match = re.match(r"\s*(?:COPY|ADD)\s+(?:--\S+\s+)*(.+?)\s+\S+\s*$", line)
             if not match or "--from=" in line:

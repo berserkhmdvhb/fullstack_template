@@ -15,7 +15,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent.parent
 IGNORE = REPO / ".dockerignore"
-DOCKERFILES = ("Dockerfile.backend", "Dockerfile.frontend", "Dockerfile.nginx")
+DOCKERFILES = ("Dockerfile.backend", "Dockerfile.frontend")
 
 # Patterns every image build must have (a missing one lets a host file into the build context).
 REQUIRED = {

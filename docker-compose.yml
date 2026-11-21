@@ -106,29 +106,6 @@ services:
       - "127.0.0.1:${FRONTEND_PORT:-3000}:${FRONTEND_PORT:-3000}"
     restart: unless-stopped
 
-  nginx:
-    build:
-      context: .
-      dockerfile: Dockerfile.nginx
-    env_file:
-      - .env
-    environment:
-      NGINX_PORT: "${NGINX_PORT:-8081}"
-    depends_on:
-      backend:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:${NGINX_PORT:-8081}/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    expose:
-      - "${NGINX_PORT:-8081}"
-    ports:
-      - "127.0.0.1:${NGINX_PORT:-8081}:${NGINX_PORT:-8081}"
-    restart: unless-stopped
-
 volumes:
   postgres_data:
 

@@ -46,7 +46,7 @@ defaults:
 env:
   SERVICE_NAME: ${{ vars.SERVICE_NAME || 'your-service-name' }}
   CHART_DIR: charts/your-service-name
-  DEPLOY_IMAGES: backend,frontend,nginx
+  DEPLOY_IMAGES: backend,frontend
   BACKEND_PORT: "8000"
   FRONTEND_PORT: "3000"
   API_VERSION: v1

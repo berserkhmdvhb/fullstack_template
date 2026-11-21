@@ -114,7 +114,7 @@ docker compose up -d                        # Includes PostgreSQL
 minikube start
 
 # Build each image into the node daemon (bare `name:local` tags, picked up via imagePullPolicy: IfNotPresent)
-make compose-build-backend compose-build-frontend compose-build-nginx
+make compose-build-backend compose-build-frontend
 
 # Deploy + verify the whole stack in one command
 # (reads charts/your-service-name/values.local.yaml; a per-revision migration Job runs the migration)

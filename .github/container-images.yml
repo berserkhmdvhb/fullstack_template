@@ -1,7 +1,7 @@
 # .github/container-images.yml — the image manifest (SSOT for which images build).
 # .github/scripts/container_matrix.py renders it for the workflows, and
 # infra/security/local/devsec.sh (local build) reads the same file. Minimal template ships
-# a backend, a frontend and an nginx image; add ids here to build more.
+# a backend and a frontend image; add ids here to build more.
 # Per image, scripts/ci/image-checks.sh also reads:
 #   distroless: true  the image has no shell, package manager or fetcher (the check fails if one is found)
 #   platforms         the platforms the image supports (default: linux/amd64 only); the repository
@@ -42,15 +42,6 @@ images:
     repository: "ghcr.io/${OWNER}/${REPO}/frontend"
     dockerfile: Dockerfile.frontend
     distroless: true
-    platforms: [linux/amd64, linux/arm64]
-    context: .
-    dockerfile_context: .
-    build_args:
-      VERSION: "${VERSION}"
-  - id: nginx
-    repository: "ghcr.io/${OWNER}/${REPO}/nginx"
-    dockerfile: Dockerfile.nginx
-    distroless: false
     platforms: [linux/amd64, linux/arm64]
     context: .
     dockerfile_context: .

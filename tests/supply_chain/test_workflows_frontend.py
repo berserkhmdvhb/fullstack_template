@@ -250,7 +250,7 @@ def test_pull_request_paths_map_to_outputs(
         ("Dockerfile.backend", True),
         ("src/your_service_name/main.py", True),
         ("frontend/app/page.tsx", True),
-        ("infra/nginx/nginx.conf", True),
+        ("infra/runtime/entrypoint.sh", False),
         ("scripts/ci/image-checks.sh", True),
         ("uv.lock", True),
         ("wiki/ci-cd.md", False),

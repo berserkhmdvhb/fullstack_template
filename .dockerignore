@@ -1,4 +1,4 @@
-# Build context for every image (Dockerfile.backend, .frontend and .nginx build from the repo root).
+# Build context for every image (Dockerfile.backend and .frontend build from the repo root).
 # Keep host-only files out of the context: a host `node_modules` (native binaries built for the host
 # Node) must not overwrite the clean `npm ci`, and no env file may reach a build stage, where Next.js
 # reads `.env*` at build time. CI builds from a clean checkout; local and kind builds do not.

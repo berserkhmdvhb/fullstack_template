@@ -14,7 +14,7 @@
 #   --release R        RELEASE        Helm release name
 #   --namespace N      NAMESPACE      app namespace of the release
 #   --name L           SERVICE_NAME   value of the app.kubernetes.io/name label (default: RELEASE)
-#   --components "a b" COMPONENTS     components to check (default: "backend frontend nginx")
+#   --components "a b" COMPONENTS     components to check (default: "backend frontend")
 #   <COMPONENT>_IMAGE_DIGEST          expected sha256:<64 hex> per component, env only; the name is the
 #                                     component uppercased with non-alphanumerics as _ (web-ui: WEB_UI_...)
 #   BACKEND_PORT (8000), FRONTEND_PORT (3000), API_VERSION (v1)
@@ -27,7 +27,7 @@ die_usage() { echo "deploy-verify: $*" >&2; exit 2; }
 fail() { echo "ERROR: $*" >&2; exit 1; }
 
 RELEASE="${RELEASE:-}" NAMESPACE="${NAMESPACE:-}" SERVICE_NAME="${SERVICE_NAME:-}"
-COMPONENTS="${COMPONENTS:-backend frontend nginx}"
+COMPONENTS="${COMPONENTS:-backend frontend}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --release) RELEASE="${2:?--release needs a value}"; shift 2 ;;

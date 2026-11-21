@@ -10,7 +10,7 @@
 #     2. verify the fix is baked into the image (optional per-image check)
 #     3. kubectl rollout restart the workload
 #     4. wait for the rollout, then health-check a fresh pod from inside
-#   One command does all three services (backend, frontend, nginx); a failure on
+#   One command does both services (backend, frontend); a failure on
 #   one service is recorded and reported, not fatal to the others.
 #
 # Key behaviors
@@ -120,7 +120,7 @@ Usage: rebuild-and-roll.sh [options]
   -e, --env ENV         local|dev|qa|production — namespace + image tag from values.<env>.yaml
   -n, --namespace NS    k8s namespace (default: from the YAML)
   -T, --tag TAG         override the image tag of every service
-      --only svc1,svc2  restrict to these service keys (e.g. backend,nginx)
+      --only svc1,svc2  restrict to these service keys (e.g. backend,frontend)
       --no-build        skip image builds (roll + health only)
       --no-verify       skip the per-image verification step
       --verify-warn     verification failure warns instead of aborting
@@ -133,7 +133,7 @@ Examples:
   ./scripts/rebuild-and-roll.sh                     # build+verify+roll+health, all services
   ./scripts/rebuild-and-roll.sh --env qa            # namespace + tag taken from values.qa.yaml
   ./scripts/rebuild-and-roll.sh --env local         # laptop cluster: bare :local tags, images off the node daemon
-  ./scripts/rebuild-and-roll.sh --only backend,nginx
+  ./scripts/rebuild-and-roll.sh --only backend,frontend
   ./scripts/rebuild-and-roll.sh --no-health --tag "$(date +%Y%m%d)"
   ./scripts/rebuild-and-roll.sh --dry-run           # see what it would do
 EOF

@@ -11,7 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 STAMP = ROOT / "infra" / "adapt" / "adopt_stamp.py"
-DOCKERFILES = ("Dockerfile.backend", "Dockerfile.frontend", "Dockerfile.nginx")
+DOCKERFILES = ("Dockerfile.backend", "Dockerfile.frontend")
 PLACEHOLDER = "ARG SOURCE_URL=https://github.com/your-org/your-repo\n"
 
 
@@ -51,7 +51,7 @@ def test_every_dockerfile_ships_the_one_placeholder(tree: Path) -> None:
         assert PLACEHOLDER in (tree / name).read_text(encoding="utf-8"), name
 
 
-def test_the_repository_is_stamped_into_all_three_dockerfiles(tree: Path) -> None:
+def test_the_repository_is_stamped_into_both_dockerfiles(tree: Path) -> None:
     out = _stamp(tree, "--repository", "acme/shop")
     for name in DOCKERFILES:
         text = (tree / name).read_text(encoding="utf-8")

@@ -11,7 +11,7 @@
 #   holding a local port after the script is gone.
 #
 # Why not just `kubectl port-forward` by hand?
-#   - One tunnel is easy; three (backend + frontend + nginx) means juggling
+#   - One tunnel is easy; two (backend + frontend) means juggling
 #     terminals. This starts them all and tears them all down together.
 #   - The namespace and the local ports are discovered, not hard-coded: the
 #     namespace comes from the chart convention (or services.yaml); the container port
@@ -27,7 +27,7 @@
 # Inputs (flags)
 #   -e, --env ENV          dev|qa|production — namespace from the chart convention
 #   -n, --namespace NS     target namespace (default: <release>-<env> / services.yaml)
-#       --only svc1,svc2   restrict to these service keys (e.g. backend,nginx)
+#       --only svc1,svc2   restrict to these service keys (e.g. backend,frontend)
 #       --port key=lp      override the LOCAL port for a service (e.g. backend=9000)
 #       --no-wait          do not probe each tunnel for readiness
 #       --list             print the planned forwards and exit
@@ -73,7 +73,7 @@ Usage: port-forward.sh [options]
 Options:
   -e, --env ENV         dev|qa|production — namespace from the chart convention
   -n, --namespace NS    target namespace (default: <release>-<env> / services.yaml)
-      --only svc1,svc2  restrict to these service keys (e.g. backend,nginx)
+      --only svc1,svc2  restrict to these service keys (e.g. backend,frontend)
       --port key=lp     override the LOCAL port for a service (e.g. backend=9000)
       --no-wait         do not probe each tunnel for readiness
       --list            print the planned forwards and exit

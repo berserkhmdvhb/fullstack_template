@@ -79,7 +79,7 @@ Options:
   -n, --namespace NS    target namespace (default: <release>-<env>, per the chart convention)
   -t, --timeout SECS    per-service rollout timeout (default: 240)
       --no-wait         apply but do not wait for readiness
-      --only svc1,svc2  restrict to these service keys (e.g. backend,nginx)
+      --only svc1,svc2  restrict to these service keys (e.g. backend,frontend)
       --dry-run         print each helm command, execute nothing
   -y, --yes             assume yes (skip the delete confirmation)
   -h, --help            show this help

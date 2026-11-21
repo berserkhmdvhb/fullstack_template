@@ -61,8 +61,8 @@ jobs:
           else
             echo "pins=false" >> "$GITHUB_OUTPUT"
           fi
-          # What the three Dockerfiles copy in, the Dockerfiles themselves and the check script.
-          if grep -Eq '^(Dockerfile\.|\.dockerignore|src/|pyproject\.toml|uv\.lock|alembic\.ini|README\.md|LICENSE|VERSION|frontend/|infra/nginx/|\.github/|scripts/|tools/)' <<<"$changed"; then
+          # What the two Dockerfiles copy in, the Dockerfiles themselves and the check script.
+          if grep -Eq '^(Dockerfile\.|\.dockerignore|src/|pyproject\.toml|uv\.lock|alembic\.ini|README\.md|LICENSE|VERSION|frontend/|\.github/|scripts/|tools/)' <<<"$changed"; then
             echo "images=true" >> "$GITHUB_OUTPUT"
           else
             echo "images=false" >> "$GITHUB_OUTPUT"

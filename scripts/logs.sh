@@ -6,7 +6,7 @@
 # Purpose
 #   Pull `kubectl logs` for all workloads in scripts/services.yaml (or a --only
 #   subset) into a single, per-line-labelled view — so you can watch backend +
-#   frontend + nginx together instead of tabbing between three `logs -f`.
+#   frontend together instead of tabbing between two `logs -f`.
 #
 # Modes
 #   snapshot (default)  print the last --tail lines of each service, in turn
@@ -19,7 +19,7 @@
 # Inputs (flags)
 #   -e, --env ENV          dev|qa|production — namespace from the chart convention
 #   -n, --namespace NS     target namespace (default: <release>-<env> / services.yaml)
-#       --only svc1,svc2   restrict to these service keys (e.g. backend,nginx)
+#       --only svc1,svc2   restrict to these service keys (e.g. backend,frontend)
 #   -f, --follow           tail -f all services concurrently (self-cleaning)
 #   -t, --tail N           lines per container (default: 100; 0 = all)
 #       --since DUR        only logs newer than DUR (e.g. 30m, 2h)
@@ -54,7 +54,7 @@ Usage: logs.sh [options]
 Options:
   -e, --env ENV         dev|qa|production — namespace from the chart convention
   -n, --namespace NS    target namespace (default: <release>-<env> / services.yaml)
-      --only svc1,svc2  restrict to these service keys (e.g. backend,nginx)
+      --only svc1,svc2  restrict to these service keys (e.g. backend,frontend)
   -f, --follow          tail -f all services concurrently (self-cleaning)
   -t, --tail N          lines per container (default: 100; 0 = all)
       --since DUR       only logs newer than DUR (e.g. 30m, 2h)

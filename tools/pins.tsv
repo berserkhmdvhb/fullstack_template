@@ -20,7 +20,7 @@
 # are what `ct lint` shells out to. `uv:python` runs `uv python install <version>` (uv's own cache);
 # uv verifies that download with its built-in checksums, which is accepted here.
 # Node: the Active LTS (26.x). This row is the one source: frontend/.nvmrc, frontend/.node-version, the builder
-# images in Dockerfile.frontend and Dockerfile.nginx, the runtime image major, engines.node and packageManager
+# image in Dockerfile.frontend, the runtime image major, engines.node and packageManager
 # are each locked to it by tests/supply_chain/test_frontend_image.py. packageManager names the npm bundled with
 # this Node; frontend/scripts/check-npm-version.mjs fails every frontend CI job and both image builds if the npm
 # that runs differs.

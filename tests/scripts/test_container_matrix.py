@@ -33,9 +33,9 @@ images:
     platforms: [linux/amd64, linux/arm64]
     build_args:
       VERSION: "${VERSION}"
-  - id: nginx
-    repository: "ghcr.io/${OWNER}/${REPO}/nginx"
-    dockerfile: Dockerfile.nginx
+  - id: web
+    repository: "ghcr.io/${OWNER}/${REPO}/web"
+    dockerfile: Dockerfile.web
     context: .
     build_args: {}
 """
@@ -193,7 +193,7 @@ def test_matrix_shape_and_repository_lowercased(run: Runner) -> None:
         "build_args": {"VERSION": "1.2.3"},
         "platforms": ["linux/amd64"],
     }
-    assert [i["id"] for i in matrix["include"]] == ["backend", "nginx"]
+    assert [i["id"] for i in matrix["include"]] == ["backend", "web"]
 
 
 @pytest.mark.parametrize("name", ["GITHUB_REPOSITORY_OWNER", "GITHUB_REPOSITORY"])
@@ -232,12 +232,12 @@ def test_emit_refuses_newlines() -> None:
 
 
 def test_deploy_matrix_select(run: Runner) -> None:
-    res = run("--deploy-matrix", "--select", "nginx")
+    res = run("--deploy-matrix", "--select", "web")
     assert res.code == 0, res.stderr
     ids = [i["id"] for i in json.loads(res.stdout)["include"]]
-    assert ids == ["nginx"]
-    res = run("--deploy-matrix", "--select", "nginx, backend")
-    assert [i["id"] for i in json.loads(res.stdout)["include"]] == ["nginx", "backend"]
+    assert ids == ["web"]
+    res = run("--deploy-matrix", "--select", "web, backend")
+    assert [i["id"] for i in json.loads(res.stdout)["include"]] == ["web", "backend"]
 
 
 def test_deploy_matrix_unknown_id(run: Runner) -> None:
@@ -319,7 +319,7 @@ def test_repo_manifest_renders() -> None:
     )
     assert proc.returncode == 0, proc.stderr
     ids = [i["id"] for i in json.loads(proc.stdout.splitlines()[0])["include"]]
-    assert ids == ["backend", "frontend", "nginx"]
+    assert ids == ["backend", "frontend"]
 
 
 FORBIDDEN_RUN_ARGS = [
@@ -375,7 +375,7 @@ def test_unset_switch_builds_amd64_only_on_its_native_runner(run: Runner) -> Non
     legs = _platform_matrix(res)
     assert [(e["id"], e["platform"], e["runner"], e["slug"]) for e in legs] == [
         ("backend", "linux/amd64", "ubuntu-24.04", "linux-amd64"),
-        ("nginx", "linux/amd64", "ubuntu-24.04", "linux-amd64"),
+        ("web", "linux/amd64", "ubuntu-24.04", "linux-amd64"),
     ]
     assert "arm64" not in json.dumps(json.loads(res.stdout.splitlines()[0]))
 
@@ -394,7 +394,7 @@ def test_the_switch_adds_arm64_on_its_native_runner(run: Runner) -> None:
     assert [(e["id"], e["platform"], e["runner"], e["slug"]) for e in legs] == [
         ("backend", "linux/amd64", "ubuntu-24.04", "linux-amd64"),
         ("backend", "linux/arm64", "ubuntu-24.04-arm", "linux-arm64"),
-        ("nginx", "linux/amd64", "ubuntu-24.04", "linux-amd64"),
+        ("web", "linux/amd64", "ubuntu-24.04", "linux-amd64"),
     ]
     first = json.loads(res.stdout.splitlines()[0])["include"][0]
     assert first["platforms"] == ["linux/amd64", "linux/arm64"]
@@ -435,6 +435,6 @@ def test_the_repo_manifest_lists_both_platforms_and_its_runner_map() -> None:
     legs = json.loads(out["platform_matrix"])["include"]
     assert {(e["id"], e["platform"], e["runner"]) for e in legs} == {
         (i, p, r)
-        for i in ("backend", "frontend", "nginx")
+        for i in ("backend", "frontend")
         for p, r in (("linux/amd64", "ubuntu-24.04"), ("linux/arm64", "ubuntu-24.04-arm"))
     }

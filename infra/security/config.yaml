@@ -123,10 +123,6 @@ image:
       env_var: FRONTEND_IMAGE
       docker_env_var: FRONTEND_IMAGE_DOCKER
       match: frontend
-    - name: nginx
-      env_var: NGINX_IMAGE
-      docker_env_var: NGINX_IMAGE_DOCKER
-      match: nginx
 
 # ---------- Vulnerability Policy ----------
 policy:

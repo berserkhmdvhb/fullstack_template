@@ -236,7 +236,7 @@ openapi-drift-check:
 SHELLCHECK ?= shellcheck
 
 # Build the images with throwaway tags and run the structure checks CI runs on a pull request (strict),
-# then remove them. IDS="backend nginx" limits it. Needs docker, jq and the project venv.
+# then remove them. IDS="backend frontend" limits it. Needs docker, jq and the project venv.
 image-checks:
 	bash scripts/ci/image-checks-local.sh $(IDS)
 
@@ -462,9 +462,6 @@ compose-build-backend:
 compose-build-frontend:
 	docker build -t your-service-name-frontend:local -f Dockerfile.frontend .
 
-compose-build-nginx:
-	docker build -t your-service-name-nginx:local -f Dockerfile.nginx .
-
 compose-pull:
 	docker compose pull
 
@@ -481,7 +478,7 @@ HELM_RELEASE ?= your-service-name
 HELM_VALUES ?=
 K8S_PORT ?= 8000
 # HELM_ARGS is a pass-through for extra flags on the operational scripts
-# (e.g. `make deploy HELM_ARGS=--only backend,nginx`); SMOKE_BASE_URL is the
+# (e.g. `make deploy HELM_ARGS=--only backend,frontend`); SMOKE_BASE_URL is the
 # HTTP base the smoke-test target probes. Both default so a bare `make <target>`
 # works, exactly like HELM_ENV / K8S_PORT above.
 HELM_ARGS ?=

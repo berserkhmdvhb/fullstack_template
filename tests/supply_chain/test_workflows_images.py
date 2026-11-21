@@ -56,9 +56,9 @@ def test_every_manifest_image_declares_distroless() -> None:
         assert isinstance(image.get("distroless"), bool), image["id"]
 
 
-def test_backend_and_frontend_are_distroless_and_nginx_is_not() -> None:
+def test_the_manifest_is_the_distroless_backend_and_frontend() -> None:
     by_id = {i["id"]: i["distroless"] for i in _manifest()}
-    assert by_id == {"backend": True, "frontend": True, "nginx": False}
+    assert by_id == {"backend": True, "frontend": True}
 
 
 # --- the pull request job ---

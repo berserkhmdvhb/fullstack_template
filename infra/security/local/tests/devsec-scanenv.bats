@@ -46,7 +46,7 @@ EOF
 }
 
 # _write_image_fixture CONTEXT_DOCKERFILES... — write a per-test container-images.yml
-# (ids backend + nginx, context ".", the dockerfiles named) and create exactly the
+# (ids backend + web, context ".", the dockerfiles named) and create exactly the
 # named Dockerfiles in a fresh work dir, so build_images sees those present and the
 # rest missing. Prints the work dir (the context ".") on stdout.
 _write_image_fixture() {
@@ -59,8 +59,8 @@ images:
   - id: backend
     dockerfile: Dockerfile.backend
     context: .
-  - id: nginx
-    dockerfile: Dockerfile.nginx
+  - id: web
+    dockerfile: Dockerfile.web
     context: .
 EOF
   printf '%s' "$work"
@@ -73,7 +73,7 @@ EOF
 @test "write_scan_env emits IMAGE + IMAGE_DOCKER per id, parseable by safe_load_env" {
   run bash -c "
     source '$SCRIPT' >/dev/null 2>&1
-    declare -A M=( [backend]='ghcr.io/acme/svc/backend:local-abc' [nginx]='ghcr.io/acme/svc/nginx:local-abc' )
+    declare -A M=( [backend]='ghcr.io/acme/svc/backend:local-abc' [web]='ghcr.io/acme/svc/web:local-abc' )
     LOCAL_TAG='local-abc'
     write_scan_env M '$BATS_TEST_TMPDIR/scan.env'
   "
@@ -86,20 +86,20 @@ EOF
     safe_load_env '$BATS_TEST_TMPDIR/scan.env' E
     printf 'BACKEND_IMAGE=%s\n' \"\${E[BACKEND_IMAGE]}\"
     printf 'BACKEND_IMAGE_DOCKER=%s\n' \"\${E[BACKEND_IMAGE_DOCKER]}\"
-    printf 'NGINX_IMAGE=%s\n' \"\${E[NGINX_IMAGE]}\"
-    printf 'NGINX_IMAGE_DOCKER=%s\n' \"\${E[NGINX_IMAGE_DOCKER]}\"
+    printf 'WEB_IMAGE=%s\n' \"\${E[WEB_IMAGE]}\"
+    printf 'WEB_IMAGE_DOCKER=%s\n' \"\${E[WEB_IMAGE_DOCKER]}\"
     printf 'IMAGE_TAG=%s\n' \"\${E[IMAGE_TAG]}\"
   "
   [ "$output" = "BACKEND_IMAGE=ghcr.io/acme/svc/backend:local-abc
 BACKEND_IMAGE_DOCKER=docker:ghcr.io/acme/svc/backend:local-abc
-NGINX_IMAGE=ghcr.io/acme/svc/nginx:local-abc
-NGINX_IMAGE_DOCKER=docker:ghcr.io/acme/svc/nginx:local-abc
+WEB_IMAGE=ghcr.io/acme/svc/web:local-abc
+WEB_IMAGE_DOCKER=docker:ghcr.io/acme/svc/web:local-abc
 IMAGE_TAG=local-abc" ]
 }
 
 @test "build_images builds each id with its dockerfile/context from container-images.yml" {
   _setup_docker
-  local work; work="$(_write_image_fixture Dockerfile.backend Dockerfile.nginx)"
+  local work; work="$(_write_image_fixture Dockerfile.backend Dockerfile.web)"
   run bash -c "
     source '$SCRIPT' >/dev/null 2>&1
     LOCAL_IMAGE_REPO='ghcr.io/acme/svc'
@@ -115,14 +115,14 @@ IMAGE_TAG=local-abc" ]
   [ "$status" -eq 0 ]
   # docker build invoked once per id, with the right -f / -t / context from the yml.
   [ "$(cat "$BATS_TEST_TMPDIR/docker.log")" = "docker build -f Dockerfile.backend -t ghcr.io/acme/svc/backend:local-abc .
-docker build -f Dockerfile.nginx -t ghcr.io/acme/svc/nginx:local-abc ." ]
+docker build -f Dockerfile.web -t ghcr.io/acme/svc/web:local-abc ." ]
   # ...and both ids were collected into the map write_scan_env consumes.
-  [[ "$output" == *"MAP:backend nginx"* ]]
+  [[ "$output" == *"MAP:backend web"* ]]
 }
 
 @test "build_images skips an id whose dockerfile is missing, warns, continues" {
   _setup_docker
-  # Only backend's Dockerfile exists; nginx's is absent.
+  # Only backend's Dockerfile exists; web's is absent.
   local work; work="$(_write_image_fixture Dockerfile.backend)"
   run bash -c "
     source '$SCRIPT' >/dev/null 2>&1
@@ -138,9 +138,9 @@ docker build -f Dockerfile.nginx -t ghcr.io/acme/svc/nginx:local-abc ." ]
   "
   # Did NOT die on the missing Dockerfile — the chain continues (exit 0).
   [ "$status" -eq 0 ]
-  # Only backend was built; nginx was skipped.
+  # Only backend was built; web was skipped.
   [ "$(cat "$BATS_TEST_TMPDIR/docker.log")" = "docker build -f Dockerfile.backend -t ghcr.io/acme/svc/backend:local-abc ." ]
   [[ "$output" == *"MAP:backend"* ]]
   # A warning naming the skipped image was emitted (on stderr, captured by run).
-  [[ "$output" == *"nginx"* ]]
+  [[ "$output" == *"web"* ]]
 }

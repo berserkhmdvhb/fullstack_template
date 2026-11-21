@@ -6,7 +6,7 @@
 
 The block between the BEGIN and END markers is a pure function of the ``Settings`` model (names,
 types, defaults, descriptions, production rules), never of the environment; everything outside the
-markers (the variables read by the frontend, nginx, compose and CI) is hand-written and kept as is.
+markers (the variables read by the frontend, compose and CI) is hand-written and kept as is.
 """
 
 from __future__ import annotations

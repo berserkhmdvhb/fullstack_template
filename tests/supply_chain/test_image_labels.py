@@ -1,4 +1,4 @@
-"""All three images carry the OCI labels, and the build workflow fills each with a real value."""
+"""Both images carry the OCI labels, and the build workflow fills each with a real value."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pytest
 
 from tests.supply_chain._workflows import REPO, workflow
 
-DOCKERFILES = ("Dockerfile.backend", "Dockerfile.frontend", "Dockerfile.nginx")
+DOCKERFILES = ("Dockerfile.backend", "Dockerfile.frontend")
 ARGS = {
     "version": "VERSION",
     "revision": "VCS_REF",
