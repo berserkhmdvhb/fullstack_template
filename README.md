@@ -2,6 +2,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.12%20|%203.13-blue)]()
 [![CI](https://github.com/<owner>/<your-service-name>/actions/workflows/ci.yml/badge.svg)](https://github.com/<owner>/<your-service-name>/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/<owner>/<your-service-name>/badge)](https://scorecard.dev/viewer/?uri=github.com/<owner>/<your-service-name>)
 
 This repository provides a standardized template that standardizes architecture, CI/CD, containerization, and documentation for new API-based services.
 

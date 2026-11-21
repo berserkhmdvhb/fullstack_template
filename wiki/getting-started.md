@@ -81,6 +81,8 @@ infra/adapt/replace_service_name.sh -n awesome_solution --dry-run
 infra/adapt/replace_service_name.sh -n awesome_solution
 ```
 
+The README badges (CI and OpenSSF Scorecard) use `<owner>/<your-service-name>`; replace `<owner>` with your GitHub organisation or user, and the repository name if it differs from the service name.
+
 ### Configure Ports (Optional)
 
 Ports are environment-driven — there is no adaptation script. The defaults
