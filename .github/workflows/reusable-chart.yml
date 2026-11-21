@@ -25,6 +25,14 @@ jobs:
         run: |
           scripts/tools.sh install helm4
           echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      # ct lint runs yamllint with the tracked config, the same file the pre-commit hook uses. Chart.yaml schema,
+      # maintainers and version-increment checks are off: they need ct's schema file and a target branch.
+      - name: Install chart-testing and yamllint
+        run: scripts/tools.sh install ct yamllint
+      - name: ct lint
+        run: |
+          ct lint --charts "${CHART_DIR}" --lint-conf .github/ct-lintconf.yaml \
+            --validate-chart-schema=false --validate-maintainers=false --check-version-increment=false
       - name: Lint and render every values file
         run: |
           helm version --short
