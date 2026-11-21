@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # -----------------------------------------------------------------------------
-# devsec-tools.bats — unit tests for devsec.sh's tool provisioning (Task 3):
+# devsec-tools.bats — unit tests for devsec.sh's tool provisioning:
 # the REQUIRED_TOOLS set, the pinned LOCAL_TOOL_VERSIONS map, and cmd_tools
 # (report present / install the missing through the pinned, SHA-256-verifying
 # tools-install.sh — never curl|bash — honouring DRY_RUN, and gating non-zero
@@ -8,7 +8,7 @@
 #
 # TDD: written first and run RED (`tools` is wired to _not_implemented, so the
 # install is never invoked and the exit code is wrong), then GREEN once
-# cmd_tools lands. cmd_tools mutates the system, so — unlike the pure Task-1/2
+# cmd_tools lands. cmd_tools mutates the system, so — unlike the pure
 # functions — we drive it via `bash "$SCRIPT" tools` in a subprocess with a
 # controlled PATH: a stub tools-install.sh on PATH RECORDS its argv (so the test
 # never downloads), and stub "present" bins stand in for the real tools so a

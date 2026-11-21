@@ -12,7 +12,7 @@ report instead (used by ``check-ci-hardening.sh``).
 
 Checks (ids are stable):
   pinned-uses, top-permissions, no-prt-checkout, no-inline-secrets, image-digest, provenance
-  (SKIP until phase 2), osv-coverage, environment-for-secrets, timeouts, no-dry-run-env,
+  (SKIP until PROVENANCE_ENABLED), osv-coverage, environment-for-secrets, timeouts, no-dry-run-env,
   documented-permissions.
 
 Known limitation: image-digest accepts a value that is one whole ``${{ }}`` expression (a digest
@@ -36,7 +36,9 @@ PROVENANCE_ENABLED = (
     False  # Switch on once release.yml signs and attests images; the provenance check then gates.
 )
 USAGE_ERROR = 2
-PROVENANCE_SKIP = "SKIP provenance: not enforced yet (set PROVENANCE_ENABLED once release.yml attests)"
+PROVENANCE_SKIP = (
+    "SKIP provenance: not enforced yet (set PROVENANCE_ENABLED once release.yml attests)"
+)
 
 _SHA_REF = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 _VERSION_COMMENT = re.compile(r"#\s*v\d+(\.\d+)*\S*\s*$")
@@ -321,7 +323,7 @@ def check_image_digest(doc: Doc) -> list[Finding]:
 def check_provenance(
     docs: list[Doc], *, enabled: bool = PROVENANCE_ENABLED
 ) -> tuple[list[Finding], list[str]]:
-    """Return (findings, skips). Until phase 2 it only skips; enabled, release.yml must attest."""
+    """Return (findings, skips); skips until PROVENANCE_ENABLED, then release.yml must attest."""
     if not enabled:
         return [], [PROVENANCE_SKIP]
     for doc in docs:

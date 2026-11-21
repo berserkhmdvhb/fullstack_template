@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # -----------------------------------------------------------------------------
 # devsec-scanenv.bats — unit tests for devsec.sh's local image build + scan.env
-# generation (Task 4): build_images (read id/dockerfile/context from
+# generation: build_images (read id/dockerfile/context from
 # container-images.yml via yq, guard root + the docker daemon, build+tag each id,
 # skip+warn an id whose Dockerfile is absent and continue with the rest) and the
 # pure write_scan_env (id->repo:tag map -> dotenv text with <ID>_IMAGE /
@@ -68,7 +68,7 @@ EOF
 
 # RED anchor: with build_images / write_scan_env not yet implemented, sourcing
 # devsec.sh and calling them dies with "command not found", so status is non-zero
-# and docker.log stays empty — both assertions fail until Task 4 lands.
+# and docker.log stays empty — both assertions fail until they are implemented.
 
 @test "write_scan_env emits IMAGE + IMAGE_DOCKER per id, parseable by safe_load_env" {
   run bash -c "

@@ -6,9 +6,8 @@
 # Invariant: the CI scripts under infra/security/*.sh are never edited; every
 # local adaptation lives under infra/security/local/ (this file included).
 #
-# This file is Task 1 (orchestrator skeleton) + Task 2 (local build coordinates)
-# + Task 3 (tool provisioning) + Task 4 (local build + scan.env) + Task 5 (scan
-# chain + fail policy). It boots, sources the shared runtime, derives the GitHub
+# This file holds the orchestrator skeleton, the local build coordinates, tool provisioning,
+# the local build + scan.env, and the scan chain + fail policy. It boots, sources the shared runtime, derives the GitHub
 # Actions variables (GITHUB_*) from the local git repo, layers the local registry/project/tag
 # on top (from the gitignored .env.local), and dispatches to subcommands.
 # bootstrap/build/tools + the sbom/vuln/osv/malware-heuristic/license/vex/audit/
@@ -26,11 +25,11 @@
 #                   runner derive?"); internal, not listed in usage().
 #
 # Sourced (never executed) by: bats tests, so they can unit-test derive_ci_env
-# and the Task-2 resolvers directly.
+# and the local-coordinate resolvers directly.
 # Consumes: _helpers.sh (lib_banner, log/warn/error/die, colors, trap_err,
 #           safe_load_env, mask).
-# Produces: derive_ci_env; Task 2 — load_local_env, resolve_registry,
-#           resolve_project_slug, local_image_tag; Task 5 — the scan chain +
+# Produces: derive_ci_env; local coordinates — load_local_env, resolve_registry,
+#           resolve_project_slug, local_image_tag; the scan chain +
 #           fail policy (cmd_sbom..cmd_ci_hardening, cmd_all);
 #           usage, main dispatch.
 # -----------------------------------------------------------------------------
@@ -133,7 +132,7 @@ _selftest_env() {
   done
 }
 
-# ---------- local build coordinates (Task 2) ---------------------------------
+# ---------- local build coordinates ---------------------------------
 # Where the local image registry / project / tag come from, so the build step
 # (a later task) knows what to tag. Two layers: derive_ci_env gives the git->CI
 # coordinates; then .env.local (gitignored, per-developer, never committed) may
@@ -229,7 +228,7 @@ _bootstrap() {
   return 0
 }
 
-# ---------- tool provisioning (Task 3) ---------------------------------------
+# ---------- tool provisioning ---------------------------------------
 # The scan steps need a fixed set of tools. cmd_tools reports which are present
 # and installs the missing ones through the repo's pinned, SHA-256-verifying
 # tools-install.sh — NEVER curl|bash. docker/git/jq/yq are checked only
@@ -327,7 +326,7 @@ cmd_tools() {
   return 0
 }
 
-# ---------- local image build + scan.env (Task 4) ----------------------------
+# ---------- local image build + scan.env ----------------------------
 # The local stand-in for the CI build job: build the project's images from the
 # single source .github/container-images.yml and emit scan.env so the scanner steps
 # (sbom/vuln/...) resolve them by the <ID>_IMAGE / <ID>_IMAGE_DOCKER keys that
@@ -447,9 +446,9 @@ cmd_build() {
   return 0
 }
 
-# ---------- scan chain (Task 5) ----------------------------------------------
+# ---------- scan chain ----------------------------------------------
 # The eight CI scripts stay untouched; these commands are the local adaptation
-# layer. Each bootstraps the CI env + local coordinates (Tasks 1-2), takes the
+# layer. Each bootstraps the CI env + local coordinates, takes the
 # build's scan.env as the scanners' input, and invokes the matching CI script by
 # absolute path with the local paths filled in. `all` sequences them in CI order
 # and applies the fail policy, which mirrors CI's gate:
@@ -527,7 +526,7 @@ DEVSEC_VERBOSE="${DEVSEC_VERBOSE:-0}"
 _verbose() { [[ "${DEVSEC_VERBOSE:-0}" == "1" ]]; }
 
 # _prep_scan_env — resolve the scan output dir + the scan.env path the build
-# (Task 4) wrote, set GITHUB_WORKSPACE to the repo root, and export them, so the
+# local build wrote, set GITHUB_WORKSPACE to the repo root, and export them, so the
 # CI scanners (which read SEC_OUTPUT_DIR / scan.env / GITHUB_WORKSPACE) run against
 # the local repo. Path resolution only — does not require scan.env to exist yet.
 _prep_scan_env() {
@@ -1228,7 +1227,7 @@ Subcommands:
 Environment (derived from git when unset):
   GITHUB_SHA GIT_SHORT_SHA GITHUB_REF_NAME GITHUB_REPOSITORY GITHUB_SERVER_URL
 
-Local build coordinates (Task 2; .env.local may override REGISTRY / GITHUB_REPOSITORY):
+Local build coordinates (.env.local may override REGISTRY / GITHUB_REPOSITORY):
   LOCAL_REGISTRY LOCAL_PROJECT LOCAL_TAG LOCAL_IMAGE_REPO
 
 Verbose (local, opt-in):

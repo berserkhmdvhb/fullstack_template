@@ -15,7 +15,7 @@
 # Their sha256 column is `-` because the hashes live in the requirements file. yamale and yamllint
 # are what `ct lint` shells out to. `uv:python` runs `uv python install <version>` (uv's own cache);
 # uv verifies that download with its built-in checksums, which is accepted here.
-# Node: the frontend's engines is >=22 <23 until Task 4.1, so Node stays on 22.x (owner ruling);
+# Node: the frontend's engines is >=22 <23 until the frontend upgrade, so Node stays on 22.x (owner ruling);
 # the test reads the major from frontend/package.json.
 #
 # Adding darwin-arm64: copy each linux-amd64 row, set platform to darwin-arm64, point the url at the
@@ -33,7 +33,7 @@
 # `ct lint` exits 1 on both with byte-identical output, because of yamllint "braces" findings in the
 # chart's values.yaml (a chart issue, not a Helm-major difference). Helm 4 is the current line (and what the owner's
 # machine runs), so the template targets it; helm3 stays installed to prove the chart still renders
-# on 3.x. Details: .superpowers/sdd/2026-11-20-github-production-grade-plan/task-0.2-report.md
+# on 3.x. The helm3 pin only has to render the chart.
 helm3	3.22.1	linux-amd64	https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz	896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea
 helm4	4.3.2	linux-amd64	https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz	d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983
 kubectl	1.37.2	linux-amd64	https://dl.k8s.io/release/v1.37.2/bin/linux/amd64/kubectl	c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4

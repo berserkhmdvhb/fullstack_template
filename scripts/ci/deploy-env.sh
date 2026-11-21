@@ -10,7 +10,8 @@
 # Env (all required unless a default is shown): SERVICE_NAME DEPLOY_ENV (dev|qa|production) CHART_DIR
 # DEPLOY_IMAGES (comma list of image ids) DIGESTS (JSON of <ID>_IMAGE_DIGEST) IMAGE_TAG HELM_TIMEOUT
 # BACKEND_PORT API_VERSION; FRONTEND_PORT (3000); WORK_DIR (RUNNER_TEMP); SMOKE_WAIT_TRIES (30), SMOKE_WAIT_SLEEP (2).
-# Overrides for tests: MATRIX_CMD, VERIFY_SCRIPT, SMOKE_SCRIPT.
+# MATRIX_CMD (the matrix helper command; deploy.yml points it at a PyYAML venv) and, for tests only,
+# VERIFY_SCRIPT and SMOKE_SCRIPT are overridable.
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

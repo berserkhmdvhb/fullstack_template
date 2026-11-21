@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # -----------------------------------------------------------------------------
 # devsec-resolve.bats — unit tests for devsec.sh's local build-coordinate
-# resolution (Task 2): load_local_env (safe parse, never source), resolve_registry
+# resolution: load_local_env (safe parse, never source), resolve_registry
 # (.env.local override vs git-remote derive), resolve_project_slug (override vs
 # git-slug fallback), and local_image_tag (deterministic per commit).
 #

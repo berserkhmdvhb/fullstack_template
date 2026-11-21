@@ -36,7 +36,7 @@ CHECKS = (
     "no-dry-run-env",
     "documented-permissions",
 )
-# provenance is a SKIP until phase 2, so it has its own tests below.
+# provenance is a SKIP until PROVENANCE_ENABLED is set, so it has its own tests below.
 GATING = tuple(c for c in CHECKS if c != "provenance")
 USAGE_ERROR = 2
 FINDING = re.compile(r"^(?P<file>\S+?):(?P<line>\d+): (?P<check>[a-z-]+) ", re.MULTILINE)
@@ -270,6 +270,30 @@ def test_zizmor_runs_online_with_a_read_only_token() -> None:
     assert "--no-online-audits" not in step["run"]
 
 
+def _plain(text: str) -> str:
+    """Drop quotes and turn ${VAR} into $VAR, so brace and no-brace spellings compare equal."""
+    return re.sub(r"\$\{(\w+)\}", r"$\1", text).replace('"', "").replace("'", "")
+
+
+def _writes_to_github_path(line: str, bin_dir: str) -> bool:
+    return "GITHUB_PATH" in line and bin_dir in _plain(line)
+
+
+@pytest.mark.parametrize(
+    ("line", "bin_dir", "expected"),
+    [
+        ('echo "$RUNNER_TEMP/v/bin" >> "$GITHUB_PATH"', "$RUNNER_TEMP/v/bin", True),
+        ('echo "${RUNNER_TEMP}/v/bin" >> "$GITHUB_PATH"', "$RUNNER_TEMP/v/bin", True),
+        ('echo "$RUNNER_TEMP/v/bin" >> "${GITHUB_PATH}"', "$RUNNER_TEMP/v/bin", True),
+        ('echo "$PWD/.tools/bin" >> "$GITHUB_PATH"', "$RUNNER_TEMP/v/bin", False),
+    ],
+)
+def test_github_path_guard_sees_brace_and_plain_spellings(
+    line: str, bin_dir: str, *, expected: bool
+) -> None:
+    assert _writes_to_github_path(line, _plain(bin_dir)) is expected
+
+
 def test_no_step_puts_a_venv_bin_on_github_path() -> None:
     from tests.supply_chain._workflows import all_files, load  # noqa: PLC0415
 
@@ -279,9 +303,9 @@ def test_no_step_puts_a_venv_bin_on_github_path() -> None:
         for job in jobs:
             runs = "\n".join(s.get("run", "") for s in job.get("steps", []))
             for venv in re.findall(r"python3? -m venv (\S+)", runs):
-                bin_dir = venv.strip("\"'") + "/bin"
+                bin_dir = _plain(venv) + "/bin"
                 for line in runs.splitlines():
-                    assert not ("GITHUB_PATH" in line and bin_dir in line.replace('"', "")), (
+                    assert not _writes_to_github_path(line, bin_dir), (
                         path.name,
                         line,
                     )
