@@ -11,7 +11,6 @@ Complete reference for all environment variables used by the service template.
 - [General](#general)
 - [Backend](#backend)
 - [Frontend](#frontend)
-- [Nginx](#nginx)
 - [Runtime Mode (Local Dev Only)](#runtime-mode-local-dev-only)
 - [TLS](#tls)
 - [Database](#database)
@@ -159,17 +158,6 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 | `FRONTEND_REACT_SERVER` | `./frontend/.next/standalone/server.js` | Next.js standalone server path |
 | `FRONTEND_ROOT` | `./frontend` (local) / `/app/frontend` (container) | Frontend build root directory |
 | `NEXT_PUBLIC_API_URL` | `/api/v1` | API base URL (exposed to browser; same-origin, proxied by the Next.js server) |
-
----
-
-## Nginx
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NGINX_HOST` | `127.0.0.1` | Nginx bind host |
-| `NGINX_PORT` | `8081` | Nginx bind port |
-| `NGINX_BIND` | — | Override bind address (set to `0.0.0.0` in containers) |
-| `NGINX_CONF` | `./infra/nginx/nginx.conf` | Nginx configuration file path |
 
 ---
 
