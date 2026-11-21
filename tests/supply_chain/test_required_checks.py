@@ -141,7 +141,7 @@ class TestGateScript:
     def test_skips_fail_off_a_pull_request(self, job: str) -> None:
         assert _gate(_all(**{job: "skipped"}), "push") != 0
 
-    @pytest.mark.parametrize("job", ["chart", "security", "repo", "workflows"])
+    @pytest.mark.parametrize("job", ["chart", "security", "repo", "workflows", "hadolint"])
     def test_unfilterable_jobs_may_not_be_skipped(self, job: str) -> None:
         assert _gate(_all(**{job: "skipped"})) != 0
 

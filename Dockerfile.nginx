@@ -64,13 +64,14 @@ LABEL org.opencontainers.image.title="Your Service Name — Nginx" \
 # stranded on Alpine 3.23 and no longer rebuilt, so the base moves to `nginx:1-alpine`
 # (current mainline, nginx 1.31.x) on Alpine 3.24 — pinned by digest for reproducibility;
 # bump the digest to pull a newer mainline + base as they age.
+# hadolint ignore=DL3018 # apk versions are not pinnable per package; the base image digest pins the release
 RUN apk update && apk upgrade --no-cache && apk add --no-cache brotli-libs curl
 
 # Remove default config
 RUN rm /etc/nginx/conf.d/default.conf
 
 # Create non-root user
-RUN addgroup -S nginxuser && adduser -S nginxuser -G nginxuser
+RUN addgroup -S -g 10001 nginxuser && adduser -S -u 10001 -G nginxuser nginxuser
 
 # Copy custom nginx config as a TEMPLATE (rendered by entrypoint.sh at start).
 # nginx does not expand env vars in its config, so ${NGINX_BIND}/${NGINX_PORT}/
@@ -99,10 +100,10 @@ RUN chown -R nginxuser:nginxuser /var/cache/nginx /var/log/nginx /etc/nginx/conf
 ARG HEALTHCHECK_SCHEME=http
 ENV HEALTHCHECK_SCHEME="${HEALTHCHECK_SCHEME:-http}"
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -fsS "${HEALTHCHECK_SCHEME}://localhost:${NGINX_PORT:-8081}/healthz" || exit 1
+  CMD ["sh", "-c", "curl -fsS \"${HEALTHCHECK_SCHEME}://localhost:${NGINX_PORT:-8081}/healthz\" || exit 1"]
 
 EXPOSE 8081
 
-USER nginxuser
+USER 10001
 
 CMD ["/entrypoint.sh"]

@@ -17,6 +17,7 @@ ARG PKG_VERSION=0.0.0
 ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_YOUR_SERVICE_NAME=${PKG_VERSION}
 
 # Build deps (kept only in builder)
+# hadolint ignore=DL3008 # apt versions are not pinnable per package; the base image digest pins the release
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
       build-essential \
       libpq-dev \
@@ -27,7 +28,7 @@ COPY pyproject.toml README.md alembic.ini /app/
 COPY src /app/src
 
 # Install backend into /install
-RUN pip install --upgrade pip \
+RUN pip install --no-cache-dir --upgrade "pip>=25.3" \
  && pip install --no-cache-dir --prefix=/install .
 
 
@@ -56,6 +57,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive
 
 # Runtime deps
+# hadolint ignore=DL3008 # apt versions are not pinnable per package; the base image digest pins the release
 RUN set -eux; \
     apt-get update -y; \
     apt-get install -y --no-install-recommends \
@@ -80,10 +82,10 @@ RUN set -eux; \
 # are fixed in pip >= 25.3).
 RUN python -m pip install --no-cache-dir --upgrade "pip>=25.3"
 
+WORKDIR /app
+
 # Non-root user
 RUN useradd -m -u 10001 appuser
-
-WORKDIR /app
 
 # Install backend (includes alembic.ini + migrations via pip install)
 COPY --chown=10001:10001 --from=py-builder /install /usr/local
@@ -94,18 +96,18 @@ COPY --chown=10001:10001 alembic.ini /app/alembic.ini
 # Infra scripts
 COPY --chown=10001:10001 infra/db/run_migrations.sh /app/infra/db/run_migrations.sh
 COPY --chown=10001:10001 infra/backend/run_backend.sh /app/infra/backend/run_backend.sh
-RUN chmod +x /app/infra/db/run_migrations.sh /app/infra/backend/run_backend.sh
 
-# Logs dir
-RUN mkdir -p /app/logs && chown -R appuser:appuser /app
+# Make the scripts executable; logs dir
+RUN chmod +x /app/infra/db/run_migrations.sh /app/infra/backend/run_backend.sh \
+ && mkdir -p /app/logs && chown -R appuser:appuser /app
 
 # Healthcheck — uses HTTPS when HEALTHCHECK_SCHEME=https
 ARG HEALTHCHECK_SCHEME=http
 ENV HEALTHCHECK_SCHEME="${HEALTHCHECK_SCHEME:-http}"
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
-  CMD curl -fsS "${HEALTHCHECK_SCHEME}://localhost:${BACKEND_PORT:-8000}/api/${API_VERSION:-v1}/healthz" || exit 1
+  CMD ["sh", "-c", "curl -fsS \"${HEALTHCHECK_SCHEME}://localhost:${BACKEND_PORT:-8000}/api/${API_VERSION:-v1}/healthz\" || exit 1"]
 
-USER appuser
+USER 10001
 ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 ENTRYPOINT ["/usr/bin/tini", "-s", "--"]

@@ -27,8 +27,8 @@ COPY frontend/ ./
 # `prebuild` normally runs `openapi-gen`, but we invoke `npx next build` directly
 # below, which skips npm lifecycle hooks — so run the generator explicitly to keep
 # the image from shipping stale generated types after an openapi.json change.
-RUN npm run openapi-gen
-RUN npx next build
+RUN npm run openapi-gen \
+ && npx next build
 
 # Verify standalone output
 RUN test -f .next/standalone/server.js \
