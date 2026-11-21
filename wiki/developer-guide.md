@@ -102,6 +102,10 @@ Local development workflow, Makefile commands, code quality tools, Kubernetes de
 | Command | Description |
 |---------|-------------|
 | `make build` | Build Python package for distribution |
+| `make export-requirements` | Write the locked runtime dependencies, with hashes, to `requirements.txt` (or `REQUIREMENTS=<path>`); the file is not tracked |
+| `make check-requirements-sync` | Fail if `uv.lock` is stale against `pyproject.toml` (the check CI and pre-commit run) |
+
+The uv workflow (lock, sync, upgrades, the 7-day rule) is in [Getting started](./getting-started.md#lock-file-and-the-7-day-rule).
 
 ---
 

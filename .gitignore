@@ -63,3 +63,6 @@ crash.log
 
 # --- Pinned dev toolchain (make tools) ---
 /.tools/
+
+# Exported by make export-requirements (generated from uv.lock)
+/requirements.txt

@@ -92,9 +92,31 @@ def test_the_setup_block_does_not_follow_develop_with_install() -> None:
     assert len(uses) <= 1, "show develop and install as alternatives, not as a sequence"
 
 
-def test_no_pip_compile_second_source_remains() -> None:
-    assert "pip-compile" not in (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert "requirements" not in (ROOT / "wiki/developer-guide.md").read_text(encoding="utf-8")
+def test_the_requirements_targets_are_uv_wrappers_and_pip_compile_is_gone() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    guide = (ROOT / "wiki/developer-guide.md").read_text(encoding="utf-8")
+    assert "pip-compile" not in makefile
+    assert "pip-compile" not in guide
+    export = re.search(r"^export-requirements:\n((?:\t.*\n)+)", makefile, re.MULTILINE)
+    assert export
+    for flag in (
+        "export",
+        "--frozen",
+        "--no-dev",
+        "--no-editable",
+        "--no-emit-project",
+        "--no-header",
+    ):
+        assert flag in export.group(1), flag
+    assert "requirements-txt" in export.group(1)
+    sync = re.search(r"^check-requirements-sync:\n((?:\t.*\n)+)", makefile, re.MULTILINE)
+    assert sync
+    assert "$(UV) lock --check" in sync.group(1)
+    for target in ("export-requirements", "check-requirements-sync"):
+        assert target in makefile.split("help::")[1].split("install:")[0]
+        assert f"`make {target}`" in guide
+    assert "getting-started.md#lock-file-and-the-7-day-rule" in guide
+    assert "requirements.txt" in (ROOT / ".gitignore").read_text(encoding="utf-8")
 
 
 def test_the_pins_refresh_script_and_dev_runner_prefer_the_pinned_uv() -> None:

@@ -1,5 +1,6 @@
 # your-service-name — adaptable service template (see wiki/getting-started.md)
 .PHONY: all help install develop lock lock-check \
+    export-requirements check-requirements-sync \
     ruff-format ruff-format-check ruff-lint ruff-lint-fix mypy-check \
     openapi-gen openapi-drift-check \
     shellcheck tools tools-dry-run pins-refresh \
@@ -56,6 +57,8 @@ help::
 	@echo "  develop                  Install the locked set with the dev group (uv sync --locked)"
 	@echo "  lock                     Re-resolve uv.lock (releases at least 7 days old; see wiki/getting-started.md)"
 	@echo "  lock-check               Fail if uv.lock is stale against pyproject.toml"
+	@echo "  export-requirements      Export the hashed runtime requirements from uv.lock (REQUIREMENTS=requirements.txt)"
+	@echo "  check-requirements-sync  Fail if uv.lock is stale against pyproject.toml (same as lock-check)"
 	@echo ""
 	@echo "  ruff-format              Auto-format code using Ruff"
 	@echo "  ruff-format-check        Check code formatting (dry run)"
@@ -387,6 +390,16 @@ clean-all: clean-build clean-logs clean-cache clean-coverage clean-pyc
 # -------------------------------------------------------------------
 build:
 	$(PYTHON) -m build
+
+# For tools that read a requirements file: the locked runtime set with sha256 hashes, no editable project
+# line, no header (the header would print the command line). The file is not tracked (.gitignore).
+REQUIREMENTS ?= requirements.txt
+export-requirements:
+	$(UV) export --frozen --no-dev --no-editable --no-emit-project --no-header --format requirements-txt --output-file $(REQUIREMENTS)
+	@echo "Done: $(REQUIREMENTS) written from uv.lock."
+
+check-requirements-sync:
+	$(UV) lock --check
 
 # -------------------------------------------------------------------
 # Docker Compose
