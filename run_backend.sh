@@ -30,6 +30,8 @@ echo "=========================================="
 # --- venv bootstrap: the locked dependencies (uv.lock), once ---
 if [ ! -f ".venv/.deps_installed" ]; then
   echo "Installing the locked dependencies..."
+  # the pinned uv (scripts/tools.sh install uv) when present, else the one on PATH
+  if [ -x .tools/bin/uv ]; then PATH="$PWD/.tools/bin:$PATH"; fi
   uv sync --locked
   touch .venv/.deps_installed
 fi

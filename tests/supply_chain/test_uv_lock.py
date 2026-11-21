@@ -64,3 +64,40 @@ def test_make_targets_use_the_locked_set() -> None:
     assert "$(UV) sync --locked\n" in text
     assert "$(UV) lock --check" in text
     assert "pip install" not in text
+
+
+GETTING_STARTED = (ROOT / "wiki/getting-started.md").read_text(encoding="utf-8")
+
+
+def test_the_build_backend_is_pinned_with_hashes_in_the_lock() -> None:
+    constraints = {c["name"]: c for c in LOCK["manifest"]["build-constraints"]}
+    assert {"setuptools", "setuptools-scm"} <= set(constraints)
+    for item in constraints.values():
+        assert item["specifier"].startswith("==")
+        assert item["hashes"]
+    assert PYPROJECT["tool"]["uv"]["build-constraint-dependencies"]
+
+
+def test_the_security_update_procedure_is_documented() -> None:
+    assert "exclude-newer-package" in GETTING_STARTED
+    assert "uv lock --upgrade-package" in GETTING_STARTED
+    assert "hash-locked" in GETTING_STARTED  # the build-dependency residual is stated
+
+
+def test_the_setup_block_does_not_follow_develop_with_install() -> None:
+    # `uv sync` is exact: `make install` (--no-dev) after `make develop` removes the dev tools.
+    block = GETTING_STARTED.split("### 2. Install Dependencies")[1].split("###")[0]
+    code = "".join(re.findall(r"```bash\n(.*?)```", block, re.DOTALL))
+    uses = [w for w in ("make develop", "make install") if w in code]
+    assert len(uses) <= 1, "show develop and install as alternatives, not as a sequence"
+
+
+def test_no_pip_compile_second_source_remains() -> None:
+    assert "pip-compile" not in (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "requirements" not in (ROOT / "wiki/developer-guide.md").read_text(encoding="utf-8")
+
+
+def test_the_pins_refresh_script_and_dev_runner_prefer_the_pinned_uv() -> None:
+    refresh = (ROOT / "scripts/pins_refresh.py").read_text(encoding="utf-8")
+    assert '".tools" / "bin" / "uv"' in refresh
+    assert ".tools/bin/uv" in (ROOT / "run_backend.sh").read_text(encoding="utf-8")

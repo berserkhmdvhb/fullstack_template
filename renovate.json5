@@ -127,6 +127,15 @@
       "addLabels": ["major"]
     },
     {
+      // Lock file maintenance has no release timestamp, and minimumReleaseAge defaults to
+      // minimumReleaseAgeBehaviour "timestamp-required" under internalChecksFilter "strict", so without this rule
+      // no branch would ever be created. The 7 days are enforced inside uv.lock by [tool.uv] exclude-newer.
+      "description": "uv.lock maintenance: no release timestamp to wait for (uv's exclude-newer holds the 7 days)",
+      "matchManagers": ["pep621"],
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "minimumReleaseAge": null
+    },
+    {
       // The uv pin in tools/pins.tsv and the uv image tag in Dockerfile.backend must stay equal (a test checks it),
       // so one pull request moves both. The image digest is refreshed by Renovate; the pins.tsv checksum by make pins-refresh.
       "description": "uv: the pins.tsv row and the backend image tag move together",

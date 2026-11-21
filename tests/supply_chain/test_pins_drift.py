@@ -592,7 +592,8 @@ def test_the_regeneration_command_is_the_documented_one_with_a_cutoff() -> None:
     )
     assert documented in header
     cmd = pr.compile_command(Path("lock.txt"), Path("c.txt"), NOW)
-    assert " ".join(c for c in cmd if c != "--quiet").startswith(documented)
+    assert cmd[0] == pr.UV
+    assert " ".join(["uv", *(c for c in cmd[1:] if c != "--quiet")]).startswith(documented)
     assert cmd[cmd.index("--exclude-newer") + 1] == "2026-11-14T12:00:00Z"
     assert cmd[cmd.index("-c") + 1] == "c.txt"
     assert cmd[cmd.index("-o") + 1] == "lock.txt"  # relative to the lock's directory

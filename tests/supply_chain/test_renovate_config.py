@@ -152,3 +152,14 @@ def test_renovate_maintains_uv_lock_and_moves_the_uv_pin_with_its_image() -> Non
     assert cfg["minimumReleaseAge"] == "7 days"
     rule = next(r for r in cfg["packageRules"] if r.get("groupName") == "uv")
     assert set(rule["matchPackageNames"]) == {"astral-sh/uv", "ghcr.io/astral-sh/uv"}
+
+
+def test_uv_lock_maintenance_is_not_blocked_by_the_release_age_check() -> None:
+    # A lock refresh has no release timestamp: with minimumReleaseAge set, the default
+    # timestamp-required behaviour would create no branch. uv's exclude-newer holds the 7 days.
+    rules = renovate()["packageRules"]
+    rule = next(r for r in rules if r.get("matchUpdateTypes") == ["lockFileMaintenance"])
+    assert rule["matchManagers"] == ["pep621"]
+    assert "minimumReleaseAge" in rule
+    assert rule["minimumReleaseAge"] is None
+    assert renovate()["minimumReleaseAge"] == "7 days"

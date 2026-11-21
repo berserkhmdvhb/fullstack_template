@@ -42,8 +42,10 @@ from typing import IO, NoReturn
 ROOT = Path(__file__).resolve().parent.parent
 HEX64 = re.compile(r"[0-9a-f]{64}")
 # The documented regeneration command (tools/pins.tsv header), plus --quiet.
+# The pinned uv (tools/pins.tsv, installed by scripts/tools.sh) when present, like tools.sh itself.
+UV = str(ROOT / ".tools" / "bin" / "uv") if (ROOT / ".tools" / "bin" / "uv").is_file() else "uv"
 UV_COMPILE = [
-    *("uv", "pip", "compile", "--quiet", "--generate-hashes", "--no-header"),
+    *(UV, "pip", "compile", "--quiet", "--generate-hashes", "--no-header"),
     *("--python-version", "3.13", "--python-platform", "x86_64-unknown-linux-gnu"),
 ]
 MIN_AGE = timedelta(

@@ -2,7 +2,9 @@
 # security-update pull requests: `open-pull-requests-limit: 0` turns version updates off for the ecosystem
 # while security updates still arrive. Whether they are on is a repository setting (Dependabot security
 # updates, plus the dependency graph and alerts), not something this file switches on. The cooldown matches
-# Renovate's 7-day release age (security updates ignore it).
+# Renovate's 7-day release age. The cooldown does not apply to security updates, but uv.lock's own
+# `exclude-newer` (7 days) does: a Dependabot security PR for a fix released less than 7 days ago needs the
+# manual step in wiki/getting-started.md (Security updates younger than 7 days).
 version: 2
 updates:
   - package-ecosystem: uv

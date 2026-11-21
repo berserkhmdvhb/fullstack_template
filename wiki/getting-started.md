@@ -146,11 +146,15 @@ export PATH="$PWD/.tools/bin:$PATH"
 
 ### 2. Install Dependencies
 
+Pick one (`uv sync` is exact, so the second would remove what the first installed):
+
 ```bash
-make develop            # uv sync --locked: creates .venv with the locked set and the dev group
+make develop            # development: uv sync --locked, the locked set plus the dev group
 source .venv/bin/activate
-make install            # runtime dependencies only (uv sync --locked --no-dev)
 ```
+
+For a runtime-only environment (no pytest, ruff or mypy), run `make install` instead
+(`uv sync --locked --no-dev`).
 
 Without uv, `pip install -e . --group dev` (pip 25.1 or newer) installs the same dependencies from
 `pyproject.toml`, unlocked and without hashes.
@@ -174,6 +178,30 @@ in `pyproject.toml` is a relative span: uv resolves it when you run `uv lock` an
 `exclude-newer-span = "P7D"` in the lock. The lock holds no clock reading, so `uv lock --check` answers
 the same on any later day; only an explicit re-lock moves the cutoff. The container image builds from
 the same lock with `uv sync --frozen --no-dev` (see [Containerization](./containerization.md)).
+
+#### Security updates younger than 7 days
+
+`exclude-newer` also hides a fix released less than 7 days ago, so a Dependabot security pull request for
+it fails its lock check until you take this step (the Dependabot cooldown does not apply to security
+updates, the lock's span does). To ship such a fix at once:
+
+1. Exempt that one package, with a timestamp (never `false`, so the exemption stays bounded), in
+   `pyproject.toml`: `[tool.uv] exclude-newer-package = { <package> = "<now, RFC 3339>" }`. The uv settings
+   reference: "Accepts a dictionary format of `PACKAGE = "DATE"` pairs ... Set a package to `false` to
+   exempt it from the global `exclude-newer` constraint entirely."
+2. Run `uv lock --upgrade-package <package>` and commit `pyproject.toml` and `uv.lock`.
+3. Remove the exemption at the next routine refresh (`make lock`), so the package falls back under the
+   7-day rule.
+
+#### Build dependencies
+
+The PEP 517 build backend (setuptools, setuptools-scm and their build dependencies) is pinned in
+`[tool.uv] build-constraint-dependencies` with exact versions and sha256 hashes, which uv records under
+`[manifest]` in `uv.lock` and checks when it builds the project (uv settings reference: "Hashes can be
+included to verify downloaded build dependency archives ... uv records these hashes in uv.lock"). This
+covers what the project's own build requests; build requirements of any future source-only dependency
+are not hash-locked until they are added to that list. Update the list with the floor in
+`[build-system] requires` (versions at least 7 days old), then run `make lock`.
 
 ### 3. Initialize the Database
 
