@@ -84,6 +84,17 @@ Security headers are applied in production via `next.config.ts`:
 | `Cross-Origin-Resource-Policy` | `same-origin` | Other origins cannot embed or read the response |
 | `frame-ancestors` | `'none'` (via CSP) | Prevent clickjacking |
 
+### Known limitation: the frontend port exposes an internal URL
+
+On the paths it proxies to the backend (`/api/v1`, `/docs`, `/openapi.json`), Next.js adds an
+`x-middleware-rewrite` response header that holds the backend's internal URL (for example
+`http://<release>-backend:8000/api/v1/health`). Next always sets it, and removing it in `proxy.ts` cancels
+the rewrite, so the frontend cannot drop it. It discloses internal topology (CWE-200, low severity).
+Expose the app through the nginx gateway or an edge, never the frontend port directly: the gateway config
+hides `X-Middleware-Rewrite` and `X-Powered-By` from proxied responses (`proxy_hide_header`, inherited by
+every proxy location). The live header test lists the header as a known Next exposure and allows it only
+on proxied paths of the frontend port.
+
 ### Ingress-Level Headers
 
 Additional headers are applied via NGINX Ingress annotations:
@@ -122,7 +133,7 @@ exfiltration to any endpoint. The frontend also serves a per-request nonce on
 Interactive docs (`/docs`) are the one page that loads a third-party origin, and it is still strict:
 the backend serves its own Swagger UI page with **no inline script**. Swagger UI's CSS and bundle come
 from jsDelivr at one exact version, each pinned by a Subresource Integrity hash, and the init script is
-the backend's own `/docs/init.js`. So `/docs` alone adds only `https://cdn.jsdelivr.net` to `script-src`
+the backend's own `/docs/init.js`. The backend sends this page's CSP itself, on the page and on the script, and the frontend proxy passes it through (one policy, whoever serves `/docs`). So `/docs` alone adds only `https://cdn.jsdelivr.net` to `script-src`
 and `style-src`, with no `'unsafe-inline'` anywhere; every other page keeps the nonce-only policy.
 `/docs` can be disabled with `API_DOCS_URL=` (empty). The machine-readable schema at `/openapi.json` is
 unaffected by that and stays available for non-browser consumers regardless of the interactive page.
