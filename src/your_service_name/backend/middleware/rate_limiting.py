@@ -33,8 +33,8 @@ from limits import parse
 from limits.storage import MemoryStorage
 from limits.strategies import FixedWindowRateLimiter
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
 
+from your_service_name.backend.errors import problem_response
 from your_service_name.backend.settings import DEFAULT_RATE_LIMIT
 
 if TYPE_CHECKING:
@@ -133,9 +133,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         if not self._limiter.hit(self._limit, _client_ip(request)):
             retry_after = self._limit.GRANULARITY.seconds * self._limit.multiples
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "Rate limit exceeded. Please try again later."},
+            return problem_response(
+                request.scope,
+                429,
+                "Rate limit exceeded. Please try again later.",
                 headers={"Retry-After": str(retry_after)},
             )
 
@@ -162,7 +163,7 @@ def register_rate_limiting(app: FastAPI, settings: Settings) -> None:
     -----
     - Rate limit is controlled by the ``RATE_LIMIT_DEFAULT`` setting.
     - Key: the client IP resolved by ``ClientIpMiddleware`` (the TCP peer unless trusted proxy).
-    - The 429 response is JSON (with a ``Retry-After`` header) for API consistency.
+    - The 429 response is a problem+json body (with a ``Retry-After`` header) for API consistency.
     """
     limit = settings.RATE_LIMIT_DEFAULT
     logger.info("Rate limiting enabled: %s per IP", limit)

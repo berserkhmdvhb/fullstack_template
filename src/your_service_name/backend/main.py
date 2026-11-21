@@ -48,6 +48,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from your_service_name.backend.api import build_api_router
 from your_service_name.backend.db import close_db
+from your_service_name.backend.errors import install_error_handling
 from your_service_name.backend.logging.correlation import RequestIdFilter
 from your_service_name.backend.logging.json_formatter import JsonLogFormatter
 from your_service_name.backend.middleware.client_ip import ClientIpMiddleware
@@ -199,6 +200,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ],
     )
     app.state.settings = settings
+    install_error_handling(app)
 
     cors_origins = list(settings.CORS_ORIGINS)
     allow_credentials = settings.CORS_ALLOW_CREDENTIALS

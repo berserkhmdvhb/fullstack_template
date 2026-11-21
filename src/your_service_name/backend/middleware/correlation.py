@@ -18,6 +18,7 @@ from starlette.datastructures import Headers
 
 from your_service_name.backend.logging.correlation import (
     HEADER_NAME,
+    get_request_id,
     reset_request_id,
     set_request_id,
 )
@@ -39,6 +40,9 @@ class CorrelationIdMiddleware:
             return
 
         token = set_request_id(Headers(scope=scope).get(HEADER_NAME))
+        # The scope outlives the context variable (reset below), and the catch-all 500 handler runs
+        # outside this middleware: leave the id on the scope's shared ``state`` for it.
+        scope.setdefault("state", {})["request_id"] = get_request_id()
         try:
             await self.app(scope, receive, send)
         finally:

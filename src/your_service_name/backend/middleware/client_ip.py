@@ -132,6 +132,7 @@ class ClientIpMiddleware:
             self._trusted,
             trust_cf=self._trust_cf,
         )
+        scope.setdefault("state", {})  # shared by reference: outer layers read what inner ones set
         new_scope = {**scope, "client": (ip, client[1] if client else 0)}
         proto = (joined("x-forwarded-proto") or "").split(",")[-1].strip().lower()
         if proto in ("http", "https"):
