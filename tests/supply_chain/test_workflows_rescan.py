@@ -60,18 +60,22 @@ def test_only_the_scan_job_reaches_the_registry() -> None:
         assert "ghcr.io" not in _runs(job), name
         assert "grype" not in _runs(job), name
     assert "issues" not in _jobs()["scan"]["permissions"]
-    assert "scan" not in "".join(
-        s.get("run", "") for s in _jobs()["report"]["steps"] if "tools-install" in s.get("run", "")
-    )
+    report = _jobs()["report"]
+    text = str(report)
+    assert "packages" not in report["permissions"]
+    assert "GRYPE_REGISTRY_AUTH" not in text
+    assert "docker/login-action" not in text
+    assert "tools-install" not in text
 
 
-def test_scan_runs_grype_by_digest_with_the_pinned_installer_and_the_release_vex() -> None:
+def test_scan_runs_grype_by_digest_with_the_pinned_installer_and_no_vex() -> None:
     job = _jobs()["scan"]
     text = _runs(job)
     assert "infra/security/tools-install.sh grype" in text
     assert ".tools.grype" in text
     assert 'registry:${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"' in text
-    assert "--vex" in text
+    assert "--vex" not in text  # a release VEX would hide a later re-rating of a fixed-upstream CVE
+    assert "VEX_FILE" not in str(job)
     assert "-o json" in text
     assert "(( rc != 0 && rc != 2 ))" in text  # exit 2 is a finding; anything else is an error
     assert job["strategy"]["matrix"] == "${{ fromJSON(needs.collect.outputs.matrix) }}"
@@ -126,3 +130,8 @@ def test_nothing_hard_codes_an_owner_or_a_repository() -> None:
     text = (WORKFLOWS / FILE).read_text(encoding="utf-8")
     assert not re.search(r"ghcr\.io/[a-z]", text)
     assert "github.com/" not in text
+
+
+def test_the_matrix_carries_no_vex_field() -> None:
+    step = next(s for s in _jobs()["collect"]["steps"] if s.get("id") == "matrix")
+    assert "vex" not in step["run"]

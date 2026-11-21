@@ -43,7 +43,7 @@ jobs:
         id: matrix
         run: |
           set -euo pipefail
-          echo "matrix=$(jq -c '{include: [.images[] | {id, digest, short, repository, vex}]}' rescan-input/digests.json)" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(jq -c '{include: [.images[] | {id, digest, short, repository}]}' rescan-input/digests.json)" >> "$GITHUB_OUTPUT"
           echo "count=$(jq '.images | length' rescan-input/digests.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -67,22 +67,18 @@ jobs:
       IMAGE_REPOSITORY: ${{ matrix.repository }}
       IMAGE_DIGEST: ${{ matrix.digest }}
       IMAGE_SHORT: ${{ matrix.short }}
-      VEX_FILE: ${{ matrix.vex }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: rescan-input
-          path: rescan-input
       - name: Install grype
         run: |
           mkdir -p "${RUNNER_TEMP}/bin"
           bash infra/security/tools-install.sh grype "$(yq -r '.tools.grype' infra/security/config.yaml)" "${RUNNER_TEMP}/bin"
           echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
-      # The VEX statements are the ones the release shipped for this digest. grype exits 2 when it
-      # finds something at the config's fail-on severity; that is a finding, not an error.
+      # No VEX is applied: the release VEX marks every CVE that had an upstream fix as not_affected,
+      # which would hide a later re-rating. The ignore list in grype.yaml is the only exemption.
+      # grype exits 2 when it finds something at the config's fail-on severity: a finding, not an error.
       - name: Scan the digest
         env:
           GRYPE_REGISTRY_AUTH_AUTHORITY: ghcr.io
@@ -91,18 +87,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p findings
-          vex=()
-          if [[ -n "${VEX_FILE}" ]]; then
-            vex=(--vex "rescan-input/${VEX_FILE}")
-          fi
           rc=0
-          grype "registry:${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" -c infra/security/grype.yaml "${vex[@]}" \
+          grype "registry:${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" -c infra/security/grype.yaml \
             -o json --file "findings/${IMAGE_SHORT}.json" || rc=$?
           if (( rc != 0 && rc != 2 )) || ! jq -e '.matches' "findings/${IMAGE_SHORT}.json" > /dev/null; then
             echo "::error::grype failed on ${IMAGE_REPOSITORY}@${IMAGE_DIGEST} (exit ${rc})"
             exit 1
           fi
-          echo "- \`${IMAGE_REPOSITORY}@${IMAGE_DIGEST}\`: $(jq '.matches | length' "findings/${IMAGE_SHORT}.json") finding(s), VEX: ${VEX_FILE:-none}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`${IMAGE_REPOSITORY}@${IMAGE_DIGEST}\`: $(jq '.matches | length' "findings/${IMAGE_SHORT}.json") finding(s)" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: findings-${{ matrix.short }}
