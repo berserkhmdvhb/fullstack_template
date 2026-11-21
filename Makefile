@@ -2,7 +2,7 @@
 .PHONY: all help install develop \
     ruff-format ruff-format-check ruff-lint ruff-lint-fix mypy-check \
     openapi-gen openapi-drift-check \
-    shellcheck tools tools-dry-run \
+    shellcheck tools tools-dry-run pins-refresh \
     check-all check-all-dry precommit \
     test test-unit test-integration test-e2e test-live test-file test-file-function test-fast \
     test-coverage test-coverage-xml test-cov-html test-coverage-rep test-coverage-file \
@@ -230,6 +230,10 @@ tools:
 
 tools-dry-run:
 	@scripts/tools.sh --dry-run install
+
+# Write the vendor-published checksums into tools/pins.tsv (and regenerate the hashed locks) after a version bump.
+pins-refresh:
+	@scripts/pins-refresh.sh
 
 dev-tools-list:
 	@echo "Dev tools from pyproject.toml (develop extra):"

@@ -1,0 +1,423 @@
+#!/usr/bin/env python3
+"""Refresh or check the pinned tool checksums against what each vendor publishes.
+
+  scripts/pins-refresh.sh [name...]
+      write the vendor checksum for every pin that differs
+  scripts/pins-refresh.sh --check [--base REF] [name...]
+      read-only: exit 1, naming each pin, on any difference
+
+Two pin sources are covered:
+  * tools/pins.tsv (dev toolchain, read by scripts/tools.sh): the recorded sha256 must equal the
+    vendor's published one for that exact version and url; `uv:` rows must have a hashed lock in
+    tools/requirements/ pinning the same version whose hashes PyPI publishes.
+  * infra/security/config.yaml (security scanners, read by the frozen tools-install.sh): that script
+    reads the vendor checksum file at install time, so nothing is recorded; the check is that the
+    vendor still publishes a checksum for the pinned version's asset.
+
+SOURCES is the one place that says where each tool's checksum comes from. With --base REF only rows
+that differ from REF are checked (a pull request); without it every row is (main, schedule).
+Env: PINS, SECURITY_CONFIG, REQS (paths, used by the tests), GITHUB_TOKEN (read-only, API only).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.request
+from dataclasses import astuple, dataclass, replace
+from pathlib import Path
+from typing import NoReturn
+
+ROOT = Path(__file__).resolve().parent.parent
+HEX64 = re.compile(r"[0-9a-f]{64}")
+UV_COMPILE = [
+    *("uv", "pip", "compile", "--quiet", "--generate-hashes", "--no-header", "--no-annotate"),
+    *("--python-version", "3.13", "--python-platform", "x86_64-unknown-linux-gnu"),
+]
+PIN_FIELDS = 5  # name version platform url sha256
+MIN_SUM_FIELDS = 2  # a hash and a name
+USAGE = "usage: pins-refresh.sh [--check] [--base REF] [name...]"
+
+# tool -> (kind, checksum-file url template).
+# Fields: {url} the pin url, {dir} its directory, {ver} the version.
+#   sumfile    a vendor file of "<sha256>  <asset>" lines (any of the usual path/star decorations)
+#   hashfile   a file holding the bare sha256, beside the asset
+#   yq-columns yq's `checksums` (one column per algorithm, ordered by checksums_hashes_order)
+#   gh-digest  the release-asset `digest` from the GitHub releases API (no vendor file exists)
+#   archive    a GitHub tag archive (no vendor checksum exists): hashed on download
+#   uv         a Python tool: hashed lock in tools/requirements/, checked against PyPI
+#   none       uv downloads and verifies it itself
+SOURCES: dict[str, tuple[str, str]] = {
+    "helm3": ("sumfile", "{url}.sha256sum"),
+    "helm4": ("sumfile", "{url}.sha256sum"),
+    "kubectl": ("hashfile", "{url}.sha256"),
+    "kind": ("sumfile", "{url}.sha256sum"),
+    "kubeconform": ("sumfile", "{dir}/CHECKSUMS"),
+    "ct": ("sumfile", "{dir}/checksums.txt"),
+    "helm-unittest": ("sumfile", "{dir}/helm-unittest-checksum.sha"),
+    "actionlint": ("sumfile", "{dir}/actionlint_{ver}_checksums.txt"),
+    "hadolint": ("sumfile", "{dir}/checksums.sha256"),
+    "gitleaks": ("sumfile", "{dir}/gitleaks_{ver}_checksums.txt"),
+    "squawk": ("gh-digest", ""),
+    "oasdiff": ("sumfile", "{dir}/checksums.txt"),
+    "cosign": ("sumfile", "{dir}/cosign_checksums.txt"),
+    "kyverno": ("sumfile", "{dir}/checksums.txt"),
+    "yq": ("yq-columns", "{dir}/checksums"),
+    "bats": ("archive", ""),
+    "shellcheck": ("gh-digest", ""),
+    "node": ("sumfile", "https://nodejs.org/dist/v{ver}/SHASUMS256.txt"),
+    "python": ("none", ""),
+    "zizmor": ("uv", ""),
+    "schemathesis": ("uv", ""),
+    "pre-commit": ("uv", ""),
+    "yamale": ("uv", ""),
+    "yamllint": ("uv", ""),
+    "pip-audit": ("uv", ""),
+}
+
+# config.yaml tool -> (github repo, checksum file, asset, algorithm).
+# Mirrors tools-install.sh (linux, amd64).
+# {v} is the version as pinned (with its "v"), {ver} without it.
+CONFIG_SOURCES: dict[str, tuple[str, str, str, str]] = {
+    "cosign": ("sigstore/cosign", "cosign_checksums.txt", "cosign-linux-amd64", "sha256"),
+    "syft": ("anchore/syft", "syft_{ver}_checksums.txt", "syft_{ver}_linux_amd64.tar.gz", "sha256"),
+    "grype": (
+        "anchore/grype",
+        "grype_{ver}_checksums.txt",
+        "grype_{ver}_linux_amd64.tar.gz",
+        "sha256",
+    ),
+    "grant": (
+        "anchore/grant",
+        "grant_{ver}_checksums.txt",
+        "grant_{ver}_linux_amd64.tar.gz",
+        "sha256",
+    ),
+    "osv-scanner": (
+        "google/osv-scanner",
+        "osv-scanner_SHA256SUMS",
+        "osv-scanner_linux_amd64",
+        "sha256",
+    ),
+    "sbomqs": (
+        "interlynk-io/sbomqs",
+        "checksums.txt",
+        "sbomqs_{ver}_Linux_x86_64.tar.gz",
+        "sha256",
+    ),
+    "sbom-utility": (
+        "CycloneDX/sbom-utility",
+        "sbom-utility-{v}-linux-amd64.tar.gz.md5",
+        "sbom-utility-{v}-linux-amd64.tar.gz",
+        "md5",
+    ),
+    "kubescape": (
+        "kubescape/kubescape",
+        "checksums.sha256",
+        "kubescape_{ver}_linux_amd64",
+        "sha256",
+    ),
+}
+
+
+class PinError(Exception):
+    """A pin could not be verified (fetch failed, asset not listed, malformed vendor file)."""
+
+
+def fail(message: str) -> NoReturn:
+    raise PinError(message)
+
+
+@dataclass(frozen=True)
+class Pin:
+    name: str
+    version: str
+    platform: str
+    url: str
+    sha256: str
+
+
+def out(text: str) -> None:
+    sys.stdout.write(text + "\n")
+
+
+def fetch(url: str) -> bytes:
+    if not url.startswith("https://"):
+        fail(f"refusing non-https url {url}")
+    headers = {"User-Agent": "pins-refresh"}
+    token = os.environ.get("GITHUB_TOKEN")
+    if token and url.startswith("https://api.github.com/"):
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        request = urllib.request.Request(url, headers=headers)  # noqa: S310
+        with urllib.request.urlopen(request, timeout=60) as resp:  # noqa: S310
+            data: bytes = resp.read()
+    except OSError as exc:
+        msg = f"cannot fetch {url}: {exc}"
+        raise PinError(msg) from exc
+    return data
+
+
+def git_show(base: str, rel: str) -> str:
+    run = subprocess.run(  # noqa: S603
+        ["git", "show", f"{base}:{rel}"],  # noqa: S607
+        cwd=ROOT, capture_output=True, text=True, check=False,
+    )  # fmt: skip
+    return run.stdout if run.returncode == 0 else ""
+
+
+def norm(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def parse_pins(text: str) -> list[Pin]:
+    pins = []
+    for line in text.splitlines():
+        if line and not line.startswith("#"):
+            fields = line.split("\t")
+            if len(fields) != PIN_FIELDS:
+                fail(f"malformed pin row: {line}")
+            pins.append(Pin(*fields))
+    return pins
+
+
+def parse_config_tools(text: str) -> dict[str, str]:
+    block = re.search(r"^tools:\n((?:[ #].*\n|\n)*)", text, re.MULTILINE)
+    if not block:
+        return {}
+    return dict(re.findall(r"^  ([a-z][a-z0-9-]*): (v\S+)\s*$", block.group(1), re.MULTILINE))
+
+
+def parse_lock(text: str, pkg: str) -> tuple[str, set[str]]:
+    """The version and hashes of `pkg` in a hash-pinned lock (the requirements are alphabetical)."""
+    for match in re.finditer(
+        r"^([A-Za-z0-9_.-]+)==(\S+) \\\n((?:[ \t]+--hash=sha256:[0-9a-f]{64}(?: \\)?\n?)+)",
+        text,
+        re.MULTILINE,
+    ):
+        if norm(match[1]) == norm(pkg):
+            return match[2], set(HEX64.findall(match[3]))
+    fail(f"lock has no hash-pinned {pkg}")
+
+
+def sha_from_sumfile(text: str, asset: str) -> str:
+    for line in text.splitlines():
+        parts = line.split()
+        if (
+            len(parts) >= MIN_SUM_FIELDS
+            and parts[-1].lstrip("*").rsplit("/", 1)[-1] == asset
+            and HEX64.fullmatch(parts[0])
+        ):
+            return parts[0]
+    fail(f"{asset} is not listed in the vendor checksum file")
+
+
+def sha_from_yq(text: str, order: str, asset: str) -> str:
+    column = order.split().index("SHA-256")
+    for line in text.splitlines():
+        parts = line.split()
+        if parts and parts[0] == asset:
+            if HEX64.fullmatch(parts[1 + column]):
+                return parts[1 + column]
+            break
+    fail(f"no SHA-256 for {asset} in the vendor checksums")
+
+
+def vendor_sha(pin: Pin) -> str:
+    kind, template = SOURCES[pin.name]
+    directory, asset = pin.url.rsplit("/", 1)
+    source = template.format(url=pin.url, dir=directory, ver=pin.version)
+    if kind == "sumfile":
+        return sha_from_sumfile(fetch(source).decode(), asset)
+    if kind == "hashfile":
+        value = fetch(source).decode().split()[0]
+        if not HEX64.fullmatch(value):
+            fail(f"{source} does not hold a sha256")
+        return value
+    if kind == "yq-columns":
+        return sha_from_yq(
+            fetch(source).decode(), fetch(f"{directory}/checksums_hashes_order").decode(), asset
+        )
+    if kind == "gh-digest":
+        match = re.fullmatch(
+            r"https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+)/(.+)", pin.url
+        )
+        if not match:
+            fail(f"{pin.url} is not a GitHub release asset url")
+        release = json.loads(
+            fetch(f"https://api.github.com/repos/{match[1]}/releases/tags/{match[2]}")
+        )
+        for item in release.get("assets", []):
+            digest = str(item.get("digest") or "")
+            if item.get("name") == match[3] and re.fullmatch(f"sha256:{HEX64.pattern}", digest):
+                return digest.removeprefix("sha256:")
+        fail(f"the release lists no sha256 digest for {match[3]}")
+    if kind == "archive":
+        return hashlib.sha256(fetch(pin.url)).hexdigest()
+    fail(f"{pin.name}: no checksum source of kind {kind}")
+
+
+def lock_path(pin: Pin) -> Path:
+    return Path(os.environ.get("REQS", str(ROOT / "tools/requirements"))) / f"{pin.name}.txt"
+
+
+def problem(pin: Pin) -> str | None:
+    """None when the pin matches its vendor, else what differs. PinError if that cannot be told."""
+    kind = SOURCES[pin.name][0]
+    if kind == "none":
+        return None
+    if kind == "uv":
+        pkg = pin.url.removeprefix("uv:")
+        lock_ver, hashes = parse_lock(lock_path(pin).read_text(), pkg)
+        if lock_ver != pin.version:
+            return f"lock pins {pkg}=={lock_ver}, the pin version is {pin.version}"
+        files = json.loads(fetch(f"https://pypi.org/pypi/{pkg}/{pin.version}/json"))["urls"]
+        published = {f["digests"]["sha256"] for f in files}
+        extra = sorted(hashes - published)
+        return (
+            f"lock has {len(extra)} hash(es) PyPI does not publish for {pkg} {pin.version}"
+            if extra
+            else None
+        )
+    vendor = vendor_sha(pin)
+    return None if vendor == pin.sha256 else f"recorded {pin.sha256}, vendor {vendor}"
+
+
+def config_problem(name: str, version: str) -> str | None:
+    repo, sums, asset, algo = CONFIG_SOURCES[name]
+    fields = {"v": version, "ver": version.removeprefix("v")}
+    base = f"https://github.com/{repo}/releases/download/{version}"
+    text = fetch(f"{base}/{sums.format(**fields)}").decode()
+    if algo == "md5":
+        return (
+            None
+            if re.fullmatch(r"[0-9a-f]{32}", text.strip())
+            else "vendor md5 file does not hold a digest"
+        )
+    sha_from_sumfile(text, asset.format(**fields))
+    return None
+
+
+def regenerate_lock(pin: Pin) -> None:
+    pkg = pin.url.removeprefix("uv:")
+    result = subprocess.run(  # noqa: S603
+        [*UV_COMPILE, "-o", str(lock_path(pin)), "-"],
+        input=f"{pkg}=={pin.version}\n", text=True, check=False,
+    )  # fmt: skip
+    if result.returncode:
+        fail(f"uv pip compile failed for {pin.name}")
+
+
+def changed(
+    base: str, pins: list[Pin], tools: dict[str, str], pins_rel: str, config_rel: str
+) -> tuple[list[Pin], dict[str, str]]:
+    old_pins = {(p.name, p.platform): p for p in parse_pins(git_show(base, pins_rel))}
+    old_tools = parse_config_tools(git_show(base, config_rel))
+    picked = []
+    for pin in pins:
+        lock_changed = SOURCES[pin.name][0] == "uv" and git_show(
+            base, f"tools/requirements/{pin.name}.txt"
+        ) != (lock_path(pin).read_text() if lock_path(pin).exists() else "")
+        if old_pins.get((pin.name, pin.platform)) != pin or lock_changed:
+            picked.append(pin)
+    return picked, {n: v for n, v in tools.items() if old_tools.get(n) != v}
+
+
+def parse_args(argv: list[str]) -> tuple[bool, str, list[str]]:
+    """(check, base, names); ValueError carries the message for a bad command line."""
+    check, base, names = False, "", []
+    args = iter(argv)
+    for arg in args:
+        if arg == "--check":
+            check = True
+        elif arg == "--base":
+            base = next(args, "")
+            if not base:
+                msg = "--base needs a value"
+                raise ValueError(msg)
+        elif arg.startswith("-"):
+            msg = f"unknown option {arg}"
+            raise ValueError(msg)
+        else:
+            names.append(arg)
+    if base and not check:
+        msg = "--base only applies with --check"
+        raise ValueError(msg)
+    return check, base, names
+
+
+def run_pin(pin: Pin, text: str, *, check: bool) -> tuple[bool, str]:
+    """Check or update one pin: (failed, the pins file text with this pin's checksum updated)."""
+    try:
+        found = problem(pin)
+        if not found:
+            out(f"ok {pin.name} {pin.version}")
+        elif check:
+            out(f"DRIFT {pin.name} {pin.version}: {found}")
+            return True, text
+        else:
+            if SOURCES[pin.name][0] == "uv":
+                regenerate_lock(pin)
+            else:
+                new = replace(pin, sha256=vendor_sha(pin))
+                text = text.replace("\t".join(astuple(pin)), "\t".join(astuple(new)))
+            out(f"UPDATED {pin.name} {pin.version}: {found}")
+    except (PinError, OSError, KeyError, ValueError) as exc:
+        out(f"ERROR {pin.name} {pin.version}: {exc}")
+        return True, text
+    return False, text
+
+
+def run_tool(name: str, version: str) -> bool:
+    try:
+        found = config_problem(name, version)
+    except (PinError, ValueError) as exc:
+        out(f"ERROR {name} {version} (config.yaml): {exc}")
+        return True
+    out(f"DRIFT {name} {version}: {found}" if found else f"ok {name} {version} (config.yaml)")
+    return bool(found)
+
+
+def main(argv: list[str]) -> int:
+    try:
+        check, base, names = parse_args(argv)
+    except ValueError as exc:
+        sys.stderr.write(f"pins-refresh: {exc}\n{USAGE}\n")
+        return 2
+    pins_path = Path(os.environ.get("PINS", str(ROOT / "tools/pins.tsv")))
+    config_path = Path(os.environ.get("SECURITY_CONFIG", str(ROOT / "infra/security/config.yaml")))
+    text = pins_path.read_text()
+    pins = parse_pins(text)
+    tools = parse_config_tools(config_path.read_text()) if config_path.is_file() else {}
+    unknown = [p.name for p in pins if p.name not in SOURCES]
+    unknown += [n for n in tools if n not in CONFIG_SOURCES]
+    if unknown:
+        sys.stderr.write(f"pins-refresh: no checksum source for {', '.join(unknown)}\n")
+        return 1
+    if names:
+        pins = [p for p in pins if p.name in names]
+        tools = {n: v for n, v in tools.items() if n in names}
+    if base:
+        pins, tools = changed(
+            base, pins, tools, *(os.path.relpath(p, ROOT) for p in (pins_path, config_path))
+        )
+    failed = False
+    new_text = text
+    for pin in pins:
+        bad, new_text = run_pin(pin, new_text, check=check)
+        failed = failed or bad
+    for name, version in tools.items():
+        failed = run_tool(name, version) or failed
+    if not pins and not tools:
+        out("no pins to check")
+    if new_text != text:
+        pins_path.write_text(new_text)
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
