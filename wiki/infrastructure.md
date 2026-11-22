@@ -163,8 +163,15 @@ helm upgrade "$RELEASE" charts/your-service-name -n "$NS" --reset-then-reuse-val
 helm get manifest "$RELEASE" -n "$NS" | grep -Ex 'kind: (Namespace|Role|RoleBinding)'
 ```
 
+Step 1 deletes the old chart's ResourceQuota and LimitRange: the current chart no longer renders
+them, and they carry no keep annotation. Step 2 recreates them, as the bootstrap's own
+(`bootstrap-quota`, `bootstrap-limits`). Between the two the namespace has neither, for as long as
+step 1's rollout takes. That is acceptable: Pods already running are not affected, the chart sets
+explicit requests and limits on its own containers, and only the admin deploys in that window.
+
 `--reset-then-reuse-values` keeps the release's own values (the image digests the deploy set) on the
-current chart. From then on the deployer's upgrades touch none of these objects.
+current chart. A release whose values set the removed `quota.*` or `limitRange.*` keys fails the
+current schema: remove them from its values first. From then on the deployer's upgrades touch none of these objects.
 `scripts/k8s-env.sh apply` (`make k8s-apply`, `make deploy`), which runs as an admin, does steps 1 to
 3 itself when the release's stored manifest holds a Namespace, Role or RoleBinding, and prints each
 command (a dry run prints the upgrade it would run).

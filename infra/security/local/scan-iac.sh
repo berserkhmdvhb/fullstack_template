@@ -137,13 +137,14 @@ fi
 # Helm-only repo reaches the scan (and is then reported SKIPPED for 0 resources,
 # not silently — see the verdict), since Kubescape owns the chart workload scan.
 has_iac=0
-# Each find stops at its first hit (-print -quit), so its test reads a captured value: a reader that
-# stops early on a pipe could kill a still-writing find with SIGPIPE under pipefail.
+# Each test reads a captured value, never a pipe: a reader that stops early could kill a still-
+# writing find with SIGPIPE under pipefail. The first find stops at its first hit (-print -quit);
+# the fallback greps the files in batches (-exec ... {} +) and its whole output is captured.
 if [[ -n "$(find "$ROOT" -type f \( -name '*.tf' -o -name '*.tf.json' -o -name 'Chart.yaml' \) \
        -not -path '*/node_modules/*' -not -path '*/.git/*' -print -quit 2>/dev/null)" ]]; then
   has_iac=1
 elif [[ -n "$(find "$ROOT" -type f -not -path '*/node_modules/*' -not -path '*/.git/*' \
-       -exec grep -qE '^(kind:|AWSTemplateFormatVersion:|[[:space:]]+Resources:)' {} \; -print -quit 2>/dev/null)" ]]; then
+       -exec grep -lE '^(kind:|AWSTemplateFormatVersion:|[[:space:]]+Resources:)' {} + 2>/dev/null)" ]]; then
   has_iac=1
 fi
 if [[ "$has_iac" -eq 0 ]]; then

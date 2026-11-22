@@ -216,19 +216,25 @@ cmd_apply() {
   # helm.sh/resource-policy: keep, and the normal upgrade below drops them from the release record
   # while leaving them in place. The manifest is captured first (a pipe into grep -q could die of
   # SIGPIPE under pipefail and skip this); a failed lookup is an error, except "not found".
-  local manifest="" rc=0
-  manifest="$(helm get manifest "${HELM_RELEASE}" -n "${NAMESPACE}" 2>&1)" || rc=$?
-  if [ "${rc}" -ne 0 ]; then
-    grep -q "release: not found" <<<"${manifest}" \
-      || die "could not read release ${HELM_RELEASE} in ${NAMESPACE}: ${manifest}"
-    manifest=""
-  fi
-  if grep -Eqx 'kind: (Namespace|Role|RoleBinding)' <<<"${manifest}"; then
-    local -a keep=("${helm[@]}" --set namespaces.create=true --set rbac.create=true)
-    log_warn "release ${HELM_RELEASE} still owns its Namespace, Role or RoleBinding objects: one upgrade with namespaces.create=true and rbac.create=true first, so they are kept when the chart stops rendering them"
-    [ "${DRY_RUN}" != "true" ] || log_info "dry run: this is the upgrade that would run first"
+  local -a keep=("${helm[@]}" --set namespaces.create=true --set rbac.create=true)
+  if [ "${DRY_RUN}" = "true" ]; then
+    # A dry run needs no cluster, so it doesn't look the release up: it shows the keep-upgrade too.
+    log_info "dry run: this upgrade would run if the release holds Namespace objects (or the app's Role or RoleBinding), before the others"
     log_step "helm ${keep[*]}"
     run helm "${keep[@]}"
+  else
+    local manifest="" rc=0
+    manifest="$(helm get manifest "${HELM_RELEASE}" -n "${NAMESPACE}" 2>&1)" || rc=$?
+    if [ "${rc}" -ne 0 ]; then
+      grep -q "release: not found" <<<"${manifest}" \
+        || die "could not read release ${HELM_RELEASE} in ${NAMESPACE}: ${manifest}"
+      manifest=""
+    fi
+    if grep -Eqx 'kind: (Namespace|Role|RoleBinding)' <<<"${manifest}"; then
+      log_warn "release ${HELM_RELEASE} still owns its Namespace, Role or RoleBinding objects: one upgrade with namespaces.create=true and rbac.create=true first, so they are kept when the chart stops rendering them"
+      log_step "helm ${keep[*]}"
+      run helm "${keep[@]}"
+    fi
   fi
 
   # The chart creates no namespace (namespaces.create=false). The namespaces, with the

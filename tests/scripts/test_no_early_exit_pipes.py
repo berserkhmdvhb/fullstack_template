@@ -86,3 +86,14 @@ def test_the_pattern_catches_the_shapes() -> None:
     ):
         assert EARLY.search(line), line
     assert not EARLY.search('grep -q x <<<"$out"')
+
+
+def test_the_scanners_fallback_greps_files_in_batches() -> None:
+    for name in ("infra/security/local/scan-iac.sh", "infra/security/local/scan-k8s.sh"):
+        text = (ROOT / name).read_text("utf-8").replace("\\\n", " ")
+        greps = [
+            ln for ln in text.splitlines() if "-exec grep" in ln and not ln.lstrip().startswith("#")
+        ]
+        assert greps, name
+        for line in greps:
+            assert "{} +" in line, (name, line)

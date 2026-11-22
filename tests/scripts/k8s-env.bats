@@ -141,3 +141,13 @@ STUB
     [[ "$output" == *"still owns"* ]]
   done
 }
+
+@test "a dry run needs no cluster: it skips the release lookup and prints the commands" {
+  STUB_GET_FAIL=1 run bash "$SCRIPT" apply --env dev --release svc --dry-run --no-wait
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"would run if the release holds Namespace objects"* ]]
+  [[ "$output" == *"⇢ helm upgrade --install svc"*"--set namespaces.create=true --set rbac.create=true"* ]]
+  [[ "$output" == *"k8s-bootstrap.sh dev --release svc"*"| kubectl apply -f -"* ]]
+  run grep -q "get manifest" "$LOG"
+  [ "$status" -ne 0 ]
+}

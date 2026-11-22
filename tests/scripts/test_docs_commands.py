@@ -50,3 +50,11 @@ def test_no_doc_says_the_chart_creates_the_namespaces() -> None:
     pattern = re.compile(r"[Tt]he chart creates (them|both|\*\*both\*\*)")
     offenders = [str(p.relative_to(ROOT)) for p in _docs() if pattern.search(p.read_text("utf-8"))]
     assert offenders == []
+
+
+def test_the_migration_says_the_old_quota_is_recreated_by_the_bootstrap() -> None:
+    text = (ROOT / "wiki" / "infrastructure.md").read_text("utf-8")
+    section = text[text.index("**An existing release from an older chart**") :]
+    section = " ".join(section[: section.index("\n---")].split())
+    assert "deletes the old chart's ResourceQuota and LimitRange" in section
+    assert "recreates them" in section
