@@ -446,6 +446,7 @@
           "items": { "type": "object", "minProperties": 1 }
         },
         "upstreamIdleTimeoutSeconds": { "type": "integer", "minimum": 1 },
+        "concurrency": { "type": "integer", "minimum": 1 },
         "resources": { "$ref": "#/definitions/resources" }
       }
     },

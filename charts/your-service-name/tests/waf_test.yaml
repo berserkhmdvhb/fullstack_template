@@ -290,3 +290,16 @@ tests:
       waf: {timeouts: {requestSeconds: 60}}
     asserts:
       - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'request_timeout: 60s\s'}
+  - it: Envoy runs waf.concurrency worker threads, not one per node CPU (each loads the Wasm and CRS)
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].args[3]', value: --concurrency}
+      - equal: {path: 'spec.template.spec.containers[0].args[4]', value: "2"}
+  - it: the worker count comes from values
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      waf: {concurrency: 4}
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].args[4]', value: "4"}

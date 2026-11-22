@@ -245,6 +245,10 @@ spec:
                                     address: {{ $upstreamHost }}
                                     port_value: {{ $upstreamPort }}
             - --disable-hot-restart
+            # Worker threads: Envoy's default is one per CPU of the node, each with its own Wasm VM and
+            # CRS, which outgrows the memory limit on a large node (waf.concurrency).
+            - --concurrency
+            - {{ .Values.waf.concurrency | quote }}
       volumes:
         - name: tmp
           emptyDir:
