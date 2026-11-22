@@ -21,13 +21,13 @@ Local development workflow, Makefile commands, code quality tools, Kubernetes de
 
 ### Recommended Setup
 
-1. **Backend terminal**: Run the backend (`./run_backend.sh`; restart it to pick up a change)
+1. **Backend terminal**: Run the backend in watch/reload mode (`./run_backend.sh`)
 2. **Frontend terminal**: Run Next.js dev server
 3. **Kubernetes terminal** (optional): Local cluster for integration testing
 
 ### Hot Reload
 
-- **Backend**: `./run_backend.sh` runs the same launcher as the image (`python -m your_service_name.backend.serve`), which has no auto-reload: stop it and run it again after a code change (the metrics server runs in that process, so a reloading child would serve an empty registry)
+- **Backend**: `./run_backend.sh` runs the same launcher as the image (`python -m your_service_name.backend.serve`) with `BACKEND_RELOAD=true` (its default there), so Uvicorn restarts the app when its code changes; the reload child starts the metrics server too. `BACKEND_RELOAD=false` turns it off. The launcher refuses reload when `ENV` is production
 - **Frontend**: `npm run dev` includes hot module replacement (HMR) by default
 
 ---
@@ -259,7 +259,7 @@ kubectl -n your-service-name-local port-forward svc/your-service-name-backend 80
 # Enable debug logging
 DEBUG=TRUE LOG_LEVEL=DEBUG python -m your_service_name.backend.main
 
-# Migrate, then serve (the image launcher; restart on a change)
+# Migrate, then serve with auto-reload (the image launcher, BACKEND_RELOAD=true)
 ./run_backend.sh
 
 # Check database connectivity

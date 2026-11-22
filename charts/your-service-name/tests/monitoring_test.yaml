@@ -7,6 +7,8 @@ templates:
   - prometheusrule.yaml
   - podmonitoring.yaml
   - gmp-rules.yaml
+  - gmp-cluster-rules.yaml
+  - validate-values.yaml
   - services.yaml
   - backend-deployment.yaml
   - configmap.yaml
@@ -156,22 +158,6 @@ tests:
               - ipBlock: {cidr: 10.20.0.0/24}
             ports: [{protocol: TCP, port: 9102}]
 
-  - it: monitoringExtraPeers never appear in a rule on the API port
-    set:
-      networkPolicy:
-        monitoringExtraPeers:
-          - ipBlock: {cidr: 10.20.0.0/24}
-    template: network-policy.yaml
-    asserts:
-      - notContains:
-          path: spec.ingress[0].from
-          content: {ipBlock: {cidr: 10.20.0.0/24}}
-        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
-      - notContains:
-          path: spec.ingress[1].from
-          content: {ipBlock: {cidr: 10.20.0.0/24}}
-        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
-
   - it: monitoringExtraPeers still render when the collector selector is null, on the metrics port
     set:
       networkPolicy:
@@ -197,3 +183,93 @@ tests:
     documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
     asserts:
       - lengthEqual: {path: spec.ingress, count: 2}
+
+  - it: gmp Rules hold the app groups only (the backend's own metrics in the app namespace)
+    set: {monitoring: {flavour: gmp, prometheusRule: true}}
+    template: gmp-rules.yaml
+    asserts:
+      - lengthEqual: {path: spec.groups, count: 1}
+      - equal: {path: 'spec.groups[0].name', value: app-health}
+      - matchRegex: {path: 'spec.groups[0].rules[0].expr', pattern: 'http_requests_total'}
+      - notMatchRegex: {path: 'spec.groups[0].rules[0].expr', pattern: 'kube_'}
+
+  - it: ClusterRules are off by default, even with the gmp flavour
+    set: {monitoring: {flavour: gmp, prometheusRule: true}}
+    template: gmp-cluster-rules.yaml
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: ClusterRules render with gmp and the switch, cluster-scoped, with the kube groups
+    set: {monitoring: {flavour: gmp, gmp: {clusterRules: {enabled: true}}}}
+    template: gmp-cluster-rules.yaml
+    asserts:
+      - isKind: {of: ClusterRules}
+      - equal: {path: apiVersion, value: monitoring.googleapis.com/v1}
+      - notExists: {path: metadata.namespace}
+      - lengthEqual: {path: spec.groups, count: 4}
+      - equal: {path: 'spec.groups[0].name', value: pod-health}
+      - equal: {path: 'spec.groups[1].name', value: resource-usage}
+      - equal: {path: 'spec.groups[2].name', value: service-health}
+      - equal: {path: 'spec.groups[3].name', value: database-health}
+      - matchRegex: {path: 'spec.groups[0].rules[0].expr', pattern: 'kube_pod_container_status_restarts_total\{exported_namespace="app"'}
+
+  - it: the object namespace label is configurable and used in every kube_ selector
+    set:
+      monitoring:
+        flavour: gmp
+        gmp: {clusterRules: {enabled: true}, objectNamespaceLabel: kube_namespace}
+    template: gmp-cluster-rules.yaml
+    asserts:
+      - matchRegex: {path: 'spec.groups[0].rules[0].expr', pattern: 'kube_namespace="app"'}
+      - matchRegex: {path: 'spec.groups[1].rules[0].expr', pattern: 'kube_pod_container_resource_limits\{kube_namespace="app"'}
+      - matchRegex: {path: 'spec.groups[3].rules[1].expr', pattern: 'kube_job_failed\{kube_namespace="app-db"'}
+      - notMatchRegex: {path: 'spec.groups[0].rules[0].expr', pattern: 'exported_namespace'}
+
+  - it: ClusterRules never render for the operator flavour
+    set: {monitoring: {gmp: {clusterRules: {enabled: true}}}}
+    template: gmp-cluster-rules.yaml
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: the operator PrometheusRule keeps the namespace label and holds every group
+    set: {monitoring: {prometheusRule: true}}
+    template: prometheusrule.yaml
+    asserts:
+      - lengthEqual: {path: spec.groups, count: 5}
+      - equal: {path: 'spec.groups[0].name', value: pod-health}
+      - equal: {path: 'spec.groups[1].name', value: resource-usage}
+      - equal: {path: 'spec.groups[2].name', value: service-health}
+      - equal: {path: 'spec.groups[3].name', value: database-health}
+      - equal: {path: 'spec.groups[4].name', value: app-health}
+      - matchRegex: {path: 'spec.groups[0].rules[0].expr', pattern: 'kube_pod_container_status_restarts_total\{namespace="app"'}
+      - notMatchRegex: {path: 'spec.groups[0].rules[0].expr', pattern: 'exported_namespace'}
+
+  - it: the schema refuses an unknown gmp key
+    set: {monitoring: {gmp: {clusterRule: {enabled: true}}}}
+    template: gmp-cluster-rules.yaml
+    asserts:
+      - failedTemplate: {}
+
+  - it: the render refuses a metrics port that is the API port
+    set: {config: {METRICS_PORT: "8000"}}
+    template: validate-values.yaml
+    asserts:
+      - failedTemplate: {errorPattern: METRICS_PORT}
+
+  - it: the render refuses a metrics port that is the Cloud SQL proxy health port when the proxy is on
+    set:
+      config: {METRICS_PORT: "9090"}
+      postgresql: {enabled: false}
+      cloudSqlProxy:
+        enabled: true
+        instanceConnectionName: proj:region:inst
+        egressCIDRs: [199.36.153.8/30]
+    template: validate-values.yaml
+    asserts:
+      - failedTemplate: {errorPattern: METRICS_PORT}
+
+  - it: the proxy health port is no clash when the proxy is off
+    set: {config: {METRICS_PORT: "9090"}}
+    template: validate-values.yaml
+    asserts:
+      - notFailedTemplate: {}

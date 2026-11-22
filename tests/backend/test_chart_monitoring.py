@@ -5,6 +5,7 @@ Offline: the chart is rendered with helm and the objects are checked."""
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 import pytest
@@ -40,14 +41,90 @@ def _flavour(helm: str, values: str, flavour: str, *args: str) -> list[dict[str,
     return render(helm, values, "--set", f"monitoring.flavour={flavour}", *ON, *args)
 
 
+CLUSTER_ON = ("--set", "monitoring.gmp.clusterRules.enabled=true")
+
+
+def _kube_exprs(groups: list[dict[str, Any]]) -> list[str]:
+    return [r["expr"] for g in groups for r in g["rules"] if "kube_" in r["expr"]]
+
+
 @pytest.mark.parametrize("values", VALUES_FILES)
-def test_the_rule_groups_are_identical_across_the_flavours(helm: str, values: str) -> None:
+def test_the_rule_groups_are_one_source_split_across_the_gmp_objects(
+    helm: str, values: str
+) -> None:
+    """Both flavours take the same groups: gmp splits them into app (Rules) and cluster."""
     operator = _by_kind(_flavour(helm, values, "prometheus-operator"), "PrometheusRule")
-    gmp = _by_kind(_flavour(helm, values, "gmp"), "Rules")
-    assert len(operator) == len(gmp) == 1
+    gmp_docs = _flavour(helm, values, "gmp", *CLUSTER_ON)
+    rules = _by_kind(gmp_docs, "Rules")
+    cluster = _by_kind(gmp_docs, "ClusterRules")
+    assert len(operator) == len(rules) == len(cluster) == 1
     groups = operator[0]["spec"]["groups"]
     assert groups
-    assert groups == gmp[0]["spec"]["groups"]
+    app_groups, cluster_groups = rules[0]["spec"]["groups"], cluster[0]["spec"]["groups"]
+    assert not _kube_exprs(app_groups), "the namespaced Rules must hold no kube_* rule"
+    assert [g["name"] for g in app_groups] == ["app-health"]
+    # The operator's groups are the same two sets (its selectors say `namespace`, gmp's the label).
+    assert [g["name"] for g in groups] == [g["name"] for g in [*cluster_groups, *app_groups]]
+    assert app_groups == groups[-1:]
+
+
+@pytest.mark.parametrize("label", ["exported_namespace", "kube_namespace"])
+def test_every_kube_selector_of_the_gmp_cluster_rules_uses_the_object_namespace_label(
+    helm: str, label: str
+) -> None:
+    docs = _flavour(
+        helm,
+        "values.yaml",
+        "gmp",
+        *CLUSTER_ON,
+        "--set",
+        f"monitoring.gmp.objectNamespaceLabel={label}",
+    )
+    exprs = _kube_exprs(_by_kind(docs, "ClusterRules")[0]["spec"]["groups"])
+    assert exprs
+    for expr in exprs:
+        for selector in re.findall(r"kube_\w+\{([^}]*)\}", expr):
+            assert f'{label}="' in selector, expr
+            assert "namespace=" not in selector.replace(f"{label}=", ""), expr
+
+
+def test_the_operator_flavour_keeps_the_namespace_label(helm: str) -> None:
+    docs = _flavour(helm, "values.yaml", "prometheus-operator")
+    for expr in _kube_exprs(_by_kind(docs, "PrometheusRule")[0]["spec"]["groups"]):
+        assert "exported_namespace" not in expr
+        if "kube_job_failed" not in expr:  # selected by job name alone, as before
+            assert 'namespace="' in expr
+
+
+@pytest.mark.parametrize("flavour", FLAVOURS)
+def test_the_deploy_never_renders_cluster_scoped_rules(helm: str, flavour: str) -> None:
+    """The deployer has no cluster rights: ClusterRules only come from the admin bootstrap."""
+    for values in VALUES_FILES:
+        docs = render(helm, values, "--set", f"monitoring.flavour={flavour}", *ALL_ON)
+        assert not _by_kind(docs, "ClusterRules"), values
+
+
+def test_every_ingress_rule_that_names_an_extra_peer_admits_the_metrics_port_only(
+    helm: str,
+) -> None:
+    """Whatever the layout (WAF, extra API peers, gmp): the extra scrape peers reach one port."""
+    extra = "10.20.0.0/24"
+    for waf in ("false", "true"):
+        docs = render(
+            helm,
+            "values.production.yaml",
+            "--set", f"waf.enabled={waf}",
+            "--set", "monitoring.flavour=gmp",
+            "--set", f"networkPolicy.monitoringExtraPeers[0].ipBlock.cidr={extra}",
+            "--set", "networkPolicy.backendExtraIngressPeers[0].ipBlock.cidr=10.30.0.0/24",
+        )  # fmt: skip
+        found = 0
+        for policy in _by_kind(docs, "NetworkPolicy"):
+            for rule in policy["spec"].get("ingress") or []:
+                if {"ipBlock": {"cidr": extra}} in rule["from"]:
+                    found += 1
+                    assert rule["ports"] == [{"protocol": "TCP", "port": 9102}], policy
+        assert found == 1
 
 
 @pytest.mark.parametrize("flavour", FLAVOURS)

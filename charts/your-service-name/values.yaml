@@ -587,6 +587,19 @@ monitoring:
   # `prometheusRule` switch on the monitor and the rules of the chosen flavour; the rule groups are
   # the same for both. The flavour also sets the default scrape peers (networkPolicy).
   flavour: prometheus-operator
+  # Google Managed Prometheus only. A namespaced Rules object evaluates only series from its own
+  # namespace, so `Rules` holds the backend's own alerts and the kube-state-metrics and cAdvisor
+  # alerts go in a cluster-scoped ClusterRules, which the deployer cannot apply. Like rbac.create,
+  # this is off for the deploy: the admin bootstrap renders it (scripts/k8s-bootstrap.sh, with
+  # gmpClusterRules: true in its values) and applies it once.
+  gmp:
+    clusterRules:
+      enabled: false
+    # The label that holds the OBJECT's namespace on kube-state-metrics series (the `namespace`
+    # label is the scraped Pod's own namespace there). A third-party report says GMP relabels it to
+    # exported_namespace: verify that against your GMP (query kube_pod_status_phase and read its
+    # labels) and set this if it differs. The prometheus-operator flavour always uses `namespace`.
+    objectNamespaceLabel: exported_namespace
   # The prometheus.io/scrape annotations on the backend Service (annotation-based discovery).
   scrapeAnnotations: true
   serviceMonitor: false

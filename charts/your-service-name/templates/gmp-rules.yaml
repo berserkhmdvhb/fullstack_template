@@ -1,7 +1,8 @@
 {{/*
-   Rules: the alert rules for Google Managed Prometheus (monitoring.flavour gmp), the same groups
-   as the PrometheusRule (chart.alertGroups). Pluggable (off by default); requires the managed
-   collection's CRDs (monitoring.googleapis.com/v1). Namespaced: it applies to this namespace.
+   Rules: the app alert rules for Google Managed Prometheus (monitoring.flavour gmp): the backend's
+   own metrics (chart.alertGroupsApp). A namespaced Rules object evaluates only series of its own
+   namespace, so the kube_* and cAdvisor groups are in the ClusterRules (gmp-cluster-rules.yaml).
+   Pluggable (off by default); requires the managed collection's CRDs (monitoring.googleapis.com/v1).
 */}}
 {{- if and .Values.monitoring.prometheusRule (eq .Values.monitoring.flavour "gmp") }}
 apiVersion: monitoring.googleapis.com/v1
@@ -13,5 +14,5 @@ metadata:
 {{- include "chart.labels" . | nindent 4 }}
 spec:
   groups:
-{{- include "chart.alertGroups" . | nindent 4 }}
+{{- include "chart.alertGroupsApp" . | nindent 4 }}
 {{- end }}

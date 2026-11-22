@@ -13,7 +13,8 @@
 #     restricted Pod Security profile;
 #   - the app namespace's ResourceQuota and LimitRange;
 #   - per namespace, the deployer's Role and RoleBinding (least privilege, namespace-scoped, no RBAC);
-#   - the app's own Role and RoleBinding, rendered from the chart's templates/rbac.yaml (one source).
+#   - the app's own Role and RoleBinding, rendered from the chart's templates/rbac.yaml (one source);
+#   - with gmpClusterRules: true, the chart's ClusterRules (Google Managed Prometheus; cluster-scoped).
 # The app chart then runs with namespaces.create=false and rbac.create=false (its defaults).
 # See wiki/infrastructure.md.
 #
@@ -81,4 +82,13 @@ done
 boot="$(helm template bootstrap "$DIR" -f "$DIR/values.${ENV_NAME}.yaml" "${args[@]}" \
   --set-string "release=$release" --set-string "namespace=$namespace")"
 app_rbac="$(helm template "$release" "$CHART" "${chart_args[@]}" --show-only templates/rbac.yaml)"
+# gmpClusterRules: the chart's cluster-scoped ClusterRules (Google Managed Prometheus), which the
+# deployer cannot apply. Same pattern as the app's Role: rendered from the chart, applied here.
+cluster_rules=""
+if [[ "$(conf gmpClusterRules)" == "true" ]]; then
+  cluster_rules="$(helm template "$release" "$CHART" "${chart_args[@]}" \
+    --set monitoring.flavour=gmp --set monitoring.gmp.clusterRules.enabled=true \
+    --show-only templates/gmp-cluster-rules.yaml)"
+fi
 printf '%s\n%s\n' "$boot" "$app_rbac"
+[[ -z "$cluster_rules" ]] || printf '%s\n' "$cluster_rules"

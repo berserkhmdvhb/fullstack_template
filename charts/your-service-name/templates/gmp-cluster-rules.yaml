@@ -1,0 +1,21 @@
+{{/*
+   ClusterRules: the kube-state-metrics and cAdvisor alert groups (chart.alertGroupsCluster) for
+   Google Managed Prometheus. ClusterRules is cluster-scoped and not limited to one namespace, which
+   those series need; the namespaced Rules (gmp-rules.yaml) cannot see them. The deployer has no
+   cluster rights, so the deploy never renders this (monitoring.gmp.clusterRules.enabled is false):
+   the admin bootstrap (scripts/k8s-bootstrap.sh, gmpClusterRules) renders it with --show-only and
+   applies it, like the app's Role. resource-policy keep: a later helm upgrade must not delete it.
+*/}}
+{{- if and (eq .Values.monitoring.flavour "gmp") .Values.monitoring.gmp.clusterRules.enabled }}
+apiVersion: monitoring.googleapis.com/v1
+kind: ClusterRules
+metadata:
+  name: {{ include "chart.fullname" . }}-{{ .Release.Namespace }}-alerts
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+spec:
+  groups:
+{{- include "chart.alertGroupsCluster" . | nindent 4 }}
+{{- end }}

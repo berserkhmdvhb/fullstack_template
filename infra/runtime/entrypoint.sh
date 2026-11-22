@@ -53,6 +53,7 @@ BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
 BACKEND_BIND="${BACKEND_BIND:-${BACKEND_HOST}}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 BACKEND_GRACEFUL_TIMEOUT="${BACKEND_GRACEFUL_TIMEOUT:-30}"
+BACKEND_RELOAD="${BACKEND_RELOAD:-false}"
 
 FRONTEND_IMPL="${FRONTEND_IMPL:-react}"   # frontend implementation (react)
 FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
@@ -90,6 +91,7 @@ Environment (overridable via .env or -e):
   BACKEND_HOST         127.0.0.1
   BACKEND_PORT         8000
   BACKEND_GRACEFUL_TIMEOUT   30
+  BACKEND_RELOAD             false (hot reload: a developer option, refused when ENV is production)
   METRICS_PORT               9102 (the Prometheus metrics server)
 
   # Frontend
@@ -306,7 +308,7 @@ start_backend() {
   echo "🚀 Starting backend ..."
   # The one launcher (the image runs it too): Uvicorn with the same fixed options, the graceful
   # timeout and the metrics server. It reads these from the environment.
-  export BACKEND_ENTRY BACKEND_BIND BACKEND_PORT BACKEND_GRACEFUL_TIMEOUT
+  export BACKEND_ENTRY BACKEND_BIND BACKEND_PORT BACKEND_GRACEFUL_TIMEOUT BACKEND_RELOAD
   python -m your_service_name.backend.serve &
   pids+=("$!")
 }

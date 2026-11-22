@@ -51,6 +51,11 @@ rules:
   - apiGroups: [monitoring.coreos.com]
     resources: [servicemonitors, prometheusrules]
     verbs: {{ toJson $helm }}
+  # monitoring.flavour gmp (Google Managed Prometheus): the namespaced kinds. ClusterRules is
+  # cluster-scoped and comes from this bootstrap (gmpClusterRules), never the deploy.
+  - apiGroups: [monitoring.googleapis.com]
+    resources: [podmonitorings, rules]
+    verbs: {{ toJson $helm }}
   # secrets.externalSecret.enabled: the ExternalSecret that syncs the app Secret (External Secrets
   # Operator; the operator itself and its store are the platform's).
   - apiGroups: [external-secrets.io]

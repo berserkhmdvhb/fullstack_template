@@ -16,6 +16,12 @@ namespace: ""
 dbSuffix: db
 # The Kubernetes version of the Pod Security rules the namespaces enforce (restricted).
 podSecurityVersion: v1.30
+# monitoring.flavour gmp (Google Managed Prometheus) only: also render the chart's cluster-scoped
+# ClusterRules (the kube-state-metrics and cAdvisor alerts). A namespaced Rules object cannot see
+# those series, and the deployer has no cluster rights, so the admin applies this once. Set it with
+# the chart's monitoring.flavour: gmp in the chart's values.<env>.yaml (the selectors there, such as
+# monitoring.gmp.objectNamespaceLabel, are read from the same file).
+gmpClusterRules: false
 database:
   # true: the chart's in-cluster PostgreSQL is used, so the database namespace is created too.
   inCluster: true

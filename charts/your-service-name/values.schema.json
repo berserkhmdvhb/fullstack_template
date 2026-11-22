@@ -367,11 +367,11 @@
           }
         },
         "monitoringNamespaceSelector": {
-          "description": "matchLabels of the namespace allowed to scrape the backend's /metrics; empty means the monitoring namespace, null disables the rule.",
+          "description": "matchLabels of the namespace allowed to scrape the backend's metrics port; empty follows monitoring.flavour (the monitoring namespace, or gmp-system for gmp), null drops the collector peer.",
           "oneOf": [ { "$ref": "#/definitions/labels" }, { "type": "null" } ]
         },
         "monitoringPodSelector": {
-          "description": "matchLabels of the scraping Pods; empty means app.kubernetes.io/name: prometheus.",
+          "description": "matchLabels of the scraping Pods; empty follows monitoring.flavour (app.kubernetes.io/name: prometheus, or app.kubernetes.io/name: collector for gmp).",
           "$ref": "#/definitions/labels"
         },
         "migrationExtraEgress": {
@@ -531,6 +531,18 @@
       "additionalProperties": false,
       "properties": {
         "flavour": { "type": "string", "enum": ["prometheus-operator", "gmp"] },
+        "gmp": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "clusterRules": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "enabled": { "type": "boolean" } }
+            },
+            "objectNamespaceLabel": { "type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$" }
+          }
+        },
         "scrapeAnnotations": { "type": "boolean" },
         "serviceMonitor":  { "type": "boolean" },
         "prometheusRule":  { "type": "boolean" },

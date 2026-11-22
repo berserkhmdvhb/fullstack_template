@@ -53,6 +53,8 @@ KIND_TO_RESOURCE = {
     "HealthCheckPolicy": ("networking.gke.io", "healthcheckpolicies"),
     "GCPBackendPolicy": ("networking.gke.io", "gcpbackendpolicies"),
     "ServiceMonitor": ("monitoring.coreos.com", "servicemonitors"),
+    "PodMonitoring": ("monitoring.googleapis.com", "podmonitorings"),
+    "Rules": ("monitoring.googleapis.com", "rules"),
     "PrometheusRule": ("monitoring.coreos.com", "prometheusrules"),
     "ExternalSecret": ("external-secrets.io", "externalsecrets"),
     "Role": ("rbac.authorization.k8s.io", "roles"),
@@ -287,6 +289,8 @@ def chart_resources(helm: str, release: str, ns: str) -> dict[str, set[tuple[str
         for args in (
             (),
             ALL_ON,
+            # Google Managed Prometheus: a PodMonitoring and a namespaced Rules object.
+            (*ALL_ON, "--set", "monitoring.flavour=gmp"),
             (
                 *ALL_ON,
                 "--set",
@@ -317,6 +321,8 @@ def test_the_deployer_role_covers_exactly_what_the_chart_renders(helm: str, rele
         "Ingress",
         "HealthCheckPolicy",
         "ServiceMonitor",
+        "PodMonitoring",
+        "Rules",
         "StatefulSet",
         "CronJob",
     } <= {k for k, v in KIND_TO_RESOURCE.items() if v in derived["app"] | derived["db"]}
@@ -576,3 +582,37 @@ def test_the_app_rolebinding_names_the_configured_service_account(
         binding["subjects"] == next(d for d in rendered if d["kind"] == "RoleBinding")["subjects"]
     )
     assert yaml.safe_load((BOOTSTRAP / "values.yaml").read_text())["serviceAccountName"] == ""
+
+
+# ---- GMP ClusterRules: cluster-scoped, so the admin applies them -------------------------------
+
+
+def test_the_bootstrap_renders_no_clusterrules_by_default(helm: str) -> None:
+    assert not [d for d in bootstrap(helm, "dev") if d["kind"] == "ClusterRules"]
+    assert "gmpClusterRules: false" in (BOOTSTRAP / "values.yaml").read_text(encoding="utf-8")
+
+
+def test_the_bootstrap_renders_the_charts_clusterrules_when_asked(
+    helm: str, tmp_path: Path
+) -> None:
+    extra = tmp_path / "gmp.yaml"
+    extra.write_text("gmpClusterRules: true\n", encoding="utf-8")
+    docs = bootstrap(helm, "dev", "--values", str(extra))
+    rules = [d for d in docs if d["kind"] == "ClusterRules"]
+    assert len(rules) == 1
+    assert rules[0]["apiVersion"] == "monitoring.googleapis.com/v1"
+    assert "namespace" not in rules[0]["metadata"]
+    names = [g["name"] for g in rules[0]["spec"]["groups"]]
+    assert names == ["pod-health", "resource-usage", "service-health", "database-health"]
+    exprs = [
+        r["expr"] for g in rules[0]["spec"]["groups"] for r in g["rules"] if "kube_" in r["expr"]
+    ]
+    assert exprs
+    assert all("exported_namespace=" in e for e in exprs if "kube_job_failed" not in e)
+    # The namespace the selectors name is the app's, as the bootstrap derived it.
+    assert 'exported_namespace="your-service-name-dev"' in exprs[0]
+
+
+def test_the_deployer_role_has_no_cluster_scoped_rights(helm: str) -> None:
+    for d in bootstrap(helm, "dev"):
+        assert d["kind"] != "ClusterRole"

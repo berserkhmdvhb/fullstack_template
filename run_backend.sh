@@ -8,7 +8,7 @@
 # - Loads .env if present
 # - Runs the database migrations before serving (the app never migrates itself)
 # - Developer launcher: the same launcher as the image, `python -m your_service_name.backend.serve`
-#   (one process, no auto-reload: restart to pick up a change; serves the metrics on METRICS_PORT)
+#   (Uvicorn with hot reload by default, BACKEND_RELOAD=false to turn it off; serves the metrics on METRICS_PORT)
 # ---------------------------------------------
 # Env (via .env or defaults):
 #   APP="your_service_name.backend.main:app"
@@ -66,11 +66,14 @@ echo "▶️  Starting backend (the serve module) at http://localhost:${BACKEND_
 echo "🔗 API base : http://localhost:${BACKEND_PORT}/api/${API_VERSION}"
 echo "🔗 Docs     : http://localhost:${BACKEND_PORT}/docs"
 echo "🔗 Health   : http://localhost:${BACKEND_PORT}/api/${API_VERSION}/health"
-echo "Press Ctrl+C to stop the server (no auto-reload: restart to pick up a change)"
+echo "Press Ctrl+C to stop the server (hot reload: ${BACKEND_RELOAD:-true})"
 
 # The same launcher as the image (python -m your_service_name.backend.serve): the fixed Uvicorn
 # options, the graceful timeout and the Prometheus metrics server (METRICS_PORT). It reads its
 # settings from the environment.
-export BACKEND_ENTRY BACKEND_PORT
+# Hot reload is on by default here (a developer option of the serve module; BACKEND_RELOAD=false
+# turns it off; the module refuses it when ENV is production).
+BACKEND_RELOAD="${BACKEND_RELOAD:-true}"
+export BACKEND_ENTRY BACKEND_PORT BACKEND_RELOAD
 export BACKEND_BIND="${BACKEND_BIND:-${BACKEND_HOST}}"
 exec python -m your_service_name.backend.serve

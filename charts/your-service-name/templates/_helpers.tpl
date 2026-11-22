@@ -512,18 +512,24 @@ key: password
 {{- end -}}
 
 {{/*
-   The alert rule groups: ONE definition, embedded by both flavours (prometheusrule.yaml for the
-   Prometheus Operator, gmp-rules.yaml for Google Managed Prometheus), so the two cannot drift.
+   The alert rule groups: ONE definition, in two sets, embedded by both flavours so they cannot
+   drift. chart.alertGroupsApp (the backend's own metrics, in the app namespace) and
+   chart.alertGroupsCluster (kube-state-metrics and cAdvisor series). The Prometheus Operator's
+   PrometheusRule holds both. For Google Managed Prometheus the namespaced Rules object evaluates
+   only series of its own namespace, so Rules holds the app set and a ClusterRules object
+   (gmp-cluster-rules.yaml, applied by the admin bootstrap) holds the cluster set. In the gmp
+   flavour the kube_* selectors use monitoring.gmp.objectNamespaceLabel for the object's namespace.
    Prometheus template expressions in annotations are escaped ({{ "{{" }} ... {{ "}}" }}) so Helm
    leaves them for the rule engine to render. The kube_* and container_* series need
    kube-state-metrics and cAdvisor in the metrics backend (see the monitoring docs).
 */}}
-{{- define "chart.alertGroups" -}}
+{{- define "chart.alertGroupsCluster" -}}
+{{- $kns := ternary .Values.monitoring.gmp.objectNamespaceLabel "namespace" (eq .Values.monitoring.flavour "gmp") }}
 - name: pod-health
   rules:
     - alert: PodRestartingFrequently
       expr: |
-        increase(kube_pod_container_status_restarts_total{namespace="{{ .Release.Namespace }}"}[1h]) > 3
+        increase(kube_pod_container_status_restarts_total{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}"}[1h]) > 3
       for: 15m
       labels:
         severity: warning
@@ -532,7 +538,7 @@ key: password
         description: "Pod {{ "{{" }} $labels.pod {{ "}}" }} has restarted {{ "{{" }} $value {{ "}}" }} times in the last hour."
     - alert: PodPendingTooLong
       expr: |
-        kube_pod_status_phase{namespace="{{ .Release.Namespace }}", phase="Pending"} == 1
+        kube_pod_status_phase{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}", phase="Pending"} == 1
       for: 10m
       labels:
         severity: warning
@@ -541,7 +547,7 @@ key: password
         description: "Pod {{ "{{" }} $labels.pod {{ "}}" }} has been in Pending state for over 10 minutes."
     - alert: PodFailed
       expr: |
-        kube_pod_status_phase{namespace="{{ .Release.Namespace }}", phase="Failed"} == 1
+        kube_pod_status_phase{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}", phase="Failed"} == 1
       for: 5m
       labels:
         severity: critical
@@ -554,7 +560,7 @@ key: password
       expr: |
         sum(rate(container_cpu_usage_seconds_total{namespace="{{ .Release.Namespace }}"}[5m])) by (pod)
         /
-        sum(kube_pod_container_resource_limits{namespace="{{ .Release.Namespace }}", resource="cpu"}) by (pod)
+        sum(kube_pod_container_resource_limits{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}", resource="cpu"}) by (pod)
         > 0.85
       for: 15m
       labels:
@@ -566,7 +572,7 @@ key: password
       expr: |
         sum(container_memory_working_set_bytes{namespace="{{ .Release.Namespace }}"}) by (pod)
         /
-        sum(kube_pod_container_resource_limits{namespace="{{ .Release.Namespace }}", resource="memory"}) by (pod)
+        sum(kube_pod_container_resource_limits{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}", resource="memory"}) by (pod)
         > 0.90
       for: 15m
       labels:
@@ -578,7 +584,7 @@ key: password
       expr: |
         sum(container_memory_working_set_bytes{namespace="{{ .Release.Namespace }}"}) by (pod)
         /
-        sum(kube_pod_container_resource_limits{namespace="{{ .Release.Namespace }}", resource="memory"}) by (pod)
+        sum(kube_pod_container_resource_limits{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}", resource="memory"}) by (pod)
         > 0.95
       for: 5m
       labels:
@@ -590,7 +596,7 @@ key: password
   rules:
     - alert: BackendEndpointsDown
       expr: |
-        kube_endpoint_address_available{namespace="{{ .Release.Namespace }}", endpoint="{{ include "chart.fullname" . }}-backend"} == 0
+        kube_endpoint_address_available{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}", endpoint="{{ include "chart.fullname" . }}-backend"} == 0
       for: 5m
       labels:
         severity: critical
@@ -599,13 +605,41 @@ key: password
         description: "Backend service {{ include "chart.fullname" . }}-backend has 0 ready endpoints."
     - alert: FrontendEndpointsDown
       expr: |
-        kube_endpoint_address_available{namespace="{{ .Release.Namespace }}", endpoint="{{ include "chart.fullname" . }}-frontend"} == 0
+        kube_endpoint_address_available{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}", endpoint="{{ include "chart.fullname" . }}-frontend"} == 0
       for: 5m
       labels:
         severity: critical
       annotations:
         summary: "Frontend service has no ready endpoints"
         description: "Frontend service {{ include "chart.fullname" . }}-frontend has 0 ready endpoints."
+- name: database-health
+  rules:
+    - alert: PostgreSQLDown
+      expr: |
+        kube_endpoint_address_available{{ "{" }}{{ $kns }}="{{ include "chart.dbNamespace" . }}", endpoint="{{ include "chart.fullname" . }}-postgresql"} == 0
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "PostgreSQL has no ready endpoints"
+        description: "PostgreSQL service {{ include "chart.fullname" . }}-postgresql has 0 ready endpoints."
+    - alert: BackupJobFailed
+      # The backup CronJob's Jobs are "<name>-pg-backup-<timestamp>"; match the
+      # trailing timestamp with [0-9]+ so we DON'T also fire on the weekly
+      # "<name>-pg-backup-verify-<timestamp>" Jobs (cross-cutting finding).
+      expr: |
+        kube_job_failed{{ "{" }}{{ if eq .Values.monitoring.flavour "gmp" }}{{ $kns }}="{{ include "chart.dbNamespace" . }}", {{ end }}job_name=~"{{ include "chart.fullname" . }}-pg-backup-[0-9]+"} == 1
+      for: 1h
+      labels:
+        severity: warning
+      annotations:
+        summary: "PostgreSQL backup job failed"
+        description: "Backup job {{ "{{" }} $labels.job_name {{ "}}" }} has failed."
+{{- end -}}
+
+{{- define "chart.alertGroupsApp" -}}
+- name: app-health
+  rules:
     - alert: HighErrorRate
       # http_requests_total is the default metric of prometheus_fastapi_instrumentator
       # (main.py: Instrumentator().instrument(app)), so the app records this series by
@@ -621,27 +655,4 @@ key: password
       annotations:
         summary: "High error rate detected ({{ "{{" }} $value | humanizePercentage {{ "}}" }})"
         description: "More than 5% of requests are returning 5xx errors."
-- name: database-health
-  rules:
-    - alert: PostgreSQLDown
-      expr: |
-        kube_endpoint_address_available{namespace="{{ include "chart.dbNamespace" . }}", endpoint="{{ include "chart.fullname" . }}-postgresql"} == 0
-      for: 5m
-      labels:
-        severity: critical
-      annotations:
-        summary: "PostgreSQL has no ready endpoints"
-        description: "PostgreSQL service {{ include "chart.fullname" . }}-postgresql has 0 ready endpoints."
-    - alert: BackupJobFailed
-      # The backup CronJob's Jobs are "<name>-pg-backup-<timestamp>"; match the
-      # trailing timestamp with [0-9]+ so we DON'T also fire on the weekly
-      # "<name>-pg-backup-verify-<timestamp>" Jobs (cross-cutting finding).
-      expr: |
-        kube_job_failed{job_name=~"{{ include "chart.fullname" . }}-pg-backup-[0-9]+"} == 1
-      for: 1h
-      labels:
-        severity: warning
-      annotations:
-        summary: "PostgreSQL backup job failed"
-        description: "Backup job {{ "{{" }} $labels.job_name {{ "}}" }} has failed."
 {{- end -}}

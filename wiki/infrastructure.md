@@ -320,10 +320,19 @@ Uvicorn options are identical everywhere. A test checks that none runs bare `uvi
 | `monitoring.flavour` | Monitor | Rules | Default scrape peers (namespace and Pod label) |
 |---|---|---|---|
 | `prometheus-operator` (default) | `ServiceMonitor` | `PrometheusRule` | `monitoring` and `app.kubernetes.io/name: prometheus` |
-| `gmp` | `PodMonitoring` (`monitoring.googleapis.com/v1`) | `Rules` (`monitoring.googleapis.com/v1`) | `gmp-system` and `app.kubernetes.io/name: collector` |
+| `gmp` | `PodMonitoring` (`monitoring.googleapis.com/v1`) | `Rules` (app alert) and `ClusterRules` (kube and cAdvisor alerts), both `monitoring.googleapis.com/v1` | `gmp-system` and `app.kubernetes.io/name: collector` |
 
-The rule groups are defined once (`chart.alertGroups`) and both flavours embed them. A
-`PodMonitoring` scrapes only its own namespace. Which rules need which series, in both flavours:
+The rule groups are defined once, in two sets (`chart.alertGroupsApp`, `chart.alertGroupsCluster`), and
+both flavours embed them. A `PodMonitoring` scrapes only its own namespace. A namespaced `Rules` object
+evaluates only series of its own namespace, so with `gmp` it holds the app set (`HighErrorRate`) and the
+kube-state-metrics and cAdvisor set is a cluster-scoped `ClusterRules`. The deployer has no cluster
+rights, so the deploy never renders it (`monitoring.gmp.clusterRules.enabled: false`): the admin
+bootstrap does, with `gmpClusterRules: true` (in the bootstrap values) and `monitoring.flavour: gmp` in
+the chart's `values.<env>.yaml`, like the app's Role. The `kube_*` selectors name the object's
+namespace with `monitoring.gmp.objectNamespaceLabel` (default `exported_namespace`; a third-party
+report says GMP relabels kube-state-metrics so, **verify it against your GMP** by reading the labels
+of `kube_pod_status_phase`). The prometheus-operator flavour is unchanged: one `PrometheusRule`,
+selecting on `namespace`. The deployer Role holds `podmonitorings` and `rules`. Which rules need which series, in both flavours:
 
 | Rules | Series | Source |
 |---|---|---|
@@ -443,7 +452,7 @@ The `infra/runtime/entrypoint.sh` script is retained **only for local developmen
 - Runs the database migrations first (`python -m your_service_name.backend.db.run_migrations`; the app does not migrate itself)
 - Starts the one launcher, `python -m your_service_name.backend.serve` (Uvicorn, one process per container; Kubernetes scales pods; the same fixed options, graceful timeout and metrics server as the image)
 - Binds to `${BACKEND_HOST}:${BACKEND_PORT}`; the metrics are on `${METRICS_PORT}` (`9102`)
-- No auto-reload: restart to pick up a code change
+- `BACKEND_RELOAD=true` turns on hot reload (a developer option; default `false` here; the launcher refuses it when `ENV` is production)
 
 ### Frontend Entry
 

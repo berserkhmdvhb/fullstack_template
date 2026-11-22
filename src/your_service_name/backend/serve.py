@@ -10,6 +10,9 @@ Configuration (environment; defaults are the safe baseline):
 - ``METRICS_PORT``: the port of the Prometheus metrics server (``9102``), bound on ``BACKEND_BIND``.
   The API app serves no ``/metrics``: the scrape reaches this port only, so the network policy can
   admit a collector to it without admitting it to the API.
+- ``BACKEND_RELOAD``: ``true`` restarts the app when its code changes (a developer option; refused
+  when ``ENV`` is production). Uvicorn then runs the app in a child process, so the child starts
+  the metrics server (``reloading_app`` is the app factory) and this process does not.
 - ``BACKEND_GRACEFUL_TIMEOUT``: seconds to drain in-flight requests after SIGTERM (``30``).
 - ``BACKEND_KEEPALIVE_TIMEOUT``: seconds an idle connection stays open (``75``). Keep it above the
   gateway's upstream idle timeout (``waf.upstreamIdleTimeoutSeconds`` in the chart), or the proxy
@@ -61,10 +64,59 @@ def metrics_port(environ: Mapping[str, str]) -> int:
     return port
 
 
+_ENTRY = "your_service_name.backend.main:app"
+_RELOAD_ENTRY = "your_service_name.backend.serve:reloading_app"
+
+
+def _reload(environ: Mapping[str, str]) -> bool:
+    """``BACKEND_RELOAD`` is on; ``ValueError`` when ``ENV`` is production."""
+    if (environ.get("BACKEND_RELOAD") or "").strip().lower() not in {"true", "1", "yes"}:
+        return False
+    from your_service_name.backend.settings import PRODUCTION_ENVS  # noqa: PLC0415 - lazy
+
+    if (environ.get("ENV") or "dev").strip().lower() in PRODUCTION_ENVS:
+        msg = "BACKEND_RELOAD is a developer option and is refused when ENV is production"
+        raise ValueError(msg)
+    return True
+
+
 def build_options(environ: Mapping[str, str]) -> dict[str, Any]:
     """The keyword arguments for ``uvicorn.run``; ``ValueError`` names a bad variable."""
+    options = _build_options(environ)
+    if _reload(environ):
+        # The reload child imports the factory, which starts the metrics server and returns the app.
+        options.update(app=_RELOAD_ENTRY, factory=True, reload=True)
+    return options
+
+
+def _start_metrics(environ: Mapping[str, str]) -> None:
+    """Start the metrics server; ``ValueError`` names ``METRICS_PORT`` when it cannot bind."""
+    port = metrics_port(environ)
+    try:
+        start_http_server(port, addr=environ.get("BACKEND_BIND") or "0.0.0.0")  # noqa: S104
+    except OSError as exc:
+        msg = f"METRICS_PORT {port} cannot be bound ({exc.strerror or exc}); pick a free port"
+        raise ValueError(msg) from exc
+
+
+def reloading_app() -> Any:  # noqa: ANN401 - the ASGI app of BACKEND_ENTRY
+    """The app factory under ``BACKEND_RELOAD``: runs in each reload child.
+
+    The child owns the app's metrics registry, so it starts the metrics server (the previous child
+    is gone before the next starts, which frees the port), then returns the app.
+    """
+    try:
+        _start_metrics(os.environ)
+    except ValueError as exc:
+        sys.exit(f"ERROR: {exc}")
+    from uvicorn.importer import import_from_string  # noqa: PLC0415
+
+    return import_from_string(os.environ.get("BACKEND_ENTRY") or _ENTRY)
+
+
+def _build_options(environ: Mapping[str, str]) -> dict[str, Any]:
     return {
-        "app": environ.get("BACKEND_ENTRY") or "your_service_name.backend.main:app",
+        "app": environ.get("BACKEND_ENTRY") or _ENTRY,
         "host": environ.get("BACKEND_BIND") or "0.0.0.0",  # noqa: S104 - a container listens everywhere
         "port": _positive_int(environ, "BACKEND_PORT", 8000),
         "log_level": "info",
@@ -98,16 +150,21 @@ def main() -> int:
     """Validate the environment, print the banner, serve. Non-zero on a bad value."""
     try:
         options = build_options(os.environ)
-        metrics = metrics_port(os.environ)
+        metrics_port(os.environ)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)  # noqa: T201
         return 1
     from your_service_name.backend.settings import ApiVersionSetting  # noqa: PLC0415 - after validation
 
     print(_banner(options, ApiVersionSetting().API_VERSION), flush=True)  # noqa: T201
-    # The default registry: the app's instrumentation registers there when Uvicorn imports it, in
-    # this same process (one process, no workers, no reload). Started once, before the app.
-    start_http_server(metrics, addr=options["host"])
+    if not options.get("reload"):
+        # The default registry: the app's instrumentation registers there when Uvicorn imports it,
+        # in this same process (one process, no workers). Started once, before the app.
+        try:
+            _start_metrics(os.environ)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)  # noqa: T201
+            return 1
     uvicorn.run(**options)
     return 0
 

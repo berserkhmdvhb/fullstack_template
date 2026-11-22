@@ -1,7 +1,8 @@
 {{/*
    PrometheusRule: the alert rules for the Prometheus Operator (monitoring.flavour
    prometheus-operator). Pluggable (off by default); requires the Prometheus Operator CRDs.
-   The groups are chart.alertGroups, shared with the Google Managed Prometheus flavour.
+   The groups are chart.alertGroupsCluster and chart.alertGroupsApp, shared with the Google
+   Managed Prometheus flavour (which splits them across Rules and ClusterRules).
 */}}
 {{- if and .Values.monitoring.prometheusRule (eq .Values.monitoring.flavour "prometheus-operator") }}
 apiVersion: monitoring.coreos.com/v1
@@ -14,5 +15,6 @@ metadata:
     release: {{ .Values.monitoring.prometheusRelease }}
 spec:
   groups:
-{{- include "chart.alertGroups" . | nindent 4 }}
+{{- include "chart.alertGroupsCluster" . | nindent 4 }}
+{{- include "chart.alertGroupsApp" . | nindent 4 }}
 {{- end }}

@@ -345,6 +345,7 @@ NOT_ALL_ON = {
     "serviceAccount.automountServiceAccountToken": "a Pod field, not a kind; true only weakens",
     "postgresql.enabled": "a database path, not an option: the values files render both",
     "externalDatabase.enabled": "a database path, not an option: the values files render both",
+    "monitoring.gmp.clusterRules.enabled": "cluster-scoped: the bootstrap renders it",
     "cloudSqlProxy.enabled": "needs a managed database, so it fails with the in-cluster: PROXY_ON",
     "cloudSqlProxy.privateIp": "a proxy flag: PROXY_ON turns it on with the proxy",
     "cloudSqlProxy.autoIamAuthn": "a proxy flag: PROXY_ON turns it on with the proxy",

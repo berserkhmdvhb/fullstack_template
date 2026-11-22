@@ -25,6 +25,17 @@
 {{- fail (printf "%s: environment is production but config.ENV is %q. Layer values.production.yaml (-f) or set config.ENV=production, otherwise the backend's production checks stay off." (include "chart.fullname" .) (toString .Values.config.ENV)) }}
 {{- end }}
 {{- /*
+  The metrics port is its own container port in the backend Pod: it may not be the API port or, with
+  the Cloud SQL proxy sidecar, the proxy's health port. Two containers on one port fail at bind
+  time, after the render passed.
+*/ -}}
+{{- if eq (toString .Values.config.METRICS_PORT) (toString .Values.config.BACKEND_PORT) }}
+{{- fail (printf "%s: config.METRICS_PORT (%s) is the API port (config.BACKEND_PORT). Give the metrics server its own port." (include "chart.fullname" .) (toString .Values.config.METRICS_PORT)) }}
+{{- end }}
+{{- if and .Values.cloudSqlProxy.enabled (eq (toString .Values.config.METRICS_PORT) (toString .Values.cloudSqlProxy.healthPort)) }}
+{{- fail (printf "%s: config.METRICS_PORT (%s) is the Cloud SQL proxy's health port (cloudSqlProxy.healthPort). Change one of them." (include "chart.fullname" .) (toString .Values.config.METRICS_PORT)) }}
+{{- end }}
+{{- /*
   Opt-in tracing needs a collector URL: without it the backend refuses to start.
 */ -}}
 {{- if and .Values.observability.tracing.enabled (eq (toString .Values.observability.tracing.endpoint) "") }}

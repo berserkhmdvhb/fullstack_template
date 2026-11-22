@@ -54,7 +54,7 @@ async def test_burst_beyond_default_limit_is_429(client: httpx.AsyncClient) -> N
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_probes_exempt_from_rate_limit(client: httpx.AsyncClient) -> None:
-    """Health and metrics stay reachable even after the limit is exhausted."""
+    """The health probe stays reachable even after the limit is exhausted."""
     # Exhaust the limit on a normal endpoint.
     for _ in range(3):
         assert (

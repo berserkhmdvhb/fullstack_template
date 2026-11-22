@@ -199,3 +199,76 @@ def test_a_bad_metrics_port_exits_non_zero_without_starting(
     assert "METRICS_PORT" in capsys.readouterr().err
     assert not calls
     assert not metrics_server
+
+
+# ---- Hot reload (a developer option, never production) -----------------------------------------
+
+FACTORY = "your_service_name.backend.serve:reloading_app"
+
+
+def test_reload_builds_the_factory_form() -> None:
+    options = serve.build_options({"BACKEND_RELOAD": "true"})
+    assert options["app"] == FACTORY
+    assert options["factory"] is True
+    assert options["reload"] is True
+
+
+@pytest.mark.parametrize("value", ["", "false", "False", "0", "no"])
+def test_without_reload_it_builds_the_plain_form(value: str) -> None:
+    options = serve.build_options({"BACKEND_RELOAD": value})
+    assert options == serve.build_options({})
+    assert not {"factory", "reload"} & options.keys()
+
+
+@pytest.mark.parametrize("env", ["production", "prod", "Production"])
+def test_production_refuses_reload(env: str) -> None:
+    with pytest.raises(ValueError, match="BACKEND_RELOAD"):
+        serve.build_options({"BACKEND_RELOAD": "true", "ENV": env})
+
+
+def test_production_without_reload_is_fine() -> None:
+    assert serve.build_options({"ENV": "production"}) == serve.build_options({})
+
+
+def test_reload_is_honoured_by_main_and_the_metrics_server_moves_to_the_child(
+    monkeypatch: pytest.MonkeyPatch, metrics_server: list[tuple[int, str]]
+) -> None:
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr("uvicorn.run", lambda **kw: calls.append(kw))
+    monkeypatch.setenv("BACKEND_RELOAD", "true")
+    monkeypatch.delenv("ENV", raising=False)
+    assert serve.main() == 0
+    assert calls[0]["reload"] is True
+    assert calls[0]["app"] == FACTORY
+    assert metrics_server == []  # the reload child starts it, not this parent
+
+
+def test_the_reload_factory_starts_the_metrics_server_then_returns_the_app(
+    monkeypatch: pytest.MonkeyPatch, metrics_server: list[tuple[int, str]]
+) -> None:
+    monkeypatch.setenv("METRICS_PORT", "9500")
+    monkeypatch.setenv("BACKEND_BIND", "127.0.0.1")
+    monkeypatch.setenv("BACKEND_ENTRY", "your_service_name.backend.main:app")
+    app = serve.reloading_app()
+    assert metrics_server == [(9500, "127.0.0.1")]
+    assert app.title  # the FastAPI app of the entry point
+
+
+# ---- A busy metrics port is an error message, not a traceback ----------------------------------
+
+
+def test_a_busy_metrics_port_exits_non_zero_with_a_message(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def busy(*_: object, **__: object) -> None:
+        raise OSError(98, "Address already in use")
+
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(serve, "start_http_server", busy)
+    monkeypatch.setattr("uvicorn.run", lambda **kw: calls.append(kw))
+    assert serve.main() == 1
+    err = capsys.readouterr().err
+    assert "METRICS_PORT" in err
+    assert "9102" in err
+    assert "Traceback" not in err
+    assert not calls
