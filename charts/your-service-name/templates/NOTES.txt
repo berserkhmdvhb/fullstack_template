@@ -14,7 +14,7 @@ Verify the rollout:
 
 Edge mode "tunnel": no Ingress or HTTPRoute is rendered. Point the tunnel at these routes
 (hostname + path -> in-cluster URL; see the edge docs in wiki/infrastructure.md):
-{{- range $role := list "api" "app" "root" }}
+{{- range $role := include "chart.edgeRoles" . | fromJsonArray }}
 {{- range include "chart.edgeRoutes" (dict "ctx" $ "role" $role) | fromJsonArray }}
   {{ printf "%s%s" (index $.Values.edge.hosts $role) .path | printf "%-56s" }} {{ printf "%-10s" .match }} -> http://{{ .name }}.{{ $.Release.Namespace }}.svc.cluster.local:{{ .port }}
 {{- end }}

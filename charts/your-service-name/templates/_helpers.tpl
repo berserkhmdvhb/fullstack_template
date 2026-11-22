@@ -108,6 +108,15 @@ matchLabels:
 {{- end -}}
 {{- end -}}
 
+{{/* The backend and frontend Service ports: one source (config.*_PORT) for the Services and the edge. */}}
+{{- define "chart.backendPort" -}}{{ .Values.config.BACKEND_PORT }}{{- end -}}
+{{- define "chart.frontendPort" -}}{{ .Values.config.FRONTEND_PORT }}{{- end -}}
+
+{{/* The host roles, in render order, as a JSON array (read it back with fromJsonArray). */}}
+{{- define "chart.edgeRoles" -}}
+{{- toJson (list "api" "app" "root") -}}
+{{- end -}}
+
 {{/*
    The one routes list (edge.routes), resolved for a host role: root serves every route, api the
    `backend` routes, app the `frontend` routes. Emits a JSON array of {path, match, name, port}
@@ -122,10 +131,10 @@ matchLabels:
 {{- range $ctx.Values.edge.routes -}}
 {{- if or (eq $role "root") (and (eq $role "api") (eq .service "backend")) (and (eq $role "app") (eq .service "frontend")) -}}
 {{- $name := printf "%s-frontend" (include "chart.fullname" $ctx) -}}
-{{- $port := $ctx.Values.config.FRONTEND_PORT -}}
+{{- $port := include "chart.frontendPort" $ctx -}}
 {{- if eq .service "backend" -}}
 {{- $name = include "chart.apiBackendService" $ctx -}}
-{{- $port = ternary $ctx.Values.waf.service.port $ctx.Values.config.BACKEND_PORT $ctx.Values.waf.enabled -}}
+{{- $port = ternary $ctx.Values.waf.service.port (include "chart.backendPort" $ctx) $ctx.Values.waf.enabled -}}
 {{- end -}}
 {{- $out = append $out (dict "path" .path "match" .match "name" $name "port" (int $port)) -}}
 {{- end -}}

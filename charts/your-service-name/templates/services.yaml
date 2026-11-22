@@ -8,13 +8,13 @@ metadata:
     app.kubernetes.io/component: backend
   annotations:
     prometheus.io/scrape: "true"
-    prometheus.io/port: "8000"
+    prometheus.io/port: {{ include "chart.backendPort" . | quote }}
     prometheus.io/path: "/metrics"
 spec:
   type: ClusterIP
   ports:
     - name: http
-      port: 8000
+      port: {{ include "chart.backendPort" . }}
       targetPort: http
       protocol: TCP
   selector:
@@ -33,7 +33,7 @@ spec:
   type: ClusterIP
   ports:
     - name: http
-      port: 3000
+      port: {{ include "chart.frontendPort" . }}
       targetPort: http
       protocol: TCP
   selector:

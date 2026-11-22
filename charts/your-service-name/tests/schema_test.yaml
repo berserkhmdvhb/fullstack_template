@@ -29,3 +29,13 @@ tests:
     set: {edge: {hosts: {admin: admin.your-domain.example}}}
     asserts:
       - failedTemplate: {}
+  - it: rejects an empty host
+    set: {edge: {hosts: {api: ""}}}
+    asserts:
+      - failedTemplate: {}
+  - it: rejects a path with whitespace
+    set:
+      edge:
+        routes: [{path: "/a b", match: PathPrefix, service: backend}]
+    asserts:
+      - failedTemplate: {}

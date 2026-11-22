@@ -111,3 +111,43 @@ tests:
       - equal:
           path: spec.rules[1].http.paths[0].backend.service
           value: {name: svc-your-service-name-frontend, port: {number: 3000}}
+
+  - it: a backend-only list renders no app rule and no null paths
+    template: ingress.yaml
+    set:
+      edge:
+        routes:
+          - {path: /api, match: PathPrefix, service: backend}
+    asserts:
+      - lengthEqual:
+          path: spec.rules
+          count: 2
+      - equal:
+          path: spec.rules[0].host
+          value: api.your-domain.example
+      - equal:
+          path: spec.rules[1].host
+          value: your-service-name.your-domain.example
+
+  - it: a frontend-only list renders no api rule
+    template: ingress.yaml
+    set:
+      edge:
+        routes:
+          - {path: /, match: PathPrefix, service: frontend}
+    asserts:
+      - lengthEqual:
+          path: spec.rules
+          count: 2
+      - equal:
+          path: spec.rules[0].host
+          value: app.your-domain.example
+
+  - it: an empty routes list renders no Ingress
+    template: ingress.yaml
+    set:
+      edge:
+        routes: []
+    asserts:
+      - hasDocuments:
+          count: 0

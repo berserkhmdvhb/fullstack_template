@@ -174,9 +174,9 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "api":  { "type": "string" },
-            "app":  { "type": "string" },
-            "root": { "type": "string" }
+            "api":  { "type": "string", "minLength": 1 },
+            "app":  { "type": "string", "minLength": 1 },
+            "root": { "type": "string", "minLength": 1 }
           }
         },
         "routes": {
@@ -187,7 +187,7 @@
             "additionalProperties": false,
             "required": ["path", "match", "service"],
             "properties": {
-              "path":    { "type": "string", "pattern": "^/" },
+              "path":    { "type": "string", "pattern": "^/[^\\s]*$" },
               "match":   { "type": "string", "enum": ["PathPrefix", "Exact"] },
               "service": { "type": "string", "enum": ["backend", "frontend"] }
             }

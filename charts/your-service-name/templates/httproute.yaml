@@ -1,6 +1,8 @@
-{{- if eq .Values.edge.mode "gateway" }}
+{{- if and (eq .Values.edge.mode "gateway") .Values.edge.routes }}
 {{- /* One HTTPRoute per host role; each role's rules come from the one routes list (edge.routes). */ -}}
-{{- range $role := list "api" "app" "root" }}
+{{- range $role := include "chart.edgeRoles" . | fromJsonArray }}
+{{- $routes := include "chart.edgeRoutes" (dict "ctx" $ "role" $role) | fromJsonArray }}
+{{- if $routes }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -15,11 +17,11 @@ spec:
   hostnames:
     - {{ index $.Values.edge.hosts $role | quote }}
   rules:
-  {{- range include "chart.edgeRoutes" (dict "ctx" $ "role" $role) | fromJsonArray }}
+  {{- range $routes }}
     - matches:
         - path:
             type: {{ .match }}
-            value: {{ .path }}
+            value: {{ .path | quote }}
       backendRefs:
         - name: {{ .name }}
           port: {{ .port }}
@@ -28,5 +30,6 @@ spec:
 {{- toYaml . | nindent 8 }}
       {{- end }}
   {{- end }}
+{{- end }}
 {{- end }}
 {{- end }}

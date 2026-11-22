@@ -1,4 +1,4 @@
-{{- if eq .Values.edge.mode "ingress" }}
+{{- if and (eq .Values.edge.mode "ingress") .Values.edge.routes }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -25,17 +25,20 @@ spec:
       secretName: {{ .Values.edge.ingress.tlsSecretName }}
   {{- end }}
   rules:
-  {{- range $role := list "api" "app" "root" }}
+  {{- range $role := include "chart.edgeRoles" . | fromJsonArray }}
+  {{- $routes := include "chart.edgeRoutes" (dict "ctx" $ "role" $role) | fromJsonArray }}
+  {{- if $routes }}
     - host: {{ index $.Values.edge.hosts $role | quote }}
       http:
         paths:
-        {{- range include "chart.edgeRoutes" (dict "ctx" $ "role" $role) | fromJsonArray }}
-          - path: {{ .path }}
+        {{- range $routes }}
+          - path: {{ .path | quote }}
             pathType: {{ trimPrefix "Path" .match }}
             backend:
               service:
                 name: {{ .name }}
                 port: { number: {{ .port }} }
         {{- end }}
+  {{- end }}
   {{- end }}
 {{- end }}
