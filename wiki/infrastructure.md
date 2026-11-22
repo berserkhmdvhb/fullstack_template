@@ -226,7 +226,7 @@ name it with its cluster's server. Pass the values the deploy of this chart vers
 env's values file: your secret values (or `secrets.existingSecret`) and the images it deploys, for
 example `--values values.secret.yaml --set images.backend.digest=sha256:…`. Without any it refuses
 (an upgrade without the secret values would empty the app's Secrets), unless `--env-values-only` says
-`values.<env>.yaml` is all the deploy passes. The script:
+`values.<env>.yaml` is all the deploy passes. Its bootstrap render takes each `--values` as `--chart-values`, and the files you pass to `scripts/k8s-bootstrap.sh --values` (for example `gmpClusterRules`, the deployer's name) go in with `--bootstrap-values`, repeatable: pass the same ones, or step 2 applies other RBAC than your own bootstrap run. The script:
 1. refuses unless the context is in the kubeconfig, the namespace is not another env's, the release
    exists and is `deployed` (a `failed` or `pending-*` release: roll it back to its last good
    revision first, as the message says; one never deployed has none, and the message says so), and the identity has every right the steps use: creating namespaces; get, create and patch on the quota, LimitRange, Roles and RoleBindings in every namespace the bootstrap writes them to (the database's too), with `escalate` and `bind` there; get, create and patch on the cluster-scoped GMP `ClusterRules` when the bootstrap renders them (`gmpClusterRules`, see the monitoring section); and get, list and patch on Namespaces and on the PersistentVolumeClaims and Secrets of any namespace (a

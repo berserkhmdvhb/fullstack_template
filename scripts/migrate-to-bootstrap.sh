@@ -33,7 +33,8 @@
 # none. See wiki/infrastructure.md (namespace bootstrap).
 #
 # Usage: migrate-to-bootstrap.sh <dev|qa|production|local> --context NAME [--release NAME]
-#                                [--namespace NS] [--values FILE]... [--set K=V]...
+#                                [--namespace NS] [--values FILE]... [--bootstrap-values FILE]...
+#                                [--set K=V]...
 #                                [--set-string K=V]... [--env-values-only]
 #                                [--allow-missing KIND/NAMESPACE/NAME]...
 #                                [--timeout DURATION] [--dry-run] [--yes]
@@ -42,6 +43,9 @@
 #   --namespace NS   the app namespace (default <release>-<env>; not one ending in another env)
 #   --values, --set, --set-string  the deploy's own values after values.<env>.yaml: the secret
 #                    values (or secrets.existingSecret) and the images it deploys (repeatable)
+#   --bootstrap-values  a bootstrap config file, as scripts/k8s-bootstrap.sh --values (repeatable): the
+#                    one the admin's own bootstrap run passes. Each --values is also passed to it as
+#                    --chart-values, so its render and the upgrades read the same chart values
 #   --env-values-only  the env's values file is all the deploy passes (else one of the above is
 #                    required: an upgrade without the secret values would empty the app's Secrets)
 #   --allow-missing  an object the release holds that was deleted on purpose, as the refusal names
@@ -70,10 +74,10 @@ case "$1" in
 esac
 release=your-service-name namespace="" context="" timeout=10m dry_run=false yes=false env_only=false
 values=(-f "$CHART/values.$ENV_NAME.yaml")
-allow_missing=()
+allow_missing=() boot_extra=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --context|--release|--namespace|--timeout|--values|--set|--set-string|--allow-missing)
+    --context|--release|--namespace|--timeout|--values|--bootstrap-values|--set|--set-string|--allow-missing)
       [[ $# -ge 2 ]] || die "$1 needs a value" 2
       case "$1" in
         --context) context="$2" ;;
@@ -84,7 +88,8 @@ while [[ $# -gt 0 ]]; do
           [[ "$2" =~ ^(Namespace|PersistentVolumeClaim|Secret)/[^/\ ]+/[^/\ ]+$ ]] ||
             die "--allow-missing takes KIND/NAMESPACE/NAME, as the refusal prints it, got '$2'" 2
           allow_missing+=("$2") ;;
-        --values) [[ -f "$2" ]] || die "--values needs an existing file" 2; values+=(-f "$2") ;;
+        --values) [[ -f "$2" ]] || die "--values needs an existing file" 2; values+=(-f "$2"); boot_extra+=(--chart-values "$2") ;;
+        --bootstrap-values) [[ -f "$2" ]] || die "--bootstrap-values needs an existing file" 2; boot_extra+=(--values "$2") ;;
         *) values+=("$1" "$2") ;;
       esac
       shift 2 ;;
@@ -118,7 +123,7 @@ grep -qxF -- "$context" <<<"$(kubectl config get-contexts -o name 2>/dev/null ||
 server="$(kc config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
 where="context $context ($server)"
 upgrade=(helm upgrade "$release" "$CHART" -n "$namespace" "${values[@]}" --history-max "$HELM_HISTORY_MAX" --wait --timeout "$timeout" --kube-context "$context")
-boot=("$ROOT/scripts/k8s-bootstrap.sh" "$ENV_NAME" --release "$release" --namespace "$namespace")
+boot=("$ROOT/scripts/k8s-bootstrap.sh" "$ENV_NAME" --release "$release" --namespace "$namespace" "${boot_extra[@]}")
 
 deployed() { # the release's status must be deployed; prints its revision
   local out rc=0 status rev last

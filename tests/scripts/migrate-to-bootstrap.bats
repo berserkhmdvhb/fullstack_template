@@ -15,7 +15,7 @@ setup() {
   export LOG="$BATS_TEST_TMPDIR/calls.log" STATE="$BATS_TEST_TMPDIR/state" ANNOT="$BATS_TEST_TMPDIR/annotations"
   # The live objects Helm records as a release's: "kind namespace name [release release-namespace]",
   # the release read by the last helm status unless the line names another.
-  export LIVE="$BATS_TEST_TMPDIR/live"
+  export LIVE="$BATS_TEST_TMPDIR/live" APPLIED="$BATS_TEST_TMPDIR/applied"
   echo "namespace - app-ns" > "$LIVE"
   : > "$LOG"
   : > "$ANNOT"
@@ -38,7 +38,12 @@ case "$1 $2" in
     if [[ "$(cat "$STATE")" == old || -n "${STUB_STAYS_OLD-}" ]]; then echo "$STUB_OLD"; else echo "kind: Deployment"; fi ;;
   "upgrade "*)
     [[ "$*" != *"namespaces.create=false"* ]] || echo switched > "$STATE" ;;
-  "template bootstrap") echo "${STUB_BOOT:-kind: Rendered}" ;;
+  "template bootstrap") echo "${STUB_BOOT:-kind: Rendered}"
+    if [[ -n "${STUB_BOOT_SUBJECT-}" ]]; then # the render's RoleBinding subject: deployer.name of the merged -f files
+      files=(); while [[ $# -gt 0 ]]; do [[ "$1" != -f ]] || files+=("$2"); shift; done
+      echo "---"; echo "kind: RoleBinding"; echo "metadata: {name: d, namespace: app-ns}"
+      echo "roleRef: {kind: Role}"; echo "subject: $(yq ea '. as $i ireduce ({}; . * $i) | .deployer.name' "${files[@]}")"
+    fi ;;
   "template "*) if [[ "$*" == *gmp-cluster-rules* ]]; then echo "$STUB_CLUSTER_RULES"; else echo "$STUB_NEW"; fi ;;
 esac
 STUB
@@ -52,7 +57,7 @@ case "$1 $2" in
   "auth can-i") # STUB_CAN answers every check; STUB_DENY (a fragment of one check) answers that one no
     can="${STUB_CAN:-yes}"; [[ -z "${STUB_DENY-}" || "$*" != *"$STUB_DENY"* ]] || can=no
     echo "$can"; [[ "$can" == yes ]] ;;
-  "apply -f") cat > /dev/null ;;
+  "apply -f") cat >> "$APPLIED" ;;
   "annotate "*|"label "*) # VERB KIND NAME [-n NS] K=V... --overwrite: recorded as "kind ns name K=V..."
     verb="$1" kind="$2" name="$3" ns=-; shift 3
     [[ "${STUB_NOTFOUND-}" != "$name" || "$verb" != annotate ]] ||
@@ -235,7 +240,7 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$output" == *"kind-x"*"https://127.0.0.1:6443"* ]]
   [[ "$output" == *"helm upgrade svc "*"namespaces.create=true"* ]]
-  [[ "$output" == *"k8s-bootstrap.sh production --release svc --namespace svc-production | kubectl --context kind-x apply -f -"* ]]
+  [[ "$output" == *"k8s-bootstrap.sh production --release svc --namespace svc-production --chart-values $BATS_TEST_TMPDIR/secret.yaml | kubectl --context kind-x apply -f -"* ]]
   [[ "$output" == *"helm upgrade svc "*"namespaces.create=false"* ]]
   # Only read-only calls: an allowlist, so any other call fails it.
   run ! grep -Ev -e '^helm (status|history|get manifest|template) ' -e '^kubectl config (get-contexts|view) ' \
@@ -700,4 +705,39 @@ boot_cluster_rules() {
   run bash "$SCRIPT" dev --context kind-x "${V[@]}" --dry-run
   [ "$status" -eq 0 ]
   run ! grep -qi "can-i .*clusterrules" "$LOG"
+}
+
+@test "a bootstrap values file that turns gmpClusterRules on makes the migration check and apply the ClusterRules" {
+  boot_cluster_rules
+  sed -i 's/^gmpClusterRules: true/gmpClusterRules: false/' "$BATS_TEST_TMPDIR/repo/infra/k8s/bootstrap/values.yaml"
+  printf 'gmpClusterRules: true\n' > "$BATS_TEST_TMPDIR/b.yaml"
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --bootstrap-values "$BATS_TEST_TMPDIR/b.yaml" --yes
+  [ "$status" -eq 0 ]
+  for verb in get create patch; do grep -q "auth can-i $verb clusterrules.monitoring.googleapis.com$" "$LOG"; done
+  grep -q "kind: ClusterRules" "$APPLIED"
+}
+
+@test "a bootstrap values file that renames the deployer reaches the step-2 apply, not the committed name" {
+  export STUB_BOOT_SUBJECT=1
+  printf 'deployer:\n  name: renamed-deployer\n' > "$BATS_TEST_TMPDIR/b.yaml"
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --bootstrap-values "$BATS_TEST_TMPDIR/b.yaml" --yes
+  [ "$status" -eq 0 ]
+  grep -q "subject: renamed-deployer" "$APPLIED"
+  run ! grep -q "your-deployer" "$APPLIED"
+}
+
+@test "each --values reaches the bootstrap render as --chart-values, in order, and a bootstrap file as --values" {
+  printf 'a: 1\n' > "$BATS_TEST_TMPDIR/c2.yaml"
+  printf 'b: 1\n' > "$BATS_TEST_TMPDIR/b.yaml"
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --values "$BATS_TEST_TMPDIR/c2.yaml" --bootstrap-values "$BATS_TEST_TMPDIR/b.yaml" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--chart-values $BATS_TEST_TMPDIR/secret.yaml --chart-values $BATS_TEST_TMPDIR/c2.yaml --values $BATS_TEST_TMPDIR/b.yaml"* ]]
+  grep -q -e "-f $BATS_TEST_TMPDIR/b.yaml" "$LOG"
+}
+
+@test "a missing --bootstrap-values file is refused before any write" {
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --bootstrap-values "$BATS_TEST_TMPDIR/none.yaml" --yes
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"--bootstrap-values needs an existing file"* ]]
+  [ -z "$(cat "$LOG")" ]
 }
