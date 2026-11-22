@@ -1,0 +1,129 @@
+suite: helm test checks the running release from inside the namespace, only when tests.enabled
+release:
+  name: svc
+  namespace: app
+templates:
+  - tests/release-test.yaml
+set:
+  tests: {enabled: true}
+tests:
+  - it: renders nothing while tests.enabled is false (the default)
+    set:
+      tests: {enabled: false}
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: renders two hook NetworkPolicies and the client Job, all test hooks removed after a pass
+    asserts:
+      - hasDocuments: {count: 3}
+      - equal: {path: 'metadata.annotations["helm.sh/hook"]', value: test}
+      - equal: {path: 'metadata.annotations["helm.sh/hook-delete-policy"]', value: 'before-hook-creation,hook-succeeded'}
+  - it: the NetworkPolicies exist before the Job runs
+    documentSelector: {path: kind, value: NetworkPolicy, matchMany: true}
+    asserts:
+      - equal: {path: 'metadata.annotations["helm.sh/hook-weight"]', value: "-1"}
+  - it: the client Job is a Job (the deployer creates Jobs, never bare Pods) and runs once
+    documentSelector: {path: metadata.name, value: svc-your-service-name-test}
+    asserts:
+      - isKind: {of: Job}
+      - equal: {path: 'metadata.annotations["helm.sh/hook-weight"]', value: "0"}
+      - equal: {path: spec.backoffLimit, value: 0}
+      - equal: {path: spec.template.spec.restartPolicy, value: Never}
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/component"]', value: test}
+  - it: the client runs the backend image's Python, so no third-party image is needed
+    documentSelector: {path: metadata.name, value: svc-your-service-name-test}
+    set:
+      images:
+        backend: {registry: ghcr.io, repository: o/r/backend, tag: t1}
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].image', value: 'ghcr.io/o/r/backend:t1'}
+      - equal: {path: 'spec.template.spec.containers[0].command[0]', value: /app/.venv/bin/python}
+  - it: the client runs restricted, with a read-only root and no service account token
+    documentSelector: {path: metadata.name, value: svc-your-service-name-test}
+    asserts:
+      - equal: {path: spec.template.spec.automountServiceAccountToken, value: false}
+      - equal: {path: spec.template.spec.securityContext.runAsNonRoot, value: true}
+      - equal: {path: spec.template.spec.securityContext.seccompProfile.type, value: RuntimeDefault}
+      - equal:
+          path: 'spec.template.spec.containers[0].securityContext'
+          value: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+  - it: the client checks readiness, one API route and the frontend, and that it cannot reach the metrics port
+    documentSelector: {path: metadata.name, value: svc-your-service-name-test}
+    asserts:
+      - contains: {path: 'spec.template.spec.containers[0].env', content: {name: CHECK_200, value: 'backend-readiness=http://svc-your-service-name-backend:8000/api/v1/health api-route=http://svc-your-service-name-backend:8000/api/v1/items frontend=http://svc-your-service-name-frontend:3000/'}}
+      - contains: {path: 'spec.template.spec.containers[0].env', content: {name: CHECK_REFUSED, value: 'metrics-port=svc-your-service-name-backend:9102'}}
+      - lengthEqual: {path: 'spec.template.spec.containers[0].env', count: 2}
+  - it: the ports, the API path and the version come from values
+    documentSelector: {path: metadata.name, value: svc-your-service-name-test}
+    set:
+      config: {BACKEND_PORT: "9100", FRONTEND_PORT: "9200", METRICS_PORT: "9105"}
+      tests: {apiPath: /api/v1/echo/history}
+    asserts:
+      - contains: {path: 'spec.template.spec.containers[0].env', content: {name: CHECK_200, value: 'backend-readiness=http://svc-your-service-name-backend:9100/api/v1/health api-route=http://svc-your-service-name-backend:9100/api/v1/echo/history frontend=http://svc-your-service-name-frontend:9200/'}}
+      - contains: {path: 'spec.template.spec.containers[0].env', content: {name: CHECK_REFUSED, value: 'metrics-port=svc-your-service-name-backend:9105'}}
+  - it: with the WAF on, a benign request through it gets a 200 and an XSS probe a 403
+    documentSelector: {path: metadata.name, value: svc-your-service-name-test}
+    set:
+      waf: {enabled: true}
+    asserts:
+      - matchRegex: {path: 'spec.template.spec.containers[0].env[0].value', pattern: 'waf-benign=http://svc-your-service-name-waf:8080/api/v1/health$'}
+      - contains: {path: 'spec.template.spec.containers[0].env', content: {name: CHECK_403, value: 'waf-xss=http://svc-your-service-name-waf:8080/api/v1/items?q=%3Cscript%3Ealert(1)%3C/script%3E'}}
+  - it: the hook policy lets the test Pods reach the API, the frontend and the WAF, plus DNS
+    documentSelector: {path: metadata.name, value: svc-your-service-name-test-egress}
+    set:
+      waf: {enabled: true}
+    asserts:
+      - isKind: {of: NetworkPolicy}
+      - equal: {path: spec.podSelector.matchLabels, value: {app.kubernetes.io/component: test, app.kubernetes.io/instance: svc}}
+      - equal: {path: spec.policyTypes, value: [Egress]}
+      - contains:
+          path: spec.egress
+          content:
+            to: [{podSelector: {matchLabels: {app.kubernetes.io/component: backend}}}]
+            ports: [{protocol: TCP, port: 8000}, {protocol: TCP, port: 9102}]
+      - contains:
+          path: spec.egress
+          content:
+            to: [{podSelector: {matchLabels: {app.kubernetes.io/component: frontend}}}]
+            ports: [{protocol: TCP, port: 3000}]
+      - contains:
+          path: spec.egress
+          content:
+            to: [{podSelector: {matchLabels: {app.kubernetes.io/component: waf}}}]
+            ports: [{protocol: TCP, port: 8080}]
+  - it: the hook policy admits the test Pods to the API and frontend ports, never the metrics port
+    documentSelector: {path: metadata.name, value: svc-your-service-name-test-ingress}
+    asserts:
+      - equal: {path: spec.policyTypes, value: [Ingress]}
+      - equal:
+          path: spec.podSelector.matchExpressions
+          value: [{key: app.kubernetes.io/component, operator: In, values: [backend, frontend]}]
+      - equal:
+          path: spec.ingress
+          value:
+            - from: [{podSelector: {matchLabels: {app.kubernetes.io/component: test, app.kubernetes.io/instance: svc}}}]
+              ports: [{protocol: TCP, port: 8000}, {protocol: TCP, port: 3000}]
+  - it: the metrics check runs only when the scrape peers select this namespace
+    set:
+      networkPolicy:
+        monitoringNamespaceSelector: {kubernetes.io/metadata.name: app}
+        monitoringPodSelector: {metrics-collector: "true"}
+    asserts:
+      - hasDocuments: {count: 4}
+  - it: the collector Job carries the scrape peer's labels and must reach the metrics port
+    documentSelector: {path: metadata.name, value: svc-your-service-name-test-metrics}
+    set:
+      networkPolicy:
+        monitoringNamespaceSelector: {kubernetes.io/metadata.name: app}
+        monitoringPodSelector: {metrics-collector: "true"}
+    asserts:
+      - isKind: {of: Job}
+      - equal: {path: 'spec.template.metadata.labels["metrics-collector"]', value: "true"}
+      - equal: {path: 'spec.template.metadata.labels["app.kubernetes.io/component"]', value: test}
+      - contains: {path: 'spec.template.spec.containers[0].env', content: {name: CHECK_200, value: 'metrics=http://svc-your-service-name-backend:9102/metrics'}}
+  - it: no metrics check when the chart renders no scrape rule
+    set:
+      networkPolicy:
+        monitoringNamespaceSelector: {kubernetes.io/metadata.name: app}
+      monitoring: {scrapeAnnotations: false, serviceMonitor: false}
+    asserts:
+      - hasDocuments: {count: 3}

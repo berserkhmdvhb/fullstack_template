@@ -40,7 +40,7 @@ deployer:
 
 # The app namespace's ResourceQuota, sized from the chart's worst case by a test
 # (tests/backend/test_chart_quota.py): every Deployment at its HPA maximum plus the rollout surge
-# and a wave of terminating Pods, the WAF, the Cloud SQL proxy sidecars and the migration Job, with
+# and a wave of terminating Pods, the WAF, the Cloud SQL proxy sidecars, the migration Job and the helm test Jobs, with
 # 20% headroom. Raising a replica count, an HPA maximum or a request needs a quota bump here, or
 # that test fails. The database namespace has none. There is no limits.cpu: CPU limits are off by default (they throttle),
 # and a CPU-limit quota would refuse every Pod without one. The memory request and limit of each
@@ -50,7 +50,7 @@ quota:
     requests.cpu: "6"
     requests.memory: 27Gi
     limits.memory: 27Gi
-    pods: "28"
+    pods: "30"
     services: "10"
     persistentvolumeclaims: "5"
     configmaps: "10"

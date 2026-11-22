@@ -159,7 +159,8 @@
         "waitForDb":  { "$ref": "#/definitions/resources" },
         "migration":  { "$ref": "#/definitions/resources" },
         "postgresql": { "$ref": "#/definitions/resources" },
-        "pgBackup":   { "$ref": "#/definitions/resources" }
+        "pgBackup":   { "$ref": "#/definitions/resources" },
+        "tests":      { "$ref": "#/definitions/resources" }
       }
     },
 
@@ -523,6 +524,16 @@
         "passwordSecret":  { "type": "string" },
         "egressCIDR":      { "type": "string" },
         "manageSecret":    { "type": "boolean" }
+      }
+    },
+
+    "tests": {
+      "description": "helm test (templates/tests): off by default; values.local.yaml and the kind job turn it on.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "apiPath": { "type": "string", "pattern": "^/" }
       }
     },
 

@@ -47,3 +47,8 @@ edge:
 
 postgresql:
   enabled: true
+
+# `helm test` (templates/tests): the kind job and a local cluster run it. Its refusal check needs a
+# CNI that enforces NetworkPolicy (kind's kindnet does; minikube needs --cni=calico or similar).
+tests:
+  enabled: true

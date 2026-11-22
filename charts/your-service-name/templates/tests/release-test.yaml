@@ -1,0 +1,218 @@
+{{/*
+   `helm test`: checks the running release from inside its namespace. Rendered only with
+   tests.enabled (off by default; values.local.yaml and the kind job turn it on).
+
+   - The client Job asks the backend's readiness path, one API route (tests.apiPath) and the
+     frontend for a 200; with the WAF on, a benign request through the WAF for a 200 and an XSS
+     probe for a 403. It must NOT reach the backend's metrics port: no rule admits it there, so this
+     checks that the cluster enforces the chart's NetworkPolicies (helm test needs a CNI that does).
+   - The collector Job, rendered only when the scrape peers (networkPolicy.monitoringNamespaceSelector
+     and monitoringPodSelector) select this namespace, carries the peer's labels and must reach the
+     metrics port: the chart's own scrape rule admits it.
+   - The app namespace is default-deny, so two hook NetworkPolicies, created first, let the test
+     Pods reach the API, frontend and WAF ports (never the metrics port) for the test's duration.
+
+   Jobs, not bare Pods: the deployer may create Jobs and no Pods, so helm test runs as the deployer.
+   They run the backend image's Python (no third-party image) under the restricted profile.
+*/}}
+{{- if .Values.tests.enabled }}
+{{- $fullname := include "chart.fullname" . }}
+{{- $backend := printf "%s-backend" $fullname }}
+{{- $backendPort := include "chart.backendPort" . }}
+{{- $frontendPort := include "chart.frontendPort" . }}
+{{- $metricsPort := include "chart.metricsPort" . }}
+{{- $testPods := dict "app.kubernetes.io/component" "test" "app.kubernetes.io/instance" .Release.Name }}
+{{- $base := printf "http://%s:%s" $backend $backendPort }}
+{{- $ok := list (printf "backend-readiness=%s%s" $base (include "chart.backendReadyPath" .)) (printf "api-route=%s%s" $base .Values.tests.apiPath) (printf "frontend=http://%s-frontend:%s/" $fullname $frontendPort) }}
+{{- $waf := "" }}
+{{- if .Values.waf.enabled }}
+{{- $waf = printf "http://%s-waf:%v" $fullname .Values.waf.service.port }}
+{{- $ok = append $ok (printf "waf-benign=%s%s" $waf (include "chart.backendReadyPath" .)) }}
+{{- end }}
+{{- /* The scrape peers, resolved as network-policy.yaml resolves them (monitoring.flavour defaults). */}}
+{{- $np := .Values.networkPolicy }}
+{{- $gmp := eq .Values.monitoring.flavour "gmp" }}
+{{- $collector := false }}
+{{- $peerLabels := dict }}
+{{- if and (or .Values.monitoring.scrapeAnnotations .Values.monitoring.serviceMonitor) (not (kindIs "invalid" $np.monitoringNamespaceSelector)) }}
+{{- $nsSelector := $np.monitoringNamespaceSelector | default (dict "kubernetes.io/metadata.name" (ternary "gmp-system" "monitoring" $gmp)) }}
+{{- $collector = eq (toJson $nsSelector) (toJson (dict "kubernetes.io/metadata.name" .Release.Namespace)) }}
+{{- $peerLabels = $np.monitoringPodSelector | default (dict "app.kubernetes.io/name" (ternary "collector" "prometheus" $gmp)) }}
+{{- end }}
+{{- $hook := dict "helm.sh/hook" "test" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded" }}
+# ---- The test Pods' egress: the API (and metrics) ports, the frontend, the WAF, DNS ----
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-test-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+  annotations:
+{{- toYaml (merge (dict "helm.sh/hook-weight" "-1") $hook) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+{{- toYaml $testPods | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    # The metrics port too: whether a test Pod gets in is the backend's ingress rule to decide.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: backend
+      ports:
+        - protocol: TCP
+          port: {{ $backendPort }}
+        - protocol: TCP
+          port: {{ $metricsPort }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: frontend
+      ports:
+        - protocol: TCP
+          port: {{ $frontendPort }}
+{{- if .Values.waf.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: waf
+      ports:
+        - protocol: TCP
+          port: {{ .Values.waf.service.port }}
+{{- end }}
+{{- include "chart.dnsEgress" . | nindent 4 }}
+---
+# ---- The test Pods into the API, frontend and WAF ports; never the metrics port ----
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-test-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+  annotations:
+{{- toYaml (merge (dict "helm.sh/hook-weight" "-1") $hook) | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: {{ toJson (concat (list "backend" "frontend") (ternary (list "waf") list .Values.waf.enabled)) }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+{{- toYaml $testPods | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ $backendPort }}
+        - protocol: TCP
+          port: {{ $frontendPort }}
+{{- if .Values.waf.enabled }}
+        - protocol: TCP
+          port: {{ .Values.waf.service.port }}
+{{- end }}
+---
+{{- $jobs := list (dict "name" "test" "labels" dict "ok" $ok "forbidden" (ternary (list (printf "waf-xss=%s/api/%s/items?q=%%3Cscript%%3Ealert(1)%%3C/script%%3E" $waf .Values.config.API_VERSION)) list .Values.waf.enabled) "refused" (list (printf "metrics-port=%s:%s" $backend $metricsPort))) }}
+{{- if $collector }}
+{{- $jobs = append $jobs (dict "name" "test-metrics" "labels" $peerLabels "ok" (list (printf "metrics=http://%s:%s/metrics" $backend $metricsPort)) "forbidden" list "refused" list) }}
+{{- end }}
+{{- range $jobs }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullname }}-{{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+{{- include "chart.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+{{- toYaml (merge (dict "helm.sh/hook-weight" "0") $hook) | nindent 4 }}
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+{{- toYaml (merge (deepCopy $testPods) .labels (include "chart.labels" $ | fromYaml)) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "chart.serviceAccountName" $ }}
+      automountServiceAccountToken: false
+      {{- include "chart.imagePullSecrets" $ | indent 6 }}
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ .name }}
+          image: {{ include "chart.image" (dict "image" $.Values.images.backend) }}
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          # name=URL (or name=host:port) pairs, separated by spaces: each must answer 200, answer
+          # 403, or fail to connect.
+          env:
+            - name: CHECK_200
+              value: {{ join " " .ok | quote }}
+{{- with .forbidden }}
+            - name: CHECK_403
+              value: {{ join " " . | quote }}
+{{- end }}
+{{- with .refused }}
+            - name: CHECK_REFUSED
+              value: {{ join " " . | quote }}
+{{- end }}
+          command:
+            - /app/.venv/bin/python
+            - -I
+            - -c
+            - |
+              import os, socket, sys, time, urllib.error, urllib.request
+
+              def status(url):
+                  for _ in range(5):
+                      try:
+                          with urllib.request.urlopen(url, timeout=10) as r:
+                              return r.status
+                      except urllib.error.HTTPError as e:
+                          return e.code
+                      except OSError as e:
+                          err = e
+                          time.sleep(3)
+                  return f"no answer ({err})"
+
+              def pairs(var):
+                  return [p.split("=", 1) for p in os.environ.get(var, "").split()]
+
+              failed = []
+              for want, var in ((200, "CHECK_200"), (403, "CHECK_403")):
+                  for name, url in pairs(var):
+                      got = status(url)
+                      print("ok  " if got == want else "FAIL", f"{name}: {url} -> {got} (want {want})", flush=True)
+                      if got != want:
+                          failed.append(name)
+              for name, target in pairs("CHECK_REFUSED"):
+                  host, port = target.rsplit(":", 1)
+                  try:
+                      socket.create_connection((host, int(port)), timeout=5).close()
+                      print("FAIL", f"{name}: {target} accepted a connection (want refused)", flush=True)
+                      failed.append(name)
+                  except OSError as e:
+                      print("ok  ", f"{name}: {target} refused ({e})", flush=True)
+              sys.exit(f"failed: {', '.join(failed)}" if failed else 0)
+          resources:
+{{- include "chart.resources" $.Values.resources.tests | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+{{- end }}
+{{- end }}

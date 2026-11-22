@@ -54,6 +54,8 @@ ALL_ON = (
     "postgresql.backup.enabled=true",
     "--set",
     "monitoring.scrapeAnnotations=true",
+    "--set",
+    "tests.enabled=true",
     # The secret sources are exclusive: the ExternalSecret replaces production's existingSecret, and
     # the in-cluster database (dev, qa, local) then takes its password from its own Secret.
     "--set",

@@ -186,6 +186,10 @@ resources:
   pgBackup:
     requests: {cpu: 100m, memory: 512Mi}
     limits: {}
+  # The helm test Jobs (templates/tests, tests.enabled).
+  tests:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {}
 
 # ---- Config (non-secret) -> ConfigMap ------------------------------------
 # DB_HOST is intentionally absent: it is computed in the template from the db
@@ -607,3 +611,18 @@ monitoring:
   # Must match the Prometheus Operator install's release label for the
   # ServiceMonitor/PrometheusRule to be discovered.
   prometheusRelease: prometheus
+
+# ---- helm test --------------------------------------------------------------
+# `helm test <release>` (templates/tests/release-test.yaml): Jobs that run the backend image's
+# Python inside the namespace. They check the backend's readiness, apiPath and the frontend for a
+# 200 (with the WAF on, a benign request through it for a 200 and an XSS probe for a 403) and that
+# the backend's metrics port refuses them; when the scrape peers
+# (networkPolicy.monitoringNamespaceSelector and monitoringPodSelector) select this namespace, a
+# second Job with the peer's labels must reach it. Hook NetworkPolicies open the default-deny to
+# the test Pods while the test runs. The refusal check needs a CNI that enforces NetworkPolicy.
+# Off by default, so no release carries the test objects; values.local.yaml and the kind job
+# (scripts/kind-deploy.sh) turn it on.
+tests:
+  enabled: false
+  # A GET route of the API that reads the database (the template's sample route by default).
+  apiPath: /api/v1/items
