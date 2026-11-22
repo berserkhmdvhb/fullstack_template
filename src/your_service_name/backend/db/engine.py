@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import (
 from your_service_name.backend.db import schema
 from your_service_name.backend.db._constants import default_sqlite_path, project_root
 from your_service_name.backend.db.connect import app_connect_args
+from your_service_name.backend.db.pool_metrics import register_pool_metrics
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -117,6 +118,7 @@ def _get_engine(settings: Settings) -> AsyncEngine:
         url = _resolve_database_url(settings)
         _engine = create_async_engine(url, **_engine_kwargs(url, settings))
         _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+        register_pool_metrics(current_engine)
     return _engine
 
 

@@ -247,6 +247,19 @@ curl -fsS https://app.your-domain.example/
 
 ### Prometheus Metrics
 
+The backend serves these on the metrics port (`METRICS_PORT`, default registry, one process per Pod):
+
+- `http_requests_total{handler,method,status}` — requests by route, method and status.
+- `http_request_duration_seconds{handler,method,status}` — request latency histogram.
+- `http_request_size_bytes` / `http_response_size_bytes` — request and response size histograms.
+- `http_requests_inprogress` — requests being handled now.
+- `rate_limit_rejections_total` — requests answered 429 by the rate limiter.
+- `rate_limit_storage_failures_total{reason}` — limiter storage failures let through (fail open; `error|timeout`).
+- `db_pool_size` — configured connection pool size (absent on pools that do not report it, e.g. SQLite).
+- `db_pool_checked_out` — pool connections in use.
+- `db_pool_checked_in` — idle connections in the pool.
+- `db_pool_overflow` — current pool overflow, as SQLAlchemy reports it (signed).
+
 ```bash
 # Access Prometheus UI (if port-forwarded)
 kubectl -n monitoring port-forward svc/prometheus 9090:9090

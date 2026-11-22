@@ -44,6 +44,12 @@ STORAGE_FAILURES = Counter(
     ["reason"],
 )
 
+#: Requests answered 429 by the rate-limit middleware (no labels: bounded cardinality).
+REJECTIONS = Counter(
+    "rate_limit_rejections_total",
+    "Requests rejected with 429 by the rate limiter.",
+)
+
 DEFAULT_WARN_INTERVAL_SECONDS: Final[float] = 60.0
 _REDIS_SCHEMES: Final[frozenset[str]] = frozenset({"redis", "rediss", "redis+unix"})
 

@@ -35,7 +35,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from your_service_name.backend import paths
 from your_service_name.backend.errors import problem_response
-from your_service_name.backend.rate_limiter import RateLimiter, build_storage, client_key
+from your_service_name.backend.rate_limiter import (
+    REJECTIONS,
+    RateLimiter,
+    build_storage,
+    client_key,
+)
 from your_service_name.backend.settings import (
     DEFAULT_RATE_LIMIT,
     DEFAULT_SERVICE_NAME,
@@ -123,6 +128,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         if not await self._limiter.hit(self._limit, DEFAULT_NAMESPACE, _client_ip(request)):
+            REJECTIONS.inc()
             retry_after = self._limit.GRANULARITY.seconds * self._limit.multiples
             return problem_response(
                 request.scope,

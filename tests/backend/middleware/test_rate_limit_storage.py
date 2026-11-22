@@ -227,3 +227,25 @@ class TestFailureMetric:
 
         await RateLimiter(_Raising(), prefix=PREFIX, timeout=1).hit(parse("1/minute"), "d", "c")
         assert "rate_limit_storage_failures_total" in generate_latest().decode()
+
+
+class TestRejectionMetric:
+    @staticmethod
+    def _count() -> float:
+        from prometheus_client import REGISTRY  # noqa: PLC0415
+
+        return REGISTRY.get_sample_value("rate_limit_rejections_total") or 0.0
+
+    async def test_a_429_counts_once_and_allowed_requests_count_nothing(self) -> None:
+        app = _app(RateLimiter(MemoryStorage(), prefix=PREFIX, timeout=1), "1/minute")
+        before = self._count()
+        assert (await _get(app)).status_code == httpx.codes.OK
+        assert self._count() == before
+        assert (await _get(app)).status_code == httpx.codes.TOO_MANY_REQUESTS
+        assert self._count() == before + 1
+
+    async def test_a_fail_open_request_counts_nothing(self) -> None:
+        app = _app(RateLimiter(_Raising(), prefix=PREFIX, timeout=1), "1/minute")
+        before = self._count()
+        assert (await _get(app)).status_code == httpx.codes.OK
+        assert self._count() == before
