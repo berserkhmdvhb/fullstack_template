@@ -1,0 +1,240 @@
+suite: security invariants of the workloads, the RBAC, the Secrets and the values schema
+release:
+  name: svc
+  namespace: app
+set:
+  secrets: {dbPassword: not-a-real-password}
+tests:
+  # ---- the app Pods: own ServiceAccount, no API token, non-root, read-only root, no capabilities ----
+  - it: the backend Pod runs as its own ServiceAccount without an API token, non-root uid 10001, with seccomp
+    template: backend-deployment.yaml
+    asserts:
+      - equal: {path: spec.template.spec.serviceAccountName, value: your-service-name}
+      - equal: {path: spec.template.spec.automountServiceAccountToken, value: false}
+      - equal:
+          path: spec.template.spec.securityContext
+          value: {runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+
+  - it: the backend container cannot escalate, has a read-only root and drops every capability; /tmp is an emptyDir
+    template: backend-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: tmp, emptyDir: {medium: Memory, sizeLimit: 128Mi}}
+
+  - it: the frontend Pod runs as the same ServiceAccount without an API token, non-root uid 10001 with fsGroup and seccomp
+    template: frontend-deployment.yaml
+    asserts:
+      - equal: {path: spec.template.spec.serviceAccountName, value: your-service-name}
+      - equal: {path: spec.template.spec.automountServiceAccountToken, value: false}
+      - equal:
+          path: spec.template.spec.securityContext
+          value: {runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+
+  - it: the frontend container cannot escalate, has a read-only root and drops every capability
+    template: frontend-deployment.yaml
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation', value: false}
+      - equal: {path: 'spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem', value: true}
+      - equal: {path: 'spec.template.spec.containers[0].securityContext.capabilities', value: {drop: [ALL]}}
+
+  - it: the ServiceAccount does not automount its API token
+    template: serviceaccount.yaml
+    asserts:
+      - isKind: {of: ServiceAccount}
+      - equal: {path: automountServiceAccountToken, value: false}
+
+  # ---- the migration Job ----
+  - it: the migration Pod runs non-root uid 10001 with seccomp and no API token
+    template: migration-job.yaml
+    asserts:
+      - equal: {path: spec.template.spec.automountServiceAccountToken, value: false}
+      - equal: {path: spec.template.spec.securityContext.runAsNonRoot, value: true}
+      - equal: {path: spec.template.spec.securityContext.runAsUser, value: 10001}
+      - equal: {path: spec.template.spec.securityContext.seccompProfile, value: {type: RuntimeDefault}}
+
+  - it: the migration container and its wait-for-db cannot escalate and drop every capability
+    template: migration-job.yaml
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation', value: false}
+      - equal: {path: 'spec.template.spec.containers[0].securityContext.capabilities', value: {drop: [ALL]}}
+      - equal: {path: 'spec.template.spec.initContainers[0].securityContext.allowPrivilegeEscalation', value: false}
+      - equal: {path: 'spec.template.spec.initContainers[0].securityContext.capabilities', value: {drop: [ALL]}}
+
+  # ---- the in-cluster PostgreSQL and its backups ----
+  - it: PostgreSQL runs non-root uid 999 with seccomp; its container cannot escalate and drops every capability
+    template: postgresql-statefulset.yaml
+    asserts:
+      - equal: {path: spec.template.spec.securityContext.runAsNonRoot, value: true}
+      - equal: {path: spec.template.spec.securityContext.runAsUser, value: 999}
+      - equal: {path: spec.template.spec.securityContext.seccompProfile, value: {type: RuntimeDefault}}
+      - equal: {path: 'spec.template.spec.containers[0].securityContext', value: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}}
+
+  - it: the daily backup keeps a bounded history and runs non-root uid 10001 with seccomp
+    template: pg-backup-cronjob.yaml
+    documentSelector: {path: kind, value: CronJob}
+    asserts:
+      - equal: {path: spec.successfulJobsHistoryLimit, value: 3}
+      - equal: {path: spec.failedJobsHistoryLimit, value: 3}
+      - equal: {path: spec.jobTemplate.spec.template.spec.securityContext.runAsNonRoot, value: true}
+      - equal: {path: spec.jobTemplate.spec.template.spec.securityContext.runAsUser, value: 10001}
+      - equal: {path: spec.jobTemplate.spec.template.spec.securityContext.seccompProfile, value: {type: RuntimeDefault}}
+
+  - it: the backup verify job runs non-root with seccomp
+    template: pg-backup-verify-cronjob.yaml
+    asserts:
+      - equal: {path: spec.jobTemplate.spec.template.spec.securityContext.runAsNonRoot, value: true}
+      - equal: {path: spec.jobTemplate.spec.template.spec.securityContext.runAsUser, value: 10001}
+      - equal: {path: spec.jobTemplate.spec.template.spec.securityContext.seccompProfile, value: {type: RuntimeDefault}}
+
+  # ---- RBAC ----
+  - it: the app Role reads ConfigMaps only and never Secrets
+    template: rbac.yaml
+    set: {rbac: {create: true}}
+    documentSelector: {path: kind, value: Role}
+    asserts:
+      - equal:
+          path: rules
+          value: [{apiGroups: [""], resources: [configmaps], verbs: [get, list, watch]}]
+
+  # ---- Secrets ----
+  - it: the chart's app Secret renders only without secrets.existingSecret
+    template: secret.yaml
+    asserts:
+      - isKind: {of: Secret}
+      - equal: {path: metadata.name, value: svc-your-service-name-secret}
+
+  - it: with secrets.existingSecret the chart renders no app Secret and the Pods read the named one
+    templates: [secret.yaml, backend-deployment.yaml]
+    set: {secrets: {dbPassword: "", existingSecret: managed-secret}, postgresql: {existingSecret: pg-credentials}}
+    asserts:
+      - hasDocuments: {count: 0}
+        template: secret.yaml
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content: {secretRef: {name: managed-secret}}
+        template: backend-deployment.yaml
+
+  - it: values.production.yaml leaves the secret values empty and renders no app Secret
+    template: secret.yaml
+    values: [../values.production.yaml]
+    set: {secrets: {dbPassword: ""}}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: the in-cluster PostgreSQL gets its credentials Secret, from secrets.dbPassword
+    template: db-secret.yaml
+    asserts:
+      - isKind: {of: Secret}
+      - equal: {path: metadata.namespace, value: app-db}
+      - equal: {path: stringData.password, value: not-a-real-password}
+
+  - it: the external database credentials stub renders only with manageSecret
+    template: database-external.yaml
+    set: {postgresql: {enabled: false}, externalDatabase: {enabled: true, egressCIDR: 10.0.0.0/16}}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: with manageSecret the external database stub renders
+    template: database-external.yaml
+    set: {postgresql: {enabled: false}, externalDatabase: {enabled: true, egressCIDR: 10.0.0.0/16, manageSecret: true}}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Secret}
+
+  # ---- the image, pull-secret and database URL helpers ----
+  - it: images render by tag without a digest, by digest when one is set
+    template: backend-deployment.yaml
+    set: {images: {backend: {registry: reg.svc.test, repository: app/backend, tag: t1}}}
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].image', value: reg.svc.test/app/backend:t1}
+
+  - it: a digest replaces the backend's and the frontend's tag
+    templates: [backend-deployment.yaml, frontend-deployment.yaml]
+    set:
+      images:
+        backend: {registry: reg.svc.test, repository: app/backend, tag: t1, digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+        frontend: {registry: reg.svc.test, repository: app/frontend, tag: t1, digest: "sha256:2222222222222222222222222222222222222222222222222222222222222222"}
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].image', value: "reg.svc.test/app/backend@sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+        template: backend-deployment.yaml
+      - equal: {path: 'spec.template.spec.containers[0].image', value: "reg.svc.test/app/frontend@sha256:2222222222222222222222222222222222222222222222222222222222222222"}
+        template: frontend-deployment.yaml
+
+  - it: global.imagePullSecrets reaches every app Pod
+    templates: [backend-deployment.yaml, frontend-deployment.yaml, migration-job.yaml]
+    set: {global: {imagePullSecrets: [registry-credentials]}}
+    asserts:
+      - equal: {path: spec.template.spec.imagePullSecrets, value: [{name: registry-credentials}]}
+
+  - it: no pull secret renders by default
+    templates: [backend-deployment.yaml, frontend-deployment.yaml, migration-job.yaml]
+    asserts:
+      - notExists: {path: spec.template.spec.imagePullSecrets}
+
+  - it: the migration's DATABASE_URL is assembled from the Secret's keys, never a literal password
+    template: migration-job.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DATABASE_URL, value: "postgresql+asyncpg://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DB_PASSWORD, valueFrom: {secretKeyRef: {name: svc-your-service-name-secret, key: DB_PASSWORD}}}
+
+  # ---- render-time checks and the schema ----
+  - it: an external database without an egress CIDR fails the render
+    template: validate-values.yaml
+    set: {postgresql: {enabled: false}, externalDatabase: {enabled: true, egressCIDR: ""}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'externalDatabase\.egressCIDR is empty'
+
+  - it: the schema accepts only the four environments
+    template: validate-values.yaml
+    set: {environment: staging}
+    asserts:
+      - failedTemplate: {}
+
+  - it: the schema refuses an unknown top-level key
+    template: validate-values.yaml
+    set: {debugShell: true}
+    asserts:
+      - failedTemplate: {}
+
+  - it: the schema refuses an unknown key inside a block
+    template: validate-values.yaml
+    set: {serviceAccount: {token: abc}}
+    asserts:
+      - failedTemplate: {}
+
+  # ---- the managed database egress ----
+  - it: with a managed database, the backend and the migration may reach only its CIDR on the database port
+    template: network-policy.yaml
+    set: {postgresql: {enabled: false}, externalDatabase: {enabled: true, egressCIDR: 10.0.0.0/16}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-backend-to-db}
+    asserts:
+      - contains:
+          path: spec.egress
+          content: {to: [{ipBlock: {cidr: 10.0.0.0/16}}], ports: [{protocol: TCP, port: 5432}]}
+
+  - it: the migration's managed database egress is the same CIDR and port
+    template: network-policy.yaml
+    set: {postgresql: {enabled: false}, externalDatabase: {enabled: true, egressCIDR: 10.0.0.0/16}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-migration-to-db}
+    asserts:
+      - contains:
+          path: spec.egress
+          content: {to: [{ipBlock: {cidr: 10.0.0.0/16}}], ports: [{protocol: TCP, port: 5432}]}
+
+  - it: with the in-cluster database no external CIDR is allowed, even when one is set
+    template: network-policy.yaml
+    set: {externalDatabase: {egressCIDR: 10.0.0.0/16}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-backend-to-db}
+    asserts:
+      - notContains:
+          path: spec.egress
+          content: {to: [{ipBlock: {cidr: 10.0.0.0/16}}], ports: [{protocol: TCP, port: 5432}]}
