@@ -121,6 +121,13 @@ health() {
   log="$(mktemp)"
   "${K[@]}" port-forward "pod/${pod}" ":${port}" >"$log" 2>&1 &
   pf=$!
+  # A run that exits or is stopped mid-check must not leave the forward running.
+  # shellcheck disable=SC2064 # expand pf and log now: they are this call's
+  trap "kill $pf 2>/dev/null; rm -f '$log'" EXIT
+  # shellcheck disable=SC2064
+  trap "kill $pf 2>/dev/null; rm -f '$log'; exit 130" INT
+  # shellcheck disable=SC2064
+  trap "kill $pf 2>/dev/null; rm -f '$log'; exit 143" TERM
   for ((i = 0; i < ${PF_WAIT_TRIES:-50}; i++)); do
     local_port="$(sed -n 's/^Forwarding from 127\.0\.0\.1:\([0-9]*\) .*/\1/p' "$log" | head -n 1)"
     [[ -z "$local_port" ]] || break
@@ -131,6 +138,7 @@ health() {
   kill "$pf" 2>/dev/null || true
   wait "$pf" 2>/dev/null || true
   rm -f "$log"
+  trap - EXIT INT TERM
   (( ok == 0 )) || fail "$comp health failed"
   echo "$comp health: OK"
 }

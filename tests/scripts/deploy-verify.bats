@@ -52,6 +52,7 @@ STUB
 echo "curl $*" >> "${STUB_LOG:-/dev/null}"
 port="$(sed -n 's/.*127\.0\.0\.1:\([0-9]*\).*/\1/p' <<<"${*: -1}")"
 pod="$(awk -v p="$port" '$2 == p {print $1}' "$STUB_PORTS")"
+[[ -z "${STUB_CURL_HANG-}" ]] || { touch "$STUB_CURL_HANG"; sleep 2; }
 case " ${STUB_HTTP_500-} " in *" $pod "*) printf 500; exit 0 ;; esac
 case " ${STUB_HTTP_302-} " in *" $pod "*) printf 302; exit 0 ;; esac
 case " ${STUB_HTTP_DOWN-} " in *" $pod "*) printf 000; exit 7 ;; esac
@@ -299,4 +300,25 @@ STUB
   STUB_IMAGES_BACKEND="p1||docker-pullable://registry/img@sha256:$(printf 'e%.0s' {1..64}) " run bash "$SCRIPT"
   [ "$status" -eq 1 ]
   [[ "$output" == *"backend pod p1 digest mismatch"* ]]
+}
+
+@test "a run stopped during a health check stops its port-forward too" {
+  for sig in TERM INT; do
+    : > "$STUB_PORTS"
+    export STUB_CURL_HANG="$BATS_TEST_TMPDIR/curl-started"
+    rm -f "$STUB_CURL_HANG"
+    # A background job starts with SIGINT ignored, which a trap can't undo; env restores the default,
+    # as a step's foreground shell has it.
+    env --default-signal=INT bash "$SCRIPT" > "$BATS_TEST_TMPDIR/out" 2>&1 &
+    pid=$!
+    for _ in $(seq 1 100); do [ -e "$STUB_CURL_HANG" ] && break; sleep 0.05; done
+    [ -e "$STUB_CURL_HANG" ]
+    kill "-$sig" "$pid"
+    rc=0
+    wait "$pid" || rc=$?
+    [ "$rc" -ne 0 ]
+    read -r _ _ pf < "$STUB_PORTS"
+    run kill -0 "$pf"
+    [ "$status" -ne 0 ]
+  done
 }
