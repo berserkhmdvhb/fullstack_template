@@ -115,7 +115,10 @@ To add a CRD schema (a new kind the chart renders): add or extend its row in `ci
 (the upstream file at a release tag, its sha256 and the kind), run `make crd-schemas` (the fetch is
 the only network step; it refuses a sha256 mismatch) and commit the generated files.
 `make crd-schemas-check`, which CI runs too, fails when the committed files differ from what the
-pinned sources generate.
+pinned sources generate; its test (in `make test`) reads only the cache that `make tools`
+(`scripts/tools.sh install crd-sources`) fills, so the tests stay offline. Renovate proposes new
+versions of the sources like the tool pins; the `pins` check stays red until `make pins-refresh` has
+written the new sha256, and then `make crd-schemas` regenerates the files.
 
 ### Chart templates (`charts/your-service-name/templates/`)
 

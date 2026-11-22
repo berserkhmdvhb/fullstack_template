@@ -207,3 +207,38 @@ def test_every_other_new_pin_has_a_tag_renovate_versions_by_default() -> None:
     assert tags
     for tag in tags:
         assert re.fullmatch(r"\d+(\.\d+)*(-[a-z]+)?", tag), tag
+
+
+CRD_SOURCES = ROOT / "charts" / "your-service-name" / "ci" / "crds" / "sources.tsv"
+
+
+def test_every_crd_source_row_is_seen_once_and_its_url_follows_the_version() -> None:
+    """The pinned upstream CRDs (kubeconform's schemas) get version updates like the tool pins."""
+    text = CRD_SOURCES.read_text(encoding="utf-8")
+    managers = _managers("ci/crds/sources")
+    assert len(managers) == 1
+    (manager,) = managers
+    assert manager["datasourceTemplate"] == "github-releases"
+    rows = [ln for ln in text.splitlines() if ln and not ln.startswith("#")]
+    assert rows
+    for row in rows:
+        name, version, url, _sha, _kinds = row.split("\t")
+        hits = [m for ms in manager["matchStrings"] for m in _compile(ms).finditer(row + "\n")]
+        assert len(hits) == 1, f"{name}: matched {len(hits)} times"
+        match = hits[0]
+        assert match.group("depName") == name
+        assert match.group("currentValue") == version
+        assert url in match.group(0), f"{name}: the match stops short of the url"
+        assert re.fullmatch(r"[\w.-]+/[\w.-]+", match.group("packageName")), name
+        assert not re.search(r"[0-9a-f]{64}", match.group(0)), f"{name}: the sha256 is not matched"
+        assert version not in match.group(0).replace(version, "99.9.9")
+    extract = re.compile(
+        re.sub(r"\(\?<([A-Za-z]+)>", r"(?P<\1>", manager["extractVersionTemplate"])
+    )
+    assert extract.fullmatch("v1.7.0")
+    assert not extract.fullmatch("helm-chart-2.15.0"), "a chart release is not a CRD version"
+
+
+def test_the_drift_note_covers_the_crd_sources() -> None:
+    rule = next(r for r in renovate()["packageRules"] if "prBodyNotes" in r)
+    assert "charts/your-service-name/ci/crds/sources.tsv" in rule["matchFileNames"]

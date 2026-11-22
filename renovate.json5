@@ -95,6 +95,20 @@
       ]
     },
     {
+      // charts/your-service-name/ci/crds/sources.tsv: the upstream CRDs kubeconform's schemas are generated from, each a
+      // GitHub release asset or a file at a v<version> tag. Only the version column and the url move; the sha256 column is
+      // not matched (make pins-refresh writes it, the pins check fails until it does). Chart releases such as
+      // helm-chart-X.Y.Z are not CRD versions: only vX.Y.Z tags count.
+      "customType": "regex",
+      "description": "ci/crds/sources.tsv: the pinned upstream CRDs",
+      "managerFilePatterns": ["/^charts/[^/]+/ci/crds/sources\\.tsv$/"],
+      "matchStrings": [
+        "(?m)^(?<depName>[a-z0-9-]+)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<url>https://(?:github\\.com|raw\\.githubusercontent\\.com)/(?<packageName>[^/\\t]+/[^/\\t]+)/(?:releases/download/)?v[0-9][^\\t]*)\\t"
+      ],
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
       // `repository:tag@sha256:...` written inline (config.yaml's DAST image, or an inline ref in a values file).
       "customType": "regex",
       "description": "Inline image digests in values files and config.yaml",
@@ -167,7 +181,7 @@
     },
     {
       "description": "Tell the reviewer why pin drift is red",
-      "matchFileNames": ["tools/pins.tsv", "infra/security/config.yaml"],
+      "matchFileNames": ["tools/pins.tsv", "infra/security/config.yaml", "charts/your-service-name/ci/crds/sources.tsv"],
       "prBodyNotes": ["The `pins` check is red until `make pins-refresh` has written the vendor checksums and the hashed locks. Run it and push."]
     },
     {

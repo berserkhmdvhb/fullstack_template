@@ -232,6 +232,7 @@ def _scratch(tmp_path: Path, sha: str) -> Path:
 
 def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pins: Path) -> None:
     monkeypatch.setenv("PINS", str(pins))
+    monkeypatch.setenv("CRD_SOURCES", str(tmp_path / "no-crd-sources.tsv"))
     monkeypatch.setenv("SECURITY_CONFIG", str(tmp_path / "none.yaml"))
     monkeypatch.setenv("REQS", str(tmp_path / "reqs"))
 
@@ -314,6 +315,7 @@ def test_wrapper_check_with_no_rows_needs_no_network(tmp_path: Path) -> None:
         PINS=str(empty),
         SECURITY_CONFIG=str(tmp_path / "none.yaml"),
         REQS=str(tmp_path / "reqs"),
+        CRD_SOURCES=str(tmp_path / "none.tsv"),
     )
     assert run.returncode == 0, run.stderr
 
@@ -342,6 +344,7 @@ def test_the_drift_job_is_blocking_and_filtered_on_pull_requests() -> None:
         "scripts/pins_refresh.py",
         ".github/workflows/reusable-pins.yml",
         ".github/workflows/pins-drift.yml",
+        "charts/your-service-name/ci/crds/sources.tsv",
     ):
         assert re.search(pattern, path), f"the pins filter misses {path}"
     assert not re.search(pattern, "src/app.py")
@@ -913,3 +916,92 @@ def test_the_command_uses_repo_relative_paths(
 
 def test_pyyaml_lock_pins_only_pyyaml() -> None:
     assert list(pr.lock_entries((REQS / "pyyaml.txt").read_text())) == ["pyyaml"]
+
+
+# --- the pinned CRD sources (charts/your-service-name/ci/crds/sources.tsv) ---
+
+CRD_URL = (
+    "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.7.0/standard-install.yaml"
+)
+
+
+def _crd_sources(tmp_path: Path, sha: str, url: str = CRD_URL) -> Path:
+    path = tmp_path / "sources.tsv"
+    path.write_text(f"# header\ngateway-api\t1.7.0\t{url}\t{sha}\tHTTPRoute\n")
+    return path
+
+
+def test_the_real_crd_sources_are_well_formed_and_under_a_known_vendor() -> None:
+    for row in pr.parse_crd_sources(pr.CRD_SOURCES_PATH.read_text()):
+        assert row.url.startswith(pr.CRD_PREFIXES), row.url
+        assert f"v{row.version}/" in row.url, row.name
+        assert SHA.fullmatch(row.sha256), row.name
+
+
+def test_a_crd_source_is_checked_against_the_file_at_its_version(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _env(monkeypatch, tmp_path, _scratch(tmp_path, "a" * 64))
+    sums = "https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz.sha256sum"
+    body = b"crds"
+    _stub(
+        monkeypatch, {sums: f"{'a' * 64}  helm-v4.3.2-linux-amd64.tar.gz\n".encode(), CRD_URL: body}
+    )
+    sources = _crd_sources(tmp_path, hashlib.sha256(body).hexdigest())
+    monkeypatch.setenv("CRD_SOURCES", str(sources))
+    assert pr.main(["--check"]) == 0
+    assert "ok crd gateway-api 1.7.0" in capsys.readouterr().out
+    sources = _crd_sources(tmp_path, "b" * 64)
+    assert pr.main(["--check"]) == 1
+    assert "DRIFT crd gateway-api 1.7.0" in capsys.readouterr().out
+    assert sources.read_text().count("b" * 64) == 1  # --check writes nothing
+
+
+def test_an_update_writes_the_crd_sources_sha256(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _env(monkeypatch, tmp_path, tmp_path / "pins.tsv")
+    (tmp_path / "pins.tsv").write_text("# none\n")
+    _stub(monkeypatch, {CRD_URL: b"crds"})
+    sources = _crd_sources(tmp_path, "b" * 64)
+    monkeypatch.setenv("CRD_SOURCES", str(sources))
+    assert pr.main([]) == 0
+    sha = hashlib.sha256(b"crds").hexdigest()
+    assert sources.read_text() == f"# header\ngateway-api\t1.7.0\t{CRD_URL}\t{sha}\tHTTPRoute\n"
+
+
+def test_a_crd_source_outside_the_known_vendors_is_refused_before_any_fetch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _env(monkeypatch, tmp_path, tmp_path / "pins.tsv")
+    (tmp_path / "pins.tsv").write_text("# none\n")
+    seen = _stub(monkeypatch, {})
+    monkeypatch.setenv(
+        "CRD_SOURCES", str(_crd_sources(tmp_path, "a" * 64, "https://evil.test/v1.7.0/x.yaml"))
+    )
+    assert pr.main(["--check"]) == 1
+    assert "ERROR crd gateway-api" in capsys.readouterr().out
+    assert seen == []
+
+
+def test_with_a_base_only_changed_crd_rows_are_checked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _env(monkeypatch, tmp_path, tmp_path / "pins.tsv")
+    (tmp_path / "pins.tsv").write_text("# none\n")
+    sources = _crd_sources(tmp_path, "b" * 64)
+    monkeypatch.setenv("CRD_SOURCES", str(sources))
+    old = sources.read_text()
+
+    def fake_show(_base: str, rel: str) -> str:
+        if rel in pr.WATCHED:
+            return (ROOT / rel).read_text() if (ROOT / rel).is_file() else ""
+        return old if rel.endswith("sources.tsv") else "# none\n"
+
+    monkeypatch.setattr(pr, "git_show", fake_show)
+    seen = _stub(monkeypatch, {})
+    assert pr.main(["--check", "--base", "origin-sha"]) == 0
+    assert seen == []
+    old = old.replace("1.7.0", "1.6.3")
+    assert pr.main(["--check", "--base", "origin-sha"]) == 1
+    assert seen

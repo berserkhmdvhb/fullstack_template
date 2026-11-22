@@ -56,7 +56,7 @@ jobs:
           else
             echo "frontend=false" >> "$GITHUB_OUTPUT"
           fi
-          if grep -Eq '^(tools/pins\.tsv|tools/requirements/|infra/security/config\.yaml|scripts/pins[-_]refresh\.|\.github/workflows/(reusable-pins|pins-drift)\.yml)' <<<"$changed"; then
+          if grep -Eq '^(tools/pins\.tsv|tools/requirements/|infra/security/config\.yaml|charts/[^/]+/ci/crds/sources\.tsv|scripts/pins[-_]refresh\.|\.github/workflows/(reusable-pins|pins-drift)\.yml)' <<<"$changed"; then
             echo "pins=true" >> "$GITHUB_OUTPUT"
           else
             echo "pins=false" >> "$GITHUB_OUTPUT"

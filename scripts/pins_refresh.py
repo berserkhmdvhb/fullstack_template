@@ -6,17 +6,20 @@
   scripts/pins-refresh.sh --check [--base REF] [name...]
       read-only: exit 1, naming each pin, on any difference
 
-Two pin sources are covered:
+Three pin sources are covered:
   * tools/pins.tsv (dev toolchain, read by scripts/tools.sh): the recorded sha256 must equal the
     vendor's published one for that exact version and url; `uv:` rows must have a hashed lock in
     tools/requirements/ pinning the same version whose hashes PyPI publishes.
   * infra/security/config.yaml (security scanners, read by the frozen tools-install.sh): that script
     reads the vendor checksum file at install time, so nothing is recorded; the check is that the
     vendor still publishes a checksum for the pinned version's asset.
+  * charts/your-service-name/ci/crds/sources.tsv (the upstream CRDs of the kubeconform schemas):
+    the recorded sha256 must be that of the file at the row's version (hashed on download).
 
 SOURCES is the one place that says where each tool's checksum comes from. With --base REF only rows
 that differ from REF are checked (a pull request); without it every row is (main, schedule).
-Env: PINS, SECURITY_CONFIG, REQS (paths, used by the tests), GITHUB_TOKEN (read-only, API only).
+Env: PINS, SECURITY_CONFIG, REQS, CRD_SOURCES (paths, used by the tests), GITHUB_TOKEN (read-only,
+API only).
 """
 
 from __future__ import annotations
@@ -195,6 +198,24 @@ def fail(message: str) -> NoReturn:
     raise PinError(message)
 
 
+# The upstream CRDs kubeconform's schemas come from (scripts/ci/kube_schemas.py): a release asset or
+# a file at a tag, so the sha256 is the file's own (hashed on download), like a tag archive.
+CRD_SOURCES_PATH = Path(
+    os.environ.get("CRD_SOURCES", str(ROOT / "charts/your-service-name/ci/crds/sources.tsv"))
+)
+CRD_PREFIXES = ("https://github.com/", "https://raw.githubusercontent.com/")
+CRD_FIELDS = 5  # name version url sha256 kinds
+
+
+@dataclass(frozen=True)
+class CrdSource:
+    name: str
+    version: str
+    url: str
+    sha256: str
+    kinds: str
+
+
 @dataclass(frozen=True)
 class Pin:
     name: str
@@ -288,6 +309,42 @@ def parse_pins(text: str) -> list[Pin]:
                 fail(f"malformed pin row: {line}")
             pins.append(Pin(*fields))
     return pins
+
+
+def parse_crd_sources(text: str) -> list[CrdSource]:
+    rows = []
+    for line in text.splitlines():
+        if line and not line.startswith("#"):
+            fields = line.split("\t")
+            if len(fields) != CRD_FIELDS:
+                fail(f"malformed CRD source row: {line}")
+            rows.append(CrdSource(*fields))
+    return rows
+
+
+def crd_sha(row: CrdSource) -> str:
+    """The sha256 of the file at the row's url; only a known vendor's https url is fetched."""
+    if not row.url.startswith(CRD_PREFIXES) or f"v{row.version}/" not in row.url:
+        fail(f"{row.url} is not a GitHub file at the tag v{row.version}")
+    return hashlib.sha256(fetch(row.url)).hexdigest()
+
+
+def run_crd(row: CrdSource, text: str, *, check: bool) -> tuple[bool, str]:
+    """Check or update one CRD source: (failed, the sources text with its sha256 updated)."""
+    try:
+        got = crd_sha(row)
+    except (PinError, OSError, ValueError) as exc:
+        out(f"ERROR crd {row.name} {row.version}: {exc}")
+        return True, text
+    if got == row.sha256:
+        out(f"ok crd {row.name} {row.version}")
+    elif check:
+        out(f"DRIFT crd {row.name} {row.version}: recorded {row.sha256}, the file is {got}")
+        return True, text
+    else:
+        text = text.replace("\t".join(astuple(row)), "\t".join(astuple(replace(row, sha256=got))))
+        out(f"UPDATED crd {row.name} {row.version}")
+    return False, text
 
 
 def parse_config_tools(text: str) -> dict[str, str]:
@@ -650,6 +707,28 @@ def run_lock(path: Path) -> bool:
     return bool(found)
 
 
+def run_crds(names: list[str], base: str, *, check: bool) -> tuple[bool, int]:
+    """Check or update the CRD sources (the named ones, or the rows changed since `base`):
+    (failed, how many were looked at). Rows that are unchanged since `base` are skipped, unless the
+    checker itself changed."""
+    path = Path(os.environ.get("CRD_SOURCES", str(CRD_SOURCES_PATH)))
+    text = path.read_text() if path.is_file() else ""
+    rows = [c for c in parse_crd_sources(text) if not names or c.name in names]
+    if base and all(
+        git_show(base, rel) == ((ROOT / rel).read_text() if (ROOT / rel).is_file() else "")
+        for rel in WATCHED
+    ):
+        old = set(parse_crd_sources(git_show(base, os.path.relpath(path, ROOT))))
+        rows = [c for c in rows if c not in old]
+    failed, new = False, text
+    for row in rows:
+        bad, new = run_crd(row, new, check=check)
+        failed = failed or bad
+    if new != text:
+        path.write_text(new)
+    return failed, len(rows)
+
+
 def main(argv: list[str]) -> int:
     try:
         check, base, names = parse_args(argv)
@@ -674,7 +753,7 @@ def main(argv: list[str]) -> int:
     if base:
         rels = (os.path.relpath(pins_path, ROOT), os.path.relpath(config_path, ROOT))
         pins, tools, locks = changed(base, (pins, tools, locks), rels)
-    failed = False
+    failed, crds = run_crds(names, base, check=check)
     new_text = text
     for pin in pins:
         bad, new_text = run_pin(pin, new_text, check=check)
@@ -683,7 +762,7 @@ def main(argv: list[str]) -> int:
         failed = run_tool(name, version) or failed
     for path in locks:
         failed = run_lock(path) or failed
-    if not pins and not tools and not locks:
+    if not pins and not tools and not locks and not crds:
         out("no pins to check")
     if new_text != text:
         pins_path.write_text(new_text)
