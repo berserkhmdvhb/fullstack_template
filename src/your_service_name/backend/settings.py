@@ -957,8 +957,9 @@ class Settings(BaseSettings):
         if self.AUTH_MODE == "gateway" and not self.AUTH_PROXY_CIDRS:
             problems.append(
                 "AUTH_PROXY_CIDRS: empty with AUTH_MODE=gateway, so every request gets a 401; "
-                "set it to the auth proxy's Pod range (for example the gateway Pod range, "
-                "10.20.0.0/16), the only peer allowed to send the identity headers"
+                "set it to the authenticating proxy's Pod range (for example 10.20.0.0/16), the "
+                "only peer allowed to send the identity headers; the edge's range only if the "
+                "edge itself authenticates and strips client copies"
             )
         if self.AUTH_MODE == "none" and not self.ALLOW_ANONYMOUS:
             problems.append(

@@ -209,7 +209,7 @@ class TestGatewayTrustedPeer:
     ) -> None:
         """Peer STRANGER (outside AUTH_PROXY_CIDRS) sends the headers: 401, values not logged."""
         _gateway(monkeypatch)
-        with caplog.at_level(logging.WARNING), _client(_make_app(), STRANGER) as client:
+        with caplog.at_level(logging.INFO), _client(_make_app(), STRANGER) as client:
             res = client.get(ME_PATH, headers=SPOOFED)
         assert res.status_code == status.HTTP_401_UNAUTHORIZED
         assert res.headers["WWW-Authenticate"] == "Bearer"
@@ -245,6 +245,75 @@ class TestGatewayTrustedPeer:
         with _client(_make_app(), AUTH_PROXY) as client:
             res = client.get(ME_PATH, headers={**SPOOFED, "X-Forwarded-For": STRANGER})
         assert res.status_code == status.HTTP_200_OK
+
+    def test_the_untrusted_peer_rejection_logs_at_info(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Peer STRANGER: a per-request rejection is INFO (as elsewhere), never WARNING."""
+        _gateway(monkeypatch)
+        with caplog.at_level(logging.INFO), _client(_make_app(), STRANGER) as client:
+            client.get(ME_PATH, headers=SPOOFED)
+        records = [r for r in caplog.records if "AUTH_PROXY_CIDRS" in r.getMessage()]
+        assert [r.levelno for r in records] == [logging.INFO]
+
+    @pytest.mark.parametrize(
+        "headers",
+        [
+            # The client's forged copy first, the proxy's appended copy second, and the reverse.
+            [("X-Authenticated-User-Id", "forged"), ("x-authenticated-user-id", "real")],
+            [("x-authenticated-user-id", "real"), ("X-AUTHENTICATED-USER-ID", "forged")],
+            # One id, two roles headers.
+            [
+                ("X-Authenticated-User-Id", "real"),
+                ("X-Authenticated-User-Roles", "admin"),
+                ("x-authenticated-user-roles", "viewer"),
+            ],
+        ],
+        ids=["id-forged-first", "id-forged-second", "roles-twice"],
+    )
+    def test_a_repeated_identity_or_roles_header_is_401(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        headers: list[tuple[str, str]],
+    ) -> None:
+        """Peer AUTH_PROXY (trusted) sends a header twice: fail closed, log no values."""
+        _gateway(monkeypatch)
+        with caplog.at_level(logging.INFO), _client(_make_app(), AUTH_PROXY) as client:
+            res = client.get(ME_PATH, headers=headers)
+        assert res.status_code == status.HTTP_401_UNAUTHORIZED
+        records = [r for r in caplog.records if "more than once" in r.getMessage()]
+        assert [r.levelno for r in records] == [logging.INFO]
+        for value in ("forged", "real", "admin", "viewer"):
+            assert value not in caplog.text
+
+    def test_a_repeated_configured_header_is_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Peer AUTH_PROXY: the count follows AUTH_USER_ID_HEADER, in any letter case."""
+        _gateway(monkeypatch, AUTH_USER_ID_HEADER="X-Trusted-Subject")
+        headers = [("x-trusted-subject", "a"), ("X-Trusted-Subject", "b")]
+        with _client(_make_app(), AUTH_PROXY) as client:
+            res = client.get(ME_PATH, headers=headers)
+        assert res.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_a_single_header_from_a_trusted_peer_is_still_200(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Peer AUTH_PROXY: one id and one roles header pass."""
+        _gateway(monkeypatch)
+        with _client(_make_app(), AUTH_PROXY) as client:
+            res = client.get(ME_PATH, headers=[*SPOOFED.items()])
+        assert res.status_code == status.HTTP_200_OK
+        assert res.json()["roles"] == ["admin"]
+
+    @pytest.mark.parametrize("value", ["   ", "\t", " \t "])
+    def test_a_blank_identity_from_a_trusted_peer_is_401(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        """Peer AUTH_PROXY sends an id that is empty after strip(): 401."""
+        _gateway(monkeypatch)
+        with _client(_make_app(), AUTH_PROXY) as client:
+            res = client.get(ME_PATH, headers={"X-Authenticated-User-Id": value})
+        assert res.status_code == status.HTTP_401_UNAUTHORIZED
 
     @pytest.mark.parametrize("peer", [AUTH_PROXY, STRANGER, "testclient"])
     def test_an_empty_list_trusts_nobody(self, monkeypatch: pytest.MonkeyPatch, peer: str) -> None:

@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from your_service_name.backend.middleware.client_ip import ClientIpMiddleware, resolve_client_ip
+from your_service_name.backend.middleware.client_ip import (
+    ClientIpMiddleware,
+    direct_peer,
+    resolve_client_ip,
+)
 
 if TYPE_CHECKING:
     from starlette.types import Message, Receive, Scope, Send
@@ -163,6 +167,18 @@ class TestMiddleware:
     async def test_it_rewrites_the_client_and_keeps_the_port(self) -> None:
         seen = await _run((PEER, 4242), [("X-Forwarded-For", CLIENT)])
         assert seen["client"] == (CLIENT, 4242)
+
+    async def test_the_direct_peer_survives_the_rewrite_under_a_namespaced_key(self) -> None:
+        seen = await _run((PEER, 4242), [("X-Forwarded-For", CLIENT)])
+        assert direct_peer(seen) == PEER
+        assert "direct_peer" not in seen  # no bare top-level key
+        assert [k for k in seen if k.endswith(".direct_peer")] == [
+            "your_service_name.backend.middleware.client_ip.direct_peer"
+        ]
+
+    async def test_without_a_rewrite_the_direct_peer_is_the_client(self) -> None:
+        seen = await _run((STRANGER, 1), [("X-Forwarded-For", CLIENT)])
+        assert direct_peer(seen) == STRANGER
 
     async def test_repeated_headers_are_joined_in_order(self) -> None:
         headers = [("x-forwarded-for", f"{FORGED}, {CLIENT}"), ("x-forwarded-for", "10.0.0.9")]

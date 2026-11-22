@@ -25,8 +25,9 @@ Algorithm (``resolve_client_ip``)
 Addresses are normalised: an IPv4-mapped IPv6 address becomes IPv4, and a port or the brackets of
 ``[v6]:port`` are stripped. A repeated header is joined in order, as a proxy would have sent it.
 
-The rewrite keeps the direct TCP peer in the scope (``direct_peer``): the auth layer trusts the
-identity headers by that peer (``AUTH_PROXY_CIDRS``), never by a forwarded address.
+The rewrite keeps the direct TCP peer in the scope (read it with ``direct_peer``): the auth
+layer trusts the identity headers by that peer (``AUTH_PROXY_CIDRS``), never by a forwarded
+address.
 
 A trusted peer's ``X-Forwarded-Proto`` (``http`` or ``https`` only; the last, nearest value) also
 sets ``scope["scheme"]``, replacing what Uvicorn's proxy headers did.
@@ -70,7 +71,8 @@ def _is_trusted(ip: Address, trusted: Iterable[Network]) -> bool:
     return any(ip in net for net in trusted)
 
 
-_DIRECT_PEER = "direct_peer"
+# Namespaced by this module's import path, so no server or extension key can collide with it.
+_DIRECT_PEER = f"{__name__}.direct_peer"
 
 
 def direct_peer(scope: Scope) -> str | None:

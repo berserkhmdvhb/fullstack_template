@@ -31,7 +31,8 @@ config:
   DB_SSLMODE: verify-full
   # An auth mode is REQUIRED in production: with ENV=production the backend refuses to start on
   # AUTH_MODE=none. Choose one (oidc or cloudflare-access for
-  # production; gateway and bearer are reference modes; see wiki/security.md), for example:
+  # production; gateway and bearer are reference modes; see wiki/security.md). gateway also needs
+  # AUTH_PROXY_CIDRS, the authenticating proxy's Pod range (empty is refused). For example:
   # AUTH_MODE: oidc
   # OIDC_ISSUER: https://idp.example.com
   # OIDC_AUDIENCE: api://your-service

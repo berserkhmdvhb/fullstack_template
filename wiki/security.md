@@ -146,7 +146,7 @@ FastAPI dependency, which resolves a `Principal` per request.
 | `oidc` | **Production mode.** `Authorization: Bearer <jwt>` from an OpenID Connect provider, verified against the provider's JWKS. | The service verifies every token itself; see [OIDC](#oidc-mode). |
 | `cloudflare-access` | **Production mode.** The Cloudflare Access application token in the `Cf-Access-Jwt-Assertion` header, verified against the team's keys and the application's AUD tag. | The service verifies every token itself; see [Cloudflare Access](#cloudflare-access-mode). |
 | `none` *(default)* | Auth disabled; the dependency yields an anonymous principal. Reference CRUD is open. With `ENV=production` it is refused unless `ALLOW_ANONYMOUS=true`. | N/A — opt-in only. |
-| `gateway` *(reference)* | Identity is read from a header injected by the auth proxy (`AUTH_USER_ID_HEADER`, default `X-Authenticated-User-Id`; roles from `AUTH_ROLES_HEADER`, default `X-Authenticated-User-Roles`, comma-separated), and only when the direct TCP peer is inside `AUTH_PROXY_CIDRS`. Any other peer, or a missing header → `401`. | Who sent the header decides, not who can reach the port: see [the identity trust boundary](#the-identity-trust-boundary). With `ENV=production` an empty `AUTH_PROXY_CIDRS` is refused at startup. |
+| `gateway` *(reference)* | Identity is read from a header injected by the auth proxy (`AUTH_USER_ID_HEADER`, default `X-Authenticated-User-Id`; roles from `AUTH_ROLES_HEADER`, default `X-Authenticated-User-Roles`, comma-separated), and only when the direct TCP peer is inside `AUTH_PROXY_CIDRS`. Any other peer, a missing or blank header, or a header sent twice → `401`. | Who sent the header decides, not who can reach the port. API requests must reach the backend through the auth proxy, which must strip client copies: see [the identity trust boundary](#the-identity-trust-boundary). With `ENV=production` an empty `AUTH_PROXY_CIDRS` is refused at startup. |
 | `bearer` *(reference)* | Identity from an HMAC-signed JWT bearer token verified with a shared secret (`AUTH_JWT_SECRET`, algorithm `AUTH_JWT_ALGORITHM`, default `HS256`, subject claim `AUTH_JWT_USER_ID_CLAIM`, default `sub`). Missing/invalid → `401`. | A shared secret for internal or test use, **not** end-user identity: whoever holds it can mint any identity. |
 
 `gateway` and `bearer` are **reference modes**; use `oidc` or `cloudflare-access` in production.
@@ -159,24 +159,38 @@ Two kinds of header are believed only from listed senders, and each kind has its
   identity and roles headers only when the request's direct TCP peer is inside `AUTH_PROXY_CIDRS`
   (comma-separated IPv4/IPv6 CIDRs, default empty, validated like `TRUSTED_PROXY_CIDRS`). An address
   in `X-Forwarded-For` never counts, even from a trusted client-IP proxy: only the peer that opened
-  the connection does. Any other peer gets a `401`, and the backend logs a warning without the
-  header values. Empty trusts nobody, so every request gets a `401`; in production `gateway` mode
-  with an empty list stops startup.
+  the connection does. Any other peer gets a `401`, logged at info level without the header values.
+  Empty trusts nobody, so every request gets a `401`; in production `gateway` mode with an empty
+  list stops startup. An identity or roles header that appears more than once (names compared in
+  any letter case), or an identity that is blank, is a `401` too, even from a listed peer.
 - **Client-IP headers count only from the proxies in their own list**, `TRUSTED_PROXY_CIDRS` (see
   [Client IP](#client-ip)). Being a client-IP hop does not make a proxy an auth proxy: list a range
-  in both only when that proxy really authenticates.
+  in both only when that proxy authenticates and strips client copies of the identity headers.
 - **The frontend is never the auth proxy.** Its same-origin `/api/v1` proxy (`frontend/proxy.ts`)
   drops the configured identity and roles header names, and every `x-authenticated-*` header, from
   the browser's request before it forwards, in every auth mode. It reads the names from the same
   `AUTH_USER_ID_HEADER` and `AUTH_ROLES_HEADER` variables as the backend; the chart's ConfigMap
   gives both images one value.
 
-Set `AUTH_PROXY_CIDRS` to the Pod range of the in-cluster auth proxy (for example an
-authenticating proxy in front of the backend), in every edge mode. The edge's ranges (the gateway,
-the ingress controller, `cloudflared`) belong in it only when the edge itself authenticates and
-injects the headers. With the WAF on, the backend's peer is the WAF, so an auth proxy in front of
-the WAF is never the direct peer: put the auth proxy behind the WAF, or list the WAF only if it
-strips client copies of these headers and every path to it passes the auth proxy.
+Set `AUTH_PROXY_CIDRS` to the Pod range of the authenticating proxy, the one that connects to the
+backend, in every edge mode. **Never list a hop that does not both authenticate and strip client
+copies of these headers.** The edge (Gateway, ingress controller, `cloudflared`), the WAF and the
+frontend do neither by default, so their ranges do not belong here. A listed range trusts every Pod
+in it.
+
+**The auth proxy's duty.** On every route it forwards, the listed proxy must remove or overwrite
+any copy of the identity and roles headers that the client sent. A proxy that appends its own
+header would let a client's copy through. The backend refuses a request that carries either header
+twice, but a client's copy that the proxy forwards alone, for example on a route it does not
+authenticate, is believed.
+
+**Routing.** In `gateway` mode every API request must reach the backend through the auth proxy:
+route the API host (and `/api/v1` on the app host) to the auth proxy at the edge, or point the
+frontend's same-origin proxy at it with `BACKEND_URL`. Otherwise a browser's same-origin `/api/v1`
+calls through the frontend get a `401`, by design: the frontend is not in the list and strips the
+headers. With the WAF on, the WAF connects to the backend, so put the auth proxy between the WAF and
+the backend. Which component connects to the backend in each mode:
+[Infrastructure, NetworkPolicy per mode](./infrastructure.md#networkpolicy-per-mode).
 
 ### OIDC mode
 

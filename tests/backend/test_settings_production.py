@@ -102,7 +102,8 @@ class TestAuthProxyRule:
     ) -> None:
         text = _refused(monkeypatch, "AUTH_PROXY_CIDRS", AUTH_PROXY_CIDRS="")
         assert "AUTH_MODE=gateway" in text
-        assert "Pod range" in text
+        assert "the authenticating proxy's Pod range" in text
+        assert "gateway Pod range" not in text
 
     def test_gateway_mode_with_an_auth_proxy_is_accepted(
         self, monkeypatch: pytest.MonkeyPatch

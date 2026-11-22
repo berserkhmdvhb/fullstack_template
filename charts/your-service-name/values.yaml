@@ -165,8 +165,11 @@ config:
   # headers (AUTH_USER_ID_HEADER, AUTH_ROLES_HEADER); the backend believes them only from a direct
   # TCP peer in this list, and empty trusts nobody (every request a 401; production with
   # AUTH_MODE=gateway refuses to start). It is NOT TRUSTED_PROXY_CIDRS (the client-IP hops).
-  # Normally the in-cluster auth proxy's Pod range, in every edge mode; the edge's own ranges
-  # (gateway, ingress controller, cloudflared) belong here only if the edge itself authenticates.
+  # Set the authenticating proxy's Pod range, in every edge mode. That proxy MUST remove or
+  # overwrite any client-sent copy of these headers on every route it forwards (a header sent twice
+  # is a 401). Never list a hop that does not both authenticate and strip client copies: not the
+  # edge (Gateway, ingress controller, cloudflared), the WAF or the frontend. API traffic must reach
+  # the backend through that proxy, or same-origin /api/v1 calls get a 401 (wiki/security.md).
   # The frontend reads the same ConfigMap and drops these headers (and any x-authenticated-*)
   # from browser requests.
   AUTH_PROXY_CIDRS: ""

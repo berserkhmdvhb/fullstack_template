@@ -6,11 +6,11 @@ Responsibilities:
 - Resolve the authenticated principal for a request via a FastAPI dependency,
   driven entirely by configuration so the template imposes no IdP of its own.
 
-This is a *reference pattern*, not a production IdP. The template's headline
-architecture is an API gateway that terminates TLS and authn and forwards a
-*trusted* identity header to the service (the service trusts the gateway because
-network policy denies any client but the ingress from reaching it). A JWT bearer
-mode is provided for adopters who terminate authn in the service itself.
+This is a *reference pattern*, not a production IdP. In ``gateway`` mode an auth
+proxy authenticates the user and forwards a *trusted* identity header to the
+service; the service believes it only because the request's direct TCP peer is
+inside ``AUTH_PROXY_CIDRS``, never because of who network policy lets reach it. A
+JWT bearer mode is provided for adopters who terminate authn in the service itself.
 
 Modes (``AUTH_MODE`` setting; see ``backend/settings.py``, validated at startup):
 - ``none``    (default) — auth disabled; the reference CRUD stays open and the
@@ -168,23 +168,37 @@ def require_roles(*required: str) -> Callable[[Principal], Principal]:
 # --- gateway mode -------------------------------------------------------------
 
 
+def _header_count(request: Request, name: str) -> int:
+    """How many times header ``name`` appears in the raw request (names match in any case)."""
+    wanted = name.lower().encode("latin-1")
+    return sum(1 for key, _ in request.scope.get("headers", []) if key.lower() == wanted)
+
+
 def _principal_from_gateway(request: Request, settings: Settings) -> Principal:
-    """Resolve identity from the auth proxy's headers; only a direct peer in the list counts."""
+    """Resolve identity from the auth proxy's headers; only a direct peer in the list counts.
+
+    Never log a header value here: it is the caller's claim, not an identity.
+    """
     if not peer_in(direct_peer(request.scope), settings.AUTH_PROXY_CIDRS):
-        # Never log the header values: they are the caller's claim, not an identity.
-        logger.warning("Gateway identity refused: the TCP peer is not in AUTH_PROXY_CIDRS")
+        logger.info("Gateway identity refused: the TCP peer is not in AUTH_PROXY_CIDRS")
         msg = "Gateway identity is accepted only from the auth proxy (AUTH_MODE=gateway)."
         raise NotAuthenticatedError(msg)
     header = settings.AUTH_USER_ID_HEADER
-    user_id = request.headers.get(header)
+    roles_header = settings.AUTH_ROLES_HEADER
+    # A second copy means a client's copy got past the proxy (one that appends, not replaces):
+    # which one is real cannot be told, so neither is believed.
+    if _header_count(request, header) > 1 or _header_count(request, roles_header) > 1:
+        logger.info("Gateway identity refused: an identity or roles header appears more than once")
+        msg = "Gateway identity headers must appear once (AUTH_MODE=gateway)."
+        raise NotAuthenticatedError(msg)
+    user_id = (request.headers.get(header) or "").strip()
     if not user_id:
         msg = (
             f"Gateway identity header {header!r} not present (AUTH_MODE=gateway). "
-            "Only the trusted ingress may set it."
+            "Only the auth proxy may set it."
         )
         raise NotAuthenticatedError(msg)
     roles: list[str] = []
-    roles_header = settings.AUTH_ROLES_HEADER
     raw_roles = request.headers.get(roles_header)
     if raw_roles:
         roles = [r.strip() for r in raw_roles.split(",") if r.strip()]
