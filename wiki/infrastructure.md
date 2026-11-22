@@ -330,7 +330,7 @@ blocking, behind `CI OK`.
 **The kind directory** is always the repository's `.local/kind` (`scripts/_kind.sh`): an exported
 `KIND_DIR` is never read, and the tests' override, `FST_KIND_DIR`, is refused unless it resolves under
 `.local/`. `make kind-down` deletes the cluster `fst` and the files the scripts wrote there
-(`kubeconfig`, `values.yaml`), and leaves anything else.
+(`kubeconfig`, `kubeconfig.part`, `values.yaml`), and leaves anything else.
 
 **`ct`'s own `helm test`** runs as the deployer too: `--helm-extra-args` carries the deployer's
 identity to every helm call ct makes, and the run checks ct's `--debug` output for it.

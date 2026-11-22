@@ -576,8 +576,37 @@ the chart keeps them deployable on any storage class:
   (on a cluster with no class named `standard`). Both fields are immutable on an existing PVC.
 - **The NetworkPolicy** admits this release's backup and verify jobs to PostgreSQL, in its own
   namespace.
+- **One group for the volume.** PostgreSQL (uid 999), the backup and the verify jobs (uid 10001) all
+  run with `fsGroup: 999` and `fsGroupChangePolicy: OnRootMismatch`, so the kubelet gives the volume
+  one group and never flips it between them, and the jobs write it through that group. The data
+  volume is mounted by PostgreSQL alone and keeps its ownership.
+- **PostgreSQL follows the backup volume's placement.** Because it mounts the backup PVC, the
+  PostgreSQL Pod can only run where that volume can attach. Two cases leave the database itself
+  `Pending` (`kubectl -n <ns>-db describe pod <fullname>-postgresql-0` shows a volume node affinity
+  conflict):
+  - an existing backup PV already bound on another node or zone (an older release whose nightly
+    job ran elsewhere, on local or zonal disks). Remedy: copy the dumps off it, delete the backup PVC
+    (`kubectl -n <ns>-db delete pvc <fullname>-pg-backup-pvc`) and deploy again: the new one binds
+    beside the database;
+  - an `Immediate` class on a multi-zone cluster, which may put the data and backup volumes in
+    different zones. Remedy: give `postgresql.backup.storage.className` a `WaitForFirstConsumer`
+    class (both then bind in the database Pod's zone), before the first deploy.
 - The backup shares the database's node and, on a node-local class, its disk: copy dumps off the
   cluster for a real off-site backup.
+
+**What is proven where.** The binding at install, the dump and its restore run on every pull request
+in the kind job. kind's `local-path` class ignores `fsGroup`, so write permission on a real CSI class
+(where the volume's root is group-owned) is proven by the render only (a test checks the fsGroup of
+every Pod that mounts the volume). Check it at the first real deploy of each environment:
+
+```bash
+kubectl -n <ns>-db create job backup-check --from=cronjob/<fullname>-pg-backup
+kubectl -n <ns>-db wait --for=condition=complete job/backup-check --timeout=300s
+kubectl -n <ns>-db logs job/backup-check   # wants: Backup created: /backup/<name>-<timestamp>.sql.gz
+kubectl -n <ns>-db delete job backup-check
+```
+
+A `Permission denied` on `/backup/...` in that log means the volume's group is not writable.
 
 The kind job runs one backup and its verification on every pull request
 ([Infrastructure, Local cluster (kind)](./infrastructure.md#local-cluster-kind)). The core of the job:

@@ -59,6 +59,14 @@ matchLabels:
    The backup and verify jobs run on the PostgreSQL Pod's node: the backup PVC is ReadWriteOnce, and
    that Pod mounts it (read-only) from the install on. Emits at column 0 (use `| nindent`).
 */}}
+{{/*
+   The group of the backup volume: PostgreSQL's fsGroup, and the backup and verify jobs' too. Every Pod
+   that mounts the volume has the same fsGroup (with OnRootMismatch), so the kubelet never flips its
+   group between them, and the jobs (uid 10001) write the group-owned volume. The data volume is
+   mounted by PostgreSQL alone.
+*/}}
+{{- define "chart.pgFsGroup" -}}999{{- end -}}
+
 {{- define "chart.backupAffinity" -}}
 affinity:
   podAffinity:

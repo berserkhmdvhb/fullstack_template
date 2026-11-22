@@ -34,7 +34,7 @@ spec:
         runAsNonRoot: true
         runAsUser: 999
         runAsGroup: 999
-        fsGroup: 999
+        fsGroup: {{ include "chart.pgFsGroup" . }}
         fsGroupChangePolicy: OnRootMismatch
         # RuntimeDefault seccomp + no privilege escalation / dropped caps (below)
         # bring this pod onto the restricted PodSecurity Standard — without it the

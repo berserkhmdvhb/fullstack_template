@@ -39,6 +39,9 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 10001
+            # The backup volume's group, the same in every Pod that mounts it (chart.pgFsGroup).
+            fsGroup: {{ include "chart.pgFsGroup" . }}
+            fsGroupChangePolicy: OnRootMismatch
             # RuntimeDefault seccomp is the one restricted-PSS control this pod was
             # still missing (container caps are already dropped below); without it
             # the pod is rejected on an enforcing cluster.
