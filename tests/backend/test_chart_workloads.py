@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 from typing import Any
 
 import pytest
@@ -36,14 +37,7 @@ NON_DEFAULT_PORTS = (
     "--set",
     "waf.service.port=9300",
 )
-# What ALL_ON turns on, less the options that render a literal of their own (the external-database
-# stub Secret holds externalDatabase.port).
-PORT_OPTIONS = tuple(
-    a
-    for pair in zip(ALL_ON[::2], ALL_ON[1::2], strict=True)
-    if "externalDatabase.manageSecret" not in pair[1]
-    for a in pair
-)
+PORT_OPTIONS = ALL_ON
 
 
 @pytest.fixture(scope="module")
@@ -202,14 +196,25 @@ def test_the_containers_checked_include_every_kind_of_container(helm: str) -> No
         for p, _ in pod_specs(render(helm, "values.dev.yaml", *ALL_ON)).values()
         for c in _all_containers(p)
     }
-    assert {"backend", "frontend", "envoy", "wait-for-db", "migrate", "postgresql"} <= names
+    assert {
+        "backend",
+        "frontend",
+        "envoy",
+        "wait-for-db",
+        "migrate",
+        "postgresql",
+        "pg-backup",
+        "pg-backup-verify",
+    } <= names
     proxy = pod_specs(render(helm, "values.production.yaml", *PROXY_ON))
     assert "cloud-sql-proxy" in {c["name"] for p, _ in proxy.values() for c in _all_containers(p)}
 
 
-@pytest.mark.parametrize("key", ["backend", "frontend", "migration", "postgresql", "pgBackup"])
+@pytest.mark.parametrize(
+    "key", ["backend", "frontend", "waitForDb", "migration", "postgresql", "pgBackup"]
+)
 def test_a_cpu_limit_is_set_by_a_value(helm: str, key: str) -> None:
-    docs = render(helm, "values.dev.yaml", "--set", f"resources.{key}.cpuLimit=750m")
+    docs = render(helm, "values.dev.yaml", "--set-string", f"resources.{key}.limits.cpu=750m")
     limits = [
         c["resources"]["limits"]
         for p, _ in pod_specs(docs).values()
@@ -227,10 +232,10 @@ def test_the_waf_and_the_proxy_cpu_limits_are_set_by_a_value(helm: str) -> None:
         *PROXY_ON,
         "--set",
         "waf.enabled=true",
-        "--set",
-        "waf.resources.cpuLimit=1",
-        "--set",
-        "cloudSqlProxy.resources.cpuLimit=250m",
+        "--set-string",
+        "waf.resources.limits.cpu=1",
+        "--set-string",
+        "cloudSqlProxy.resources.limits.cpu=250m",
     )
     found = {
         c["name"]: c["resources"]["limits"]["cpu"]
@@ -239,6 +244,82 @@ def test_the_waf_and_the_proxy_cpu_limits_are_set_by_a_value(helm: str) -> None:
         if "cpu" in c["resources"]["limits"]
     }
     assert found == {"envoy": "1", "cloud-sql-proxy": "250m"}
+
+
+PASTED = (
+    "--set",
+    "resources.backend.requests.cpu=300m",
+    "--set",
+    "resources.backend.requests.memory=1Gi",
+    "--set",
+    "resources.backend.limits.memory=1Gi",
+    "--set-string",
+    "resources.backend.limits.cpu=2",
+)
+
+
+def _backend_resources(helm: str, *args: str) -> dict[str, Any]:
+    pod = pod_specs(render(helm, "values.dev.yaml", *args))[BACKEND][0]
+    resources: dict[str, Any] = pod["containers"][0]["resources"]
+    return resources
+
+
+def test_a_pasted_standard_block_with_a_matching_memory_limit_renders(helm: str) -> None:
+    assert _backend_resources(helm, *PASTED) == {
+        "requests": {"cpu": "300m", "memory": "1Gi"},
+        "limits": {"cpu": "2", "memory": "1Gi"},
+    }
+
+
+def test_a_memory_limit_that_differs_from_the_request_fails_the_render(helm: str) -> None:
+    result = subprocess.run(
+        [
+            helm,
+            "template",
+            "svc",
+            str(CHART),
+            "--set",
+            "resources.backend.limits.memory=2Gi",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "limits.memory" in result.stderr
+    assert "requests.memory" in result.stderr
+
+
+def test_the_defaults_render_the_memory_limit_and_no_cpu_limit(helm: str) -> None:
+    limits = _backend_resources(helm)["limits"]
+    assert limits == {"memory": _backend_resources(helm)["requests"]["memory"]}
+
+
+def test_other_limits_pass_through(helm: str) -> None:
+    args = ("--set", "resources.backend.limits.ephemeral-storage=1Gi")
+    assert _backend_resources(helm, *args)["limits"]["ephemeral-storage"] == "1Gi"
+
+
+def test_the_schema_takes_the_standard_resource_keys(helm: str) -> None:
+    args = (
+        "--set",
+        "resources.backend.requests.ephemeral-storage=500Mi",
+        "--set",
+        "resources.backend.limits.hugepages-2Mi=0",
+        "--set",
+        "resources.backend.limits.cpu=1",
+    )
+    assert str(_backend_resources(helm, *args)["limits"]["cpu"]) == "1"
+
+
+def test_a_key_that_is_not_a_resource_is_refused(helm: str) -> None:
+    result = subprocess.run(
+        [helm, "template", "svc", str(CHART), "--set", "resources.backend.cpuLimit=1"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
 
 
 def _quantity(value: str) -> float:
@@ -286,6 +367,13 @@ def _grace(helm: str, name: str, *args: str) -> tuple[int, int]:
     return pod["terminationGracePeriodSeconds"], pre_stop["sleep"]["seconds"]
 
 
+def _margin() -> int:
+    values = yaml.safe_load((CHART / "values.yaml").read_text())
+    margin: int = values["shutdown"]["marginSeconds"]
+    assert margin > 0
+    return margin
+
+
 @pytest.mark.parametrize("graceful", ["30", "45"])
 def test_the_backend_grace_period_covers_prestop_graceful_timeout_and_a_margin(
     helm: str, graceful: str
@@ -295,14 +383,14 @@ def test_the_backend_grace_period_covers_prestop_graceful_timeout_and_a_margin(
     config = _config(render(helm, "values.yaml", *args))
     assert config["BACKEND_GRACEFUL_TIMEOUT"] == graceful
     assert sleep > 0
-    assert grace > sleep + int(graceful)
+    assert grace >= sleep + int(graceful) + _margin()
 
 
 def test_the_frontend_grace_period_covers_prestop_the_drain_and_a_margin(helm: str) -> None:
     for drain in ("15", "25"):
         grace, sleep = _grace(helm, FRONTEND, "--set", f"shutdown.frontendDrainSeconds={drain}")
         assert sleep > 0
-        assert grace > sleep + int(drain)
+        assert grace >= sleep + int(drain) + _margin()
 
 
 def test_the_prestop_sleep_and_the_margin_come_from_values(helm: str) -> None:
@@ -327,3 +415,29 @@ def test_the_kube_version_floor_is_the_one_the_sleep_action_and_native_sidecars_
     """lifecycle.preStop.sleep is beta, on by default, from 1.30; native sidecars from 1.29."""
     chart = yaml.safe_load((CHART / "Chart.yaml").read_text())
     assert chart["kubeVersion"] == ">=1.30.0-0"
+
+
+def test_the_external_database_stub_follows_the_database_port(helm: str) -> None:
+    docs = render(
+        helm,
+        "values.production.yaml",
+        "--set",
+        "externalDatabase.manageSecret=true",
+        "--set-string",
+        "config.DB_PORT=5433",
+    )
+    stub = next(
+        d
+        for d in docs
+        if d["kind"] == "Secret" and d["metadata"]["name"].endswith("-db-credentials")
+    )
+    assert stub["stringData"]["port"] == "5433"
+    refused = subprocess.run(
+        [helm, "template", "svc", str(CHART), "--set", "externalDatabase.port=5433"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert refused.returncode != 0, (
+        "externalDatabase.port is gone: config.DB_PORT is the one source"
+    )

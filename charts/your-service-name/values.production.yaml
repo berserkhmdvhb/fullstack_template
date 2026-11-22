@@ -58,7 +58,6 @@ postgresql:
 externalDatabase:
   enabled: true
   host: your-service-name-db.xxxxx.eu-west-1.rds.amazonaws.com
-  port: 5432
   name: service_template
   user: app
   passwordSecret: ""   # point at your sealed-secrets / ESO / SOPS secret

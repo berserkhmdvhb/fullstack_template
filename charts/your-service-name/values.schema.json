@@ -477,7 +477,6 @@
       "properties": {
         "enabled":         { "type": "boolean" },
         "host":            { "type": "string" },
-        "port":            { "type": "integer" },
         "name":            { "type": "string" },
         "user":            { "type": "string" },
         "passwordSecret":  { "type": "string" },
@@ -520,13 +519,25 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "requests": {
-          "type": "object",
-          "additionalProperties": { "type": ["string", "integer"] },
-          "required": ["cpu", "memory"]
-        },
-        "cpuLimit": { "description": "A CPU limit; empty (the default) sets none. The memory limit is the memory request.", "type": ["string", "integer"] }
+        "requests": { "$ref": "#/definitions/requestQuantities" },
+        "limits":   { "$ref": "#/definitions/quantities" }
       }
+    },
+
+    "requestQuantities": {
+      "allOf": [ { "$ref": "#/definitions/quantities" } ],
+      "required": ["cpu", "memory"]
+    },
+
+    "quantities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu":               { "type": ["string", "integer", "number"] },
+        "memory":            { "type": ["string", "integer"] },
+        "ephemeral-storage": { "type": ["string", "integer"] }
+      },
+      "patternProperties": { "^hugepages-": { "type": ["string", "integer"] } }
     },
 
     "hpa": {

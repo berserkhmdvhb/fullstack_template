@@ -192,13 +192,16 @@ schema, so a Pod waits for the migration Job). A rollout that makes no progress 
 PodDisruptionBudget, and the HPA's floor (`minReplicas`) stays above `pdb.*.minAvailable`, so a node
 drain can still evict one Pod. A single replica with a PDB of 1 blocks drains: keep two.
 
-**Resources.** Every container has a CPU request and a memory limit equal to its memory request (the
-chart renders the limit from the request, so the two cannot differ). CPU limits are off by default
-because they throttle; set `cpuLimit` on a block to add one. This holds for the backend, frontend, WAF,
-Cloud SQL proxy, migration Job (and its `wait-for-db` container), PostgreSQL and the backup jobs. The
-namespace LimitRange and ResourceQuota (`infra/k8s/bootstrap`) are the ceiling: raise the quota with
-the HPA `maxReplicas` plus the rollout surge. A test checks every container against the LimitRange's
-minimum and maximum.
+**Resources.** Every container's `resources` is the standard `{requests, limits}` block. Each has a CPU
+request and a memory limit equal to its memory request: `limits.memory` is rendered from the request when
+unset, and a different value fails the render. CPU limits are off by default because they throttle; set
+`limits.cpu` to add one (other limits, such as `ephemeral-storage`, pass through). This holds for the
+backend, frontend, WAF, Cloud SQL proxy, migration Job (and its `wait-for-db` container), PostgreSQL and
+the backup jobs. The backend and frontend get 1Gi, the former limit, so no workload lost headroom; the
+in-memory `/tmp` volume counts against that limit, so tune it down only with load data. The namespace
+LimitRange and ResourceQuota (`infra/k8s/bootstrap`) are the ceiling: raise the quota with the HPA
+`maxReplicas` plus the rollout surge. A test checks every container against the LimitRange's minimum
+and maximum.
 
 **Graceful shutdown.** On a delete the kubelet runs the `preStop` hook, then sends SIGTERM, then
 SIGKILL when `terminationGracePeriodSeconds` ends. The images have no shell, so `preStop` is the native
@@ -206,7 +209,7 @@ SIGKILL when `terminationGracePeriodSeconds` ends. The images have no shell, so 
 SIGTERM. The grace period is derived, never set: the sleep, plus the drain, plus
 `shutdown.marginSeconds`. The backend's drain is Uvicorn's graceful timeout
 (`config.BACKEND_GRACEFUL_TIMEOUT`, read by the launcher). Next.js has no drain timeout: on SIGTERM it
-stops accepting, waits for open connections (idle keep-alive ones close in seconds) and exits, so
+stops accepting, waits for open connections (Node closes idle keep-alive ones as soon as `server.close()` runs) and exits, so
 `shutdown.frontendDrainSeconds` bounds a slow request. A test asserts that each grace period exceeds the
 sleep plus the drain.
 

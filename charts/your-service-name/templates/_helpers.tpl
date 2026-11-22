@@ -128,18 +128,24 @@ matchLabels:
 {{- define "chart.frontendReadyPath" -}}/api/healthz{{- end -}}
 
 {{/*
-   A container's resources from a values block {requests, cpuLimit}: the requests as set, a memory
-   limit equal to the memory request, and a CPU limit only when cpuLimit is set. Emits at column 0
-   (use `| nindent`).
+   A container's resources from a standard block {requests, limits}: both as set, plus a memory limit
+   equal to the memory request when limits.memory is unset. No CPU limit appears unless limits.cpu is
+   set; any other limit (ephemeral-storage, hugepages-*) passes through. A memory limit that differs
+   from the request fails the render (the memory is guaranteed and never overcommitted). Emits at
+   column 0 (use `| nindent`).
 */}}
 {{- define "chart.resources" -}}
+{{- $requests := required "resources: requests is required" .requests -}}
+{{- $memory := required "resources: requests.memory is required" $requests.memory -}}
+{{- $limits := deepCopy (default dict .limits) -}}
+{{- if and (hasKey $limits "memory") (ne (toString (index $limits "memory")) (toString $memory)) -}}
+{{- fail (printf "resources: limits.memory (%v) must equal requests.memory (%v); leave limits.memory unset to use the request" (index $limits "memory") $memory) -}}
+{{- end -}}
+{{- $_ := set $limits "memory" $memory -}}
 requests:
-{{- toYaml .requests | nindent 2 }}
+{{- toYaml $requests | nindent 2 }}
 limits:
-  memory: {{ .requests.memory | quote }}
-{{- with .cpuLimit }}
-  cpu: {{ . | quote }}
-{{- end }}
+{{- toYaml $limits | nindent 2 }}
 {{- end -}}
 
 {{/*

@@ -696,7 +696,7 @@ A ResourceQuota and a LimitRange in the app namespace prevent resource exhaustio
 admin bootstrap (`infra/k8s/bootstrap/values.yaml`), not the chart, so the deployer can't change them:
 see [Namespace bootstrap](./infrastructure.md#namespace-bootstrap-one-time-admin-step). The
 LimitRange sets no default CPU limit (CPU limits throttle) and caps memory. The chart sets a CPU request
-and a memory limit equal to the request on every container, and no CPU limit unless `cpuLimit` is set
+and a memory limit equal to the request on every container, and no CPU limit unless `limits.cpu` is set
 ([Workloads](./infrastructure.md#workloads-rollout-resources-and-shutdown)).
 
 ### Runtime Application Protection (DAST + WAF)

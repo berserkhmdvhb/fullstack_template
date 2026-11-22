@@ -137,40 +137,44 @@ rollout:
 # preStopSeconds + the drain + marginSeconds, where the drain is config.BACKEND_GRACEFUL_TIMEOUT for
 # the backend and frontendDrainSeconds for the frontend. preStop is the native sleep action (the
 # images have no shell), so the endpoint is removed from the Services before SIGTERM arrives.
-# frontendDrainSeconds: Next.js stops accepting on SIGTERM, waits for open connections (idle
-# keep-alive ones close within Node's 5 s default) and exits; it has no drain timeout of its own, so
-# this bounds a slow request before SIGKILL. Needs Kubernetes 1.30 (Chart.yaml kubeVersion).
+# frontendDrainSeconds: Next.js stops accepting on SIGTERM, waits for open connections (Node closes
+# idle keep-alive connections as soon as server.close() runs) and exits; it has no drain timeout of
+# its own, so this bounds a slow request before SIGKILL. Needs Kubernetes 1.30 (Chart.yaml
+# kubeVersion).
 shutdown:
   preStopSeconds: 5
   frontendDrainSeconds: 15
   marginSeconds: 10
 
-# Per-container resources. Every container has a CPU request and a memory limit equal to its memory
-# request (the limit is rendered from the request, so the two cannot differ). CPU limits are off:
-# set cpuLimit (for example "1") to add one. The namespace LimitRange and ResourceQuota
-# (infra/k8s/bootstrap) must hold the sum, with the HPA maxReplicas plus the rollout surge.
+# Per-container resources, the standard {requests, limits} shape. Every container has a CPU request
+# and a memory limit equal to its memory request: limits.memory is rendered from the request when
+# unset, and a different value fails the render. There is no CPU limit (CPU limits throttle): set
+# limits.cpu (for example "1") to add one; ephemeral-storage and hugepages-* limits pass through.
+# The namespace LimitRange and ResourceQuota (infra/k8s/bootstrap) must hold the sum, with the HPA
+# maxReplicas plus the rollout surge. The backend and frontend memory (1Gi) is the old limit, and
+# the in-memory /tmp counts against it: tune it down with load data.
 resources:
   backend:
-    requests: {cpu: 200m, memory: 512Mi}
-    cpuLimit: ""
+    requests: {cpu: 200m, memory: 1Gi}
+    limits: {}
   frontend:
-    requests: {cpu: 100m, memory: 512Mi}
-    cpuLimit: ""
+    requests: {cpu: 100m, memory: 1Gi}
+    limits: {}
   # The migration Job: its wait-for-db init container and the migrate container.
   waitForDb:
-    requests: {cpu: 50m, memory: 64Mi}
-    cpuLimit: ""
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {}
   migration:
-    requests: {cpu: 100m, memory: 256Mi}
-    cpuLimit: ""
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {}
   # The in-cluster PostgreSQL (the database namespace has no LimitRange or quota).
   postgresql:
     requests: {cpu: 250m, memory: 1Gi}
-    cpuLimit: ""
+    limits: {}
   # The backup and the backup-verify CronJobs.
   pgBackup:
-    requests: {cpu: 100m, memory: 256Mi}
-    cpuLimit: ""
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {}
 
 # ---- Config (non-secret) -> ConfigMap ------------------------------------
 # DB_HOST is intentionally absent: it is computed in the template from the db
@@ -306,7 +310,7 @@ cloudSqlProxy:
     - {cidr: 169.254.169.254/32, ports: [80]}
   resources:
     requests: {cpu: 50m, memory: 128Mi}
-    cpuLimit: ""
+    limits: {}
 
 # ---- Edge -----------------------------------------------------------------
 # How traffic reaches the two Services. ONE routes list drives every mode, so a path is
@@ -433,7 +437,7 @@ waf:
   upstreamIdleTimeoutSeconds: 60
   resources:
     requests: {cpu: 100m, memory: 512Mi}
-    cpuLimit: ""
+    limits: {}
 
 # ---- Autoscaling ----------------------------------------------------------
 # backend maxReplicas:6 is coupled to the namespace ResourceQuota (infra/k8s/bootstrap).
@@ -497,7 +501,6 @@ postgresql:
 externalDatabase:
   enabled: false
   host: "your-service-name-db.xxxxx.eu-west-1.rds.amazonaws.com"
-  port: 5432
   name: service_template
   user: app
   # Leave empty in prod and point at a sealed-secrets / ESO / SOPS secret.

@@ -545,8 +545,7 @@ postgresql:
   enabled: false                 # use the managed DB, not the in-cluster StatefulSet
 externalDatabase:
   enabled: true
-  host: "<external-host>"
-  port: 5432
+  host: "<external-host>"          # the port is config.DB_PORT (the one source)
   name: service_template
   user: app
   # password comes from an out-of-band secret (sealed-secrets / ESO / SOPS)

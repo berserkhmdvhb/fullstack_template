@@ -33,11 +33,12 @@ deployer:
 # The app namespace's ResourceQuota. The caps fit a single developer-laptop node (14 CPU
 # allocatable) with the chart's HPA maxReplicas; raise both together for bigger clusters. The
 # database namespace has none. There is no limits.cpu: CPU limits are off by default (they throttle),
-# and a CPU-limit quota would refuse every Pod without one.
+# and a CPU-limit quota would refuse every Pod without one. The memory request and limit of each
+# container are equal (the chart enforces it), so the two memory caps track each other.
 quota:
   hard:
     requests.cpu: "6"
-    requests.memory: 12Gi
+    requests.memory: 18Gi
     limits.memory: 20Gi
     pods: "20"
     services: "10"

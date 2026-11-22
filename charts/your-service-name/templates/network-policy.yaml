@@ -176,7 +176,7 @@ spec:
         - protocol: TCP
           port: {{ include "chart.dbPort" . }}
 {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.egressCIDR }}
-    # Managed DB (postgresql.enabled=false): allow egress to its subnet on  (config.DB_PORT).
+    # Managed DB (postgresql.enabled=false): allow egress to its subnet on config.DB_PORT.
     # NetworkPolicy is IP-based; set externalDatabase.egressCIDR to the DB subnet.
     - to:
         - ipBlock:
@@ -231,7 +231,7 @@ spec:
         - protocol: TCP
           port: {{ include "chart.dbPort" . }}
 {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.egressCIDR }}
-    # Managed DB (postgresql.enabled=false): allow egress to its subnet on  (config.DB_PORT).
+    # Managed DB (postgresql.enabled=false): allow egress to its subnet on config.DB_PORT.
     - to:
         - ipBlock:
             cidr: {{ .Values.externalDatabase.egressCIDR | quote }}

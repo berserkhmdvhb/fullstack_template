@@ -19,7 +19,7 @@ metadata:
 type: Opaque
 stringData:
   host: {{ .Values.externalDatabase.host | quote }}
-  port: {{ .Values.externalDatabase.port | quote }}
+  port: {{ include "chart.dbPort" . | quote }}
   username: {{ .Values.externalDatabase.user | quote }}
   database: {{ .Values.externalDatabase.name | quote }}
   password: "REPLACE_WITH_SEALED_SECRET"   # <- sealed-secrets / ESO / SOPS
