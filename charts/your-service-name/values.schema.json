@@ -420,6 +420,11 @@
             "port": { "anyOf": [{ "type": "integer", "minimum": 1, "maximum": 65535 }, { "type": "string", "pattern": "^([1-9][0-9]*)?$" }] }
           }
         },
+        "extraDirectives": {
+          "description": "Coraza directives appended after CRS (rule exclusions).",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
         "upstreamPeers": {
           "description": "NetworkPolicy peers (to entries) the WAF egress allows on the upstream port instead of the backend Pods.",
           "type": "array",

@@ -169,7 +169,20 @@ the Wasm magic number. The final stage only copies the module to `/etc/envoy/cor
   other image), and an exempt image that declares a HEALTHCHECK fails the check. Run bare, the image prints
   its version: the chart passes the whole Envoy configuration, and the base image's default configuration
   (which binds the admin interface to every address) is never used.
-- **Request bodies are inspected.** The chart loads Coraza's recommended configuration (`@recommended-conf`), enforcing (`SecRuleEngine On`), with `SecRequestBodyAccess On` and `SecResponseBodyAccess Off`, then the OWASP CRS. `SecRequestBodyLimit`, `SecRequestBodyInMemoryLimit` (with `SecRequestBodyLimitAction Reject`) and Envoy's listener buffer (`per_connection_buffer_limit_bytes`, which caps what Envoy buffers for the filter) are all `config.MAX_REQUEST_BODY_BYTES`. In the cluster that one chart value also sets the backend's own limit (through the ConfigMap); the backend's built-in default (10 MiB, `settings.py`) is kept equal to it by a test. A larger body gets a `413` from the WAF and never reaches the upstream uninspected; a 2 MiB body passes (proven by a run).
+- **Request bodies are inspected.** The chart loads Coraza's recommended configuration (`@recommended-conf`), enforcing (`SecRuleEngine On`), with `SecRequestBodyAccess On` and `SecResponseBodyAccess Off`, then the OWASP CRS. `SecRequestBodyLimit`, `SecRequestBodyInMemoryLimit` (with `SecRequestBodyLimitAction Reject`) and Envoy's listener buffer (`per_connection_buffer_limit_bytes`, which caps what Envoy buffers for the filter) are all `config.MAX_REQUEST_BODY_BYTES`. In the cluster that one chart value also sets the backend's own limit (through the ConfigMap); the backend's built-in default (10 MiB, `settings.py`) is kept equal to it by a test. A larger body gets a `413`. **Nothing reaches the upstream before Coraza has passed the whole request:** Coraza lets the headers through at once and runs its phase-2 rules at the end of the request, so an Envoy buffer filter (`max_request_bytes`, the same value) sits between Coraza and the router. A request whose body never finishes is never forwarded, not even its headers. A run proves it: a held-back body with an XSS or SQLi query string gets `403` and the upstream sees no connection; a complete one gets `403`; a 2 MiB body and benign requests pass.
+- **Memory is bounded.** The container's memory limit equals its request (`waf.resources`, through the chart's resources helper). Envoy's overload manager watches its heap (`envoy.resource_monitors.fixed_heap`, `max_heap_size_bytes` = 80% of that memory, computed in the template); at 0.90 it returns free memory to the system (`shrink_heap`), at 0.95 it refuses new requests with a `503` (`stop_accepting_requests`) instead of being OOM-killed. Each concurrent request can hold up to the body limit in Envoy plus Coraza's copy, so size `waf.resources` for your concurrent uploads.
+- **Rule exclusions.** `waf.extraDirectives` appends Coraza directives after CRS. For a binary upload endpoint, CRS refuses `application/octet-stream` (920420, "Request content type is not allowed by policy"), and Coraza then parses a binary body as form fields, which trips other rules (920270 null characters, 921150 CR/LF). Proven by a run, this pair allows uploads on one path and keeps everything else inspected:
+
+  ```yaml
+  waf:
+    extraDirectives:
+      - SecRuleRemoveById 920420
+      - >-
+        SecRule REQUEST_URI "@beginsWith /api/v1/uploads"
+        "id:10001,phase:1,pass,nolog,ctl:requestBodyAccess=Off"
+  ```
+
+  The first line turns the content-type policy off for every path; the second skips body inspection on the upload path only (its query string and headers are still inspected). Allow only what you must.
 - **Runtime:** Envoy loads the module from that file (`vm_config.code.local.filename`), so nothing is fetched at
   runtime; the admin interface is disabled, a separate listener answers the probes, and the root filesystem
   is read-only. Build it locally with

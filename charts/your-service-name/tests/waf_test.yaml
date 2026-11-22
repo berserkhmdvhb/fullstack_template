@@ -199,3 +199,62 @@ tests:
       waf: {health: {port: 8080}}
     asserts:
       - failedTemplate: {errorPattern: "waf.health.port"}
+  - it: the HTTP filters run Coraza, then a full-request buffer, then the router (nothing reaches the router before Coraza has passed the whole request)
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - matchRegex:
+          path: 'spec.template.spec.containers[0].args[1]'
+          pattern: 'http_filters:\s+- name: envoy\.filters\.http\.wasm[\s\S]+?- name: envoy\.filters\.http\.buffer\s+typed_config:\s+"@type": type\.googleapis\.com/envoy\.extensions\.filters\.http\.buffer\.v3\.Buffer\s+max_request_bytes: 10485760\s+- name: envoy\.filters\.http\.router'
+  - it: the buffer follows config.MAX_REQUEST_BODY_BYTES
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      config: {MAX_REQUEST_BODY_BYTES: "2048"}
+    asserts:
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'max_request_bytes: 2048\s'}
+  - it: the overload manager bounds Envoy's heap at 80% of the WAF memory limit, shrinking at 0.90 and refusing requests at 0.95
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].resources.limits.memory', value: 512Mi}
+      - equal: {path: 'spec.template.spec.containers[0].resources.requests.memory', value: 512Mi}
+      - matchRegex:
+          path: 'spec.template.spec.containers[0].args[1]'
+          pattern: 'overload_manager:\s+refresh_interval: 0\.25s\s+resource_monitors:\s+- name: envoy\.resource_monitors\.fixed_heap\s+typed_config:\s+"@type": type\.googleapis\.com/envoy\.extensions\.resource_monitors\.fixed_heap\.v3\.FixedHeapConfig\s+max_heap_size_bytes: 429496729\s'
+      - matchRegex:
+          path: 'spec.template.spec.containers[0].args[1]'
+          pattern: '- name: envoy\.overload_actions\.shrink_heap\s+triggers:\s+- name: envoy\.resource_monitors\.fixed_heap\s+threshold: \{ value: 0\.9 \}\s+- name: envoy\.overload_actions\.stop_accepting_requests\s+triggers:\s+- name: envoy\.resource_monitors\.fixed_heap\s+threshold: \{ value: 0\.95 \}'
+  - it: the heap bound follows the WAF memory (quantities are normalised)
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      waf: {resources: {requests: {cpu: 100m, memory: 1Gi}}}
+    asserts:
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'max_heap_size_bytes: 858993459\s'}
+  - it: no extra Coraza directives by default
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'Include @owasp_crs/\*\.conf\\"\]'}
+  - it: waf.extraDirectives are appended after CRS (an adopter's rule exclusion)
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      waf: {extraDirectives: ["SecRuleRemoveById 920420"]}
+    asserts:
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'Include @owasp_crs/\*\.conf\\",\\"SecRuleRemoveById 920420\\"\]'}
+  - it: the documented binary-upload exclusion renders as two directives after CRS
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      waf:
+        extraDirectives:
+          - SecRuleRemoveById 920420
+          - >-
+            SecRule REQUEST_URI "@beginsWith /api/v1/uploads"
+            "id:10001,phase:1,pass,nolog,ctl:requestBodyAccess=Off"
+    asserts:
+      - matchRegex:
+          path: 'spec.template.spec.containers[0].args[1]'
+          pattern: 'owasp_crs/\*\.conf\\",\\"SecRuleRemoveById 920420\\",\\"SecRule REQUEST_URI \\\\\\"@beginsWith /api/v1/uploads\\\\\\" \\\\\\"id:10001,phase:1,pass,nolog,ctl:requestBodyAccess=Off\\\\\\"\\"\]'

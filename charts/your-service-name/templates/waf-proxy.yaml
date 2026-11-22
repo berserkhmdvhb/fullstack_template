@@ -17,6 +17,12 @@
 {{- if .Values.waf.owaspCrs }}
 {{- $directives = concat $directives (list "Include @crs-setup-conf" "Include @owasp_crs/*.conf") }}
 {{- end }}
+{{- /* An adopter's own directives (rule exclusions such as SecRuleRemoveById), after CRS. */}}
+{{- $directives = concat $directives (.Values.waf.extraDirectives | default list) }}
+{{- /* Envoy's heap bound: 80% of the WAF container's memory limit, which chart.resources sets equal
+       to its memory request; the rest is left to the Wasm VMs and the process. */}}
+{{- $wafMemory := include "chart.bytes" .Values.waf.resources.requests.memory }}
+{{- $maxHeap := div (mul (int64 $wafMemory) 8) 10 }}
 # -----------------------------------------------------------------------------
 # WAF proxy — Coraza (Envoy wasm + OWASP CRS), fronting the API surface.
 #
@@ -100,6 +106,24 @@ spec:
           args:
             - --config-yaml
             - |
+              # Under memory pressure (Envoy's heap against max_heap_size_bytes) Envoy first returns
+              # free memory to the system, then refuses new requests (503) instead of being OOM-killed.
+              overload_manager:
+                refresh_interval: 0.25s
+                resource_monitors:
+                  - name: envoy.resource_monitors.fixed_heap
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.resource_monitors.fixed_heap.v3.FixedHeapConfig
+                      max_heap_size_bytes: {{ $maxHeap }}
+                actions:
+                  - name: envoy.overload_actions.shrink_heap
+                    triggers:
+                      - name: envoy.resource_monitors.fixed_heap
+                        threshold: { value: 0.9 }
+                  - name: envoy.overload_actions.stop_accepting_requests
+                    triggers:
+                      - name: envoy.resource_monitors.fixed_heap
+                        threshold: { value: 0.95 }
               static_resources:
                 listeners:
                   # Coraza needs the whole body, so Envoy buffers it; above the buffer limit Envoy
@@ -135,6 +159,14 @@ spec:
                                       configuration:
                                         "@type": type.googleapis.com/google.protobuf.StringValue
                                         value: {{ dict "directives_map" (dict "default" $directives) "default_directives" "default" | toJson | quote }}
+                                # After Coraza, before the router: Coraza passes the headers on at once and
+                                # runs its phase-2 rules (CRS's attack rules on the query string, headers
+                                # and body) only at the end of the request, so without this buffer the
+                                # upstream would get a request whose body never finishes uninspected.
+                                - name: envoy.filters.http.buffer
+                                  typed_config:
+                                    "@type": type.googleapis.com/envoy.extensions.filters.http.buffer.v3.Buffer
+                                    max_request_bytes: {{ $bodyLimit }}
                                 - name: envoy.filters.http.router
                                   typed_config:
                                     "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

@@ -450,6 +450,15 @@ waf:
     host: ""
     port: ""
   upstreamPeers: []
+  # Coraza directives appended after CRS: rule exclusions for your API (empty by default). Binary
+  # uploads on one path (CRS refuses application/octet-stream, rule 920420, and would parse the
+  # body as form fields), the pair wiki/containerization.md (Dockerfile.waf) explains:
+  #   extraDirectives:
+  #     - SecRuleRemoveById 920420
+  #     - >-
+  #       SecRule REQUEST_URI "@beginsWith /api/v1/uploads"
+  #       "id:10001,phase:1,pass,nolog,ctl:requestBodyAccess=Off"
+  extraDirectives: []
   # Seconds Envoy keeps an idle upstream connection to the backend before closing it. It MUST stay
   # below the backend's keep-alive (BACKEND_KEEPALIVE_TIMEOUT, 75 s in the launcher,
   # backend/serve.py), or Envoy can reuse a connection Uvicorn just closed and return a 502.
@@ -458,6 +467,7 @@ waf:
   # keep-alive (ingress-nginx's `upstream-keepalive-timeout`, default 60 s) must stay below the
   # backend keep-alive too; raising it past that causes intermittent 502s.
   upstreamIdleTimeoutSeconds: 60
+  # The memory limit equals the request; Envoy's heap is bounded at 80% of it (overload manager).
   resources:
     requests: {cpu: 100m, memory: 512Mi}
     limits: {}
