@@ -29,6 +29,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       pins: ${{ steps.filter.outputs.pins }}
       images: ${{ steps.filter.outputs.images }}
+      kind: ${{ steps.filter.outputs.kind }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,7 +42,7 @@ jobs:
         run: |
           # Everything runs on main, on tags and on a manual run; only pull requests are filtered.
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            printf '%s\n' backend=true frontend=true pins=true images=true >> "$GITHUB_OUTPUT"
+            printf '%s\n' backend=true frontend=true pins=true images=true kind=true >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
@@ -66,6 +67,12 @@ jobs:
             echo "images=true" >> "$GITHUB_OUTPUT"
           else
             echo "images=false" >> "$GITHUB_OUTPUT"
+          fi
+          # What the kind job deploys: the images' inputs, the chart, the bootstrap and the scripts and pins it runs.
+          if grep -Eq '^(Dockerfile\.|\.dockerignore|src/|pyproject\.toml|uv\.lock|alembic\.ini|README\.md|LICENSE|VERSION|frontend/|charts/|infra/k8s/|\.github/|scripts/|tools/|Makefile)' <<<"$changed"; then
+            echo "kind=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "kind=false" >> "$GITHUB_OUTPUT"
           fi
 
   backend:
@@ -308,17 +315,28 @@ jobs:
       - name: Check the image
         run: bash scripts/ci/image-checks.sh --strict "${IMAGE_ID}" "${IMAGE_REF}"
 
+  # Blocking on pull requests: the chart in a real kind cluster, on the floor and the newest pinned node image
+  # (reusable-kind.yml). Pull requests only, behind its path filter; a push to main and a v* tag skip it.
+  kind:
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.kind == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-kind.yml
+    with:
+      base-sha: ${{ github.event.pull_request.base.sha }}
+
   # The one required status check. Path-filtered jobs that are skipped and the matrix legs of the reusable
   # workflows have no stable check names, so the branch ruleset requires this job instead (see
   # wiki/github-repository-settings.md). Only backend, frontend, live and pins may be skipped, and only on a pull
-  # request (their path filter); image-plan and images may be skipped on any event (they run on pull requests
-  # only, behind the images path filter), but never fail; everything else (api-compat included) must succeed, and so must `changes`, or the filter never ran.
+  # request (their path filter); image-plan, images and kind may be skipped on any event (they run on pull
+  # requests only, behind their path filters), but never fail; everything else (api-compat included) must succeed, and so must `changes`, or the filter never ran.
   # `live` is advisory on pull requests, so its result is ignored there instead of relying on how
   # continue-on-error surfaces through a called workflow.
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, chart, backend, frontend, live, security, repo, hadolint, api-compat, workflows, pins, image-plan, images]
+    needs: [changes, chart, backend, frontend, live, security, repo, hadolint, api-compat, workflows, pins, image-plan, images, kind]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -332,7 +350,7 @@ jobs:
           bad="$(jq -r --arg ev "$EVENT_NAME" 'to_entries[] | .key as $k | .value.result as $r
             | select(
                 if $k == "live" and $ev == "pull_request" then false
-                elif ($k == "image-plan" or $k == "images") then ($r != "success" and $r != "skipped")
+                elif ($k == "image-plan" or $k == "images" or $k == "kind") then ($r != "success" and $r != "skipped")
                 elif ($k == "backend" or $k == "frontend" or $k == "pins") and $ev == "pull_request" then ($r != "success" and $r != "skipped")
                 else $r != "success" end)
             | "\($k)=\($r)"' <<<"$NEEDS")"

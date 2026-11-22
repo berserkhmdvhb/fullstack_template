@@ -1,0 +1,8 @@
+# chart-testing (ct) settings: one source for `ct lint` in the chart job (reusable-chart.yml) and for
+# `ct lint` and `ct install` in the kind job (scripts/kind-deploy.sh). Keys are ct's flag names.
+lint-conf: .github/ct-lintconf.yaml
+chart-yaml-schema: .github/ct-chart-schema.yaml
+# The maintainers check looks up GitHub accounts over the network, and the chart's maintainer is a
+# placeholder. The version-increment check needs a target branch (CI checkouts are shallow).
+validate-maintainers: false
+check-version-increment: false

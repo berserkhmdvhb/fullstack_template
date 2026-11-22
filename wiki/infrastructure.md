@@ -9,6 +9,7 @@ Kubernetes resources, the edge, Docker Compose for local development, and the en
 - [Overview](#overview)
 - [Kubernetes Resources](#kubernetes-resources)
 - [Namespace bootstrap (one-time admin step)](#namespace-bootstrap-one-time-admin-step)
+- [Local cluster (kind)](#local-cluster-kind)
 - [Workloads: rollout, resources and shutdown](#workloads-rollout-resources-and-shutdown)
 - [Edge](#edge)
 - [Collecting logs](#collecting-logs)
@@ -194,7 +195,10 @@ ResourceQuotas or LimitRanges; or create, change or delete any Role or RoleBindi
 its own rights, and it can't copy them to another identity by binding its Role to it. That is why the
 quota, the LimitRange and all RBAC live in the bootstrap: a compromised deploy can't lift its own
 limits or hand its rights on. (Its write access to Secrets and ServiceAccounts in its own namespaces
-remains, as Helm needs it.)
+remains, as Helm needs it: Helm keeps its release records as Secrets, so `helm status`, `history` and
+`rollback`, the deploy-ops operations, read them. It reads Secrets in its own namespaces only: in
+every other namespace, and cluster-wide, it is refused, which the kind job checks on a real API
+server.)
 
 **The single-tenant path, without the bootstrap:** a cluster admin installs the chart with
 `--set namespaces.create=true --set rbac.create=true`, so the release itself renders both namespaces
@@ -207,19 +211,24 @@ for the release to adopt it (the label `app.kubernetes.io/managed-by=Helm`, the 
 (the older chart rendered them unconditionally). Switching it to the bootstrap is a one-time admin
 step, before the first deployer upgrade: the deployer has no rights on Namespaces or RBAC, so its
 upgrade would try to delete them and be refused, and an admin upgrade without this step would delete
-the namespaces with everything in them. As a cluster admin, with the chart checkout the deploy uses:
+the namespaces with everything in them. As a cluster admin, with the chart checkout the deploy uses
+and the values its deploy passes:
 
 ```bash
 RELEASE=<release>; ENV=<env>; NS="$RELEASE-$ENV"
+# The values the deploy of this chart version passes after the env's values file: your secret values
+# (or secrets.existingSecret) and the images it deploys, for example
+#   DEPLOY_VALUES=(-f values.secret.yaml --set images.backend.digest=sha256:<64 hex> ...)
+DEPLOY_VALUES=(<the deploy's values>)
 # 1. One upgrade that still renders them: they gain helm.sh/resource-policy: keep.
-helm upgrade "$RELEASE" charts/your-service-name -n "$NS" --reset-then-reuse-values \
-  --history-max 5 --set namespaces.create=true --set rbac.create=true --wait
+helm upgrade "$RELEASE" charts/your-service-name -n "$NS" -f "charts/your-service-name/values.$ENV.yaml" \
+  "${DEPLOY_VALUES[@]}" --history-max 5 --set namespaces.create=true --set rbac.create=true --wait
 # 2. The bootstrap: its namespaces, quota, deployer RBAC and the app's Role and RoleBinding,
 #    applied over the release's own objects of the same names.
 scripts/k8s-bootstrap.sh "$ENV" --release "$RELEASE" | kubectl apply -f -
 # 3. One upgrade with both off: the release stops recording them, and keep leaves them in place.
-helm upgrade "$RELEASE" charts/your-service-name -n "$NS" --reset-then-reuse-values \
-  --history-max 5 --set namespaces.create=false --set rbac.create=false --wait
+helm upgrade "$RELEASE" charts/your-service-name -n "$NS" -f "charts/your-service-name/values.$ENV.yaml" \
+  "${DEPLOY_VALUES[@]}" --history-max 5 --set namespaces.create=false --set rbac.create=false --wait
 # 4. Check: prints nothing once the release no longer holds them.
 helm get manifest "$RELEASE" -n "$NS" | grep -Ex 'kind: (Namespace|Role|RoleBinding)'
 ```
@@ -230,12 +239,88 @@ them, and they carry no keep annotation. Step 2 recreates them, as the bootstrap
 step 1's rollout takes. That is acceptable: Pods already running are not affected, the chart sets
 explicit requests and limits on its own containers, and only the admin deploys in that window.
 
-`--reset-then-reuse-values` keeps the release's own values (the image digests the deploy set) on the
-current chart. A release whose values set the removed `quota.*` or `limitRange.*` keys fails the
-current schema: remove them from its values first. From then on the deployer's upgrades touch none of these objects.
+Pass the current chart's values, never the release's stored ones (`--reuse-values` or
+`--reset-then-reuse-values`): an older release stored the values files of its own chart, which hold
+keys the current schema refuses (`images.nginx`, `ingress`, `quota`, `limitRange`), so the first upgrade
+would fail. Step 1 is the first deploy of the current version, so it runs the images that version
+deploys. In step 2 `kubectl apply` warns that the Namespaces, the Role and the RoleBinding lack its
+last-applied annotation (Helm made them): expected, and the objects are updated in place. From then on
+the deployer's upgrades touch none of these objects. A kind run followed these steps from a release of
+an older chart that owned both Namespaces, the app's Role and RoleBinding, a ResourceQuota and a
+LimitRange: no namespace or volume was replaced, the database kept its rows, and the deployer's next
+upgrade passed.
 `scripts/k8s-env.sh apply` (`make k8s-apply`, `make deploy`), which runs as an admin, does steps 1 to
 3 itself when the release's stored manifest holds a Namespace, Role or RoleBinding, and prints each
 command (a dry run prints the upgrade it would run).
+
+---
+
+## Local cluster (kind)
+
+The chart in a real cluster: [`kind`](https://kind.sigs.k8s.io) with a pinned node image, the same
+sequence locally and in CI. The cluster is always named `fst` and its kubeconfig is always
+`.local/kind/kubeconfig` (gitignored): every kind call passes `--name fst` and `--kubeconfig`, so
+nothing writes `~/.kube/config` and no call lists or touches another cluster. Needs docker and the
+pinned tools (`make tools`: kind, ct, Helm, yq, both kubectl pins, the CRD sources).
+
+```bash
+make kind-up                     # create fst (or reuse it) on the floor node image; KIND_NODE=newest for the other
+make kind-deploy                 # the full sequence below; KIND_BASE=<ref> adds the upgrade test from that commit
+make kind-down                   # delete fst and .local/kind
+```
+
+**The node images** are pinned by digest in `tools/kind-nodes.tsv`, one row per leg, from the pinned
+kind's release notes: `floor` is the oldest Kubernetes minor kind publishes an image for and is the
+chart's `kubeVersion` floor (1.34), `newest` is kind's default (1.37). Each row names the kubectl pin
+of that leg (`kubectl-floor` 1.34, `kubectl` 1.37), so the client is always within one minor of the
+server; `scripts/kind-deploy.sh` picks it from the server's version and refuses a server no row covers.
+
+**The sequence** (`scripts/kind-deploy.sh`; it refuses any context but `kind-fst`, and ignores an
+inherited `KUBECONFIG`):
+1. Builds the three images through the images job's build path (`scripts/ci/build-image.sh`), loads
+   them into fst and removes the local tags. No registry and no push; the third-party images are
+   pulled by their pinned digests.
+2. As cluster admin, applies the [bootstrap](#namespace-bootstrap-one-time-admin-step) for `local` in
+   the release namespace and in a second one for ct, and the Gateway API CRDs from their pinned source
+   and sha256 (`ci/crds/sources.tsv`, the `crd-sources` cache).
+3. Runs `ct lint`, then `ct install` (every `ci/*-values.yaml` with `values.local.yaml`; settings in
+   `.github/ct.yaml`) in the ct namespace.
+4. Installs the release. With `KIND_BASE` (CI passes the pull request's base commit), it installs that
+   commit's chart first, writes a row to the database, records the namespaces and the database volume,
+   then upgrades to the checkout's chart, and fails on a Forbidden error, a replaced namespace or
+   volume, a lost row or a migration Job that did not succeed. The base install uses the checkout's
+   images: the chart is under test, not the app. Then `helm test`.
+5. Turns the WAF on (an upgrade) and checks its Pod: admitted by the namespace's restricted
+   enforcement, uid 65532 in the Pod spec and in the running container's status, Ready with no restart.
+   Then `helm test` again.
+6. Checks the deployer's deploy-ops rights: `helm status`, Pod logs and a port-forward (the health
+   route answers 200) work; `exec` is refused; Secrets can be read only in the namespaces the
+   bootstrap bound it in, and are refused in every other namespace and cluster-wide.
+
+Every install, upgrade, `helm test` and `helm status` runs as the bootstrap's deployer
+(`helm --kube-as-user your-deployer-local --kube-as-group system:authenticated`), never as admin, so
+the run proves the deployer's Role is enough for `helm upgrade --install --wait`. The database
+password is generated once into `.local/kind/values.yaml` and kept with the cluster. The kind run turns
+the backup CronJob off (`postgresql.backup.enabled=false`): kind's `standard` class binds a volume only
+when its first Pod starts (`WaitForFirstConsumer`), so the backup PVC stays `Pending` until the first
+nightly backup and `helm --wait`, which waits for every PVC to be bound, would time out. The same
+holds on any such class (GKE's `standard-rwo`, for one): there, give `postgresql.backup.storage.className`
+a class with `volumeBindingMode: Immediate`.
+
+**`helm test`** (`templates/tests/release-test.yaml`) renders only with `tests.enabled` (off by
+default; `values.local.yaml` and the kind run turn it on), so no dev, qa or production release
+carries it. Its Jobs run the backend image's Python, restricted, as the deployer can create Jobs but
+no Pods: the backend's readiness path, `tests.apiPath` and the frontend answer 200; with the WAF on a
+benign request through it answers 200 and an XSS probe 403; and the backend's metrics port refuses
+the test Pod, which no rule admits. When the scrape peers (`networkPolicy.monitoringNamespaceSelector`
+and `monitoringPodSelector`) select the release namespace, as the kind run sets them, a second Job
+with the peer's labels must reach the metrics port. Two hook NetworkPolicies open the default-deny to
+the test Pods while the test runs, never to the metrics port. The refusal check needs a CNI that
+enforces NetworkPolicy: kind's kindnet does (kube-network-policies).
+
+**In CI** `reusable-kind.yml`, called by `ci.yml` on pull requests behind its path filter, runs this
+on both legs (`make kind-up` with `KIND_NODE` set to the leg, then `make kind-deploy` with the base
+commit), and always deletes the cluster at the end. It is blocking, behind `CI OK`.
 
 ---
 
@@ -274,7 +359,7 @@ stops accepting, waits for open connections (Node closes idle keep-alive ones as
 sleep plus the drain.
 
 **Kubernetes version.** The chart's `kubeVersion` is 1.34 or later, a tested floor: the kind job
-(`tools/kind-nodes.tsv`) installs and tests the chart on that minor and on the newest one. Every
+([Local cluster (kind)](#local-cluster-kind)) installs and tests the chart on that minor and on the newest one. Every
 feature the chart relies on is GA at 1.34: the `sleep` action (GA in 1.34) and native sidecars (the Cloud
 SQL proxy; GA in 1.33). A Helm install on an older cluster refuses.
 

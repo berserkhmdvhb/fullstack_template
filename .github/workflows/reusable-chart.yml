@@ -40,14 +40,11 @@ jobs:
             python3 -m venv "$RUNNER_TEMP/${tool}"
             "$RUNNER_TEMP/${tool}/bin/pip" install --quiet --require-hashes --no-deps -r "tools/requirements/${tool}.txt"
           done
-      # --check-version-increment needs a target branch (the checkout is shallow). --validate-maintainers would look
-      # up the maintainers' GitHub accounts over the network, and the chart's maintainer is a placeholder.
+      # The ct settings (.github/ct.yaml) are the kind job's too.
       - name: ct lint
         run: |
           : "${CHART_DIR:?CHART_DIR is required}"
-          PATH="$RUNNER_TEMP/yamllint/bin:$RUNNER_TEMP/yamale/bin:$PATH" ct lint --charts "${CHART_DIR}" \
-            --lint-conf .github/ct-lintconf.yaml --chart-yaml-schema .github/ct-chart-schema.yaml \
-            --validate-maintainers=false --check-version-increment=false
+          PATH="$RUNNER_TEMP/yamllint/bin:$RUNNER_TEMP/yamale/bin:$PATH" ct lint --config .github/ct.yaml --charts "${CHART_DIR}"
       - name: Chart unit tests and golden renders
         run: |
           : "${CHART_DIR:?CHART_DIR is required}"

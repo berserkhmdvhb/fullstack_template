@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import yaml
+
 from tests.supply_chain._workflows import REPO, workflow
 
 CONF = ".github/ct-lintconf.yaml"
+# The ct settings, one source for the chart job's ct lint and the kind job's ct lint and ct install.
+CT_CONFIG = ".github/ct.yaml"
+
+
+def _ct_config() -> dict[str, object]:
+    config: dict[str, object] = yaml.safe_load((REPO / CT_CONFIG).read_text(encoding="utf-8"))
+    return config
 
 
 def test_the_config_is_tracked_and_says_where_it_came_from() -> None:
@@ -22,7 +31,8 @@ def test_the_config_is_tracked_and_says_where_it_came_from() -> None:
 def test_the_chart_job_runs_ct_lint_with_it() -> None:
     steps = workflow("reusable-chart.yml")["jobs"]["chart"]["steps"]
     runs = "\n".join(s.get("run", "") for s in steps)
-    assert f"--lint-conf {CONF}" in runs
+    assert f"ct lint --config {CT_CONFIG}" in runs
+    assert _ct_config()["lint-conf"] == CONF
     assert "scripts/tools.sh install" in runs
     assert "ct" in runs
 
@@ -54,11 +64,18 @@ def test_the_chart_schema_is_tracked_and_matches_the_ct_pin() -> None:
 
 
 def test_ct_lint_validates_the_chart_schema() -> None:
-    runs = _chart_runs()
-    assert f"--chart-yaml-schema {SCHEMA}" in runs
-    assert "--validate-chart-schema=false" not in runs
-    assert "--check-version-increment=false" in runs
-    assert "--validate-maintainers=false" in runs
+    config = _ct_config()
+    assert config["chart-yaml-schema"] == SCHEMA
+    assert config.get("validate-chart-schema", True) is True
+    assert "--validate-chart-schema" not in _chart_runs()
+    assert config["check-version-increment"] is False
+    assert config["validate-maintainers"] is False
+
+
+def test_the_kind_job_runs_ct_with_the_same_config() -> None:
+    script = (REPO / "scripts" / "kind-deploy.sh").read_text(encoding="utf-8")
+    assert f"ct lint --config {CT_CONFIG}" in script
+    assert f"ct install --config {CT_CONFIG}" in script
 
 
 def test_the_chart_job_installs_its_python_linters_from_hashed_locks() -> None:
@@ -67,7 +84,7 @@ def test_the_chart_job_installs_its_python_linters_from_hashed_locks() -> None:
     assert 'python3 -m venv "$RUNNER_TEMP/${tool}"' in runs
     assert "tools/requirements/${tool}.txt" in runs
     assert "--require-hashes" in runs
-    assert 'PATH="$RUNNER_TEMP/yamllint/bin:$RUNNER_TEMP/yamale/bin:$PATH" ct lint' in runs
+    assert 'PATH="$RUNNER_TEMP/yamllint/bin:$RUNNER_TEMP/yamale/bin:$PATH" ct lint --config' in runs
     assert "install ct" in runs
     assert "GITHUB_PATH" not in runs.replace('"$PWD/.tools/bin" >> "$GITHUB_PATH"', "")
 

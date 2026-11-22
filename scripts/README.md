@@ -19,6 +19,7 @@ same conventions so they compose into a predictable workflow.
 | [`e2e.sh`](#e2esh) | Deploy + verify the whole stack end-to-end (the "did it actually come up?" gate) |
 | [`k8s-env.sh`](#k8s-envsh) | Apply / delete / status / wait for a whole Helm environment (release) |
 | [`k8s-bootstrap.sh`](#k8s-bootstrapsh) | Render the one-time admin bootstrap of an environment (namespaces, quota, deployer RBAC) |
+| [`kind-up.sh`, `kind-deploy.sh`](#kind-upsh-and-kind-deploysh) | The local kind cluster `fst`, and the kind job's deploy-and-test sequence |
 | [`port-forward.sh`](#port-forwardsh) | Self-cleaning port-forwards to every service |
 | [`logs.sh`](#logssh) | Aggregate (or live-tail) logs across services |
 | [`secrets.sh`](#secretssh) | Create / inspect / delete a namespace Secret, safely |
@@ -150,6 +151,19 @@ creates and how to set the deployer is in
 ```bash
 ./scripts/k8s-bootstrap.sh dev | kubectl apply -f -
 ./scripts/k8s-bootstrap.sh production --release my-service   # print only
+```
+
+### `kind-up.sh` and `kind-deploy.sh`
+`kind-up.sh` creates, reuses or (`--delete`) deletes the local kind cluster **`fst`**, always with
+`--name fst` and the kubeconfig `.local/kind/kubeconfig`, on a node image pinned in
+`tools/kind-nodes.tsv` (`--node floor|newest`). `kind-deploy.sh` is the kind job's sequence, the one CI
+runs: images, the admin bootstrap, `ct lint` and `ct install`, the release (with `--base REF`, an
+upgrade from that commit's chart), `helm test`, the WAF and the deployer's rights. It refuses any
+context but `kind-fst`. What each step checks:
+[`wiki/infrastructure.md`](../wiki/infrastructure.md#local-cluster-kind).
+
+```bash
+make kind-up && make kind-deploy KIND_BASE=origin/main && make kind-down
 ```
 
 ### `e2e.sh`

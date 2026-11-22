@@ -1,0 +1,70 @@
+name: Kind
+
+# Call-only: ci.yml calls it on pull requests. The chart in a real cluster, on each pinned node image of
+# tools/kind-nodes.tsv (the chart's kubeVersion floor and kind's newest): scripts/kind-up.sh and
+# scripts/kind-deploy.sh, the same sequence `make kind-up kind-deploy` runs locally. The images are built
+# here, into the runner's daemon only (no push, no registry, no cache), through the images job's build
+# path (scripts/ci/build-image.sh); see wiki/infrastructure.md, Local cluster (kind).
+on:
+  workflow_call:
+    inputs:
+      base-sha:
+        description: The pull request's base commit; its chart is installed first, then upgraded to this one
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  kind:
+    name: Kind (${{ matrix.leg }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    concurrency:
+      group: kind-${{ github.ref }}-${{ matrix.leg }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        # The legs of tools/kind-nodes.tsv (a test keeps the two equal).
+        leg: [floor, newest]
+    env:
+      LEG: ${{ matrix.leg }}
+      BASE_SHA: ${{ inputs.base-sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch the base commit
+        run: git fetch --no-tags --depth=1 origin "${BASE_SHA}"
+      # kind, ct, Helm, yq and both kubectl pins, checksum-verified; the Gateway API CRDs by their pinned
+      # sha256 (crd-sources). ct shells out to yamllint and yamale, and the image matrix helper imports
+      # PyYAML: each gets a venv from its hashed lock.
+      - name: Install the pinned tools
+        run: |
+          scripts/tools.sh install helm4 kubectl kubectl-floor kind ct yq crd-sources
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+          for tool in yamllint yamale pyyaml; do
+            python3 -m venv "$RUNNER_TEMP/${tool}"
+            "$RUNNER_TEMP/${tool}/bin/pip" install --quiet --require-hashes --no-deps -r "tools/requirements/${tool}.txt"
+          done
+      - name: Create the cluster
+        run: scripts/kind-up.sh --node "${LEG}"
+      - name: Deploy and test (images, bootstrap, ct, base to HEAD upgrade, helm test, WAF, deployer rights)
+        env:
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+          VCS_REF: ${{ github.sha }}
+          VCS_BRANCH: ${{ github.ref_name }}
+        run: |
+          PATH="$RUNNER_TEMP/yamllint/bin:$RUNNER_TEMP/yamale/bin:$PATH" PYTHON="$RUNNER_TEMP/pyyaml/bin/python" \
+            scripts/kind-deploy.sh --base "${BASE_SHA}"
+      - name: Show the cluster state
+        if: failure()
+        run: |
+          kubectl --kubeconfig .local/kind/kubeconfig get pods,jobs -A -o wide || true
+          kubectl --kubeconfig .local/kind/kubeconfig get events -A --sort-by=.lastTimestamp | tail -n 60 || true
+      - name: Delete the cluster
+        if: always()
+        run: scripts/kind-up.sh --delete

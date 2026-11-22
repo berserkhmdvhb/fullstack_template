@@ -124,6 +124,9 @@ make compose-build-backend compose-build-frontend
 ./scripts/port-forward.sh --env local &
 ```
 
+Or run what CI's kind job runs, in a kind cluster of its own (`fst`, kubeconfig in `.local/kind/`):
+`make kind-up kind-deploy`, then `make kind-down` ([Local cluster (kind)](wiki/infrastructure.md#local-cluster-kind)).
+
 ### C) Kubernetes deployment (production)
 
 ```bash

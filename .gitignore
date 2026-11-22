@@ -7,6 +7,8 @@
 !.env*.example
 /infra/security/local/.env.local
 /charts/*/values.secret.yaml
+# The local kind cluster's kubeconfig and generated secrets (scripts/kind-up.sh, kind-deploy.sh).
+/.local/
 
 # --- Python ---
 __pycache__/

@@ -15,6 +15,7 @@
     dev-tools-list dev-tools-outdated dev-tools-upgrade version-check- \
     k8s-apply k8s-delete k8s-build k8s-status k8s-pods k8s-services k8s-port-forward \
     k8s-wait k8s-logs k8s-port-forward-all deploy rebuild-and-roll smoke-test \
+    kind-up kind-deploy kind-down \
     secrets db-backup certs \
     security-local security-build security-tools \
     security-sbom security-vuln security-license security-malware security-iac security-k8s security-dast security-vex security-audit \
@@ -139,6 +140,9 @@ help::
 	@echo "  db-backup                On-demand PostgreSQL backup (HELM_ENV=...)"
 	@echo "  certs                    Wire local self-signed TLS via cert-manager (HELM_ENV=...)"
 	@echo "  (HELM_ARGS=... passes extra flags through to the operational scripts)"
+	@echo "  kind-up                  Create (or reuse) the local kind cluster fst (KIND_NODE=floor|newest)"
+	@echo "  kind-deploy              The kind job: images, bootstrap, ct, the release, helm test (KIND_BASE=<ref>)"
+	@echo "  kind-down                Delete the kind cluster fst and .local/kind"
 	@echo ""
 	@echo "Supply-chain security (wraps infra/security/local/devsec.sh; extra flags via SEC_ARGS=...):"
 	@echo "  security-local           Run the full chain (bootstrap + build + all)"
@@ -584,6 +588,21 @@ secrets:
 db-backup:
 	@echo "Taking an on-demand $(HELM_ENV) PostgreSQL backup…"
 	./scripts/db-backup.sh --env $(HELM_ENV) $(HELM_ARGS)
+
+# The local kind cluster fst (always --name fst, kubeconfig .local/kind/kubeconfig) and the kind job's
+# sequence, the one CI runs (wiki/infrastructure.md, Local cluster). KIND_NODE picks the pinned node
+# image (tools/kind-nodes.tsv); KIND_BASE=<ref> adds the upgrade test from that commit's chart.
+KIND_NODE ?= floor
+KIND_BASE ?=
+
+kind-up:
+	scripts/kind-up.sh --node $(KIND_NODE)
+
+kind-deploy:
+	scripts/kind-deploy.sh $(if $(KIND_BASE),--base $(KIND_BASE))
+
+kind-down:
+	scripts/kind-up.sh --delete
 
 certs:
 	@echo "Wiring local self-signed TLS for $(HELM_ENV) (cert-manager)…"

@@ -58,3 +58,19 @@ def test_the_migration_says_the_old_quota_is_recreated_by_the_bootstrap() -> Non
     section = " ".join(section[: section.index("\n---")].split())
     assert "deletes the old chart's ResourceQuota and LimitRange" in section
     assert "recreates them" in section
+
+
+def test_the_migration_upgrades_pass_the_current_charts_values_not_the_stored_ones() -> None:
+    """The stored values of an older release carry keys the current schema refuses (images.nginx,
+    ingress), so reusing them fails the first upgrade (seen on a kind cluster): pass the env's
+    values file and the deploy's values instead, in every upgrade of the migration."""
+    text = (ROOT / "wiki" / "infrastructure.md").read_text("utf-8")
+    section = text[text.index("**An existing release from an older chart**") :]
+    section = section[: section.index("\n---")]
+    commands = re.findall(r"^helm upgrade .*?(?<!\\)$", section, re.MULTILINE | re.DOTALL)
+    upgrades = [" ".join(u.split()) for u in commands]
+    assert len(upgrades) == 2, upgrades  # noqa: PLR2004 (keep, then the switch)
+    for upgrade in upgrades:
+        assert "reuse-values" not in upgrade, upgrade
+        assert '-f "charts/your-service-name/values.$ENV.yaml"' in upgrade, upgrade
+        assert '"${DEPLOY_VALUES[@]}"' in upgrade, upgrade
