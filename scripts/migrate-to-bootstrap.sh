@@ -201,14 +201,18 @@ kept_checks=()
 for verb in get list patch; do
   kept_checks+=("$verb namespaces" "$verb persistentvolumeclaims --all-namespaces" "$verb secrets --all-namespaces")
 done
-boot_checks() { # the bootstrap's apply, from its own render: every namespace it writes a quota, a LimitRange or RBAC to
+boot_checks() { # the bootstrap's apply, from its own render: every namespace it writes a quota, a LimitRange or RBAC to, and any ClusterRules
   local render kind ns ref resource verb
   render="$("${boot[@]}")" || die "the bootstrap does not render for $ENV_NAME"
-  printf '%s\n' "$render" | yq -N 'select(.kind == "ResourceQuota" or .kind == "LimitRange" or .kind == "Role" or .kind == "RoleBinding")
+  printf '%s\n' "$render" | yq -N 'select(.kind == "ResourceQuota" or .kind == "LimitRange" or .kind == "Role" or .kind == "RoleBinding" or .kind == "ClusterRules")
     | .kind + " " + (.metadata.namespace // "'"$namespace"'") + " " + (.roleRef.kind // "-")' /dev/stdin > "$work/boot" ||
     die "yq could not read the bootstrap's render"
   echo "create namespaces"
   while read -r kind ns ref; do
+    if [[ "$kind" == ClusterRules ]]; then # cluster-scoped (monitoring.googleapis.com): no namespace
+      for verb in get create patch; do echo "$verb clusterrules.monitoring.googleapis.com"; done
+      continue
+    fi
     resource="$(tr '[:upper:]' '[:lower:]' <<<"$kind")s"
     for verb in get create patch; do echo "$verb $resource -n $ns"; done
     # A Role may grant what its author lacks only with escalate; a RoleBinding to it only with bind.

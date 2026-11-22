@@ -39,7 +39,7 @@ case "$1 $2" in
   "upgrade "*)
     [[ "$*" != *"namespaces.create=false"* ]] || echo switched > "$STATE" ;;
   "template bootstrap") echo "${STUB_BOOT:-kind: Rendered}" ;;
-  "template "*) echo "$STUB_NEW" ;;
+  "template "*) if [[ "$*" == *gmp-cluster-rules* ]]; then echo "$STUB_CLUSTER_RULES"; else echo "$STUB_NEW"; fi ;;
 esac
 STUB
   cat > "$B/kubectl" <<'STUB'
@@ -651,4 +651,53 @@ boot_rbac() {
     [[ "$output" == *"cannot '$deny'"*"cluster admin"* ]]
     run ! grep -q -e "^helm upgrade" -e "annotate" -e "apply -f" "$LOG"
   done
+}
+
+# The switch is a bootstrap value and the migration passes the bootstrap none: run a copy of the repo
+# whose bootstrap values turn gmpClusterRules on and whose chart flavour is gmp.
+boot_cluster_rules() {
+  local copy="$BATS_TEST_TMPDIR/repo"
+  mkdir -p "$copy/infra/k8s" "$copy/tools"
+  cp -r "$BATS_TEST_DIRNAME/../../scripts" "$copy/scripts"
+  cp -r "$BATS_TEST_DIRNAME/../../infra/k8s/bootstrap" "$copy/infra/k8s/bootstrap"
+  cp -r "$BATS_TEST_DIRNAME/../../charts" "$copy/charts"
+  cp "$BATS_TEST_DIRNAME/../../tools/pins.tsv" "$copy/tools/pins.tsv"
+  sed -i 's/^gmpClusterRules: false/gmpClusterRules: true/' "$copy/infra/k8s/bootstrap/values.yaml"
+  sed -i 's/^  flavour: prometheus-operator/  flavour: gmp/' "$copy/charts/your-service-name/values.yaml"
+  SCRIPT="$copy/scripts/migrate-to-bootstrap.sh"
+  export STUB_BOOT=$'kind: Role\nmetadata:\n  name: d\n  namespace: app-ns'
+  export STUB_CLUSTER_RULES=$'apiVersion: monitoring.googleapis.com/v1\nkind: ClusterRules\nmetadata:\n  name: kube-alerts\nspec:\n  groups: []'
+}
+
+@test "a ClusterRules in the bootstrap render needs get, create and patch on it, cluster-wide" {
+  boot_cluster_rules
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --dry-run
+  [ "$status" -eq 0 ]
+  for verb in get create patch; do grep -q "auth can-i $verb clusterrules.monitoring.googleapis.com$" "$LOG"; done
+}
+
+@test "an identity without a ClusterRules right is refused before any change, naming it" {
+  boot_cluster_rules
+  for verb in get create patch; do
+    : > "$LOG"
+    STUB_DENY="$verb clusterrules" run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot '$verb clusterrules.monitoring.googleapis.com'"*"cluster admin"* ]]
+    run ! grep -q -e "^helm upgrade" -e "annotate" -e "apply -f" "$LOG"
+  done
+}
+
+@test "an identity with every right, ClusterRules included, goes past the rights check" {
+  boot_cluster_rules
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 0 ]
+  grep -q "^helm upgrade" "$LOG"
+  grep -q "apply -f -" "$LOG"
+}
+
+@test "without a ClusterRules in the render no ClusterRules right is checked" {
+  boot_rbac
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --dry-run
+  [ "$status" -eq 0 ]
+  run ! grep -qi "can-i .*clusterrules" "$LOG"
 }
