@@ -39,8 +39,27 @@ const CSP_REPORT_GROUP = 'csp-endpoint';
 const cspReportingEnabled = () =>
   (process.env['CSP_REPORTING_ENABLED'] ?? '').trim().toLowerCase() === 'true';
 
+// Identity headers are the auth proxy's to set, and the frontend is never the auth proxy: a client's
+// copy is dropped before forwarding, in every auth mode. The names are the backend's settings
+// (AUTH_USER_ID_HEADER, AUTH_ROLES_HEADER; the chart's ConfigMap gives both images the same values),
+// read per request, plus any x-authenticated-* header (the defaults' prefix).
+const IDENTITY_PREFIX = 'x-authenticated-';
+const identityHeaders = () =>
+  new Set(
+    [process.env['AUTH_USER_ID_HEADER'], process.env['AUTH_ROLES_HEADER']]
+      .map((name) => (name ?? '').trim().toLowerCase())
+      .filter(Boolean),
+  );
+const stripIdentityHeaders = (headers: Headers) => {
+  const configured = identityHeaders();
+  for (const name of [...headers.keys()]) {
+    const lower = name.toLowerCase();
+    if (lower.startsWith(IDENTITY_PREFIX) || configured.has(lower)) headers.delete(name);
+  }
+};
+
 /**
- * Per request this proxy does two things.
+ * Per request this proxy drops a client's identity headers (above), then does two things.
  *
  * First, it rewrites same-origin API/docs requests onto the live backend
  * (`BACKEND_URL`) — see the header comment for why this is a proxy and not
@@ -60,6 +79,7 @@ const cspReportingEnabled = () =>
 export function proxy(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID());
   const requestHeaders = new Headers(request.headers);
+  stripIdentityHeaders(requestHeaders);
   requestHeaders.set('x-nonce', nonce);
 
   const { nextUrl } = request;

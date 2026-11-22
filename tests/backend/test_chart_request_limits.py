@@ -95,7 +95,11 @@ def test_a_values_override_takes_over_the_list() -> None:
 def test_the_production_render_passes_the_production_validator_once_auth_is_chosen() -> None:
     config = rendered_config("production")
     kwargs: dict[str, Any] = {k: v for k, v in config.items() if k in Settings.model_fields}
-    kwargs |= {"AUTH_MODE": "gateway", "DATABASE_URL": SecretStr("postgresql://u:p@db.example/x")}
+    kwargs |= {
+        "AUTH_MODE": "gateway",
+        "AUTH_PROXY_CIDRS": "10.20.0.0/16",
+        "DATABASE_URL": SecretStr("postgresql://u:p@db.example/x"),
+    }
     settings = Settings(**kwargs)
     assert settings.is_production
     assert "*" not in settings.ALLOWED_HOSTS

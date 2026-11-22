@@ -69,7 +69,8 @@ def test_production_refuses_to_start_until_an_auth_mode_is_chosen() -> None:
 
 
 def test_production_starts_once_an_auth_mode_is_added() -> None:
-    assert _chart_settings("production", AUTH_MODE="gateway").AUTH_MODE == "gateway"
+    settings = _chart_settings("production", AUTH_MODE="gateway", AUTH_PROXY_CIDRS="10.20.0.0/16")
+    assert settings.AUTH_MODE == "gateway"
 
 
 def test_production_values_do_not_opt_in_to_anonymous() -> None:

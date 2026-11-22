@@ -478,6 +478,16 @@ class Settings(BaseSettings):
         default=False,
         description="Production only: explicitly accept AUTH_MODE=none (open endpoints).",
     )
+    AUTH_PROXY_CIDRS: Annotated[list[ipaddress.IPv4Network | ipaddress.IPv6Network], NoDecode] = (
+        Field(
+            default_factory=list,
+            description="Gateway mode: comma-separated IPv4/IPv6 CIDRs of the auth proxy that "
+            "authenticates and injects the identity headers. They count only when the direct TCP "
+            "peer is inside; any other peer gets a 401, and empty trusts nobody. Separate from "
+            "TRUSTED_PROXY_CIDRS, and validated the same way.",
+            json_schema_extra={"production": "Refused when empty and AUTH_MODE=gateway."},
+        )
+    )
     AUTH_USER_ID_HEADER: str = Field(
         default="x-authenticated-user-id",
         description="Gateway mode: header carrying the authenticated user id.",
@@ -701,9 +711,9 @@ class Settings(BaseSettings):
                 raise ValueError(msg)
         return value
 
-    @field_validator("TRUSTED_PROXY_CIDRS", mode="before")
+    @field_validator("TRUSTED_PROXY_CIDRS", "AUTH_PROXY_CIDRS", mode="before")
     @classmethod
-    def _cidrs(cls, value: object) -> object:
+    def _cidrs(cls, value: object, info: ValidationInfo) -> object:
         """Comma-separated CIDRs (a bare address is a /32 or /128); an invalid one is an error."""
         if not isinstance(value, str):
             return value
@@ -711,7 +721,7 @@ class Settings(BaseSettings):
             return [ipaddress.ip_network(i.strip()) for i in value.split(",") if i.strip()]
         except ValueError as exc:
             msg = (
-                "TRUSTED_PROXY_CIDRS must be comma-separated IPv4/IPv6 CIDRs in network form: "
+                f"{info.field_name} must be comma-separated IPv4/IPv6 CIDRs in network form: "
                 "an entry with host bits set (10.1.2.3/8) is refused, write 10.0.0.0/8"
             )
             raise ValueError(msg) from exc
@@ -941,6 +951,22 @@ class Settings(BaseSettings):
             )
         return problems
 
+    def _production_auth_problems(self) -> list[str]:
+        """The auth checks that apply only when ENV is production."""
+        problems: list[str] = []
+        if self.AUTH_MODE == "gateway" and not self.AUTH_PROXY_CIDRS:
+            problems.append(
+                "AUTH_PROXY_CIDRS: empty with AUTH_MODE=gateway, so every request gets a 401; "
+                "set it to the auth proxy's Pod range (for example the gateway Pod range, "
+                "10.20.0.0/16), the only peer allowed to send the identity headers"
+            )
+        if self.AUTH_MODE == "none" and not self.ALLOW_ANONYMOUS:
+            problems.append(
+                "AUTH_MODE=none serves every endpoint anonymously; set AUTH_MODE to oidc (or "
+                "gateway/bearer), or set ALLOW_ANONYMOUS=true to accept that explicitly"
+            )
+        return problems
+
     def _tracing_problems(self) -> list[str]:
         """The tracing checks that apply only when ENV is production."""
         endpoint = self.OTEL_EXPORTER_OTLP_ENDPOINT
@@ -1011,11 +1037,7 @@ class Settings(BaseSettings):
                 "TRUST_CF_CONNECTING_IP=false"
             )
 
-        if self.AUTH_MODE == "none" and not self.ALLOW_ANONYMOUS:
-            problems.append(
-                "AUTH_MODE=none serves every endpoint anonymously; set AUTH_MODE to oidc (or "
-                "gateway/bearer), or set ALLOW_ANONYMOUS=true to accept that explicitly"
-            )
+        problems += self._production_auth_problems()
 
         if not self.ALLOW_PRODUCTION_DOCS:
             problems += [

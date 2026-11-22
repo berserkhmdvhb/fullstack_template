@@ -82,3 +82,55 @@ describe('the docs page', () => {
     },
   );
 });
+
+describe('identity headers from the browser', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const forged = {
+    'X-Authenticated-User-Id': 'spoofed-admin',
+    'X-Authenticated-User-Roles': 'admin',
+    'X-Authenticated-Email': 'spoofed@example.com',
+    'X-Trusted-Subject': 'spoofed-admin',
+    'X-Trusted-Groups': 'admin',
+    Accept: 'application/json',
+    'X-Request-Id': 'kept',
+  };
+  // Next forwards exactly the headers named in x-middleware-override-headers, each as
+  // x-middleware-request-<name>; a header missing from that list is dropped.
+  const forwarded = (path: string) => {
+    // Header names are matched in any letter case, as HTTP does.
+    const response = proxy(new NextRequest(`http://localhost${path}`, { headers: forged }));
+    const all = new Map([...response.headers.entries()].map(([k, v]) => [k.toLowerCase(), v]));
+    const names = (all.get('x-middleware-override-headers') ?? '').toLowerCase().split(',');
+    return { names, value: (n: string) => all.get(`x-middleware-request-${n}`) ?? null };
+  };
+
+  it.each(['/api/v1/items', '/docs', '/items'])(
+    'strips x-authenticated-* and keeps the rest on %s',
+    (path) => {
+      const { names, value } = forwarded(path);
+      expect(names.filter((n) => n.startsWith('x-authenticated-'))).toEqual([]);
+      expect(value('x-authenticated-user-id')).toBeNull();
+      expect(value('accept')).toBe('application/json');
+      expect(value('x-request-id')).toBe('kept');
+      expect(names).toContain('x-nonce');
+    },
+  );
+
+  it('strips the configured identity and roles header names, read per request', () => {
+    vi.stubEnv('AUTH_USER_ID_HEADER', 'X-Trusted-Subject');
+    vi.stubEnv('AUTH_ROLES_HEADER', ' x-trusted-groups ');
+    const { names, value } = forwarded('/api/v1/items');
+    expect(names).not.toContain('x-trusted-subject');
+    expect(names).not.toContain('x-trusted-groups');
+    expect(value('x-trusted-subject')).toBeNull();
+    expect(names.filter((n) => n.startsWith('x-authenticated-'))).toEqual([]);
+  });
+
+  it('keeps a custom-named header when it is not configured', () => {
+    const { value } = forwarded('/api/v1/items');
+    expect(value('x-trusted-subject')).toBe('spoofed-admin');
+  });
+});

@@ -76,6 +76,7 @@ PROD = {
     "DB_SSLMODE": "verify-full",
     "ALLOWED_HOSTS": "api.example.com",
     "AUTH_MODE": "gateway",
+    "AUTH_PROXY_CIDRS": "10.20.0.0/16",
     "TRACING_ENABLED": "true",
 }
 

@@ -1,0 +1,29 @@
+suite: identity headers count only from the auth proxy, and both images read the same names
+release:
+  name: svc
+  namespace: app
+templates:
+  - configmap.yaml
+  - frontend-deployment.yaml
+tests:
+  - it: AUTH_PROXY_CIDRS is in the ConfigMap, empty by default (gateway mode then trusts nobody)
+    template: configmap.yaml
+    asserts:
+      - equal: {path: data.AUTH_PROXY_CIDRS, value: ''}
+  - it: a set AUTH_PROXY_CIDRS reaches the ConfigMap as written
+    template: configmap.yaml
+    set: {config: {AUTH_PROXY_CIDRS: '10.20.0.0/16,fd20::/64'}}
+    asserts:
+      - equal: {path: data.AUTH_PROXY_CIDRS, value: '10.20.0.0/16,fd20::/64'}
+  - it: the identity header names reach the ConfigMap the frontend reads too
+    template: configmap.yaml
+    set: {config: {AUTH_USER_ID_HEADER: x-trusted-subject, AUTH_ROLES_HEADER: x-trusted-groups}}
+    asserts:
+      - equal: {path: data.AUTH_USER_ID_HEADER, value: x-trusted-subject}
+      - equal: {path: data.AUTH_ROLES_HEADER, value: x-trusted-groups}
+  - it: the frontend takes its env from that ConfigMap (one value for both images)
+    template: frontend-deployment.yaml
+    asserts:
+      - contains:
+          path: 'spec.template.spec.containers[0].envFrom'
+          content: {configMapRef: {name: svc-your-service-name-config}}

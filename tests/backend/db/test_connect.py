@@ -189,6 +189,7 @@ def _production(mode: str, host: str) -> Settings:
         ENV="production",
         DATABASE_URL=SecretStr(f"postgresql+asyncpg://app:fake@{host}:5432/app"),
         AUTH_MODE="gateway",
+        AUTH_PROXY_CIDRS="10.20.0.0/16",
         ALLOWED_HOSTS=["api.example.com"],
         DB_SSLMODE=mode,
     )
@@ -199,6 +200,7 @@ def _production_url(mode: str, url: str) -> Settings:
         ENV="production",
         DATABASE_URL=SecretStr(url),
         AUTH_MODE="gateway",
+        AUTH_PROXY_CIDRS="10.20.0.0/16",
         ALLOWED_HOSTS=["api.example.com"],
         DB_SSLMODE=mode,
     )

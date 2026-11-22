@@ -15,9 +15,10 @@ mode is provided for adopters who terminate authn in the service itself.
 Modes (``AUTH_MODE`` setting; see ``backend/settings.py``, validated at startup):
 - ``none``    (default) — auth disabled; the reference CRUD stays open and the
               dependency yields an anonymous principal. Opt in by setting the env.
-- ``gateway`` — identity is read from a gateway-injected header
-              (``AUTH_USER_ID_HEADER``, default ``X-Authenticated-User-Id``). A
-              request without it is rejected with 401.
+- ``gateway`` — identity is read from a header injected by the auth proxy
+              (``AUTH_USER_ID_HEADER``, default ``X-Authenticated-User-Id``), and
+              only when the direct TCP peer is inside ``AUTH_PROXY_CIDRS``. Any other
+              peer, or a request without the header, is rejected with 401.
 - ``bearer``  — identity comes from a signed JWT bearer token, verified with a
               shared HMAC secret (``AUTH_JWT_SECRET``). Missing/invalid → 401.
 - ``oidc``    — production mode: ``Authorization: Bearer <jwt>`` from an OpenID Connect
@@ -30,10 +31,10 @@ Modes (``AUTH_MODE`` setting; see ``backend/settings.py``, validated at startup)
 ``gateway`` and ``bearer`` are *reference* modes (a trusted header; a shared-secret scheme for
 internal or test use, not for end-user identity); ``oidc`` is for production.
 
-Trust boundary (see wiki/security.md): in ``gateway`` mode the service trusts the
-header unconditionally — that is only safe because the deployment denies every
-client but the ingress the path to the pods (NetworkPolicy default-deny). Do not
-expose the service directly to untrusted clients in this mode.
+Trust boundary (see wiki/security.md): in ``gateway`` mode the identity and roles
+headers count only from a direct TCP peer inside ``AUTH_PROXY_CIDRS`` (empty trusts
+nobody). Who sent the header decides, not network reachability: a forwarded address
+(``X-Forwarded-For``) never counts, and the frontend's proxy strips these headers.
 
 Public API:
 - `get_current_user`: FastAPI dependency resolving the request principal.
@@ -55,6 +56,7 @@ from fastapi import Depends, HTTPException, Request, status
 from your_service_name.backend.auth.jwks import JwksCache, JwksUnavailableError
 from your_service_name.backend.auth.jwt_verify import TokenRejectedError, verify_token
 from your_service_name.backend.auth.principal import Principal
+from your_service_name.backend.middleware.client_ip import direct_peer, peer_in
 from your_service_name.backend.settings import JWT_HASHLIB
 
 if TYPE_CHECKING:
@@ -167,7 +169,12 @@ def require_roles(*required: str) -> Callable[[Principal], Principal]:
 
 
 def _principal_from_gateway(request: Request, settings: Settings) -> Principal:
-    """Resolve identity from a gateway-injected trusted header."""
+    """Resolve identity from the auth proxy's headers; only a direct peer in the list counts."""
+    if not peer_in(direct_peer(request.scope), settings.AUTH_PROXY_CIDRS):
+        # Never log the header values: they are the caller's claim, not an identity.
+        logger.warning("Gateway identity refused: the TCP peer is not in AUTH_PROXY_CIDRS")
+        msg = "Gateway identity is accepted only from the auth proxy (AUTH_MODE=gateway)."
+        raise NotAuthenticatedError(msg)
     header = settings.AUTH_USER_ID_HEADER
     user_id = request.headers.get(header)
     if not user_id:

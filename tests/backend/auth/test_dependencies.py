@@ -5,7 +5,8 @@ Tests for the authentication dependency (``backend.auth.dependencies``).
 Covers the three ``AUTH_MODE`` behaviours and the role-checking helper:
 
 - ``none`` (default) → anonymous principal, reference CRUD stays open.
-- ``gateway`` → identity read from a trusted header; missing → 401; roles parsed.
+- ``gateway`` → identity read from a trusted header; missing → 401; roles parsed. The header
+  counts only when the direct TCP peer is inside ``AUTH_PROXY_CIDRS``; any other peer → 401.
 - ``bearer`` → HMAC-signed JWT verified (alg-confusion rejected, bad/absent
   secret → 401); user id taken from the configured claim.
 - ``require_roles`` → 403 when a required role is missing, 200 otherwise.
@@ -21,6 +22,7 @@ from __future__ import annotations
 import base64
 import hmac
 import json
+import logging
 from typing import Annotated, Any
 
 import pytest
@@ -33,11 +35,23 @@ from your_service_name.backend.auth import (
     get_current_user,
     require_roles,
 )
+from your_service_name.backend.middleware.client_ip import ClientIpMiddleware
 from your_service_name.backend.settings import Settings
 
 ME_PATH: str = "/me"
 ADMIN_PATH: str = "/admin"
 DEFAULT_SIGNING_KEY: str = "test-signing-key-do-not-use-in-prod"
+
+# Peers (TEST-NET and private ranges only).
+AUTH_PROXY_RANGE: str = "10.20.0.0/16"  # AUTH_PROXY_CIDRS: the proxy that authenticates
+AUTH_PROXY: str = "10.20.0.7"  # a Pod of that proxy
+EDGE_RANGE: str = "10.9.0.0/16"  # TRUSTED_PROXY_CIDRS only: a client-IP hop, not an auth proxy
+EDGE: str = "10.9.0.5"
+STRANGER: str = "198.51.100.9"  # any other peer that can reach the backend
+SPOOFED: dict[str, str] = {
+    "X-Authenticated-User-Id": "spoofed-admin",
+    "X-Authenticated-User-Roles": "admin",
+}
 
 
 # --- helpers ------------------------------------------------------------------
@@ -92,6 +106,8 @@ def _make_app() -> FastAPI:
     """
     app = FastAPI()
     app.state.settings = Settings()
+    # As in create_app: the client-IP resolver rewrites the client from a trusted hop's headers.
+    app.add_middleware(ClientIpMiddleware, trusted=app.state.settings.TRUSTED_PROXY_CIDRS)
 
     @app.get(ME_PATH)
     def me(current_user: Annotated[Principal, Depends(get_current_user)]) -> dict[str, Any]:
@@ -109,6 +125,21 @@ def _make_app() -> FastAPI:
         return {"ok": True}
 
     return app
+
+
+def _client(app: FastAPI, peer: str = AUTH_PROXY) -> TestClient:
+    """A client whose requests arrive from the TCP peer ``peer``."""
+    return TestClient(app, client=(peer, 50000))
+
+
+def _gateway(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
+    """Gateway mode with the auth proxy's range listed (then overrides)."""
+    for name, value in {
+        "AUTH_MODE": "gateway",
+        "AUTH_PROXY_CIDRS": AUTH_PROXY_RANGE,
+        **env,
+    }.items():
+        monkeypatch.setenv(name, value)
 
 
 # --- none mode (auth disabled) ------------------------------------------------
@@ -133,8 +164,8 @@ class TestGatewayMode:
 
     def test_header_yields_principal_with_roles(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A request carrying the identity + roles headers is accepted."""
-        monkeypatch.setenv("AUTH_MODE", "gateway")
-        with TestClient(_make_app()) as client:
+        _gateway(monkeypatch)
+        with _client(_make_app()) as client:
             res = client.get(
                 ME_PATH,
                 headers={
@@ -152,22 +183,91 @@ class TestGatewayMode:
 
     def test_missing_header_is_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A request without the identity header is rejected with 401."""
-        monkeypatch.setenv("AUTH_MODE", "gateway")
-        with TestClient(_make_app()) as client:
+        _gateway(monkeypatch)
+        with _client(_make_app()) as client:
             res = client.get(ME_PATH)
         assert res.status_code == status.HTTP_401_UNAUTHORIZED
         assert res.headers["WWW-Authenticate"] == "Bearer"
 
     def test_custom_header_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AUTH_USER_ID_HEADER retargets the trusted header."""
-        monkeypatch.setenv("AUTH_MODE", "gateway")
+        _gateway(monkeypatch)
         monkeypatch.setenv("AUTH_USER_ID_HEADER", "x-trusted-subject")
-        with TestClient(_make_app()) as client:
+        with _client(_make_app()) as client:
             ok = client.get(ME_PATH, headers={"X-Trusted-Subject": "u9"})
             missing = client.get(ME_PATH)
         assert ok.status_code == status.HTTP_200_OK
         assert ok.json()["user_id"] == "u9"
         assert missing.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestGatewayTrustedPeer:
+    """The identity headers count only from a direct TCP peer inside AUTH_PROXY_CIDRS."""
+
+    def test_spoofed_header_from_an_untrusted_peer_is_401(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Peer STRANGER (outside AUTH_PROXY_CIDRS) sends the headers: 401, values not logged."""
+        _gateway(monkeypatch)
+        with caplog.at_level(logging.WARNING), _client(_make_app(), STRANGER) as client:
+            res = client.get(ME_PATH, headers=SPOOFED)
+        assert res.status_code == status.HTTP_401_UNAUTHORIZED
+        assert res.headers["WWW-Authenticate"] == "Bearer"
+        assert "AUTH_PROXY_CIDRS" in caplog.text
+        assert "spoofed-admin" not in caplog.text
+
+    def test_header_from_a_peer_in_the_list_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Peer AUTH_PROXY (inside AUTH_PROXY_CIDRS) is believed."""
+        _gateway(monkeypatch)
+        with _client(_make_app(), AUTH_PROXY) as client:
+            res = client.get(ME_PATH, headers=SPOOFED)
+        assert res.status_code == status.HTTP_200_OK
+        assert res.json()["user_id"] == "spoofed-admin"
+
+    def test_a_forwarded_auth_proxy_address_does_not_count(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Peer EDGE is a trusted client-IP hop (not an auth proxy) and claims, in X-Forwarded-For,
+        that the request came from AUTH_PROXY: the client IP becomes AUTH_PROXY, the identity
+        headers still get a 401, because only the direct peer counts."""
+        _gateway(monkeypatch, TRUSTED_PROXY_CIDRS=EDGE_RANGE)
+        with _client(_make_app(), EDGE) as client:
+            res = client.get(ME_PATH, headers={**SPOOFED, "X-Forwarded-For": AUTH_PROXY})
+        assert res.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_an_auth_proxy_that_is_also_a_client_ip_hop_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Peer AUTH_PROXY is in both lists and forwards a client address: still believed."""
+        _gateway(monkeypatch, TRUSTED_PROXY_CIDRS=AUTH_PROXY_RANGE)
+        with _client(_make_app(), AUTH_PROXY) as client:
+            res = client.get(ME_PATH, headers={**SPOOFED, "X-Forwarded-For": STRANGER})
+        assert res.status_code == status.HTTP_200_OK
+
+    @pytest.mark.parametrize("peer", [AUTH_PROXY, STRANGER, "testclient"])
+    def test_an_empty_list_trusts_nobody(self, monkeypatch: pytest.MonkeyPatch, peer: str) -> None:
+        """AUTH_PROXY_CIDRS empty: every peer, whatever its address, gets a 401."""
+        _gateway(monkeypatch, AUTH_PROXY_CIDRS="")
+        with _client(_make_app(), peer) as client:
+            res = client.get(ME_PATH, headers=SPOOFED)
+        assert res.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @pytest.mark.parametrize(
+        ("peer", "expected"),
+        [
+            ("fd20::7", status.HTTP_200_OK),  # inside fd20::/64
+            ("fd21::7", status.HTTP_401_UNAUTHORIZED),  # outside it
+            ("::ffff:10.20.0.7", status.HTTP_200_OK),  # IPv4-mapped AUTH_PROXY
+        ],
+    )
+    def test_ipv6_peers(self, monkeypatch: pytest.MonkeyPatch, peer: str, expected: int) -> None:
+        """IPv6 ranges work, and an IPv4-mapped peer is matched as IPv4."""
+        _gateway(monkeypatch, AUTH_PROXY_CIDRS=f"fd20::/64,{AUTH_PROXY_RANGE}")
+        with _client(_make_app(), peer) as client:
+            res = client.get(ME_PATH, headers=SPOOFED)
+        assert res.status_code == expected
 
 
 # --- bearer mode (minimal HS* verifier) ---------------------------------------
@@ -281,8 +381,8 @@ class TestRequireRoles:
 
     def test_required_role_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A principal carrying the required role is allowed."""
-        monkeypatch.setenv("AUTH_MODE", "gateway")
-        with TestClient(_make_app()) as client:
+        _gateway(monkeypatch)
+        with _client(_make_app()) as client:
             res = client.get(
                 ADMIN_PATH,
                 headers={
@@ -295,8 +395,8 @@ class TestRequireRoles:
 
     def test_required_role_missing_is_403(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A principal missing the required role is rejected with 403."""
-        monkeypatch.setenv("AUTH_MODE", "gateway")
-        with TestClient(_make_app()) as client:
+        _gateway(monkeypatch)
+        with _client(_make_app()) as client:
             res = client.get(
                 ADMIN_PATH,
                 headers={

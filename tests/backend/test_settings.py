@@ -251,6 +251,26 @@ class TestClientIpSettings:
         assert "host bits" in text
         assert "10.0.0.0/8" in text
 
+    def test_auth_proxy_cidrs_default_empty_and_parse_like_trusted_proxy_cidrs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert Settings().AUTH_PROXY_CIDRS == []
+        monkeypatch.setenv("AUTH_PROXY_CIDRS", " 10.20.0.0/16 , fd20::/64,, 192.0.2.7 ")
+        got = [str(n) for n in Settings().AUTH_PROXY_CIDRS]
+        assert got == ["10.20.0.0/16", "fd20::/64", "192.0.2.7/32"]
+
+    @pytest.mark.parametrize("raw", ["not-an-ip", "10.0.0.0/33", "10.1.2.3/8"])
+    def test_an_invalid_auth_proxy_entry_names_its_own_setting(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str
+    ) -> None:
+        monkeypatch.setenv("AUTH_PROXY_CIDRS", raw)
+        with pytest.raises(ValidationError) as excinfo:
+            Settings()
+        text = str(excinfo.value)
+        assert "AUTH_PROXY_CIDRS must be" in text
+        assert "TRUSTED_PROXY_CIDRS must be" not in text
+        assert "host bits" in text
+
     def test_blank_values_use_the_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TRUSTED_PROXY_CIDRS", " ")
         monkeypatch.setenv("TRUST_CF_CONNECTING_IP", "")

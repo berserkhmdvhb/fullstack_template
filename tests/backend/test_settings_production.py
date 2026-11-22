@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 
 import pytest
@@ -30,6 +31,7 @@ def _production(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
         "DATABASE_URL": POSTGRES_URL,
         "DB_SSLMODE": "verify-full",
         "AUTH_MODE": "gateway",
+        "AUTH_PROXY_CIDRS": "10.20.0.0/16",
         "ALLOWED_HOSTS": "api.example.com",
     }
     for name, value in {**base, **env}.items():
@@ -92,6 +94,25 @@ class TestClientIpRule:
     ) -> None:
         _production(monkeypatch)
         assert Settings().TRUSTED_PROXY_CIDRS == []
+
+
+class TestAuthProxyRule:
+    def test_gateway_mode_with_no_auth_proxy_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        text = _refused(monkeypatch, "AUTH_PROXY_CIDRS", AUTH_PROXY_CIDRS="")
+        assert "AUTH_MODE=gateway" in text
+        assert "Pod range" in text
+
+    def test_gateway_mode_with_an_auth_proxy_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _production(monkeypatch)
+        assert [str(n) for n in Settings().AUTH_PROXY_CIDRS] == ["10.20.0.0/16"]
+
+    def test_another_mode_needs_no_auth_proxy(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _production(monkeypatch, AUTH_MODE="none", ALLOW_ANONYMOUS="true", AUTH_PROXY_CIDRS="")
+        assert Settings().AUTH_PROXY_CIDRS == []
 
 
 class TestProductionSwitch:
@@ -304,6 +325,7 @@ class TestDocs:
                 DATABASE_URL=SecretStr(POSTGRES_URL),
                 DB_SSLMODE="verify-full",
                 AUTH_MODE="gateway",
+                AUTH_PROXY_CIDRS=[ipaddress.ip_network("10.20.0.0/16")],
                 ALLOWED_HOSTS=["api.example.com"],
             )
         )
@@ -318,6 +340,7 @@ class TestDocs:
                 DATABASE_URL=SecretStr(POSTGRES_URL),
                 DB_SSLMODE="verify-full",
                 AUTH_MODE="gateway",
+                AUTH_PROXY_CIDRS=[ipaddress.ip_network("10.20.0.0/16")],
                 ALLOWED_HOSTS=["api.example.com"],
                 ALLOW_PRODUCTION_DOCS=True,
             )

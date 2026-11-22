@@ -146,10 +146,37 @@ FastAPI dependency, which resolves a `Principal` per request.
 | `oidc` | **Production mode.** `Authorization: Bearer <jwt>` from an OpenID Connect provider, verified against the provider's JWKS. | The service verifies every token itself; see [OIDC](#oidc-mode). |
 | `cloudflare-access` | **Production mode.** The Cloudflare Access application token in the `Cf-Access-Jwt-Assertion` header, verified against the team's keys and the application's AUD tag. | The service verifies every token itself; see [Cloudflare Access](#cloudflare-access-mode). |
 | `none` *(default)* | Auth disabled; the dependency yields an anonymous principal. Reference CRUD is open. With `ENV=production` it is refused unless `ALLOW_ANONYMOUS=true`. | N/A — opt-in only. |
-| `gateway` *(reference)* | Identity is read from a gateway-injected header (`AUTH_USER_ID_HEADER`, default `X-Authenticated-User-Id`; roles from `AUTH_ROLES_HEADER`, default `X-Authenticated-User-Roles`, comma-separated). Missing → `401`. | The service trusts the header **unconditionally**. Safe only while nothing untrusted can reach the backend port: the chart's default-deny `NetworkPolicy` admits only the edge peers (WAF off) or the WAF (WAF on), the frontend (WAF off), and the metrics scrape when it is enabled ([who reaches the backend](./infrastructure.md#networkpolicy-per-mode)). Every Pod those rules admit can send the header. Do not expose the service directly to untrusted clients in this mode. |
+| `gateway` *(reference)* | Identity is read from a header injected by the auth proxy (`AUTH_USER_ID_HEADER`, default `X-Authenticated-User-Id`; roles from `AUTH_ROLES_HEADER`, default `X-Authenticated-User-Roles`, comma-separated), and only when the direct TCP peer is inside `AUTH_PROXY_CIDRS`. Any other peer, or a missing header → `401`. | Who sent the header decides, not who can reach the port: see [the identity trust boundary](#the-identity-trust-boundary). With `ENV=production` an empty `AUTH_PROXY_CIDRS` is refused at startup. |
 | `bearer` *(reference)* | Identity from an HMAC-signed JWT bearer token verified with a shared secret (`AUTH_JWT_SECRET`, algorithm `AUTH_JWT_ALGORITHM`, default `HS256`, subject claim `AUTH_JWT_USER_ID_CLAIM`, default `sub`). Missing/invalid → `401`. | A shared secret for internal or test use, **not** end-user identity: whoever holds it can mint any identity. |
 
 `gateway` and `bearer` are **reference modes**; use `oidc` or `cloudflare-access` in production.
+
+### The identity trust boundary
+
+Two kinds of header are believed only from listed senders, and each kind has its own list:
+
+- **Identity headers count only from the auth proxy.** In `gateway` mode the backend reads the
+  identity and roles headers only when the request's direct TCP peer is inside `AUTH_PROXY_CIDRS`
+  (comma-separated IPv4/IPv6 CIDRs, default empty, validated like `TRUSTED_PROXY_CIDRS`). An address
+  in `X-Forwarded-For` never counts, even from a trusted client-IP proxy: only the peer that opened
+  the connection does. Any other peer gets a `401`, and the backend logs a warning without the
+  header values. Empty trusts nobody, so every request gets a `401`; in production `gateway` mode
+  with an empty list stops startup.
+- **Client-IP headers count only from the proxies in their own list**, `TRUSTED_PROXY_CIDRS` (see
+  [Client IP](#client-ip)). Being a client-IP hop does not make a proxy an auth proxy: list a range
+  in both only when that proxy really authenticates.
+- **The frontend is never the auth proxy.** Its same-origin `/api/v1` proxy (`frontend/proxy.ts`)
+  drops the configured identity and roles header names, and every `x-authenticated-*` header, from
+  the browser's request before it forwards, in every auth mode. It reads the names from the same
+  `AUTH_USER_ID_HEADER` and `AUTH_ROLES_HEADER` variables as the backend; the chart's ConfigMap
+  gives both images one value.
+
+Set `AUTH_PROXY_CIDRS` to the Pod range of the in-cluster auth proxy (for example an
+authenticating proxy in front of the backend), in every edge mode. The edge's ranges (the gateway,
+the ingress controller, `cloudflared`) belong in it only when the edge itself authenticates and
+injects the headers. With the WAF on, the backend's peer is the WAF, so an auth proxy in front of
+the WAF is never the direct peer: put the auth proxy behind the WAF, or list the WAF only if it
+strips client copies of these headers and every path to it passes the auth proxy.
 
 ### OIDC mode
 
@@ -433,6 +460,9 @@ versions you run.
   backend is reachable any other way, a client sends its own header and is believed.
 
 Per edge mode:
+
+`AUTH_PROXY_CIDRS` is a separate list in every mode: see
+[the identity trust boundary](#the-identity-trust-boundary).
 
 | Edge mode | `TRUSTED_PROXY_CIDRS` | `TRUST_CF_CONNECTING_IP` |
 |-----------|-----------------------|--------------------------|

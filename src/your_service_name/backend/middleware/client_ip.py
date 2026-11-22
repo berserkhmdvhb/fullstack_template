@@ -25,6 +25,9 @@ Algorithm (``resolve_client_ip``)
 Addresses are normalised: an IPv4-mapped IPv6 address becomes IPv4, and a port or the brackets of
 ``[v6]:port`` are stripped. A repeated header is joined in order, as a proxy would have sent it.
 
+The rewrite keeps the direct TCP peer in the scope (``direct_peer``): the auth layer trusts the
+identity headers by that peer (``AUTH_PROXY_CIDRS``), never by a forwarded address.
+
 A trusted peer's ``X-Forwarded-Proto`` (``http`` or ``https`` only; the last, nearest value) also
 sets ``scope["scheme"]``, replacing what Uvicorn's proxy headers did.
 """
@@ -65,6 +68,24 @@ def _parse_ip(raw: str) -> Address | None:
 
 def _is_trusted(ip: Address, trusted: Iterable[Network]) -> bool:
     return any(ip in net for net in trusted)
+
+
+_DIRECT_PEER = "direct_peer"
+
+
+def direct_peer(scope: Scope) -> str | None:
+    """The request's TCP peer, before any rewrite of ``scope["client"]`` by this middleware."""
+    if _DIRECT_PEER in scope:
+        peer: str | None = scope[_DIRECT_PEER]
+        return peer
+    client = scope.get("client")
+    return client[0] if client else None
+
+
+def peer_in(peer: str | None, networks: Iterable[Network]) -> bool:
+    """Whether ``peer`` is an IP inside ``networks`` (a missing or non-IP peer never is)."""
+    peer_ip = _parse_ip(peer) if peer else None
+    return peer_ip is not None and _is_trusted(peer_ip, networks)
 
 
 def resolve_client_ip(
@@ -113,8 +134,7 @@ class ClientIpMiddleware:
             return
         client = scope.get("client")
         peer = client[0] if client else None
-        peer_ip = _parse_ip(peer) if peer else None
-        if peer_ip is None or not _is_trusted(peer_ip, self._trusted):
+        if not peer_in(peer, self._trusted):
             await self.app(scope, receive, send)  # untrusted: no forwarding header is read
             return
 
@@ -133,7 +153,7 @@ class ClientIpMiddleware:
             trust_cf=self._trust_cf,
         )
         scope.setdefault("state", {})  # shared by reference: outer layers read what inner ones set
-        new_scope = {**scope, "client": (ip, client[1] if client else 0)}
+        new_scope = {**scope, "client": (ip, client[1] if client else 0), _DIRECT_PEER: peer}
         proto = (joined("x-forwarded-proto") or "").split(",")[-1].strip().lower()
         if proto in ("http", "https"):
             new_scope["scheme"] = _HTTP_SCHEMES[scope["type"]][proto]
