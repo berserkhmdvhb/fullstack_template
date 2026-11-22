@@ -133,3 +133,13 @@ def test_ci_ok_lets_it_be_skipped_but_never_fail(event: str) -> None:
     assert _gate(jobs | {"kind": "skipped"}, event) == 0
     assert _gate(jobs | {"kind": "failure"}, event) != 0
     assert _gate(jobs | {"kind": "cancelled"}, event) != 0
+
+
+def test_the_diagnostics_use_the_legs_own_kubectl() -> None:
+    step = next(s for s in _kind()["steps"] if s.get("name") == "Show the cluster state")
+    assert step["if"] == "failure()"
+    assert "tools/kind-nodes.tsv" in step["run"]
+    assert not re.search(r"^\s*kubectl\b", step["run"], re.MULTILINE), (
+        "a bare kubectl skips the leg's pin"
+    )
+    assert '"${kubectl_pin}" --kubeconfig .local/kind/kubeconfig' in step["run"]

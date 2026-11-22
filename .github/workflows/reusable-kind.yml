@@ -63,8 +63,10 @@ jobs:
       - name: Show the cluster state
         if: failure()
         run: |
-          kubectl --kubeconfig .local/kind/kubeconfig get pods,jobs -A -o wide || true
-          kubectl --kubeconfig .local/kind/kubeconfig get events -A --sort-by=.lastTimestamp | tail -n 60 || true
+          # The leg's own kubectl pin (tools/kind-nodes.tsv), within one minor of the server.
+          kubectl_pin="$(awk -F'\t' -v leg="${LEG}" '!/^#/ && $1 == leg {print $2}' tools/kind-nodes.tsv)"
+          "${kubectl_pin}" --kubeconfig .local/kind/kubeconfig get pods,jobs -A -o wide || true
+          "${kubectl_pin}" --kubeconfig .local/kind/kubeconfig get events -A --sort-by=.lastTimestamp | tail -n 60 || true
       - name: Delete the cluster
         if: always()
         run: scripts/kind-up.sh --delete

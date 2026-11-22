@@ -11,9 +11,11 @@
 #      them into fst and remove the local tags. No registry, no push.
 #   2. As cluster admin: the bootstrap for `local` (scripts/k8s-bootstrap.sh) in the release
 #      namespace and in a second one for ct, and the Gateway API CRDs from their pinned source.
-#   3. ct lint, then ct install (each ci/ values file, with values.local.yaml) in the ct namespace.
-#   4. The release: with --base REF, the chart of REF first, a row written to the database, then the
-#      upgrade to this checkout's chart; else this checkout's chart. Then helm test.
+#   3. ct lint, then ct install (each ci/ values file, with values.local.yaml) in the ct namespace;
+#      ct's own helm calls carry the deployer's identity, which the run checks.
+#   4. The release: with --base REF, the chart of REF first (with its own values files, and only the
+#      overrides its values.yaml knows), a row written to the database, then the upgrade to this
+#      checkout's chart; else this checkout's chart. Then helm test, and a backup and its verification.
 #   5. The WAF on (an upgrade), its Pod checked against the restricted profile, helm test again.
 #   6. The deploy-ops checks of the deployer identity.
 # Every install, upgrade, test and status runs as the bootstrap's deployer (helm --kube-as-user /
@@ -21,15 +23,14 @@
 #
 # Usage: kind-deploy.sh [--base REF]
 #   --base REF   install the chart at REF first, then upgrade to this checkout's (the upgrade test)
-# Env: KIND_DIR (default .local/kind), PYTHON (a Python with PyYAML for the image matrix).
+# Env: PYTHON (a Python with PyYAML for the image matrix). Files: .local/kind (scripts/_kind.sh).
 # ===========================================================================
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-KIND_DIR="${KIND_DIR:-$ROOT/.local/kind}"
+# shellcheck source=/dev/null
+source "$ROOT/scripts/_kind.sh"
 CHART="$ROOT/charts/your-service-name"
-CONTEXT=kind-fst
-CLUSTER=fst
 ENV_NAME=local
 RELEASE=your-service-name
 NS="$RELEASE-$ENV_NAME"
@@ -101,12 +102,23 @@ if [[ ! -f "$values" ]]; then
     printf 'secrets:\n  dbPassword: "%s"\n  statsPass: "%s"\n' \
       "$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')" "$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')" > "$values" )
 fi
-# The values every install gets on top of values.local.yaml. The scrape peers select a Pod of the
-# release namespace, so helm test's collector Job proves them. No backup CronJob: its PVC binds only
-# when a backup first runs (kind's local-path class is WaitForFirstConsumer), and helm --wait waits for
-# a Bound PVC.
-kind_set() { printf '%s\n' --set-string "networkPolicy.monitoringNamespaceSelector.kubernetes\\.io/metadata\\.name=$1" \
-  --set-string "networkPolicy.monitoringPodSelector.metrics-collector=true" --set postgresql.backup.enabled=false; }
+# The values every install gets on top of the chart's own values.local.yaml, one argument per line: the
+# images built here and the scrape peers (a Pod of the release namespace, so helm test's collector Job
+# proves them). Only what that chart's values.yaml knows, so the base commit's chart is installed with
+# its own values and this run's overrides it understands.
+kind_args() { # chart dir, namespace
+  local chart="$1" ns="$2" id
+  for id in "${image_ids[@]}"; do
+    if yq -e ".images | has(\"$id\")" "$chart/values.yaml" >/dev/null; then
+      printf '%s\n' --set-string "images.$id.registry=" --set-string "images.$id.repository=kind-$CLUSTER/$id" \
+        --set-string "images.$id.tag=$tag"
+    fi
+  done
+  if yq -e '.networkPolicy | has("monitoringNamespaceSelector") and has("monitoringPodSelector")' "$chart/values.yaml" >/dev/null; then
+    printf '%s\n' --set-string "networkPolicy.monitoringNamespaceSelector.kubernetes\\.io/metadata\\.name=$ns" \
+      --set-string "networkPolicy.monitoringPodSelector.metrics-collector=true"
+  fi
+}
 
 # ---- 1. Images ------------------------------------------------------------------------------------
 step "build the images (scripts/ci/build-image.sh) and load them into $CLUSTER"
@@ -118,8 +130,7 @@ matrix="$(GITHUB_REF_NAME="${GITHUB_REF_NAME:-local}" GITHUB_REF_TYPE="${GITHUB_
   GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-local/local}" BUILD_ARM64=false \
   "$python" .github/scripts/container_matrix.py --matrix | sed -n 1p)"
 tag="kind-$(date +%s)"
-images="$WORK/images.yaml"
-echo "images:" > "$images"
+image_ids=()
 while read -r id; do
   entry="$(ID="$id" jq -c '.include[] | select(.id == env.ID)' <<<"$matrix")"
   ref="kind-$CLUSTER/$id:$tag"
@@ -128,7 +139,7 @@ while read -r id; do
     VCS_BRANCH="${VCS_BRANCH:-local}" bash scripts/ci/build-image.sh "$entry" "$ref"
   kind load docker-image --name "$CLUSTER" "$ref"
   docker image rm "$ref" >/dev/null
-  printf '  %s: {registry: "", repository: kind-%s/%s, tag: %s}\n' "$id" "$CLUSTER" "$id" "$tag" >> "$images"
+  image_ids+=("$id")
 done < <(jq -r '.include[].id' <<<"$matrix")
 ok "images built and loaded: $(jq -r '[.include[].id] | join(", ")' <<<"$matrix") ($tag)"
 
@@ -151,18 +162,26 @@ ct lint --config .github/ct.yaml --charts "$CHART"
 # A release an earlier, interrupted run left behind would clash with ct's (the fixed ServiceAccount name).
 leftovers="$(helm_as list -n "$CT_NS" -q --deployed --failed --pending)"
 for leftover in $leftovers; do helm_as uninstall "$leftover" -n "$CT_NS" --wait; done
-mapfile -t ct_set < <(kind_set "$CT_NS")
-ct install --config .github/ct.yaml --charts "$CHART" --namespace "$CT_NS" \
+mapfile -t ct_set < <(kind_args "$CHART" "$CT_NS")
+# --debug prints each helm call ct makes, so the run checks that ct's own helm install, test and
+# uninstall carry the deployer's identity (--helm-extra-args reaches every one of them).
+ct install --config .github/ct.yaml --charts "$CHART" --namespace "$CT_NS" --debug \
   --helm-extra-args "--timeout 600s --kube-as-user $deployer --kube-as-group $GROUP" \
-  --helm-extra-set-args "--values=$CHART/values.local.yaml --values=$values --values=$images ${ct_set[*]}"
-ok "ct install passed for every ci/ values file"
+  --helm-extra-set-args "--values=$CHART/values.local.yaml --values=$values ${ct_set[*]}" 2>&1 | tee "$WORK/ct.log"
+ct_tests="$(grep -E "^(>>> )?helm test " "$WORK/ct.log" || true)"
+[[ "$(wc -l <<<"$ct_tests")" -ge 3 && -n "$ct_tests" ]] || die "ct ran fewer helm tests than its three ci/ values files"
+if grep -v -- "--kube-as-user $deployer --kube-as-group $GROUP" <<<"$ct_tests"; then
+  die "ct ran a helm test without the deployer's identity (above)"
+fi
+ok "ct install passed for every ci/ values file; its $(wc -l <<<"$ct_tests") helm tests ran as $deployer"
 
 # ---- 4. The release, and the upgrade test --------------------------------------------------------
-mapfile -t ns_set < <(kind_set "$NS")
 deploy() { # chart dir, extra helm args...
   local chart="$1"; shift
+  local -a args
+  mapfile -t args < <(kind_args "$chart" "$NS")
   helm_as upgrade --install "$RELEASE" "$chart" -n "$NS" -f "$chart/values.local.yaml" -f "$values" \
-    -f "$images" "${ns_set[@]}" --history-max 5 --wait --wait-for-jobs --timeout 10m "$@" \
+    "${args[@]}" --history-max 5 --wait --wait-for-jobs --timeout 10m "$@" \
     2>&1 | tee "$WORK/helm.log"
   ! grep -qi forbidden "$WORK/helm.log" || die "the deployer was refused: $(grep -i forbidden "$WORK/helm.log")"
 }
@@ -214,6 +233,27 @@ fi
 step "helm test, as the deployer"
 helm_as test "$RELEASE" -n "$NS" --timeout 5m
 ok "helm test passed"
+
+step "a backup, then its verification (Jobs from the two CronJobs, as admin)"
+# The backup PVC was bound at install (the PostgreSQL Pod mounts it read-only); the backup Job
+# writes a dump on that node and the verify Job restores the newest one into a scratch database.
+db_ns="$NS-db"
+run_job() { # name, cronjob, the log line it must print
+  kc -n "$db_ns" delete job "$1" --ignore-not-found >/dev/null
+  kc -n "$db_ns" create job "$1" --from="cronjob/$2" >/dev/null
+  if ! kc -n "$db_ns" wait --for=condition=complete "job/$1" --timeout=300s >/dev/null; then
+    kc -n "$db_ns" logs "job/$1" --all-containers >&2 || true
+    die "the Job $1 (from $2) did not complete"
+  fi
+  kc -n "$db_ns" logs "job/$1" > "$WORK/$1.log"
+  grep -q "$3" "$WORK/$1.log" || die "the Job $1 did not print '$3': $(cat "$WORK/$1.log")"
+}
+run_job kind-backup "$fullname-pg-backup" "Backup created: /backup/"
+dump="$(sed -n 's/^Backup created: //p' "$WORK/kind-backup.log")"
+run_job kind-backup-verify "$fullname-pg-backup-verify" "Backup verification completed successfully."
+grep -qx "Latest backup: $dump" "$WORK/kind-backup-verify.log" || die "the verify Job did not read $dump"
+kc -n "$db_ns" delete job kind-backup kind-backup-verify >/dev/null
+ok "backup Job wrote $dump; the verify Job restored it"
 
 # ---- 5. The WAF ---------------------------------------------------------------------------------
 step "the WAF on (an upgrade, as the deployer)"

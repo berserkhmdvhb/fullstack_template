@@ -217,9 +217,9 @@ and the values its deploy passes:
 ```bash
 RELEASE=<release>; ENV=<env>; NS="$RELEASE-$ENV"
 # The values the deploy of this chart version passes after the env's values file: your secret values
-# (or secrets.existingSecret) and the images it deploys, for example
-#   DEPLOY_VALUES=(-f values.secret.yaml --set images.backend.digest=sha256:<64 hex> ...)
-DEPLOY_VALUES=(<the deploy's values>)
+# (or secrets.existingSecret) and the images it deploys. Edit this line to yours, for example
+#   DEPLOY_VALUES=(-f values.secret.yaml --set images.backend.digest=sha256:...)
+DEPLOY_VALUES=(-f values.secret.yaml)
 # 1. One upgrade that still renders them: they gain helm.sh/resource-policy: keep.
 helm upgrade "$RELEASE" charts/your-service-name -n "$NS" -f "charts/your-service-name/values.$ENV.yaml" \
   "${DEPLOY_VALUES[@]}" --history-max 5 --set namespaces.create=true --set rbac.create=true --wait
@@ -300,12 +300,11 @@ inherited `KUBECONFIG`):
 Every install, upgrade, `helm test` and `helm status` runs as the bootstrap's deployer
 (`helm --kube-as-user your-deployer-local --kube-as-group system:authenticated`), never as admin, so
 the run proves the deployer's Role is enough for `helm upgrade --install --wait`. The database
-password is generated once into `.local/kind/values.yaml` and kept with the cluster. The kind run turns
-the backup CronJob off (`postgresql.backup.enabled=false`): kind's `standard` class binds a volume only
-when its first Pod starts (`WaitForFirstConsumer`), so the backup PVC stays `Pending` until the first
-nightly backup and `helm --wait`, which waits for every PVC to be bound, would time out. The same
-holds on any such class (GKE's `standard-rwo`, for one): there, give `postgresql.backup.storage.className`
-a class with `volumeBindingMode: Immediate`.
+password is generated once into `.local/kind/values.yaml` and kept with the cluster. The base
+commit's chart is installed with its own `values.local.yaml`, and only those of this run's overrides
+(the built images, the scrape peers) that its `values.yaml` knows. After the first `helm test` the
+run creates a Job from each backup CronJob, as admin: the backup must write a dump and the verify
+Job must restore that same dump.
 
 **`helm test`** (`templates/tests/release-test.yaml`) renders only with `tests.enabled` (off by
 default; `values.local.yaml` and the kind run turn it on), so no dev, qa or production release
@@ -315,12 +314,26 @@ benign request through it answers 200 and an XSS probe 403; and the backend's me
 the test Pod, which no rule admits. When the scrape peers (`networkPolicy.monitoringNamespaceSelector`
 and `monitoringPodSelector`) select the release namespace, as the kind run sets them, a second Job
 with the peer's labels must reach the metrics port. Two hook NetworkPolicies open the default-deny to
-the test Pods while the test runs, never to the metrics port. The refusal check needs a CNI that
-enforces NetworkPolicy: kind's kindnet does (kube-network-policies).
+this release's test Pods, for this release's Pods only (by component and instance), while the test
+runs, never to the metrics port. Every hook object is deleted after a pass and after a failure
+(`hook-succeeded`, `hook-failed`); the client prints each check, so the reason of a failure is in
+`helm test`'s output. The refusal check needs a CNI that enforces NetworkPolicy: kind's kindnet does
+(kube-network-policies); on one that does not, the failure says so and names the switch
+(`tests.enabled=false`). A production render refuses `tests.enabled`.
 
 **In CI** `reusable-kind.yml`, called by `ci.yml` on pull requests behind its path filter, runs this
-on both legs (`make kind-up` with `KIND_NODE` set to the leg, then `make kind-deploy` with the base
-commit), and always deletes the cluster at the end. It is blocking, behind `CI OK`.
+on both legs: `scripts/kind-up.sh --node <leg>`, then `scripts/kind-deploy.sh --base <the pull
+request's base commit>`, the scripts `make kind-up` and `make kind-deploy` run. It always deletes the
+cluster at the end, and on a failure prints the cluster's state with the leg's own kubectl. It is
+blocking, behind `CI OK`.
+
+**The kind directory** is always the repository's `.local/kind` (`scripts/_kind.sh`): an exported
+`KIND_DIR` is never read, and the tests' override, `FST_KIND_DIR`, is refused unless it resolves under
+`.local/`. `make kind-down` deletes the cluster `fst` and the files the scripts wrote there
+(`kubeconfig`, `values.yaml`), and leaves anything else.
+
+**`ct`'s own `helm test`** runs as the deployer too: `--helm-extra-args` carries the deployer's
+identity to every helm call ct makes, and the run checks ct's `--debug` output for it.
 
 ---
 

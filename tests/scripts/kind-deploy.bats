@@ -13,9 +13,12 @@ setup() {
   SCRIPT="$ROOT/scripts/kind-deploy.sh"
   B="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$B"
-  export LOG="$BATS_TEST_TMPDIR/calls.log" KIND_DIR="$BATS_TEST_TMPDIR/kind"
+  export LOG="$BATS_TEST_TMPDIR/calls.log"
   : > "$LOG"
-  mkdir -p "$KIND_DIR" && : > "$KIND_DIR/kubeconfig"
+  mkdir -p "$ROOT/.local"
+  KIND_DIR="$(mktemp -d "$ROOT/.local/bats-kind.XXXXXX")"
+  export FST_KIND_DIR="$KIND_DIR"
+  : > "$KIND_DIR/kubeconfig"
   # kubectl answers the context questions from STUB_CONTEXTS (one per line, the first is current) and
   # the version from STUB_SERVER_MINOR; it logs the kubeconfig it was given. Anything else fails, so
   # the run stops right after the guards.
@@ -37,6 +40,23 @@ STUB
   done
   chmod +x "$B"/*
   export PATH="$B:$PATH"
+}
+
+teardown() {
+  rm -rf "$KIND_DIR"
+  rmdir "$ROOT/.local" 2>/dev/null || true
+}
+
+@test "an exported KIND_DIR is ignored, and an override outside .local/ is refused" {
+  other="$BATS_TEST_TMPDIR/someone-elses-kind"
+  mkdir -p "$other" && : > "$other/kubeconfig"
+  KIND_DIR="$other" run bash "$SCRIPT"
+  run ! grep -q "$other" "$LOG"
+  : > "$LOG"
+  FST_KIND_DIR="$other" run bash "$SCRIPT"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *".local/"* ]]
+  [ -z "$(cat "$LOG")" ]
 }
 
 @test "without the kubeconfig of fst it stops and says to run make kind-up" {

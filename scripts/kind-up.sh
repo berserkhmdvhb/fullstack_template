@@ -11,18 +11,18 @@
 # Usage: kind-up.sh [--node floor|newest] [--delete]
 #   --node LEG   the node image of that leg (default floor: the chart's kubeVersion floor)
 #   --delete     delete fst and .local/kind instead
-# Env: KIND_DIR (default .local/kind; the tests use a temp dir). The pinned kind comes first on PATH
-#      (make and CI put .tools/bin there).
+# Files: .local/kind (scripts/_kind.sh; only FST_KIND_DIR, under .local/, overrides it). The pinned
+#      kind comes first on PATH (make and CI put .tools/bin there).
 # ===========================================================================
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-KIND_DIR="${KIND_DIR:-$ROOT/.local/kind}"
+# shellcheck source=/dev/null
+source "$ROOT/scripts/_kind.sh"
 KUBECONFIG_FILE="$KIND_DIR/kubeconfig"
-CLUSTER=fst
 
 die() { echo "kind-up: $*" >&2; exit "${2:-1}"; }
-usage() { sed -n '/^# Usage:/,/^# Env:/s/^# \{0,1\}//p' "${BASH_SOURCE[0]}"; }
+usage() { sed -n '/^# Usage:/,/^# Files:/s/^# \{0,1\}//p' "${BASH_SOURCE[0]}"; }
 
 leg=floor delete=false
 while [[ $# -gt 0 ]]; do
@@ -36,7 +36,11 @@ done
 
 if [[ "$delete" == true ]]; then
   kind delete cluster --name "$CLUSTER" --kubeconfig "$KUBECONFIG_FILE"
-  rm -rf "$KIND_DIR"
+  # Only the files the scripts create, then the directory if nothing else is in it.
+  for file in "${KIND_FILES[@]}"; do rm -f "$KIND_DIR/$file"; done
+  if [[ -d "$KIND_DIR" ]] && ! rmdir "$KIND_DIR" 2>/dev/null; then
+    echo "kind-up: left $KIND_DIR: it holds files the kind scripts did not create"
+  fi
   echo "kind-up: deleted $CLUSTER"
   exit 0
 fi

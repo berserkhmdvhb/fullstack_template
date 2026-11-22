@@ -12,8 +12,12 @@ setup() {
   SCRIPT="$ROOT/scripts/kind-up.sh"
   B="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$B"
-  export LOG="$BATS_TEST_TMPDIR/calls.log" KIND_DIR="$BATS_TEST_TMPDIR/kind"
+  export LOG="$BATS_TEST_TMPDIR/calls.log"
   : > "$LOG"
+  # The only override the scripts accept, and only under the repository's .local/.
+  mkdir -p "$ROOT/.local"
+  KIND_DIR="$(mktemp -d "$ROOT/.local/bats-kind.XXXXXX")"
+  export FST_KIND_DIR="$KIND_DIR"
   # docker inspect answers for fst-control-plane with STUB_NODE_IMAGE (empty: no such container).
   cat > "$B/docker" <<'STUB'
 #!/usr/bin/env bash
@@ -31,6 +35,11 @@ STUB
   export PATH="$B:$PATH"
   FLOOR="$(awk -F'\t' '$1 == "floor" {print $3}' "$ROOT/tools/kind-nodes.tsv")"
   NEWEST="$(awk -F'\t' '$1 == "newest" {print $3}' "$ROOT/tools/kind-nodes.tsv")"
+}
+
+teardown() {
+  rm -rf "$KIND_DIR"
+  rmdir "$ROOT/.local" 2>/dev/null || true
 }
 
 @test "it creates fst with the floor node image and its own kubeconfig" {
@@ -61,12 +70,43 @@ STUB
   run ! grep -q "kind create" "$LOG"
 }
 
-@test "--delete deletes fst only, with its kubeconfig, and removes the kind directory" {
-  mkdir -p "$KIND_DIR" && : > "$KIND_DIR/kubeconfig"
+@test "--delete deletes fst only, with its kubeconfig, and removes the files it knows" {
+  : > "$KIND_DIR/kubeconfig"
+  : > "$KIND_DIR/values.yaml"
   run bash "$SCRIPT" --delete
   [ "$status" -eq 0 ]
   grep -qx "kind delete cluster --name fst --kubeconfig $KIND_DIR/kubeconfig" "$LOG"
   [ ! -e "$KIND_DIR" ]
+}
+
+@test "--delete leaves any file it did not create, and says so" {
+  : > "$KIND_DIR/kubeconfig"
+  : > "$KIND_DIR/notes.txt"
+  run bash "$SCRIPT" --delete
+  [ "$status" -eq 0 ]
+  [ ! -e "$KIND_DIR/kubeconfig" ]
+  [ -f "$KIND_DIR/notes.txt" ]
+  [[ "$output" == *"left $KIND_DIR"* ]]
+}
+
+@test "an exported KIND_DIR is ignored: nothing is written to or deleted from it" {
+  other="$BATS_TEST_TMPDIR/someone-elses-kind"
+  mkdir -p "$other" && : > "$other/kubeconfig" && : > "$other/values.yaml"
+  KIND_DIR="$other" run bash "$SCRIPT"
+  grep -qx "kind create cluster --name fst --kubeconfig $FST_KIND_DIR/kubeconfig --image $FLOOR --wait 300s" "$LOG"
+  KIND_DIR="$other" run bash "$SCRIPT" --delete
+  [ -f "$other/kubeconfig" ]
+  [ -f "$other/values.yaml" ]
+  run ! grep -q "$other" "$LOG"
+}
+
+@test "an override outside the repository's .local/ is refused before anything runs" {
+  for dir in "$BATS_TEST_TMPDIR/kind" "$ROOT/.local/../outside" "$ROOT/.local"; do
+    FST_KIND_DIR="$dir" run bash "$SCRIPT" --delete
+    [ "$status" -eq 2 ]
+    [[ "$output" == *".local/"* ]]
+  done
+  [ -z "$(cat "$LOG")" ]
 }
 
 @test "no call ever lists clusters or names another one" {
