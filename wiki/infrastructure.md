@@ -224,7 +224,7 @@ scripts/migrate-to-bootstrap.sh dev --context <context> --release your-service-n
 `--context` is required: every helm and kubectl call gets it, and the confirmation and the dry run
 name it with its cluster's server. Pass the values the deploy of this chart version passes after the
 env's values file: your secret values (or `secrets.existingSecret`) and the images it deploys, for
-example `--values values.secret.yaml --set images.backend.digest=sha256:…`. Without any it refuses
+example `--values values.secret.yaml --set images.backend.digest=sha256:…`. `--set` and `--set-string` take only `images.*` keys (anything else is refused: put it in a `--values` file, which the bootstrap render gets too). Without any it refuses
 (an upgrade without the secret values would empty the app's Secrets), unless `--env-values-only` says
 `values.<env>.yaml` is all the deploy passes. Its bootstrap render takes each `--values` as `--chart-values`, and the files you pass to `scripts/k8s-bootstrap.sh --values` (for example `gmpClusterRules`, the deployer's name) go in with `--bootstrap-values`, repeatable: pass the same ones, or step 2 applies other RBAC than your own bootstrap run. The script:
 1. refuses unless the context is in the kubeconfig, the namespace is not another env's, the release

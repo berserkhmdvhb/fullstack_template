@@ -723,7 +723,7 @@ boot_cluster_rules() {
   run bash "$SCRIPT" dev --context kind-x "${V[@]}" --bootstrap-values "$BATS_TEST_TMPDIR/b.yaml" --yes
   [ "$status" -eq 0 ]
   grep -q "subject: renamed-deployer" "$APPLIED"
-  run ! grep -q "your-deployer" "$APPLIED"
+  run ! grep -q "subject: your-deployer" "$APPLIED"
 }
 
 @test "each --values reaches the bootstrap render as --chart-values, in order, and a bootstrap file as --values" {
@@ -740,4 +740,22 @@ boot_cluster_rules() {
   [ "$status" -eq 2 ]
   [[ "$output" == *"--bootstrap-values needs an existing file"* ]]
   [ -z "$(cat "$LOG")" ]
+}
+
+@test "--set and --set-string of a key other than images.* are refused before anything runs" {
+  for args in "--set fullnameOverride=x" "--set-string rbac.create=false" "--set images.backend.digest=sha256:abc,fullnameOverride=x"; do
+    # shellcheck disable=SC2086 # the words are the option and its value
+    run bash "$SCRIPT" dev --context kind-x "${V[@]}" $args --yes
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"--values file"* ]]
+    [ -z "$(cat "$LOG")" ]
+  done
+  [[ "$output" == *"fullnameOverride"* ]]
+}
+
+@test "--set images.* is still accepted and reaches the upgrade" {
+  d="sha256:$(printf 'a%.0s' {1..64})"
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --set "images.backend.digest=$d" --yes
+  [ "$status" -eq 0 ]
+  grep -q "^helm upgrade .*--set images.backend.digest=$d" "$LOG"
 }

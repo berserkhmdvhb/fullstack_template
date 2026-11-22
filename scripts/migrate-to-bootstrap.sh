@@ -42,7 +42,9 @@
 #   --release NAME   the Helm release (default your-service-name)
 #   --namespace NS   the app namespace (default <release>-<env>; not one ending in another env)
 #   --values, --set, --set-string  the deploy's own values after values.<env>.yaml: the secret
-#                    values (or secrets.existingSecret) and the images it deploys (repeatable)
+#                    values (or secrets.existingSecret) and the images it deploys (repeatable).
+#                    --set and --set-string take only images.* keys (refused otherwise, exit 2): any
+#                    other key goes in a --values file, which the bootstrap render gets too
 #   --bootstrap-values  a bootstrap config file, as scripts/k8s-bootstrap.sh --values (repeatable): the
 #                    one the admin's own bootstrap run passes. Each --values is also passed to it as
 #                    --chart-values, so its render and the upgrades read the same chart values
@@ -90,7 +92,13 @@ while [[ $# -gt 0 ]]; do
           allow_missing+=("$2") ;;
         --values) [[ -f "$2" ]] || die "--values needs an existing file" 2; values+=(-f "$2"); boot_extra+=(--chart-values "$2") ;;
         --bootstrap-values) [[ -f "$2" ]] || die "--bootstrap-values needs an existing file" 2; boot_extra+=(--values "$2") ;;
-        *) values+=("$1" "$2") ;;
+        *) # --set, --set-string: only images.* (the bootstrap render cannot take them; --values reaches both)
+          IFS=, read -ra pairs <<<"$2"
+          for pair in "${pairs[@]}"; do
+            [[ "$pair" != *=* || "${pair%%=*}" == images.* ]] ||
+              die "$1 ${pair%%=*}: only images.* may be set with $1, since the bootstrap render does not get it and its RBAC names and rules could differ from the upgrades': put ${pair%%=*} in a --values file, which reaches both" 2
+          done
+          values+=("$1" "$2") ;;
       esac
       shift 2 ;;
     --env-values-only) env_only=true; shift ;;
