@@ -723,7 +723,12 @@ operational steps in
   release builds, scans, signs and attests it like the app images, and the deploy passes
   its digest. Envoy loads the Wasm from a file in the image (`code.local.filename`), so
   the Pod fetches nothing at runtime and its egress is only its upstream and DNS. The
-  Pod runs as the image's user (65532) with a read-only root filesystem. Envoy's admin
+  Pod runs as the image's user (65532) with a read-only root filesystem. The base is the newest
+  supported Envoy minor (1.39), proven with the pinned Coraza release by a local run, because
+  Coraza's own CI stops at an end-of-life minor. Coraza runs its recommended configuration,
+  enforcing, and inspects request bodies (`SecRequestBodyAccess On`) up to the backend's own
+  limit, `config.MAX_REQUEST_BODY_BYTES` (`SecRequestBodyLimit`, `SecRequestBodyInMemoryLimit`),
+  so a SQL injection in a form or JSON body is blocked, not only one in the URL. Envoy's admin
   interface (which serves endpoints such as `/quitquitquit`) is disabled; the probes ask
   a separate listener (`waf.health.port`, `waf.health.path`) that answers a fixed `200`.
 

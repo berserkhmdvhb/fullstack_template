@@ -29,8 +29,10 @@ RUN mkdir /out \
 ############################
 # STAGE 2: Runtime
 ############################
-# Distroless Envoy (no shell). Its configured user is 65532 (nonroot); the chart runs the Pod as it.
-FROM envoyproxy/envoy:distroless-v1.33.14@sha256:8599dee1e6ea059e23021cbf1eac7a6e7cede3999391b0334054edd58f14ab40 AS runtime
+# Distroless Envoy (no shell), the newest supported minor. Coraza's CI tests up to 1.33 (end of life);
+# the proxy-wasm ABI is stable, and this pin was proven by a run (Wasm loads, body and query attacks
+# get 403, benign GET and POST pass). Its configured user is 65532 (nonroot); the Pod runs as it.
+FROM envoyproxy/envoy:distroless-v1.39.6@sha256:1cac8b3a2f72d5a0918f54d7b49e68aae0b0ba325c2d50c8a9a3fff7a4d1f994 AS runtime
 
 # ---- Metadata ----
 ARG VERSION=0.0.0

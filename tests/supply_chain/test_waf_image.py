@@ -49,6 +49,19 @@ def test_the_runtime_is_the_distroless_envoy_image() -> None:
     assert re.match(r"FROM envoyproxy/envoy:distroless-v\d+\.\d+\.\d+" + DIGEST, runtime)
 
 
+# The oldest Envoy minor still supported when the base was pinned (Envoy supports each minor for
+# a year; 1.36 to 1.39 in 2026-11). Renovate only moves the pin forward.
+OLDEST_SUPPORTED_ENVOY_MINOR = 36
+
+
+def test_the_envoy_base_is_a_supported_release() -> None:
+    match = re.search(
+        r"^FROM envoyproxy/envoy:distroless-v1\.(\d+)\.\d+@", DOCKERFILE, re.MULTILINE
+    )
+    assert match
+    assert int(match.group(1)) >= OLDEST_SUPPORTED_ENVOY_MINOR
+
+
 def test_the_builder_is_the_debian_image_the_backend_uses() -> None:
     backend = (ROOT / "Dockerfile.backend").read_text(encoding="utf-8")
     debian = re.search(r"^FROM (debian:13-slim" + DIGEST + ")", backend, re.MULTILINE)

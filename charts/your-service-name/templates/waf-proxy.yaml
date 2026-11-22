@@ -7,14 +7,18 @@
 {{- end }}
 {{- $upstreamHost := .Values.waf.upstream.host | default (printf "%s-backend" (include "chart.fullname" .)) }}
 {{- $upstreamPort := include "chart.wafUpstreamPort" . }}
-{{- $directives := list "SecRuleEngine On" }}
+{{- /* Coraza's recommended configuration, enforcing, with request bodies inspected up to the
+       backend's own limit (config.MAX_REQUEST_BODY_BYTES); responses are not buffered. */}}
+{{- $bodyLimit := .Values.config.MAX_REQUEST_BODY_BYTES }}
+{{- $directives := list "Include @recommended-conf" "SecRuleEngine On" "SecRequestBodyAccess On" "SecResponseBodyAccess Off" (printf "SecRequestBodyLimit %s" $bodyLimit) (printf "SecRequestBodyInMemoryLimit %s" $bodyLimit) }}
 {{- if .Values.waf.owaspCrs }}
 {{- $directives = concat $directives (list "Include @crs-setup-conf" "Include @owasp_crs/*.conf") }}
 {{- end }}
 # -----------------------------------------------------------------------------
 # WAF proxy — Coraza (Envoy wasm + OWASP CRS), fronting the API surface.
 #
-# Envoy listens on .Values.waf.service.port, runs the Coraza filter (OWASP CRS, SecRuleEngine On)
+# Envoy listens on .Values.waf.service.port, runs the Coraza filter (its recommended configuration,
+# enforcing, request bodies inspected up to config.MAX_REQUEST_BODY_BYTES, then OWASP CRS)
 # and reverse-proxies /api, /docs and /openapi.json to the upstream: the backend Service, or
 # waf.upstream (an auth proxy). The Ingress routes those API paths at THIS Service when waf.enabled
 # (see templates/ingress.yaml); the UI / static tiers bypass it.

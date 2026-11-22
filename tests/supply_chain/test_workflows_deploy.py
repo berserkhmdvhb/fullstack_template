@@ -5,6 +5,7 @@ Static, offline.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -287,7 +288,12 @@ def test_the_deploy_refuses_placeholder_values() -> None:
     """Only the real deploy turns the chart's placeholder guard on; CI renders leave it off."""
     upgrade = SCRIPT[SCRIPT.index('helm upgrade --install "$SERVICE_NAME"') :]
     upgrade = upgrade[: upgrade.index("|| helm_rc=$?")]
-    assert "--set guards.rejectPlaceholders=true" in upgrade
+    # The upgrade and the render before it share one values list, which turns the guard on.
+    assert '"${release_values[@]}"' in upgrade
+    values = re.search(r"^release_values=\((.*)\)$", SCRIPT, re.MULTILINE)
+    assert values
+    assert "--set guards.rejectPlaceholders=true" in values.group(1)
+    assert 'helm template "$SERVICE_NAME" "$CHART_DIR" "${release_values[@]}"' in SCRIPT
     chart_ci = (WORKFLOWS / "reusable-chart.yml").read_text(encoding="utf-8")
     assert "rejectPlaceholders" not in chart_ci
 

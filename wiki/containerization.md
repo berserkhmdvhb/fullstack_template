@@ -154,7 +154,7 @@ uses it; the builder extracts the module (the zip's one member; `gzip` reads it 
 the Wasm magic number. The final stage only copies the module to `/etc/envoy/coraza/coraza-proxy-wasm.wasm`
 (no `RUN`, no shell) and runs as the base image's user, `65532:65532`.
 
-- **The Envoy minor** is the newest one the pinned Coraza release is tested against (its CI's Envoy list).
+- **The Envoy minor** is the newest supported one (1.39). Coraza 0.6.0's own CI tests Envoy up to 1.33, which is end of life; the proxy-wasm ABI is stable, and the pin was proven by a run of the chart's configuration: the Wasm loads, the health path answers 200, a benign GET and POST reach the upstream, and a query-string XSS and a form-body SQLi get 403.
 - **Trust on first use.** The asset's sha256 was recorded when the version was first pinned. Renovate proposes a
   new `CORAZA_WASM_VERSION` (the `# renovate:` line above it), and the build then fails the checksum until a
   maintainer records the new asset's sha256 (GitHub shows each release asset's digest). Renovate refreshes the
@@ -163,6 +163,7 @@ the Wasm magic number. The final stage only copies the module to `/etc/envoy/cor
   `healthcheck_exempt` and Kubernetes probes the chart's health listener instead. Run bare, the image prints
   its version: the chart passes the whole Envoy configuration, and the base image's default configuration
   (which binds the admin interface to every address) is never used.
+- **Request bodies are inspected.** The chart loads Coraza's recommended configuration (`@recommended-conf`), enforcing (`SecRuleEngine On`), with `SecRequestBodyAccess On` and `SecResponseBodyAccess Off`, then the OWASP CRS. `SecRequestBodyLimit` and `SecRequestBodyInMemoryLimit` are `config.MAX_REQUEST_BODY_BYTES`, the backend's own limit (10 MiB), so the WAF never accepts a body the backend refuses, or the reverse.
 - **Runtime:** Envoy loads the module from that file (`vm_config.code.local.filename`), so nothing is fetched at
   runtime; the admin interface is disabled, a separate listener answers the probes, and the root filesystem
   is read-only. Build it locally with
@@ -195,7 +196,7 @@ flowchart TB
 
 Each image lists the platforms it supports (`platforms` in `.github/container-images.yml`, today `linux/amd64` and `linux/arm64`; every base image is pinned by a multi-arch index digest that includes both). The release builds one platform per job, on a runner of that architecture (the manifest's `runners` map), and never under emulation: no QEMU and no `binfmt`. Each platform is pushed by digest without a tag; a `merge` job then makes one index per image with `docker buildx imagetools create`, applies the tags to it and resolves its digest. So `ghcr.io/<owner>/<repo>/<id>:<tag>` and the digest that deploys, signing and admission use name the index, and a node pulls the manifest for its own architecture.
 
-arm64 is optional: set the repository variable `BUILD_ARM64` to `true` (see [GitHub repository settings](./github-repository-settings.md#the-vars-file)). Unset builds `linux/amd64` only, through the same steps. Pull requests build and check `linux/amd64` only; arm64 is checked natively on the release path. After `replace_service_name.sh` regenerates the `images:` block, every image lists `linux/amd64` only until you add `platforms` back. The full flow is in [CI/CD](./ci-cd.md#multi-architecture-flow).
+arm64 is optional: set the repository variable `BUILD_ARM64` to `true` (see [GitHub repository settings](./github-repository-settings.md#the-vars-file)). Unset builds `linux/amd64` only, through the same steps. Pull requests build and check `linux/amd64` only; arm64 is checked natively on the release path. `replace_service_name.sh` keeps every existing entry of the `images:` block as it is (it only renames), so `platforms` and the other keys survive adoption; an entry it adds for a new Dockerfile lists `linux/amd64` only until you add `platforms`. The full flow is in [CI/CD](./ci-cd.md#multi-architecture-flow).
 
 ### CI Configuration
 

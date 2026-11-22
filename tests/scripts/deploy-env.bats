@@ -21,7 +21,7 @@ case "$1" in
     [[ -n "${STUB_HISTORY-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
     echo "$STUB_HISTORY" ;;
   upgrade) exit "${STUB_UPGRADE_RC:-0}" ;;
-  get) [[ -z "${STUB_NO_RELEASE-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
+  template|get) [[ "$1" == template || -z "${STUB_NO_RELEASE-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
        printf -- '---\nkind: Job\nmetadata:\n  name: svc-migrate-r2\n  labels:\n    app.kubernetes.io/component: migration\n'
        for c in ${STUB_RENDERED-backend frontend web-ui}; do
          printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-%s\n  labels:\n    app.kubernetes.io/component: %s\n' "$c" "$c"
@@ -213,12 +213,32 @@ STUB
   grep -q "^verify COMPONENTS=backend frontend waf " "$LOG"
 }
 
-@test "an optional image still needs its digest" {
-  DEPLOY_IMAGES=backend,frontend,waf run bash "$SCRIPT"
+@test "an optional image the release runs still needs its digest" {
+  STUB_RENDERED="backend frontend waf" DEPLOY_IMAGES=backend,frontend,waf run bash "$SCRIPT"
   [ "$status" -eq 1 ]
   [[ "$output" == *"WAF_IMAGE_DIGEST"* ]]
   run grep -q "helm upgrade" "$LOG"
   [ "$status" -ne 0 ]
+}
+
+@test "an optional image the release does not run deploys without its digest (an older release)" {
+  DEPLOY_IMAGES=backend,frontend,waf run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.images.waf.digest // "none"' "$WORK_DIR/image-values.json")" = "none" ]
+  grep -q "^verify COMPONENTS=backend frontend " "$LOG"
+}
+
+@test "the components are read from a render before the upgrade, with the deploy's own values" {
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  grep "^helm template svc charts/x" "$LOG" | grep -q -- "-f charts/x/values.dev.yaml -f $WORK_DIR/image-values.json"
+  [ "$(grep -n "^helm template" "$LOG" | cut -d: -f1)" -lt "$(grep -n "^helm upgrade" "$LOG" | cut -d: -f1)" ]
+}
+
+@test "a backend digest is still required, whatever renders" {
+  DIGESTS="{\"FRONTEND_IMAGE_DIGEST\":\"$D\"}" run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"BACKEND_IMAGE_DIGEST"* ]]
 }
 
 @test "missing inputs are refused" {

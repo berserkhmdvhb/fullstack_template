@@ -14,7 +14,7 @@ needs to be made once.  The public API is:
   extensions (with special cases for ``Dockerfile`` and ``Makefile``)
 - :func:`rewrite_tree`    -- apply a list of ``(regex, replacement)`` pairs
   across the tree, with backup + atomic replace semantics
-- image-block helpers    -- detect the root Dockerfiles and regenerate the
+- image-block helpers    -- detect the root Dockerfiles and rewire (keeping existing entries) the
   ``images:`` block (.github/container-images.yml) and the ``services:`` block
   (infra/security/config.yaml) surgically, so the build/scan manifests mirror
   the actual Dockerfile set without a load->dump round-trip
@@ -248,10 +248,9 @@ def render_images_block(images: list[tuple[str, str]]) -> list[str]:
     """Canonical ``images:`` block lines for .github/container-images.yml.
 
     Each image is two-space list-indented with the fields the frozen CI build
-    (the container_matrix.py helper) and the local runner (devsec.sh build) read. The
-    block is regenerated from the detected Dockerfiles on every run, so the two
-    manifests can never drift; per-image customization is not preserved across
-    re-runs (Dockerfiles are the source of truth).
+    (the container_matrix.py helper) and the local runner (devsec.sh build) read. Used
+    for a Dockerfile that has no entry yet; an existing entry is kept as it is
+    (rewrite_images_block).
     """
     lines: list[str] = []
     for image_id, dockerfile in images:
@@ -342,11 +341,66 @@ def _finalize(lines: list[str], *, had_trailing_newline: bool) -> str:
     return joined
 
 
+_ENTRY_START_RE = re.compile(r"^  - ")
+_ENTRY_DOCKERFILE_RE = re.compile(r"^\s+(?:- )?dockerfile:\s*[\"']?([^\"'\s#]+)")
+_ENTRY_ID_RE = re.compile(r"^(  - id:\s*)[\"']?([^\"'\s#]+)[\"']?(.*)$")
+
+
+def _existing_entries(lines: list[str]) -> dict[str, list[str]]:
+    """The current ``images:`` entries (block style), keyed by their ``dockerfile`` value."""
+    key = next((i for i, ln in enumerate(lines) if re.match(r"^images:\s*(#.*)?$", ln)), None)
+    if key is None:
+        return {}
+    entries: list[list[str]] = []
+    for line in lines[key + 1 :]:
+        if line.strip() == "" or _indent(line) == 0:
+            break
+        if _ENTRY_START_RE.match(line):
+            entries.append([line])
+        elif entries:
+            entries[-1].append(line)
+    out: dict[str, list[str]] = {}
+    for entry in entries:
+        for line in entry:
+            m = _ENTRY_DOCKERFILE_RE.match(line)
+            if m:
+                out[m.group(1)] = entry
+                break
+    return out
+
+
+def _keep_entry(entry: list[str], image_id: str) -> list[str]:
+    """An existing entry, verbatim, with its id (and repository suffix) renamed if it changed."""
+    m = _ENTRY_ID_RE.match(entry[0])
+    if not m or m.group(2) == image_id:
+        return entry
+    old_id = m.group(2)
+    renamed = [f"{m.group(1)}{image_id}{m.group(3)}"]
+    suffix = re.compile(rf"/{re.escape(old_id)}([\"']?\s*(#.*)?)$")
+    renamed += [
+        suffix.sub(rf"/{image_id}\1", ln) if re.match(r"^\s+repository:", ln) else ln
+        for ln in entry[1:]
+    ]
+    return renamed
+
+
 def rewrite_images_block(content: str, images: list[tuple[str, str]]) -> str:
-    """Replace the top-level ``images:`` block in container-images.yml."""
+    """Replace the top-level ``images:`` block in container-images.yml.
+
+    An image whose Dockerfile already has an entry keeps that entry byte for byte (every key:
+    ``distroless``, ``platforms``, ``healthcheck_exempt``, ...), renamed only when its derived id
+    changed; a new Dockerfile gets the canonical entry; an entry without its Dockerfile is dropped.
+    """
     had_nl = content.endswith("\n")
     lines = content.split("\n")
-    lines = _replace_block(lines, "images", render_images_block(images), expected_indent=0)
+    existing = _existing_entries(lines)
+    rendered: list[str] = []
+    for image_id, dockerfile in images:
+        if dockerfile in existing:
+            rendered += _keep_entry(existing[dockerfile], image_id)
+        else:
+            rendered += render_images_block([(image_id, dockerfile)])
+    lines = _replace_block(lines, "images", rendered, expected_indent=0)
     return _finalize(lines, had_trailing_newline=had_nl)
 
 

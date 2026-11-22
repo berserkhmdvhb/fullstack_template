@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # deploy-env.sh — deploy one environment by digest, verify, smoke test, and roll back on a failed check.
 #
-# 1. image values from the manifest plus the release digests (every digest must be sha256:<64 hex>)
+# 1. image values from the manifest plus the release digests (every digest must be sha256:<64 hex>); a
+#    render first tells which images run, and only an image the release does not render may lack one
 # 2. record the last `deployed` Helm revision (none on a first install)
 # 3. helm upgrade --install --rollback-on-failure --wait --wait-for-jobs (Helm rolls a failed upgrade back
 #    itself; --wait-for-jobs makes a failed migration Job fail the release; a failed deploy prints the
@@ -52,14 +53,30 @@ jq -n --argjson m "$matrix" --argjson d "$DIGESTS" --arg tag "$IMAGE_TAG" '
     registry: (.repository | split("/")[0]),
     repository: (.repository | split("/")[1:] | join("/")),
     tag: $tag}}) | from_entries)}' > "$VALUES"
+# 1b. Which images this release runs: a render with the deploy's own values, before anything changes.
+# An optional image (the WAF, off unless waf.enabled) renders no Pod when its feature is off, so it
+# needs no digest then (an older release's digest file may have none) and its Pods are not checked.
+# The render and the upgrade take the same values. guards.rejectPlaceholders: a real deploy refuses the
+# chart's placeholder hosts and Gateway.
+release_values=(-f "$CHART_DIR/values.${DEPLOY_ENV}.yaml" -f "$VALUES" --set guards.rejectPlaceholders=true)
+manifest="$(helm template "$SERVICE_NAME" "$CHART_DIR" "${release_values[@]}" --namespace "$NAMESPACE")" || fail "cannot render ${SERVICE_NAME} for ${DEPLOY_ENV}"
+renders() { grep -qE "^[[:space:]]*app\.kubernetes\.io/component: \"?${1}\"?[[:space:]]*$" <<<"$manifest"; }
 components=()
 for id in ${DEPLOY_IMAGES//,/ }; do
   var="$(digest_var "$id")"
   dg="$(jq -r --arg k "$var" '.[$k] // ""' <<<"$DIGESTS")"
+  if [[ -z "$dg" ]] && ! renders "$id"; then
+    echo "${id}: not rendered by this release (feature off) and no ${var}; deployed without it, not checked"
+    continue
+  fi
   [[ "$dg" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "$var must be sha256:<64 hex>; refusing to deploy $id by tag"
   jq --arg id "$id" --arg dg "$dg" '.images[$id].digest = $dg' "$VALUES" > "$VALUES.tmp" && mv "$VALUES.tmp" "$VALUES"
   export "$var=$dg"
-  components+=("$id")
+  if renders "$id"; then
+    components+=("$id")
+  else
+    echo "${id}: not rendered by this release (feature off); its digest is set, its Pods are not checked"
+  fi
   echo "- \`$id\`: $dg" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 done
 
@@ -76,11 +93,8 @@ fi
 
 # 3. deploy. The migration Job carries helm.sh/resource-policy keep, so Helm's own rollback leaves
 # a failed Job (and its Pods) in place: print its status and logs before failing.
-# guards.rejectPlaceholders: a real deploy refuses the chart's placeholder hosts and Gateway.
 helm_rc=0
-helm upgrade --install "$SERVICE_NAME" "$CHART_DIR" \
-  -f "$CHART_DIR/values.${DEPLOY_ENV}.yaml" -f "$VALUES" \
-  --set guards.rejectPlaceholders=true \
+helm upgrade --install "$SERVICE_NAME" "$CHART_DIR" "${release_values[@]}" \
   --namespace "$NAMESPACE" \
   --rollback-on-failure --wait --wait-for-jobs --timeout "$HELM_TIMEOUT" \
   --history-max "$HELM_HISTORY_MAX" || helm_rc=$?
@@ -92,21 +106,9 @@ if (( helm_rc != 0 )); then
 fi
 helm history "$SERVICE_NAME" -n "$NAMESPACE" --max 5
 
-# 3b. Every image is deployed by digest, but an optional one (the WAF, off unless waf.enabled) runs
-# no Pod when its feature is off: verify a component only when the release renders it.
-manifest="$(helm get manifest "$SERVICE_NAME" -n "$NAMESPACE")" || fail "cannot read the manifest of ${SERVICE_NAME}"
-rendered=()
-for c in "${components[@]}"; do
-  if grep -qE "^[[:space:]]*app\.kubernetes\.io/component: \"?${c}\"?[[:space:]]*$" <<<"$manifest"; then
-    rendered+=("$c")
-  else
-    echo "${c}: not rendered by this release (feature off); its digest is set, its Pods are not checked"
-  fi
-done
-
 # 4. verify and smoke
 checks() {
-  RELEASE="$SERVICE_NAME" NAMESPACE="$NAMESPACE" COMPONENTS="${rendered[*]}" bash "$VERIFY_SCRIPT" || return 1
+  RELEASE="$SERVICE_NAME" NAMESPACE="$NAMESPACE" COMPONENTS="${components[*]}" bash "$VERIFY_SCRIPT" || return 1
   local pf rc=0
   kubectl -n "$NAMESPACE" port-forward "svc/${BACKEND_SERVICE}" "${BACKEND_PORT}:${BACKEND_PORT}" >"$WORK_DIR/pf.log" 2>&1 &
   pf=$!

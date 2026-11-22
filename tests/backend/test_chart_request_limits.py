@@ -130,3 +130,9 @@ def test_extra_allowed_hosts_value_is_appended_after_the_service_names() -> None
         "app.your-domain.example",
         "your-service-name.your-domain.example",
     ]
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_the_backend_and_the_waf_share_one_body_limit(env: str) -> None:
+    """config.MAX_REQUEST_BODY_BYTES feeds the backend (ConfigMap) and the WAF's Coraza limits."""
+    assert rendered_config(env)["MAX_REQUEST_BODY_BYTES"] == str(DEFAULT_MAX_REQUEST_BODY_BYTES)

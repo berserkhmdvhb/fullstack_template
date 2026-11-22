@@ -328,11 +328,11 @@ def _patterns_yaml_config_values(cfg: ServiceNameConfig) -> list[tuple[re.Patter
 
     pats: list[tuple[re.Pattern[str], str]] = []
 
-    # package_name --> your_service_name
+    # package_name --> your_service_name ([ \t], not \s: \s would also eat the blank line after it)
     pats.append(
         (
             re.compile(
-                rf"^(\s*package_name\s*:\s*){re.escape(old)}\s*$",
+                rf"^([ \t]*package_name[ \t]*:[ \t]*){re.escape(old)}[ \t]*$",
                 re.MULTILINE,
             ),
             r"\g<1>" + new,
@@ -343,7 +343,7 @@ def _patterns_yaml_config_values(cfg: ServiceNameConfig) -> list[tuple[re.Patter
     pats.append(
         (
             re.compile(
-                rf"^(\s*-\s*)src/{re.escape(old)}\s*$",
+                rf"^([ \t]*-[ \t]*)src/{re.escape(old)}[ \t]*$",
                 re.MULTILINE,
             ),
             r"\g<1>" + f"src/{new}",
