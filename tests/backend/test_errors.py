@@ -110,9 +110,9 @@ def _assert_problem(res: Any, status: int, path: str) -> dict[str, Any]:  # noqa
 
 
 def test_400(client: TestClient) -> None:
-    body = _assert_problem(client.get("/t/bad?token=abc"), 400, "/t/bad")
+    body = _assert_problem(client.get("/t/bad?token=zq-tok-zq"), 400, "/t/bad")
     assert body["detail"] == "That is not valid."
-    assert "abc" not in str(body)
+    assert "zq-tok-zq" not in str(body)
 
 
 def test_401_keeps_www_authenticate(client: TestClient) -> None:

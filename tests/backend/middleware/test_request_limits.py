@@ -177,10 +177,11 @@ def test_an_ipv4_literal_host_is_matched_exactly() -> None:
 
 
 def test_an_unlisted_host_is_a_400_problem() -> None:
-    res = _hosts("api.example.com").get("/api/v1/items?token=abc", headers={"Host": "evil.test"})
+    client = _hosts("api.example.com")
+    res = client.get("/api/v1/items?token=zq-tok-zq", headers={"Host": "evil.test"})
     body = _problem(res, 400, "/api/v1/items")
     assert "evil.test" not in res.text
-    assert "abc" not in res.text
+    assert "zq-tok-zq" not in res.text
     assert body["detail"]
 
 
