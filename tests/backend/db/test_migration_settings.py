@@ -91,15 +91,18 @@ def test_the_job_entry_point_exits_non_zero_before_connecting(
         "DATABASE_URL": REMOTE,
         "DB_SSLMODE": "require",
     }
-    result = subprocess.run(
-        [sys.executable, "-m", "your_service_name.backend.db.run_migrations"],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=ROOT,
-        env=env,
-        timeout=60,
-    )
-    assert result.returncode != 0
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "your_service_name.backend.db.run_migrations"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=ROOT,
+            env=env,
+            timeout=10,  # a refusal is immediate; connecting would retry for over a minute
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail("the runner tried to connect instead of refusing before any connection")
+    assert result.returncode == 1
     assert "DB_SSLMODE=require" in result.stderr
     assert "attempt" not in result.stderr  # no connection was tried

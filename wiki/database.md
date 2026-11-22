@@ -353,7 +353,9 @@ Client role through Workload Identity.
   loopback host (`_is_loopback_database`); the Job's runner applies the same check.
 - **Startup.** The sidecar runs with `--health-check`, `--http-port` (`cloudSqlProxy.healthPort`) and
   `--http-address=0.0.0.0` (the kubelet probes the Pod IP) and has a startup probe on `/startup`, so the main
-  container starts after the proxy is up.
+  container starts after the proxy is up. The address exposes only the health endpoints on the Pod IP: no metrics
+  (`--prometheus`), quit (`--quitquitquit`) or debug endpoint is enabled, the database listener stays on
+  `127.0.0.1`, and the default-deny policy keeps other Pods out, so only the kubelet probes it.
 - **IAM authentication.** Set `autoIamAuthn`, grant the Cloud SQL Instance User role, and use the database
   user `<service-account>@<project>.iam`. The proxy supplies the password, so `DB_PASSWORD` may be missing from
   the app Secret (the Job reads it as an optional key; drop it from `secrets.externalSecret.remoteKeys`). An absent

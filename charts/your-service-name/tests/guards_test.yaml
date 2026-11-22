@@ -4,6 +4,8 @@ release:
   namespace: app
 templates:
   - validate-values.yaml
+set:
+  secrets: {dbPassword: not-a-real-password}
 tests:
   - it: off by default - the placeholders render
     asserts:
