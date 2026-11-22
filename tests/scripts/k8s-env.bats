@@ -53,6 +53,9 @@ case "$1 $2" in
   "config current-context") echo stub-ctx ;;
   "config view") echo "https://stub.invalid" ;;
   "auth can-i") echo "${STUB_CAN:-yes}" ;;
+  "get namespaces") # the stored Namespace, live, with Helm's record of the release svc in that namespace
+    n="$(sed -n 's/^  name: //p' <<<"${STUB_MANIFEST-}" | tr -d '\r' | head -n 1)"
+    [[ -z "$n" || "$*" != *"jsonpath={range"* ]] || printf '\t%s\tsvc\t%s\t\n' "$n" "$n" ;;
 esac
 STUB
   chmod +x "$B"/*

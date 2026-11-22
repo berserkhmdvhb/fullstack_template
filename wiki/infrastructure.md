@@ -229,7 +229,7 @@ example `--values values.secret.yaml --set images.backend.digest=sha256:…`. Wi
 `values.<env>.yaml` is all the deploy passes. The script:
 1. refuses unless the context is in the kubeconfig, the namespace is not another env's, the release
    exists and is `deployed` (a `failed` or `pending-*` release: roll it back to its last good
-   revision first, as the message says; one never deployed has none, and the message says so), and the identity has every right the steps use: creating namespaces, quotas and RBAC, and get, list and patch on Namespaces and on the PersistentVolumeClaims and Secrets of any namespace (a
+   revision first, as the message says; one never deployed has none, and the message says so), and the identity has every right the steps use: creating namespaces; get, create and patch on the quota, LimitRange, Roles and RoleBindings in every namespace the bootstrap writes them to (the database's too), with `escalate` and `bind` there; and get, list and patch on Namespaces and on the PersistentVolumeClaims and Secrets of any namespace (a
    cluster admin); it asks for the release name unless `--yes` is given. It reads the release at its
    deployed revision, and a release that holds no Namespace, Role or RoleBinding is left alone, so a
    re-run is safe. A manifest it cannot classify (a document without a plain top-level `kind`, or a
@@ -240,10 +240,19 @@ example `--values values.secret.yaml --set images.backend.digest=sha256:…`. Wi
    Each also gets the labels `migrate-to-bootstrap/release=<release>` and
    `migrate-to-bootstrap/namespace=<namespace>`, and is read back from the cluster: no upgrade runs
    unless every one carries the annotation and both labels. An object the release holds that the cluster
-   does not have stops the run too: find out what removed it first. The set is computed twice, by a
+   does not have stops the run too: restore it, or, if it was deleted on purpose, run the script again
+   with `--allow-missing <kind>/<namespace>/<name>`, as the refusal prints it. The set is computed twice, by a
    line reader (`scripts/_manifest.sh`) and by the pinned yq (another version is refused): for the
    release and for the render alike, the two lists must be the same set of kind, namespace and
-   name, and any difference or failure stops the run before any change. The summary, on a
+   name, and any difference (the message names the objects) or failure stops the run before any change.
+   The cluster is a third source, read by neither: every live Namespace, and every
+   PersistentVolumeClaim and Secret in the release's namespaces, that Helm's
+   `meta.helm.sh/release-name` and `release-namespace` annotations record as this release's must be
+   in the render or kept, before the keep annotations and again after them, or the run stops and
+   names it. Helm 3.2 and later set those annotations; when the manifest lists such objects and the
+   cluster records none, the run stops and says to upgrade the release once with its own chart and a
+   current Helm. For that list kubectl prints names and annotations only, though it fetches the
+   objects it prints from (Helm's own release Secrets are left out by a field selector). The summary, on a
    re-run too (for a cluster admin), lists the labelled objects as "kept, now unmanaged: decide by
    hand": no release owns them any more.
    The chart's own objects of the removed tiers in them (the Fluentd DaemonSet, its ConfigMap,

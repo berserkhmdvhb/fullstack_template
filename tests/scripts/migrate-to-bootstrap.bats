@@ -13,6 +13,10 @@ setup() {
   B="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$B"
   export LOG="$BATS_TEST_TMPDIR/calls.log" STATE="$BATS_TEST_TMPDIR/state" ANNOT="$BATS_TEST_TMPDIR/annotations"
+  # The live objects Helm records as a release's: "kind namespace name [release release-namespace]",
+  # the release read by the last helm status unless the line names another.
+  export LIVE="$BATS_TEST_TMPDIR/live"
+  echo "namespace - app-ns" > "$LIVE"
   : > "$LOG"
   : > "$ANNOT"
   echo old > "$STATE"
@@ -34,7 +38,7 @@ case "$1 $2" in
     if [[ "$(cat "$STATE")" == old || -n "${STUB_STAYS_OLD-}" ]]; then echo "$STUB_OLD"; else echo "kind: Deployment"; fi ;;
   "upgrade "*)
     [[ "$*" != *"namespaces.create=false"* ]] || echo switched > "$STATE" ;;
-  "template bootstrap") echo "kind: Rendered" ;;
+  "template bootstrap") echo "${STUB_BOOT:-kind: Rendered}" ;;
   "template "*) echo "$STUB_NEW" ;;
 esac
 STUB
@@ -51,7 +55,7 @@ case "$1 $2" in
   "apply -f") cat > /dev/null ;;
   "annotate "*|"label "*) # VERB KIND NAME [-n NS] K=V... --overwrite: recorded as "kind ns name K=V..."
     verb="$1" kind="$2" name="$3" ns=-; shift 3
-    [[ -z "${STUB_NOTFOUND-}" || "$verb" != annotate ]] ||
+    [[ "${STUB_NOTFOUND-}" != "$name" || "$verb" != annotate ]] ||
       { echo "Error from server (NotFound): ${kind}s \"$name\" not found" >&2; exit 1; }
     [[ "${1-}" != -n ]] || { ns="$2"; shift 2; }
     [[ -n "${STUB_ANNOTATE_NOOP-}" && "$verb" == annotate ]] || echo "$kind $ns $name ${*/--overwrite/}" >> "$ANNOT" ;;
@@ -67,6 +71,14 @@ case "$1 $2" in
         [[ "$ns" != - ]] || ns="<none>"
         echo "$ns $name"
       done < <(sort -u -k1,3 "$ANNOT")
+    elif [[ "$*" == *"jsonpath={range"* ]]; then # NS NAME RELEASE RELEASE-NS POLICY of each live object of the kind
+      want=""; [[ "$*" != *" -n "* ]] || want="$(sed 's/.* -n \([^ ]*\).*/\1/' <<<"$*")"
+      read -r _ _ rel _ relns _ <<<"$(grep '^helm status' "$LOG" | tail -n 1)"
+      while read -r k ns name r rn; do
+        [[ "$k" == "$kind" && ( -z "$want" || "$ns" == "$want" ) ]] || continue
+        policy=""; ! grep -q "^$k $ns $name .*helm.sh/resource-policy=keep" "$ANNOT" || policy=keep
+        printf '%s\t%s\t%s\t%s\t%s\n' "${ns/#-/}" "$name" "${r:-$rel}" "${rn:-$relns}" "$policy"
+      done < "$LIVE"
     else # one object: its keep policy and the two marker labels
       name="$3" ns=-; [[ "${4-}" != -n ]] || ns="$5"
       rec="$(grep "^$kind $ns $name " "$ANNOT" | tr '\n' ' ')"
@@ -241,6 +253,8 @@ STUB
 orphans() {
   export STUB_OLD="$STUB_OLD"$'\n---\nkind: Namespace\nmetadata:\n  name: app-ns-logging\n---\nkind: Secret\nmetadata:\n  name: shipper\n  namespace: app-ns-logging\n---\nkind: PersistentVolumeClaim\nmetadata:\n  name: old-data\n---\nkind: ConfigMap\nmetadata:\n  name: gone\n---\nkind: Secret\nmetadata:\n  name: kept'
   export STUB_NEW="$STUB_NEW"$'\n---\nkind: Secret\nmetadata:\n  name: kept'
+  printf '%s\n' "namespace - app-ns-logging" "secret app-ns-logging shipper" \
+    "persistentvolumeclaim your-service-name-dev old-data" "secret your-service-name-dev kept" >> "$LIVE"
 }
 
 # The same manifests with CRLF line ends; a stored manifest the line reader cannot classify (yq reads
@@ -295,7 +309,8 @@ flow_secret() { export STUB_OLD="$STUB_OLD"$'\n---\nkind: Secret\nmetadata: {nam
 # A yq stub: the pinned version (from tools/pins.tsv) unless told otherwise. STUB_YQ_MODE is what it
 # does with the real yq's output: fail (exit 1, the default), empty (print nothing, exit 0), drop
 # (without its last line), dupdrop (its second line replaced by a copy of the first), rename (one
-# object's name changed), or phantom (on its second call, the render's, one object more).
+# object's name changed), phantom (for the render, one object more), or hide
+# (without the logging namespace).
 fake_yq() {
   local pin real
   pin="$(awk -F'\t' '$1 == "yq" {print $2}' "$(dirname "$SCRIPT")/../tools/pins.tsv")"
@@ -303,15 +318,17 @@ fake_yq() {
   cat > "$B/yq" <<STUB
 #!/usr/bin/env bash
 [[ "\$1" != --version ]] || { echo "yq (https://github.com/mikefarah/yq/) version v${1:-$pin}"; exit 0; }
-echo call >> "$BATS_TEST_TMPDIR/yq.calls"
 case "\${STUB_YQ_MODE:-fail}" in
   empty) exit 0 ;;
   drop) "$real" "\$@" | sed '\$d' ;;
   dupdrop) "$real" "\$@" | awk 'NR == 1 { first = \$0 } NR == 2 { \$0 = first } { print }' ;;
   rename) "$real" "\$@" | sed 's/app-ns-logging/app-ns-loggin/' ;;
+  hide) "$real" "\$@" | sed '/^Namespace\/-\/app-ns-logging\$/d' ;;
   phantom)
-    "$real" "\$@"
-    [[ "\$(wc -l < "$BATS_TEST_TMPDIR/yq.calls")" -ne 2 ]] || printf 'Namespace - app-ns-logging\nNamespace/-/app-ns-logging\n' ;;
+    [[ "\$*" == *"/dev/stdin" ]] || exec "$real" "\$@" # a file read (the bootstrap's own), as it is
+    in="\$(cat)"
+    printf '%s\n' "\$in" | "$real" "\$@"
+    [[ "\$in" != *"name: kept"* || "\$in" == *app-ns-logging* ]] || printf 'Namespace - app-ns-logging\nNamespace/-/app-ns-logging\n' ;;
   *) exit 1 ;;
 esac
 STUB
@@ -433,7 +450,9 @@ STUB
   fake_yq
   STUB_YQ_MODE=rename run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
   [ "$status" -eq 1 ]
-  [[ "$output" == *"    Namespace/-/app-ns-logging"* && "$output" == *$'\tNamespace/-/app-ns-loggin\n'* ]]
+  # Both lists have 5 objects: the message names the ones that differ.
+  [[ "$output" == *"yq found 5 "*"the manifest has 5"* ]]
+  [[ "$output" == *"only the line reader found: Namespace/-/app-ns-logging Secret/app-ns-logging/shipper; only yq found: Namespace/-/app-ns-loggin Secret/app-ns-loggin/shipper"* ]]
   run ! grep -q -e "^helm upgrade" -e "annotate" "$LOG"
 }
 
@@ -449,9 +468,10 @@ STUB
 
 @test "an object the release owns that is not in the cluster stops the run before any upgrade" {
   orphans
-  STUB_NOTFOUND=1 run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  STUB_NOTFOUND=app-ns-logging run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
   [ "$status" -eq 1 ]
   [[ "$output" == *"NotFound"* && "$output" == *"is not in the cluster"* ]]
+  [[ "$output" == *"run this again with --allow-missing Namespace/-/app-ns-logging"* ]]
   [[ "$output" != *"already gone"* ]]
   run ! grep -q "^helm upgrade" "$LOG"
 }
@@ -518,4 +538,117 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$output" == *"nothing to do"*"cluster admin"* ]]
   run ! grep -q "kind-x get secrets" "$LOG"
+}
+
+@test "an object deleted on purpose is passed with --allow-missing, and only that object" {
+  orphans
+  STUB_NOTFOUND=old-data run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes \
+    --allow-missing Secret/app-ns-logging/shipper
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--allow-missing PersistentVolumeClaim/your-service-name-dev/old-data"* ]]
+  run ! grep -q "^helm upgrade" "$LOG"
+  sed -i '/old-data/d' "$LIVE" # deleted: the cluster does not list it either
+  STUB_NOTFOUND=old-data run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes \
+    --allow-missing PersistentVolumeClaim/your-service-name-dev/old-data
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PersistentVolumeClaim/your-service-name-dev/old-data is not in the cluster"*"migrated:"* ]]
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes --allow-missing Deployment/x/web
+  [ "$status" -eq 2 ]
+}
+
+# A copy of the scripts whose line reader, like the yq stub's hide mode, leaves the logging namespace out.
+both_readers_hide() {
+  local root="$BATS_TEST_TMPDIR/root"
+  mkdir -p "$root/scripts" "$root/tools"
+  cp "$(dirname "$SCRIPT")"/*.sh "$root/scripts/"
+  cp "$(dirname "$SCRIPT")/../tools/pins.tsv" "$root/tools/"
+  cat >> "$root/scripts/_manifest.sh" <<'PATCH'
+eval "$(declare -f manifest_objects | sed '1s/.*/real_manifest_objects ()/')"
+manifest_objects() { real_manifest_objects "$@" | sed '/^Namespace\/-\/app-ns-logging$/d'; }
+PATCH
+  fake_yq
+  SCRIPT="$root/scripts/migrate-to-bootstrap.sh"
+}
+
+@test "an object both readers leave out is caught from the cluster's own record, before any upgrade" {
+  orphans
+  both_readers_hide
+  STUB_YQ_MODE=hide run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Namespace/-/app-ns-logging is this release's in the cluster"* ]]
+  run ! grep -q -e "^helm upgrade" -e "annotate" "$LOG"
+}
+
+@test "the live objects of the release that the render holds, or that are kept, pass; they are listed before the first upgrade" {
+  orphans
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 0 ]
+  first="$(grep -n "^helm upgrade" "$LOG" | head -n 1 | cut -d: -f1)"
+  marked="$(grep -n " annotate " "$LOG" | tail -n 1 | cut -d: -f1)"
+  # Once before any change, and once more after the keep annotations.
+  mapfile -t lists < <(grep -n "^kubectl --context kind-x get namespaces -o jsonpath={range" "$LOG" | cut -d: -f1)
+  [ "${#lists[@]}" -eq 2 ]
+  (( lists[0] < marked && marked < lists[1] && lists[1] < first ))
+  # Secrets and PVCs: in the release's namespaces only, and never Helm's own release Secrets.
+  grep -q "^kubectl --context kind-x get secrets -n app-ns-logging --field-selector type!=helm.sh/release.v1 -o jsonpath={range" "$LOG"
+  grep -q "^kubectl --context kind-x get persistentvolumeclaims -n your-service-name-dev -o jsonpath={range" "$LOG"
+  run ! grep -E "get (secrets|persistentvolumeclaims) (-A|--all-namespaces) .*jsonpath=\{range" "$LOG"
+}
+
+@test "a live object of the release that is neither rendered, kept nor in the manifest stops the run; one already kept does not" {
+  orphans
+  echo "secret your-service-name-dev stray" >> "$LIVE"
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Secret/your-service-name-dev/stray is this release's in the cluster"* ]]
+  run ! grep -q -e "^helm upgrade" -e "annotate" "$LOG"
+  echo "secret your-service-name-dev stray helm.sh/resource-policy=keep" >> "$ANNOT"
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 0 ]
+}
+
+@test "another release's live objects, and Helm's own release Secrets, are not this release's" {
+  orphans
+  printf '%s\n' "secret your-service-name-dev theirs other your-service-name-dev" \
+    "namespace - elsewhere your-service-name another-ns" \
+    "secret your-service-name-dev sh.helm.release.v1.your-service-name.v3" >> "$LIVE"
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 0 ]
+}
+
+@test "a manifest with objects and a cluster that records none as the release's stops the run before any change" {
+  orphans
+  : > "$LIVE"
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"records none of them as this release's"* ]]
+  run ! grep -q -e "^helm upgrade" -e "annotate" "$LOG"
+}
+
+# The bootstrap writes RBAC in the app namespace and in the database's. (It ends a document: the
+# stub's chart render follows it, as k8s-bootstrap.sh prints the two.)
+boot_rbac() {
+  export STUB_BOOT=$'kind: Role\nmetadata:\n  name: d\n  namespace: app-ns\n---\nkind: Role\nmetadata:\n  name: d\n  namespace: app-ns-db\n---\nkind: RoleBinding\nmetadata:\n  name: d\n  namespace: app-ns-db\nroleRef:\n  kind: Role\n  name: d\n---\nkind: ResourceQuota\nmetadata:\n  name: q\n  namespace: app-ns\n---'
+}
+
+@test "the admin check covers every namespace the bootstrap writes RBAC to, with escalate and bind" {
+  boot_rbac
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --dry-run
+  [ "$status" -eq 0 ]
+  for check in "get roles -n app-ns" "create roles -n app-ns-db" "patch roles -n app-ns-db" "escalate roles -n app-ns" \
+    "escalate roles -n app-ns-db" "create rolebindings -n app-ns-db" "bind roles -n app-ns-db" "create resourcequotas -n app-ns"; do
+    grep -q "auth can-i $check$" "$LOG"
+  done
+  run ! grep -q "auth can-i bind roles -n app-ns$" "$LOG"
+}
+
+@test "an identity without RBAC rights in the database namespace is refused before any change" {
+  boot_rbac
+  for deny in "create roles -n app-ns-db" "bind roles -n app-ns-db" "escalate roles -n app-ns-db"; do
+    : > "$LOG"
+    STUB_DENY="$deny" run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot '$deny'"*"cluster admin"* ]]
+    run ! grep -q -e "^helm upgrade" -e "annotate" -e "apply -f" "$LOG"
+  done
 }

@@ -13,8 +13,11 @@
 #      and migrate-to-bootstrap/namespace=<namespace> on the live object, then read back: no
 #      upgrade runs unless each carries all three, and one the cluster does not have stops the run.
 #      Two readers list those objects, a line reader (scripts/_manifest.sh) and yq, and the run stops
-#      before any change unless both give the same set, for the release and for the render. Every
-#      stage of that computation is checked, so a failure stops the run rather than empty the set.
+#      before any change unless both give the same set, for the release and for the render. A
+#      third source needs neither: every live Namespace, and every PersistentVolumeClaim and Secret
+#      in the release's namespaces, that Helm's annotations (meta.helm.sh/release-name and
+#      release-namespace) record as this release's must be in the render or kept, or the run stops.
+#      Every stage of that computation is checked, so a failure stops the run rather than empty the set.
 #      The objects that carry the labels are listed at the end (on a re-run too, for a cluster
 #      admin) as kept and no longer managed, for a person to decide on;
 #   1. one upgrade that still renders the namespaces and the app's RBAC (namespaces.create=true,
@@ -32,6 +35,7 @@
 # Usage: migrate-to-bootstrap.sh <dev|qa|production|local> --context NAME [--release NAME]
 #                                [--namespace NS] [--values FILE]... [--set K=V]...
 #                                [--set-string K=V]... [--env-values-only]
+#                                [--allow-missing KIND/NAMESPACE/NAME]...
 #                                [--timeout DURATION] [--dry-run] [--yes]
 #   --context NAME   the kube context to act on (required; every helm and kubectl call gets it)
 #   --release NAME   the Helm release (default your-service-name)
@@ -40,6 +44,8 @@
 #                    values (or secrets.existingSecret) and the images it deploys (repeatable)
 #   --env-values-only  the env's values file is all the deploy passes (else one of the above is
 #                    required: an upgrade without the secret values would empty the app's Secrets)
+#   --allow-missing  an object the release holds that was deleted on purpose, as the refusal names
+#                    it (Namespace/-/NAME, Secret/NS/NAME): go on without it (repeatable)
 #   --timeout        each upgrade's --wait (default 10m)
 #   --dry-run        check everything and print the steps and the objects it would keep; change nothing
 #   --yes            no confirmation (needed without a terminal)
@@ -64,15 +70,20 @@ case "$1" in
 esac
 release=your-service-name namespace="" context="" timeout=10m dry_run=false yes=false env_only=false
 values=(-f "$CHART/values.$ENV_NAME.yaml")
+allow_missing=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --context|--release|--namespace|--timeout|--values|--set|--set-string)
+    --context|--release|--namespace|--timeout|--values|--set|--set-string|--allow-missing)
       [[ $# -ge 2 ]] || die "$1 needs a value" 2
       case "$1" in
         --context) context="$2" ;;
         --release) label release "$2"; release="$2" ;;
         --namespace) label namespace "$2"; namespace="$2" ;;
         --timeout) timeout="$2" ;;
+        --allow-missing)
+          [[ "$2" =~ ^(Namespace|PersistentVolumeClaim|Secret)/[^/\ ]+/[^/\ ]+$ ]] ||
+            die "--allow-missing takes KIND/NAMESPACE/NAME, as the refusal prints it, got '$2'" 2
+          allow_missing+=("$2") ;;
         --values) [[ -f "$2" ]] || die "--values needs an existing file" 2; values+=(-f "$2") ;;
         *) values+=("$1" "$2") ;;
       esac
@@ -155,9 +166,11 @@ objects() {
   LC_ALL=C sort -u "$out.yq.unsorted" > "$out.yq" || die "could not sort yq's objects of $what"
   LC_ALL=C comm -3 "$out" "$out.yq" > "$out.differ" || die "could not compare the two lists of $what"
   if [[ -s "$out.differ" || ( -s "$out" && ! -s "$out.yq" ) ]]; then
-    echo "migrate-to-bootstrap: the two readers of $what disagree (left: the manifest has; right: only yq found):" >&2
-    sed 's/^/    /' "$out.differ" >&2
-    die "yq found $(wc -l < "$out.yq") Namespace, PersistentVolumeClaim and Secret objects in $what; the manifest has $(wc -l < "$out"): stopping before any change"
+    local ours theirs
+    LC_ALL=C comm -23 "$out" "$out.yq" > "$out.only" || die "could not compare the two lists of $what"
+    LC_ALL=C comm -13 "$out" "$out.yq" > "$out.yq.only" || die "could not compare the two lists of $what"
+    ours="$(paste -sd' ' "$out.only")" theirs="$(paste -sd' ' "$out.yq.only")"
+    die "the two readers of $what disagree: yq found $(wc -l < "$out.yq") Namespace, PersistentVolumeClaim and Secret objects; the manifest has $(wc -l < "$out"); only the line reader found: ${ours:-none}; only yq found: ${theirs:-none}: stopping before any change"
   fi
 }
 marked() { # what an earlier or this run kept for this release: only the objects with its labels
@@ -176,21 +189,74 @@ marked() { # what an earlier or this run kept for this release: only the objects
     sed 's/^/    /' "$work/marked"
   fi
 }
-admin() { # the identity's rights for every call below; prints the first it lacks
-  # The bootstrap's apply (get, create, patch), then keeping, reading back and listing (get, list,
-  # patch) the Namespaces, and the PersistentVolumeClaims and Secrets of any namespace.
-  local check verb kind
-  local -a checks=("create namespaces" "escalate roles -n $namespace")
-  for verb in get create patch; do
-    for kind in resourcequotas limitranges roles rolebindings; do checks+=("$verb $kind -n $namespace"); done
-  done
-  for verb in get list patch; do
-    checks+=("$verb namespaces" "$verb persistentvolumeclaims --all-namespaces" "$verb secrets --all-namespaces")
-  done
-  for check in "${checks[@]}"; do
+lacks() { # checks (kubectl auth can-i arguments): prints the first the identity lacks
+  local check
+  for check in "$@"; do
     # shellcheck disable=SC2086 # the words are kubectl's arguments
     [[ "$(kc auth can-i $check 2>/dev/null || true)" == yes ]] || { echo "$check"; return 1; }
   done
+}
+# Keeping, reading back and listing: the Namespaces, and the PersistentVolumeClaims and Secrets of any namespace.
+kept_checks=()
+for verb in get list patch; do
+  kept_checks+=("$verb namespaces" "$verb persistentvolumeclaims --all-namespaces" "$verb secrets --all-namespaces")
+done
+boot_checks() { # the bootstrap's apply, from its own render: every namespace it writes a quota, a LimitRange or RBAC to
+  local render kind ns ref resource verb
+  render="$("${boot[@]}")" || die "the bootstrap does not render for $ENV_NAME"
+  printf '%s\n' "$render" | yq -N 'select(.kind == "ResourceQuota" or .kind == "LimitRange" or .kind == "Role" or .kind == "RoleBinding")
+    | .kind + " " + (.metadata.namespace // "'"$namespace"'") + " " + (.roleRef.kind // "-")' /dev/stdin > "$work/boot" ||
+    die "yq could not read the bootstrap's render"
+  echo "create namespaces"
+  while read -r kind ns ref; do
+    resource="$(tr '[:upper:]' '[:lower:]' <<<"$kind")s"
+    for verb in get create patch; do echo "$verb $resource -n $ns"; done
+    # A Role may grant what its author lacks only with escalate; a RoleBinding to it only with bind.
+    [[ "$kind" != Role ]] || echo "escalate roles -n $ns"
+    [[ "$kind" != RoleBinding ]] || echo "bind $(tr '[:upper:]' '[:lower:]' <<<"$ref")s -n $ns"
+  done < "$work/boot"
+}
+# The third source for what the upgrade must not delete, read by neither reader: the live objects
+# that Helm's own annotations record as this release's (Helm 3.2 and later set them on every object
+# it creates or updates). Namespaces cluster-wide; PersistentVolumeClaims and Secrets in the
+# release's namespaces (its own, the live ones it owns, and every one either reader named), without
+# Helm's release Secrets. kubectl prints only names and those annotations; it does fetch the
+# objects it prints from, so these namespaces' Secrets pass through it, not through this script.
+owned() { # out file: "kind/namespace/name<TAB>resource policy" per object
+  local out="$1" ns
+  local cols='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\t"}{.metadata.annotations.meta\.helm\.sh/release-name}{"\t"}{.metadata.annotations.meta\.helm\.sh/release-namespace}{"\t"}{.metadata.annotations.helm\.sh/resource-policy}{"\n"}{end}'
+  mine() { # kind: the listed rows that are this release's
+    awk -F'\t' -v k="$1" -v r="$release" -v n="$namespace" '$3 == r && $4 == n && !(k == "Secret" && $2 ~ /^sh\.helm\.release\.v1\./) {
+      print k "/" (k == "Namespace" ? "-" : $1) "/" $2 "\t" $5 }' "$out.rows" >> "$out" || die "could not read the live $1 list"
+  }
+  : > "$out"
+  kc get namespaces -o "jsonpath=$cols" > "$out.rows" || die "could not list the namespaces in $where"
+  mine Namespace
+  { echo "$namespace" && awk -F'[/\t]' '{ print $3 }' "$out" &&
+    awk -F/ '{ print ($1 == "Namespace" ? $3 : $2) }' "$work/old" "$work/new"; } > "$out.ns.unsorted" ||
+    die "could not list the release's namespaces"
+  LC_ALL=C sort -u "$out.ns.unsorted" > "$out.ns" || die "could not sort the release's namespaces"
+  while read -r ns; do
+    kc get persistentvolumeclaims -n "$ns" -o "jsonpath=$cols" > "$out.rows" ||
+      die "could not list the PersistentVolumeClaims of $ns in $where"
+    mine PersistentVolumeClaim
+    kc get secrets -n "$ns" --field-selector 'type!=helm.sh/release.v1' -o "jsonpath=$cols" > "$out.rows" ||
+      die "could not list the Secrets of $ns in $where"
+    mine Secret
+  done < "$out.ns"
+}
+# protected before|after: every live object of the release is in the render, or carries keep, or
+# (before the keep annotations are made) is in the keep set. Anything else the upgrade could remove.
+protected() {
+  local obj policy
+  owned "$work/live"
+  [[ -s "$work/live" || ! -s "$work/old" ]] ||
+    die "the manifest of release $release lists $(wc -l < "$work/old") Namespace, PersistentVolumeClaim and Secret objects, and the cluster ($where) records none of them as this release's (no meta.helm.sh/release-name=$release annotation; a Helm before 3.2 set none), so the keep set cannot be checked against the cluster: upgrade the release once with the chart it was installed with and a current Helm, then run this again. Stopping before any upgrade"
+  while IFS=$'\t' read -r obj policy; do
+    if grep -qxF -- "$obj" "$work/new" || [[ "$policy" == keep ]]; then continue; fi
+    if [[ "$1" == before ]] && grep -qxF -- "$obj" "$work/keep"; then continue; fi
+    die "$obj is this release's in the cluster (its meta.helm.sh/release-name annotation), and it is neither in the current chart's render nor kept: the release's manifest, as read here, does not list it, and an upgrade may remove it. Stopping before any upgrade"
+  done < "$work/live"
 }
 
 # The deployed revision, read once its status is checked (every read below is at that revision).
@@ -200,11 +266,13 @@ documents="$(classify "the release's manifest" "$stored")"
 if ! manifest_holds "$documents"; then
   echo "migrate-to-bootstrap: $release in $namespace ($where) holds no Namespace, Role or RoleBinding: nothing to do"
   # The kept list reads labelled objects cluster-wide: only for a cluster admin.
-  if admin > /dev/null; then marked; else echo "migrate-to-bootstrap: run it as a cluster admin to list what an earlier run kept"; fi
+  if lacks "${kept_checks[@]}" > /dev/null; then marked; else echo "migrate-to-bootstrap: run it as a cluster admin to list what an earlier run kept"; fi
   exit 0
 fi
 # The steps create namespaces, quotas and RBAC: a cluster admin's rights, checked before any change.
-lacks="$(admin)" || die "this identity cannot '$lacks' in $where: run it as a cluster admin"
+mapfile -t checks < <(boot_checks)
+[[ "${checks[0]-}" == "create namespaces" ]] || die "could not work out the rights the bootstrap needs"
+missing="$(lacks "${checks[@]}" "${kept_checks[@]}")" || die "this identity cannot '$missing' in $where: run it as a cluster admin"
 # What the release holds and the first upgrade's render does not, Helm deletes in that upgrade. Each
 # stage is a file with its own status check, so a failure stops the run rather than empty the set.
 # (The manifests stay in memory: they hold the release's Secrets.)
@@ -215,6 +283,7 @@ documents="$(classify "the current chart's render" "$render")"
 objects "the current chart's render" "$render" "$documents" "$work/new"
 LC_ALL=C comm -23 "$work/old" "$work/new" > "$work/keep" || die "could not compare the release's objects with the chart's"
 mapfile -t keep < "$work/keep"
+protected before
 show() { # kind namespace/name, or kind name for a Namespace
   local obj k n name
   for obj in "${keep[@]}"; do
@@ -245,7 +314,11 @@ for obj in "${keep[@]}"; do
   if ! out="$(kc annotate "$kind_lc" "$name" "${ns_arg[@]}" helm.sh/resource-policy=keep --overwrite 2>&1)"; then
     # The release owns it and the cluster does not have it: not "already gone", but a state to look into.
     grep -q NotFound <<<"$out" || die "could not annotate $k $name: $out"
-    die "$k $name is in the manifest of release $release and is not in the cluster ($where): $out. Check that the context and the namespace are the release's, and find out what removed it, before running this again; no upgrade ran"
+    if [[ " ${allow_missing[*]} " == *" $obj "* ]]; then
+      echo "  $obj is not in the cluster: going on without it (--allow-missing)"
+      continue
+    fi
+    die "$k $name is in the manifest of release $release and is not in the cluster ($where): $out. Check that the context and the namespace are the release's. If it was deleted on purpose, nothing is left of it to keep: run this again with --allow-missing $obj. Otherwise restore it first. No upgrade ran"
   fi
   kc label "$kind_lc" "$name" "${ns_arg[@]}" "migrate-to-bootstrap/release=$release" \
     "migrate-to-bootstrap/namespace=$namespace" --overwrite > /dev/null || die "could not label $k $name"
@@ -254,6 +327,7 @@ for obj in "${keep[@]}"; do
     die "could not read back $k $name"
   [[ "$got" == "keep|$release|$namespace" ]] || die "$k $name is not marked keep after the annotate (read back '$got'): stopping before any upgrade"
 done
+protected after
 echo "==> 1. keep: an upgrade that still renders them, so they gain helm.sh/resource-policy: keep"
 "${upgrade[@]}" --set namespaces.create=true --set rbac.create=true
 echo "==> 2. the bootstrap"
