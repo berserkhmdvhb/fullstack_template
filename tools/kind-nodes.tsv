@@ -1,0 +1,9 @@
+# The kind node images the kind job runs, one row per leg (scripts/kind-up.sh --node <leg>; CI runs
+# every leg). The one place both are pinned. Columns (tab-separated): leg  kubectl-pin  image
+# Both come from the "Images pre-built for this release" list of the pinned kind (tools/pins.tsv,
+# kind), by digest (kind supports only those digests): floor is the oldest minor listed and is the
+# chart's kubeVersion floor (Chart.yaml); newest is kind's default node image. kubectl-pin names
+# the tools/pins.tsv row of a kubectl within one minor of that node (the version-skew policy).
+# Move all three with the kind pin; tests/supply_chain/test_kind_nodes.py keeps them consistent.
+floor	kubectl-floor	kindest/node:v1.34.11@sha256:44e222ee2132dab25ff87301682f89eb82c7880ea3a1bf543bfe9708fd08d67d
+newest	kubectl	kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5

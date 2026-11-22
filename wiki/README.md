@@ -57,7 +57,7 @@ flowchart TB
 | **Edge/Gateway** | Gateway API, an Ingress controller, or a tunnel (`edge.mode`) | — |
 | **Static** | The Next.js server ([cache policy](./frontend-deployment.md#static-assets)) | — |
 | **Database** | PostgreSQL 16 (asyncpg) / SQLite fallback | — |
-| **Orchestration** | Kubernetes, Helm (per-env `values.<env>.yaml`) | 1.30+ |
+| **Orchestration** | Kubernetes, Helm (per-env `values.<env>.yaml`) | 1.34+ |
 | **CI/CD** | GitHub Actions, buildx, Playwright | — |
 | **Testing** | pytest, Vitest, React Testing Library, MSW | — |
 | **Observability** | Prometheus, ServiceMonitor, structured logging | — |

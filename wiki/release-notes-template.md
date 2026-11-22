@@ -45,7 +45,7 @@
 - SBOM (Syft), vulnerability scan (Grype, `fail-on: high`, `only-fixed: true`), license scan (Grant), VEX
 
 ### Kubernetes
-- Pod Security Standard version pinned to `v1.30`; nginx `topologySpreadConstraints` + podAntiAffinity
+- Pod Security Standard version pinned to the chart's `kubeVersion` floor (`v1.34`); nginx `topologySpreadConstraints` + podAntiAffinity
 - Production render fails loud when the managed DB is used with an empty `egressCIDR`
 - Removed the broken `podman-compose.yml`
 - **Before upgrading:** review `charts/your-service-name/values.<env>.yaml` — `values.schema.json` now rejects unknown keys and bad values at `helm lint` / `helm template` time

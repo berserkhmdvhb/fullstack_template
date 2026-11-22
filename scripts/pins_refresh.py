@@ -76,6 +76,7 @@ SOURCES: dict[str, tuple[str, str, str]] = {
     "helm4": ("sumfile", "{url}.sha256sum", "https://get.helm.sh/"),
     "uv": ("hashfile", "{url}.sha256", "https://github.com/astral-sh/uv/releases/download/"),
     "kubectl": ("hashfile", "{url}.sha256", "https://dl.k8s.io/release/"),
+    "kubectl-floor": ("hashfile", "{url}.sha256", "https://dl.k8s.io/release/"),
     "kind": (
         "sumfile",
         "{url}.sha256sum",

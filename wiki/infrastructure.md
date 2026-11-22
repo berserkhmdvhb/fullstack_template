@@ -273,9 +273,10 @@ stops accepting, waits for open connections (Node closes idle keep-alive ones as
 `shutdown.frontendDrainSeconds` bounds a slow request. A test asserts that each grace period exceeds the
 sleep plus the drain.
 
-**Kubernetes version.** The `sleep` action (on by default from 1.30) and native sidecars (the Cloud SQL
-proxy; from 1.29) set the chart's `kubeVersion` to 1.30 or later; a Helm install on an older cluster
-refuses.
+**Kubernetes version.** The chart's `kubeVersion` is 1.34 or later, a tested floor: the kind job
+(`tools/kind-nodes.tsv`) installs and tests the chart on that minor and on the newest one. Every
+feature the chart relies on is GA at 1.34: the `sleep` action (GA in 1.34) and native sidecars (the Cloud
+SQL proxy; GA in 1.33). A Helm install on an older cluster refuses.
 
 **Ports and probe paths.** The backend, frontend and database ports come from `config.BACKEND_PORT`,
 `config.FRONTEND_PORT` and `config.DB_PORT` (the WAF's from `waf.service.port`), and the probe paths

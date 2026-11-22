@@ -45,7 +45,7 @@
       "description": "tools/pins.tsv: kubectl (dl.k8s.io) and the Kubernetes OpenAPI spec",
       "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
       "matchStrings": [
-        "(?m)^(?<depName>kubectl)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://dl\\.k8s\\.io/[^\\t]+)\\t",
+        "(?m)^(?<depName>kubectl(?:-floor)?)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://dl\\.k8s\\.io/[^\\t]+)\\t",
         "(?m)^(?<depName>k8s-openapi)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://raw\\.githubusercontent\\.com/kubernetes/kubernetes/[^\\t]+)\\t"
       ],
       "datasourceTemplate": "github-tags",
@@ -214,7 +214,7 @@
     {
       // Version-skew policy: kubectl stays within one minor of the cluster; change the pin when the cluster moves.
       "description": "kubectl follows the cluster, not the latest release",
-      "matchDepNames": ["kubectl"],
+      "matchDepNames": ["kubectl", "kubectl-floor"],
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["tools/pins.tsv"],
       "matchUpdateTypes": ["minor", "major"],

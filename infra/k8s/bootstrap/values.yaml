@@ -14,8 +14,9 @@ environment: dev
 # "" => <release>-<environment>. The database namespace is <namespace>-<dbSuffix>, as the chart derives it.
 namespace: ""
 dbSuffix: db
-# The Kubernetes version of the Pod Security rules the namespaces enforce (restricted).
-podSecurityVersion: v1.30
+# The Kubernetes version of the Pod Security rules the namespaces enforce (restricted): the chart's
+# kubeVersion floor (a test keeps them equal).
+podSecurityVersion: v1.34
 # monitoring.flavour gmp (Google Managed Prometheus) only: also render the chart's cluster-scoped
 # ClusterRules (the kube-state-metrics and cAdvisor alerts). A namespaced Rules object cannot see
 # those series, and the deployer has no cluster rights, so the admin applies this once. Set it with

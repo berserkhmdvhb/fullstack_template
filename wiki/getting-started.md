@@ -29,7 +29,7 @@ Complete guide to setting up, configuring, and running the service template loca
 | **Node.js** | 26 | Frontend runtime |
 | **npm** | 11 | Frontend package manager |
 | **Docker** or **Podman** | Latest | Container runtime |
-| **kubectl** | 1.30+ | Kubernetes CLI |
+| **kubectl** | 1.34+ (within one minor of your cluster) | Kubernetes CLI |
 | **Helm** | 3.0+ | Deploy the chart (`helm upgrade --install`) |
 | **make** | — | Development shortcuts (optional) |
 

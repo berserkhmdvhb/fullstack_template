@@ -28,7 +28,7 @@ ENVS = ["dev", "qa", "production", "local"]
 PSS_LABELS = {
     f"pod-security.kubernetes.io/{mode}{suffix}": value
     for mode in ("enforce", "audit", "warn")
-    for suffix, value in (("", "restricted"), ("-version", "v1.30"))
+    for suffix, value in (("", "restricted"), ("-version", "v1.34"))
 }
 HELM_VERBS = {"get", "list", "watch", "create", "update", "patch", "delete"}
 BOOTSTRAP_NAME = "bootstrap-deployer"

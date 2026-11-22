@@ -128,7 +128,7 @@ spec:
           lifecycle:
             preStop:
               # Let the endpoint leave the Services before SIGTERM. The native sleep action: the
-              # image has no shell to exec (Kubernetes 1.30).
+              # image has no shell to exec (GA in Kubernetes 1.34).
               sleep:
                 seconds: {{ .Values.shutdown.preStopSeconds }}
           volumeMounts:

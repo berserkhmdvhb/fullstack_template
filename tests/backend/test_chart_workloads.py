@@ -474,10 +474,24 @@ def test_the_default_backend_graceful_timeout_is_the_launchers() -> None:
 # ---- The Kubernetes version floor ---------------------------------------------------------------
 
 
-def test_the_kube_version_floor_is_the_one_the_sleep_action_and_native_sidecars_need() -> None:
-    """lifecycle.preStop.sleep is beta, on by default, from 1.30; native sidecars from 1.29."""
+def test_the_kube_version_floor_is_the_oldest_minor_the_kind_job_tests() -> None:
+    """A tested floor: the kind job's oldest node image (tools/kind-nodes.tsv). At 1.34 every
+    feature the chart relies on is GA: lifecycle.preStop.sleep (1.34), native sidecars (1.33)."""
     chart = yaml.safe_load((CHART / "Chart.yaml").read_text())
-    assert chart["kubeVersion"] == ">=1.30.0-0"
+    assert chart["kubeVersion"] == ">=1.34.0-0"
+
+
+def test_every_pod_security_version_label_is_the_kube_version_floor() -> None:
+    """The restricted profile is pinned to the floor's version, in the chart and the bootstrap."""
+    floor = re.fullmatch(
+        r">=(\d+\.\d+)\.0-0", yaml.safe_load((CHART / "Chart.yaml").read_text())["kubeVersion"]
+    )
+    assert floor
+    for name in ("namespace-app.yaml", "namespace-db.yaml"):
+        versions = re.findall(r"-version: (\S+)", (CHART / "templates" / name).read_text())
+        assert versions == [f"v{floor[1]}"] * 3, name
+    bootstrap = yaml.safe_load((ROOT / "infra/k8s/bootstrap/values.yaml").read_text())
+    assert bootstrap["podSecurityVersion"] == f"v{floor[1]}"
 
 
 def test_the_external_database_stub_follows_the_database_port(helm: str) -> None:

@@ -150,8 +150,8 @@ rollout:
 # images have no shell), so the endpoint is removed from the Services before SIGTERM arrives.
 # frontendDrainSeconds: Next.js stops accepting on SIGTERM, waits for open connections (Node closes
 # idle keep-alive connections as soon as server.close() runs) and exits; it has no drain timeout of
-# its own, so this bounds a slow request before SIGKILL. Needs Kubernetes 1.30 (Chart.yaml
-# kubeVersion).
+# its own, so this bounds a slow request before SIGKILL. GA in Kubernetes 1.34, the chart's
+# kubeVersion floor.
 shutdown:
   preStopSeconds: 5
   frontendDrainSeconds: 15

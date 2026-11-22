@@ -104,7 +104,7 @@ spec:
             preStop:
               # Let the endpoint leave the Services before SIGTERM, so in-flight requests drain
               # instead of being cut off. The native sleep action: the image has no shell
-              # (Kubernetes 1.30). On SIGTERM Next.js stops accepting, waits for open
+              # (GA in Kubernetes 1.34). On SIGTERM Next.js stops accepting, waits for open
               # connections and exits (shutdown.frontendDrainSeconds bounds that wait).
               sleep:
                 seconds: {{ .Values.shutdown.preStopSeconds }}
