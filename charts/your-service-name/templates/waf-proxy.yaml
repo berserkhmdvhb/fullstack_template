@@ -43,10 +43,23 @@ spec:
       serviceAccountName: {{ include "chart.serviceAccountName" . }}
       imagePullSecrets:
 {{- include "chart.imagePullSecrets" . | nindent 6 }}
+      # The restricted Pod Security profile (the app namespace enforces it): the image's own envoy
+      # user (uid 101), RuntimeDefault seccomp, no privilege escalation, no capabilities. Envoy
+      # listens on an unprivileged port, so it needs none.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: envoy
           image: {{ include "chart.image" (dict "image" .Values.waf.envoyImage) }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: {{ .Values.waf.service.port }}
