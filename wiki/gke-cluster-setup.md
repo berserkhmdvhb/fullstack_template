@@ -398,6 +398,26 @@ kubectl delete namespace np-test
 - **Probe B** times out and prints a non-zero `exit=`.
 - **If the `web` Pod is stuck in `ImagePullBackOff`,** Cloud NAT isn't working. See [Troubleshooting](#16-troubleshooting).
 
+### 9.4 Serve the chart through GKE Gateway
+
+The chart's default edge mode is `gateway`: it renders `HTTPRoute`s and expects a Gateway you run.
+
+1. **The Gateway.** Create one with the GatewayClass `gke-l7-global-external-managed` (9.2), in its own
+   namespace, with the listener certificate you manage (the chart renders no TLS in this mode).
+2. **Point the chart at it.** Set `edge.gateway.parentRefs` to that Gateway's name and namespace; the
+   placeholder `your-gateway` must not reach production.
+3. **Turn on the GKE policies.** Set `edge.gateway.gke.enabled: true`. GKE does not read readiness
+   probes and health-checks `/` by default; the backend has no `/`, so without the chart's
+   HealthCheckPolicy the load balancer marks it unhealthy and serves nothing. The same switch adds the
+   GCPBackendPolicy (timeout and access log) and admits Google's load balancer ranges in the
+   NetworkPolicy.
+4. **Cloud Armor (optional).** Create a security policy with a rate-based rule (it limits every path,
+   the frontend included) and name it in `edge.gateway.gke.securityPolicy`.
+
+What each setting renders: [Infrastructure, GKE Gateway policies](./infrastructure.md#gke-gateway-policies).
+Google's references: [Gateway resources using Policies](https://cloud.google.com/kubernetes-engine/docs/how-to/configure-gateway-resources),
+[Cloud Armor rate limiting](https://cloud.google.com/armor/docs/rate-limiting-overview).
+
 ## 10. The image registry
 
 > **Owned by lodestar-infra (L1.2).** You can do this by hand, or leave it to lodestar-infra. If you do it by hand, you'll need `tofu import` or a rebuild later. **Optional, and not wired up yet:** the template pushes to GHCR. No workflow reads `vars.IMAGE_REGISTRY`, and the provider condition of 12.2 admits no image-pushing workflow, so nothing can push to Artifact Registry today. Skip this section unless you plan ahead.

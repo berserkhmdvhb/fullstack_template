@@ -320,7 +320,9 @@ minikube start --memory=4096 --cpus=2
 ### 2. (Optional) Install an Ingress Controller
 
 Ingress is only needed if you want to reach the service by host instead of via `kubectl
-port-forward` (step 5). For a quick local run you can skip it.
+port-forward` (step 5). For a quick local run you can skip it. To use it, deploy the chart in
+ingress mode with the controller's namespace as the NetworkPolicy peer:
+`--set edge.mode=ingress --set-json 'edge.namespaceSelector={"kubernetes.io/metadata.name":"ingress-nginx"}'` (the edge modes: [Infrastructure, Edge](./infrastructure.md#edge)).
 
 ```bash
 helm install ingress-nginx ingress-nginx \

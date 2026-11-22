@@ -160,7 +160,8 @@ All frontend commands are run from the `frontend/` directory:
 # Create a kind cluster
 kind create cluster --name your-service-name
 
-# Install an Ingress controller
+# Optional: an Ingress controller, for edge.mode=ingress (the chart's default is gateway). Deploy the
+# chart with --set edge.mode=ingress and edge.namespaceSelector set to this namespace.
 helm install ingress-nginx ingress-nginx \
   --repo https://kubernetes.github.io/ingress-nginx \
   --namespace ingress-nginx --create-namespace

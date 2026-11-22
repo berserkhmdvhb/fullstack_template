@@ -402,6 +402,13 @@ In **Zero Trust → Networks → Tunnels → apps-dev → Public Hostname → Ad
 
 Cloudflare creates the proxied DNS record for you.
 
+**The service's own routes.** Deploy the chart with `edge.mode: tunnel`. It renders no Ingress or
+HTTPRoute; its NOTES print the route table built from the chart's one routes list (`edge.routes`,
+[Infrastructure, Edge](./infrastructure.md#the-routes-list)): one line per hostname and path, with the
+in-cluster URL. Add one public hostname per line, in that order, with the catch-all `/` last. The
+chart's NetworkPolicy admits the `cloudflared` namespace by default (`edge.namespaceSelector`
+changes it); Cloudflare terminates TLS, and the hop to the Service is plain HTTP.
+
 ### 8.5 Check the edge, end to end
 
 ```bash

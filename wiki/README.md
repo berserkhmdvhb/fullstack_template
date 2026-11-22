@@ -25,8 +25,8 @@ Production-grade template for API-based services with a FastAPI backend, Next.js
 flowchart TB
     User["User / Browser"]
 
-    subgraph Edge["Edge Layer — Ingress"]
-        IC["Ingress controller<br/>TLS termination<br/>Rate limiting"]
+    subgraph Edge["Edge Layer — Gateway, Ingress or tunnel"]
+        IC["Gateway, Ingress controller or tunnel<br/>TLS termination<br/>Rate limiting"]
     end
 
     subgraph Frontend["Frontend — Next.js 16"]
@@ -54,7 +54,7 @@ flowchart TB
 |-------|-----------|---------|
 | **Backend** | Python, FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2 | 3.12+ |
 | **Frontend** | Next.js 16, React 19, TypeScript 6.0, Tailwind CSS 4 | Node 26+ |
-| **Edge/Gateway** | Ingress controller (Kubernetes) | — |
+| **Edge/Gateway** | Gateway API, an Ingress controller, or a tunnel (`edge.mode`) | — |
 | **Static** | The Next.js server ([cache policy](./frontend-deployment.md#static-assets)) | — |
 | **Database** | PostgreSQL 16 (asyncpg) / SQLite fallback | — |
 | **Orchestration** | Kubernetes, Helm (per-env `values.<env>.yaml`) | 1.28+ |

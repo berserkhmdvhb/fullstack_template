@@ -208,11 +208,11 @@ kubectl -n your-service-name-<env> exec <pod-name> -- \
 
 **Debug**:
 ```bash
-# Check ingress controller
-kubectl -n ingress-nginx get pods
+# Check the edge Pods (the Gateway implementation, the controller, or cloudflared) in their namespace
+kubectl -n <edge-namespace> get pods
 
-# Check ingress resource
-kubectl -n your-service-name-<env> describe ingress your-service-name
+# Check the edge object (HTTPRoutes in gateway mode, the Ingress in ingress mode)
+kubectl -n your-service-name-<env> describe httproute,ingress
 
 # Check services
 kubectl -n your-service-name-<env> get svc

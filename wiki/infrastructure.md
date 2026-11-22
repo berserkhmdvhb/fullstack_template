@@ -1,6 +1,6 @@
 # Infrastructure
 
-Kubernetes resources, the Ingress, Docker Compose for local development, and the entrypoint system.
+Kubernetes resources, the edge, Docker Compose for local development, and the entrypoint system.
 
 ---
 
@@ -8,7 +8,7 @@ Kubernetes resources, the Ingress, Docker Compose for local development, and the
 
 - [Overview](#overview)
 - [Kubernetes Resources](#kubernetes-resources)
-- [Ingress](#ingress)
+- [Edge](#edge)
 - [Static assets](#static-assets)
 - [Entrypoint System](#entrypoint-system)
 - [Docker Compose (Local Dev)](#docker-compose-local-dev)
@@ -24,7 +24,7 @@ The infrastructure layer consists of Kubernetes resources that manage the applic
 ```mermaid
 flowchart TB
     subgraph Public["Public Facing"]
-        IC["Ingress controller<br/>TLS termination<br/>Rate limiting"]
+        IC["Edge: Gateway, Ingress or tunnel<br/>TLS termination<br/>Rate limiting"]
     end
 
     subgraph Internal["Internal Services"]
@@ -61,35 +61,113 @@ The base resource set maps 1:1 into the chart. Per-env differences live in
 
 ---
 
-## Ingress
+## Edge
 
-The Ingress is the edge. It sends `/api`, `/docs` and `/openapi.json` to the backend (:8000) and everything else to the frontend (:3000), which serves its own pages and `/_next/static` assets (see [Static assets](#static-assets)). The chart's `values.yaml` holds the controller class and annotations.
+How traffic reaches the two Services. `edge.mode` picks one of three modes, and one routes list
+feeds all of them, so a path is written once. The values and their comments are the reference:
+the `edge:` and `networkPolicy:` blocks of [`values.yaml`](../charts/your-service-name/values.yaml).
 
-### Security Headers
+### The three modes
 
-The Ingress adds no response headers. The backend's security middleware and the frontend's `next.config.ts` and `proxy.ts` set them; see [Security](./security.md#http-security-headers).
+| Mode | Renders | Pick it when |
+|------|---------|--------------|
+| `gateway` (default) | One Gateway API `HTTPRoute` per host, attached to `edge.gateway.parentRefs` | The cluster runs a Gateway (GKE Gateway, or any in-cluster implementation). |
+| `ingress` | One controller-agnostic `networking.k8s.io/v1` Ingress, no class or annotations by default | The cluster has an Ingress controller and no Gateway. |
+| `tunnel` | No edge object; NOTES prints the route table | A tunnel (for example Cloudflare Tunnel) is the only way in. |
 
-### Rate Limiting
+### The routes list
 
-```yaml
-metadata:
-  annotations:
-    nginx.ingress.kubernetes.io/limit-rps: "100"
-    nginx.ingress.kubernetes.io/limit-connections: "50"
+`edge.routes` in [`values.yaml`](../charts/your-service-name/values.yaml): `/api`, `/docs` and
+`/openapi.json` go to `backend`, everything else to `frontend`. The root host serves every route,
+the api host the `backend` routes, the app host the `frontend` routes. `backend` is the API Service,
+or the WAF Service when `waf.enabled`. Gateway mode renders it into the HTTPRoutes, ingress mode into
+the Ingress rules.
+
+In tunnel mode the same list is the tunnel's route table. `helm install` prints it in NOTES, one line
+per hostname and path, with the in-cluster URL to point the tunnel at:
+
+```text
+api.your-domain.example/api           PathPrefix -> http://<release>-backend.<namespace>.svc.cluster.local:8000
+app.your-domain.example/              PathPrefix -> http://<release>-frontend.<namespace>.svc.cluster.local:3000
 ```
 
-### TLS Configuration
+Configure the tunnel from that table: [Cloudflare setup](./cloudflare-setup.md#84-route-a-test-hostname-through-the-tunnel).
 
-TLS is managed by cert-manager with Let's Encrypt:
+### NetworkPolicy per mode
 
-```yaml
-spec:
-  tls:
-    - hosts:
-        - api.your-domain.example
-        - app.your-domain.example
-      secretName: your-service-name-tls
-```
+The app namespace is default-deny ([`network-policy.yaml`](../charts/your-service-name/templates/network-policy.yaml)).
+The edge peers depend on the mode:
+
+| Mode | Edge peers |
+|------|------------|
+| `gateway` | Each `edge.gateway.parentRefs` namespace (the release namespace when a ref names none), plus `35.191.0.0/16` and `130.211.0.0/22` (Google's load balancer proxies and health checks) when `edge.gateway.gke.enabled`. |
+| `tunnel` | The namespace `edge.namespaceSelector` selects; empty means `kubernetes.io/metadata.name: cloudflared`. |
+| `ingress` | The namespace `edge.namespaceSelector` selects. Required: the render fails without it, because the chart does not guess your controller's namespace. |
+
+Every mode adds `edge.extraPeers`, for example a regional load balancer's proxy-only subnet as an
+`ipBlock`. The flows, each allowed on both ends:
+
+| Source | Destination | When |
+|--------|-------------|------|
+| Edge peers | frontend, frontend port | always |
+| Edge peers | backend, backend port | `waf.enabled: false` |
+| Edge peers | WAF, `waf.service.port` | `waf.enabled: true`; then no edge peer reaches the backend |
+| WAF | backend, backend port | `waf.enabled: true` |
+| frontend | backend, backend port | always (server-side calls) |
+| `networkPolicy.monitoringNamespaceSelector` | backend, backend port (`/metrics`) | when set (default: the `monitoring` namespace) |
+| backend, migration Job | PostgreSQL :5432 (or `externalDatabase.egressCIDR`) | always |
+| every egress policy | kube-dns :53 (`networkPolicy.dns`, plus optional `ipBlocks` such as NodeLocal DNSCache) | always |
+
+Nothing else reaches PostgreSQL or the migration Job. Other backend egress (a collector, a Redis) goes
+in `backend.networkPolicy.extraEgress`.
+
+### GKE Gateway policies
+
+`edge.gateway.gke.enabled` (off by default; gateway mode only) renders two `networking.gke.io/v1`
+policies for the backend Service (the WAF Service when the WAF is on) and the frontend Service:
+
+- **HealthCheckPolicy.** GKE does not read readiness probes, and checks `/` otherwise; the backend has
+  no `/`, so without it the load balancer marks the backend unhealthy and serves nothing. The check
+  uses the readiness paths (`/api/v1/health`, `/api/healthz`) on the serving port, through the WAF
+  when it is on.
+- **GCPBackendPolicy.** `timeoutSec` (default 120), the load balancer access log
+  (`logging.sampleRate`, default 1000000, every request) and, when `securityPolicy` names one, a
+  Cloud Armor policy.
+
+Cloud CDN is not rendered: no GKE Gateway policy field for it was confirmed. The CDN is the one in
+front (Cloudflare or another); check GKE Gateway CDN support against current GKE docs before adding
+it. Cluster-side steps: [GKE cluster setup](./gke-cluster-setup.md#94-serve-the-chart-through-gke-gateway).
+
+### TLS per mode
+
+| Mode | Where TLS terminates |
+|------|---------------------|
+| `gateway` | The Gateway listener's certificate, which you manage on the Gateway. The chart renders no TLS, and NOTES prints the hosts without a scheme. |
+| `ingress` | `edge.ingress.tlsSecretName` adds a `tls` block for the three hosts; the certificate comes from an issuer you add (for example a cert-manager annotation in `edge.ingress.annotations`). NOTES prints `https` only when it is set. |
+| `tunnel` | Cloudflare, at its edge. The hop from `cloudflared` to the Service is plain HTTP inside the cluster. |
+
+### Where the former nginx practices live now
+
+The chart used to carry ingress-nginx annotations. It is controller-agnostic now:
+
+| Former annotation | Now |
+|-------------------|-----|
+| `enable-access-log` | gateway: the Gateway implementation's log (on GKE, the GCPBackendPolicy access log); ingress: the controller's log; tunnel: Cloudflare's logs. The backend's own request log is `LOG_REQUESTS` (off by default). |
+| `limit-rps` (100 req/s per client, every path) | The backend's per-IP limit (`RATE_LIMIT_DEFAULT`, [Security](./security.md#rate-limiting)), backend only. At the edge, covering the frontend too: GKE, a Cloud Armor policy with a rate-based rule named in `edge.gateway.gke.securityPolicy`; tunnel, Cloudflare rate-limiting rules; ingress, the controller's own setting. |
+| `limit-connections` | No chart setting. The edge's own connection limits apply (Cloud Armor, Cloudflare, the controller). |
+| `proxy-connect-timeout` (5 s) | No chart setting; the edge's default applies. |
+| `proxy-read-timeout` / `proxy-send-timeout` (120 s) | GKE: `edge.gateway.gke.timeoutSec` (120). Any Gateway: `edge.gateway.timeouts`, opt-in, for example `{request: 120s, backendRequest: 100s}`; `backendRequest` must not exceed `request`. |
+| `ssl-redirect` | The Gateway listener (an HTTP listener with a redirect route), Cloudflare's Always Use HTTPS, or the controller. |
+| `proxy-body-size` (10m) | The backend (`MAX_REQUEST_BODY_BYTES`, 10 MiB). |
+
+Response headers come from the backend and the frontend, never the edge: [Security](./security.md#http-security-headers).
+
+### Client IP behind the edge
+
+Set `config.TRUSTED_PROXY_CIDRS` to the hop that connects to the backend: the gateway Pods' range
+(gateway mode, in-cluster), the Google ranges above (GKE), the controller's Pods (ingress), or the
+`cloudflared` Pod range (tunnel); add the WAF's Pods when it is on. The rules and what each proxy
+must do: [Security, Client IP](./security.md#client-ip).
 
 ---
 

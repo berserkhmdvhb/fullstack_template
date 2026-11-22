@@ -5,7 +5,7 @@
 # A "cluster" is one specific Kubernetes cluster. Its overlay holds the values
 # that depend on WHERE you run — which the service name / domain / registry do
 # NOT determine — namely:
-#   * the ingress controller class      (cilium vs ingress-nginx vs ...)
+#   * the edge: the Gateway, or the ingress class and its namespace, or the tunnel
 #   * the Postgres + backup StorageClass (tripleo vs standard vs gp3 vs ...)
 #   * the TLS mode                       (plain HTTP vs a real cert secret)
 #   * the CI-built SHORT image names      (backend / frontend)
@@ -64,7 +64,10 @@ edge:
   ingress:                       # used when mode is ingress
     className: <INGRESS-CLASS>   # "" => the cluster's default class
     tlsSecretName: <TLS-SECRET>  # "" => plain HTTP (no cert-manager); set a real cert secret for HTTPS
-    annotations: {}              # controller-specific; nginx.ingress.kubernetes.io/* is inert elsewhere
+    annotations: {}              # controller-specific (for example a cert-manager issuer); none by default
+  # ingress mode: REQUIRED, the controller's namespace (the NetworkPolicy peer). tunnel mode: empty
+  # means the cloudflared namespace.
+  namespaceSelector: {}          # e.g. {kubernetes.io/metadata.name: <INGRESS-NAMESPACE>}
 
 # --- Storage (match your cluster's StorageClass) ---------------------------
 # Confirm with `kubectl get storageclass`; the chart default `standard` may not

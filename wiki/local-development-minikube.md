@@ -570,7 +570,9 @@ kubectl port-forward -n monitoring svc/monitoring-prometheus 9090:9090   # then 
 
 ## Optional: Ingress / HTTPS
 
-The chart includes an Ingress. For local HTTPS, `certs-local.sh` wires
+In `edge.mode: ingress` the chart renders an Ingress (deploy with
+`--set edge.mode=ingress --set-json 'edge.namespaceSelector={"kubernetes.io/metadata.name":"ingress-nginx"}'`;
+the chart's default mode is gateway). For local HTTPS, `certs-local.sh` wires
 cert-manager's bundled `selfsigned` issuer to the chart's Ingress TLS
 `secretName` + hosts. **Manual** for the addon; **script** for the cert wiring.
 

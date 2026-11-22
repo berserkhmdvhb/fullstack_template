@@ -37,7 +37,7 @@ This runbook covers day-to-day operational tasks for running the service on Kube
 |------|-------|
 | **Cluster** | `<cluster-name>` |
 | **Namespaces** | `your-service-name`, `your-service-name-db` |
-| **Ingress Controller** | `ingress-nginx` namespace |
+| **Edge** | Per `edge.mode`: a Gateway (`edge.gateway.parentRefs`), an Ingress controller, or a tunnel ([Infrastructure, Edge](./infrastructure.md#edge)) |
 | **Monitoring** | Prometheus + Grafana |
 
 ---
@@ -234,13 +234,13 @@ kubectl -n your-service-name-<environment> exec <pod-name> -- curl -fsS http://l
 ### Ingress Health
 
 ```bash
-# Check ingress
-kubectl -n your-service-name-<environment> get ingress
+# Check the edge object (HTTPRoutes in gateway mode, the Ingress in ingress mode; none for a tunnel)
+kubectl -n your-service-name-<environment> get httproute,ingress
 
-# Check ingress controller
-kubectl -n ingress-nginx get pods
+# Check the edge Pods (the Gateway implementation, the controller, or cloudflared) in their namespace
+kubectl -n <edge-namespace> get pods
 
-# Test via Ingress
+# Test via the edge
 curl -fsS https://api.your-domain.example/api/v1/health
 curl -fsS https://app.your-domain.example/
 ```
@@ -379,11 +379,11 @@ kubectl -n your-service-name-<environment> get secret your-service-name-db-crede
 ### Ingress Issues
 
 ```bash
-# Check ingress controller logs
-kubectl -n ingress-nginx logs -l app.kubernetes.io/name=ingress-nginx
+# Check the edge's logs (the access log lives there: the Gateway implementation, the controller, or Cloudflare)
+kubectl -n <edge-namespace> logs <edge-pod>
 
-# Check ingress resource
-kubectl -n your-service-name-<environment> describe ingress your-service-name
+# Check the edge object
+kubectl -n your-service-name-<environment> describe httproute,ingress
 
 # Test DNS resolution
 nslookup api.your-domain.example

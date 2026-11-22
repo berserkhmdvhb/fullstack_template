@@ -150,8 +150,8 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph Cluster["Kubernetes Cluster"]
-        subgraph IngressNS["ingress-nginx"]
-            IC["Ingress Controller"]
+        subgraph IngressNS["edge namespace"]
+            IC["Gateway, Ingress controller or cloudflared"]
         end
 
         subgraph AppNS["your-service-name"]

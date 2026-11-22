@@ -18,7 +18,7 @@ It ensures:
 
 ## Features
 
-- **Consistent Architecture**: Backend (FastAPI), Frontend (Next.js 16, which serves its own static assets), and an Ingress at the edge
+- **Consistent Architecture**: Backend (FastAPI), Frontend (Next.js 16, which serves its own static assets), and an edge in one of three modes (Gateway API, Ingress or a tunnel)
 - **Kubernetes Deployment**: Helm chart with per-env values (dev/qa/production/local), HPA, PDB, NetworkPolicy
 - **Developer Experience**: Makefile shortcuts, run scripts, `.env` support, local K8s via kind/minikube
 - **Code Quality & Security**: Ruff, Mypy, Pytest, CodeQL, gitleaks, supply-chain (digest-pin, typosquat scan, OpenVEX, CI self-check; keyless image signing + SLSA provenance)
@@ -158,7 +158,7 @@ flowchart LR
   Client[User / Browser]
 
   subgraph Edge["Edge Layer"]
-    Ingress["Ingress controller<br/>TLS termination<br/>Rate limiting"]
+    Ingress["Edge: Gateway, Ingress or tunnel<br/>TLS termination<br/>Rate limiting"]
   end
 
   FE["Next.js 16 Frontend"]
@@ -174,8 +174,8 @@ flowchart LR
 ```mermaid
 flowchart TB
   subgraph Cluster["Kubernetes Cluster"]
-    subgraph IngressNS["ingress-nginx"]
-      IC["Ingress Controller"]
+    subgraph IngressNS["edge namespace"]
+      IC["Gateway, Ingress controller or cloudflared"]
     end
 
     subgraph AppNS["your-service-name"]

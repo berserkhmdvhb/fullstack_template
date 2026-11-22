@@ -29,7 +29,7 @@ Security is implemented at multiple layers:
 ```mermaid
 flowchart TB
     subgraph Edge["Edge Security"]
-        IC["Ingress controller<br/>TLS termination<br/>Rate limiting"]
+        IC["Edge: Gateway, Ingress or tunnel<br/>TLS termination<br/>Rate limiting"]
     end
 
     subgraph App["Application Security"]
@@ -98,7 +98,7 @@ allows it only on proxied paths of the frontend port.
 
 ### Edge headers
 
-The Ingress adds no response headers: the chart sets no `configuration-snippet`. Every header on a response comes from the app that sent it: the backend's security middleware (`backend/middleware/security.py`) and the frontend's `next.config.ts` and `proxy.ts`. The backend sends `Strict-Transport-Security` over https only (see [HSTS](#hsts)).
+The edge adds no response headers: the chart renders no header filter or controller snippet in any edge mode. Every header on a response comes from the app that sent it: the backend's security middleware (`backend/middleware/security.py`) and the frontend's `next.config.ts` and `proxy.ts`. The backend sends `Strict-Transport-Security` over https only (see [HSTS](#hsts)).
 
 ### CSP Details
 
@@ -235,7 +235,7 @@ environment variables (see `backend/main.py`). The template ships
 
 Per-IP rate limiting via the **`limits`** library's async API (`limits.aio`) in
 `backend/middleware/rate_limiting.py` (a `BaseHTTPMiddleware`) and `backend/rate_limiter.py`, plus
-optional Ingress controller annotations:
+an optional limit at the edge:
 
 ### Backend Rate Limiting
 
@@ -264,7 +264,7 @@ without the URL in the message. In the chart the URL comes from the app Secret (
 request and logs a warning (the exception type only) at most once a minute: an outage of the
 limiter must not take the API down. While Redis is unreachable a request can wait up to the timeout
 (0.2 s by default: well above a same-cluster round trip, short enough to bound the added latency).
-The ingress limit below still applies. Every such request increments the Prometheus counter
+An edge limit, if you set one, still applies. Every such request increments the Prometheus counter
 `rate_limit_storage_failures_total{reason="error"|"timeout"}` (on `/metrics`; a timeout also
 covers an overloaded event loop), so alert on it: while it grows the limit is not applying.
 
@@ -275,14 +275,14 @@ covers an overloaded event loop), so alert on it: while it grows the limit is no
 > middleware here enforces the limit directly against the `limits` backend keyed
 > by client IP, so it works regardless of how routes are nested.
 
-### Ingress Rate Limiting
+### Edge Rate Limiting
 
-```yaml
-metadata:
-  annotations:
-    nginx.ingress.kubernetes.io/limit-rps: "100"
-    nginx.ingress.kubernetes.io/limit-connections: "50"
-```
+The chart sets no edge rate limit; the backend limit above covers the backend only, per replica.
+The edge limit covers every path, the frontend included, and lives where the edge does: a Cloud
+Armor rate-based rule on GKE (`edge.gateway.gke.securityPolicy`), Cloudflare rate-limiting rules in
+tunnel mode, or the controller's own setting in ingress mode. What the former ingress-nginx
+annotations did and where each lives now:
+[Infrastructure, former nginx practices](./infrastructure.md#where-the-former-nginx-practices-live-now).
 
 ### Behavior
 
@@ -389,7 +389,7 @@ the default every client behind a proxy shares the proxy's address, so one rate-
 but coarse. Set the ranges for your cluster (`values.yaml`, `config:`); production refuses
 `TRUST_CF_CONNECTING_IP=true` with no ranges.
 
-The **edge rate limit** (Cloudflare, or the Ingress annotations above) is the first line of defence;
+The **edge rate limit** ([Edge Rate Limiting](#edge-rate-limiting)) is the first line of defence;
 this per-IP limit is the second.
 
 ### What the trusted proxies must do
@@ -416,8 +416,8 @@ versions you run.
   entry from the right, falling back to the peer), so a value of 1 would make Envoy see the ingress Pod
   instead of the client; the chart leaves it at 0. **Limit:** with the WAF on, the backend sees
   `X-Forwarded-Proto: http` for https clients; the client IP is unaffected.
-  The WAF is safe only because ingress-nginx in front has already set the headers: **nothing but the
-  ingress may reach the WAF Pod.**
+  The WAF is safe only because the edge in front has already set the headers: **nothing but the
+  edge may reach the WAF Pod**, which the chart's [NetworkPolicy](#networkpolicy) enforces.
   Both behaviours (the `X-Forwarded-Proto` overwrite at zero, and the trusted-client-address rule) are in the
   [Envoy header reference](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_conn_man/headers).
 - **Trusting a range trusts every Pod in it.** A Pod inside `TRUSTED_PROXY_CIDRS` can send any
@@ -430,7 +430,8 @@ Per edge mode:
 
 | Edge mode | `TRUSTED_PROXY_CIDRS` | `TRUST_CF_CONNECTING_IP` |
 |-----------|-----------------------|--------------------------|
-| **Ingress** (the chart's default) | The ingress controller's Pod range, plus the WAF's (Envoy) when `waf.enabled`. | `false` |
+| **Gateway** (the chart's default), in-cluster implementation | The gateway Pods' range, plus the WAF's (Envoy) when `waf.enabled`. | `false` |
+| **Ingress** | The ingress controller's Pod range, plus the WAF's (Envoy) when `waf.enabled`. | `false` |
 | **Tunnel** (Cloudflare Tunnel) | The same, plus `cloudflared`'s Pod range if it targets the backend Service directly. | `true`, with `cloudflared` the only way in |
 | **Google** load balancer / GKE Gateway | The Google front end that is the peer (its request source ranges are listed in the [load balancer documentation](https://cloud.google.com/load-balancing/docs/https)), **and the load balancer's own address**: the balancer appends `CLIENT_IP, LOAD_BALANCER_IP`, so without that address trusted every client resolves to it. | `false` |
 
@@ -588,9 +589,15 @@ spec:
 
 | Policy | Direction | Source | Destination | Purpose |
 |--------|-----------|--------|-------------|---------|
-| `allow-from-ingress` | Ingress | ingress-nginx namespace | app pods on 8000/3000 | Ingress → services |
+| `allow-to-frontend` | Ingress | the edge peers of `edge.mode` | frontend pods on the frontend port | Edge → UI |
+| `allow-to-backend` | Ingress | frontend pods; the WAF pods (WAF on) or the edge peers (WAF off); the monitoring namespace | backend pods on the backend port | No edge peer reaches the backend around the WAF |
+| `allow-waf` (WAF on) | Ingress + Egress | the edge peers | WAF pods on `waf.service.port`; egress to the backend + DNS | Edge → WAF → backend |
 | `allow-backend-to-db` | Egress | backend pods | postgresql:5432 + DNS | Backend → database |
 | `allow-migration-to-db` | Egress | migration job | postgresql:5432 + DNS | Migration → database |
+| `allow-frontend-to-backend` | Egress | frontend pods | backend port + DNS | Server-side calls |
+
+DNS egress goes to kube-dns only (`networkPolicy.dns`). The edge peers per mode and the full flow
+matrix: [Infrastructure, NetworkPolicy per mode](./infrastructure.md#networkpolicy-per-mode).
 
 ### Pod Security Standards
 
@@ -663,7 +670,7 @@ operational steps in
 | Where it lives | Ephemeral CI scanner | Helm-deployed pod (Envoy) |
 | Gate | Advisory baseline | Off by default |
 
-> **OpenShift:** the chart's WAF is the vanilla-K8s (Ingress) expression; on
+> **OpenShift:** the chart's WAF is the vanilla-K8s (Gateway or Ingress) expression; on
 > OpenShift it sits behind the Route/Router edge. The in-cluster proxy validates on
 > any cluster; the exact wasm image pin and the SQLi/XSS→403 behaviour are confirmed
 > on a cluster (runbook §4).
@@ -730,18 +737,11 @@ spec:
 
 ## TLS Configuration
 
-### Ingress TLS
+### Edge TLS
 
-TLS is managed by cert-manager with Let's Encrypt:
-
-```yaml
-spec:
-  tls:
-    - hosts:
-        - api.your-domain.example
-        - app.your-domain.example
-      secretName: your-service-name-tls
-```
+TLS terminates at the edge, per mode: the Gateway listener's certificate, the Ingress
+`edge.ingress.tlsSecretName` with an issuer you add, or Cloudflare in tunnel mode.
+[Infrastructure, TLS per mode](./infrastructure.md#tls-per-mode).
 
 ### cert-manager Configuration
 
