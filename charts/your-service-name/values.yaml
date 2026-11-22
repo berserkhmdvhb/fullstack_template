@@ -202,9 +202,9 @@ config:
   # processes. BACKEND_GRACEFUL_TIMEOUT is how long Uvicorn drains in-flight
   # requests + lifespan shutdown after SIGTERM before force-exiting.
   BACKEND_GRACEFUL_TIMEOUT: "30"
-  # The largest request body the backend accepts (bytes; more is a 413). The WAF's Coraza body
-  # limits read the same value, so the two never disagree. A test keeps it equal to the backend
-  # default.
+  # The largest request body the backend accepts (bytes; more is a 413). This one value sets the
+  # backend (through this ConfigMap) and the WAF's limits (Coraza's and Envoy's buffer). The
+  # backend's built-in default (settings.py, used outside the chart) is kept equal by a test.
   MAX_REQUEST_BODY_BYTES: "10485760"
   FRONTEND_IMPL: react
   FRONTEND_HOST: "0.0.0.0"

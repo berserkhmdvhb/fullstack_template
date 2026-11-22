@@ -24,9 +24,15 @@ INLINE = re.compile(r"^[a-z0-9][\w./-]*:[\w][\w.-]*@sha256:[0-9a-f]{64}$")
 
 
 def _images(node: Any, path: str = "") -> Iterator[tuple[str, Any]]:  # noqa: ANN401
-    """(dotted path, value) of each image: a {repository, tag} mapping or a string named image."""
-    if isinstance(node, dict):
-        if "repository" in node and "tag" in node:
+    """(path, value) of each image: a mapping with a repository, or a string named image.
+
+    Lists are walked too (an init container's image), so nothing hides in one.
+    """
+    if isinstance(node, list):
+        for index, item in enumerate(node):
+            yield from _images(item, f"{path}[{index}]")
+    elif isinstance(node, dict):
+        if "repository" in node:
             yield path, node
             return
         for key, value in node.items():
@@ -91,3 +97,17 @@ def test_renovate_sees_every_pinned_image_in_values_yaml() -> None:
     assert pinned
     assert {digest for _, digest in pinned} <= {digest for _, digest in seen}
     assert {"postgres", "gcr.io/cloud-sql-connectors/cloud-sql-proxy"} <= {d for d, _ in seen}
+
+
+def test_the_walk_finds_tag_less_mappings_and_images_inside_lists() -> None:
+    """A mutation must go red: `image: {repository: nginx}` (no tag, no digest), and an image
+    string inside a list (an extra init container), are images too."""
+    doc = {
+        "extra": {"image": {"repository": "nginx"}},
+        "backend": {"extraInitContainers": [{"name": "x", "image": "busybox:1.36"}]},
+    }
+    found = dict(_images(doc))
+    assert found == {
+        "extra.image": {"repository": "nginx"},
+        "backend.extraInitContainers[0].image": "busybox:1.36",
+    }

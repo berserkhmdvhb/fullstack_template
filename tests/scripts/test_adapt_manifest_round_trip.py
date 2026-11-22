@@ -20,6 +20,26 @@ MANIFEST = Path(".github/container-images.yml")
 SCAN = Path("infra/security/config.yaml")
 
 
+def _run(root: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "infra/adapt/replace_service_name.py"),
+            "--root",
+            str(root),
+            "--old",
+            "your_service_name",
+            "--new",
+            "acme",
+            "--backup-dir",
+            str(root / ".adapt-backup"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 def _adapt(root: Path) -> str:
     for rel in (MANIFEST, SCAN):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -71,3 +91,33 @@ def test_a_new_dockerfile_gets_a_canonical_entry_and_the_others_keep_theirs(tmp_
     assert set(images) == {"backend", "frontend", "waf", "worker"}
     assert images["worker"]["dockerfile"] == "Dockerfile.worker"
     assert images["waf"]["healthcheck_exempt"]
+
+
+def _with_manifest(root: Path, text: str) -> None:
+    _adapt(root)  # lay out the tree
+    (root / MANIFEST).write_text(text, encoding="utf-8")
+
+
+def test_a_flow_style_entry_is_refused_clearly_and_nothing_is_written(tmp_path: Path) -> None:
+    text = (
+        (REPO / MANIFEST)
+        .read_text(encoding="utf-8")
+        .replace(
+            "  - id: waf\n",
+            "  - {id: extra, repository: r, dockerfile: Dockerfile.extra}\n  - id: waf\n",
+        )
+    )
+    _with_manifest(tmp_path, text)
+    proc = _run(tmp_path)
+    assert proc.returncode != 0
+    assert "flow-style" in proc.stderr
+    assert (tmp_path / MANIFEST).read_text(encoding="utf-8") == text
+
+
+def test_a_blank_line_inside_the_images_block_is_refused_clearly(tmp_path: Path) -> None:
+    text = (REPO / MANIFEST).read_text(encoding="utf-8").replace("  - id: waf\n", "\n  - id: waf\n")
+    _with_manifest(tmp_path, text)
+    proc = _run(tmp_path)
+    assert proc.returncode != 0
+    assert "blank line" in proc.stderr
+    assert (tmp_path / MANIFEST).read_text(encoding="utf-8") == text

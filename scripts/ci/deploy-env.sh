@@ -60,12 +60,20 @@ jq -n --argjson m "$matrix" --argjson d "$DIGESTS" --arg tag "$IMAGE_TAG" '
 # chart's placeholder hosts and Gateway.
 release_values=(-f "$CHART_DIR/values.${DEPLOY_ENV}.yaml" -f "$VALUES" --set guards.rejectPlaceholders=true)
 manifest="$(helm template "$SERVICE_NAME" "$CHART_DIR" "${release_values[@]}" --namespace "$NAMESPACE")" || fail "cannot render ${SERVICE_NAME} for ${DEPLOY_ENV}"
+# An image is used when a rendered container runs its tag-form reference (the render has no digest
+# yet), whatever the component label; its component is checked when a Pod carries the id as label.
+used() {
+  local ref images
+  ref="$(jq -r --arg id "$1" '.images[$id] | "\(.registry)/\(.repository):\(.tag)"' "$VALUES")"
+  images="$(grep -E '^[[:space:]]*(- )?image:' <<<"$manifest" || true)"
+  grep -qF -e "image: ${ref}" -e "image: \"${ref}\"" <<<"$images"
+}
 renders() { grep -qE "^[[:space:]]*app\.kubernetes\.io/component: \"?${1}\"?[[:space:]]*$" <<<"$manifest"; }
 components=()
 for id in ${DEPLOY_IMAGES//,/ }; do
   var="$(digest_var "$id")"
   dg="$(jq -r --arg k "$var" '.[$k] // ""' <<<"$DIGESTS")"
-  if [[ -z "$dg" ]] && ! renders "$id"; then
+  if [[ -z "$dg" ]] && ! used "$id" && ! renders "$id"; then
     echo "${id}: not rendered by this release (feature off) and no ${var}; deployed without it, not checked"
     continue
   fi

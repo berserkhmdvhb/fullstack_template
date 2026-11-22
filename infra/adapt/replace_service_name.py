@@ -24,6 +24,7 @@ from _common import (
     DEFAULT_INCLUDE_EXTS,
     VALID_NAME_RE,
     backup_file,
+    check_images_block,
     detect_images,
     load_excludes,
     os_walk_safe,
@@ -601,6 +602,15 @@ def main() -> int:
         backup=backup,
         dry=dry,
     )
+
+    # 0) Refuse an image manifest the rewire cannot keep intact, before anything is written.
+    manifest = root / ".github" / "container-images.yml"
+    if manifest.is_file():
+        try:
+            check_images_block(manifest.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            print(f"[adapt] ERROR: {manifest.relative_to(root)}: {exc}", file=sys.stderr)
+            return 2
 
     # 1) Directory renames with backup (Python package + Helm chart slug)
     rename_package_dir(root, old, new, backup, dry=dry)

@@ -49,8 +49,9 @@ def test_the_runtime_is_the_distroless_envoy_image() -> None:
     assert re.match(r"FROM envoyproxy/envoy:distroless-v\d+\.\d+\.\d+" + DIGEST, runtime)
 
 
-# The oldest Envoy minor still supported when the base was pinned (Envoy supports each minor for
-# a year; 1.36 to 1.39 in 2026-11). Renovate only moves the pin forward.
+# A value to bump, not derived: the oldest Envoy minor still supported. Envoy supports each minor
+# for a year (https://github.com/envoyproxy/envoy/blob/main/RELEASES.md, "Release schedule");
+# 1.36 to 1.39 in 2026-11. Raise it when a minor reaches end of life; Renovate moves the pin.
 OLDEST_SUPPORTED_ENVOY_MINOR = 36
 
 

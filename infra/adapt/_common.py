@@ -346,6 +346,33 @@ _ENTRY_DOCKERFILE_RE = re.compile(r"^\s+(?:- )?dockerfile:\s*[\"']?([^\"'\s#]+)"
 _ENTRY_ID_RE = re.compile(r"^(  - id:\s*)[\"']?([^\"'\s#]+)[\"']?(.*)$")
 
 
+def check_images_block(content: str) -> None:
+    """Refuse an ``images:`` block the line-based rewire cannot keep intact.
+
+    Raises ``ValueError`` for a flow-style entry (``- {id: ...}``) or a blank line inside the block:
+    either would otherwise make the rewire lose an entry's keys or splice half the block.
+    """
+    lines = content.split("\n")
+    key = next((i for i, ln in enumerate(lines) if re.match(r"^images:\s*(#.*)?$", ln)), None)
+    if key is None:
+        return
+    end = next(
+        (i for i in range(key + 1, len(lines)) if lines[i].strip() and _indent(lines[i]) == 0),
+        len(lines),
+    )
+    block = lines[key + 1 : end]
+    while block and not block[-1].strip():
+        block.pop()
+    for n, line in enumerate(block, key + 2):
+        if re.match(r"^\s*-\s*\{", line):
+            entry = line.strip()[:40]
+            msg = f"line {n}: a flow-style images entry ({entry}); write it in block style"
+            raise ValueError(msg)
+        if not line.strip():
+            msg = f"line {n}: a blank line inside the images block; remove it"
+            raise ValueError(msg)
+
+
 def _existing_entries(lines: list[str]) -> dict[str, list[str]]:
     """The current ``images:`` entries (block style), keyed by their ``dockerfile`` value."""
     key = next((i for i, ln in enumerate(lines) if re.match(r"^images:\s*(#.*)?$", ln)), None)
@@ -391,6 +418,7 @@ def rewrite_images_block(content: str, images: list[tuple[str, str]]) -> str:
     ``distroless``, ``platforms``, ``healthcheck_exempt``, ...), renamed only when its derived id
     changed; a new Dockerfile gets the canonical entry; an entry without its Dockerfile is dropped.
     """
+    check_images_block(content)
     had_nl = content.endswith("\n")
     lines = content.split("\n")
     existing = _existing_entries(lines)

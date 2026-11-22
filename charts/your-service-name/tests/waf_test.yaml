@@ -180,3 +180,22 @@ tests:
     asserts:
       - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'Include @recommended-conf.+SecRequestBodyAccess On'}
       - notMatchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'owasp_crs'}
+  - it: Envoy buffers a body up to the backend's limit for Coraza, and Coraza rejects anything larger
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'name: waf_listener\s+per_connection_buffer_limit_bytes: 10485760\s'}
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'SecRequestBodyLimit 10485760.+SecRequestBodyInMemoryLimit 10485760.+SecRequestBodyLimitAction Reject'}
+  - it: the Envoy buffer follows config.MAX_REQUEST_BODY_BYTES too
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      config: {MAX_REQUEST_BODY_BYTES: "2048"}
+    asserts:
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'per_connection_buffer_limit_bytes: 2048\s'}
+  - it: the health port may not be the WAF port
+    template: waf-proxy.yaml
+    set:
+      waf: {health: {port: 8080}}
+    asserts:
+      - failedTemplate: {errorPattern: "waf.health.port"}

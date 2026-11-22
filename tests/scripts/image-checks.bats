@@ -32,11 +32,16 @@ images:
     repository: "ghcr.io/o/r/full"
     dockerfile: Dockerfile.full
     distroless: false
-  - id: probed
-    repository: "ghcr.io/o/r/probed"
-    dockerfile: Dockerfile.probed
+  - id: waf
+    repository: "ghcr.io/o/r/waf"
+    dockerfile: Dockerfile.waf
     distroless: true
     healthcheck_exempt: "no probe binary; Kubernetes probes the health listener"
+  - id: sneaky
+    repository: "ghcr.io/o/r/sneaky"
+    dockerfile: Dockerfile.sneaky
+    distroless: true
+    healthcheck_exempt: "flaky"
 YML
   # A healthy, non-root image with every label, as the stub default.
   export STUB_USER=10001
@@ -178,11 +183,24 @@ placeholder_source() {
 }
 
 @test "healthcheck: an exempt image is not run, and the log gives the manifest's reason" {
-  STUB_HC_TEST="" run bash "$SCRIPT" probed ref:t
+  STUB_HC_TEST="" run bash "$SCRIPT" waf ref:t
   [ "$status" -eq 0 ]
   [[ "$output" == *"healthcheck: skipped (no probe binary; Kubernetes probes the health listener)"* ]]
   run grep -q '^run ' "$STUB_LOG"
   [ "$status" -ne 0 ]
+}
+
+@test "healthcheck: an exemption outside the allowlist (only waf) fails and the image is still run" {
+  run bash "$SCRIPT" sneaky ref:t
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"::error::"*"healthcheck_exempt"*"only"*"waf"* ]]
+  grep -q '^run ' "$STUB_LOG"
+}
+
+@test "healthcheck: an exempt image that declares a HEALTHCHECK fails (the exemption would hide it)" {
+  run bash "$SCRIPT" waf ref:t
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"::error::"*"declares a HEALTHCHECK"* ]]
 }
 
 @test "healthcheck: the exemption is per image; the others still need one" {

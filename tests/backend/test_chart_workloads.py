@@ -501,3 +501,38 @@ def test_the_external_database_stub_follows_the_database_port(helm: str) -> None
     assert refused.returncode != 0, (
         "externalDatabase.port is gone: config.DB_PORT is the one source"
     )
+
+
+@pytest.mark.parametrize("values", VALUES_FILES)
+@pytest.mark.parametrize("extra", [PORT_OPTIONS, PROXY_ON], ids=["all", "proxy"])
+def test_no_pod_declares_a_container_port_twice(
+    helm: str, values: str, extra: tuple[str, ...]
+) -> None:
+    """Two containers (or one, twice) on one port fail at bind time, after the render passed."""
+    for name, (pod, _) in pod_specs(render(helm, values, *extra)).items():
+        ports = [
+            p["containerPort"]
+            for c in [*pod["containers"], *(pod.get("initContainers") or [])]
+            for p in c.get("ports", [])
+        ]
+        assert len(ports) == len(set(ports)), (name, ports)
+
+
+def test_the_waf_render_fails_when_its_health_port_is_its_traffic_port(helm: str) -> None:
+    result = subprocess.run(
+        [
+            helm,
+            "template",
+            "svc",
+            str(CHART),
+            "--set",
+            "waf.enabled=true",
+            "--set",
+            "waf.health.port=8080",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "waf.health.port" in result.stderr

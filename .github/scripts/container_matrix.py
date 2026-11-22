@@ -47,6 +47,9 @@ IMAGE_KEYS = {
     "healthcheck_exempt",
 }
 ID_RE = re.compile(r"[a-z0-9-]+")
+# The only images that may skip the HEALTHCHECK run (healthcheck_exempt): the WAF has no binary to
+# probe with. scripts/ci/image-checks.sh holds the same list (a test keeps the two equal).
+HEALTHCHECK_EXEMPT_IDS = ("waf",)
 VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?")
 TAG_RE = re.compile(r"v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)")
 SHA_RE = re.compile(r"[0-9a-f]{7,64}")
@@ -168,6 +171,10 @@ def check_image_checks_settings(image: dict[str, Any]) -> None:
     exempt = image.get("healthcheck_exempt", "reason")
     if not isinstance(exempt, str) or not exempt.strip():
         msg = f"manifest: healthcheck_exempt of {image['id']!r} must be a non-empty reason"
+        raise InputError(msg)
+    if "healthcheck_exempt" in image and image["id"] not in HEALTHCHECK_EXEMPT_IDS:
+        allowed = ", ".join(HEALTHCHECK_EXEMPT_IDS)
+        msg = f"manifest: healthcheck_exempt is allowed only for {allowed}, not {image['id']!r}"
         raise InputError(msg)
     if not isinstance(image.get("distroless", False), bool):
         msg = f"manifest: distroless of {image['id']!r} must be true or false"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from collections.abc import Callable
@@ -288,11 +289,11 @@ def test_deploy_matrix_requires_select(run: Runner) -> None:
         ("images:\n  - {id: a, repository: r, dockerfile: d, run_env: {K: 1}}\n", "run_env"),
         ("images:\n  - {id: a, repository: r, dockerfile: d, run_args: x}\n", "run_args"),
         (
-            "images:\n  - {id: a, repository: r, dockerfile: d, healthcheck_exempt: true}\n",
+            "images:\n  - {id: waf, repository: r, dockerfile: d, healthcheck_exempt: true}\n",
             "healthcheck_exempt",
         ),
         (
-            "images:\n  - {id: a, repository: r, dockerfile: d, healthcheck_exempt: '  '}\n",
+            "images:\n  - {id: waf, repository: r, dockerfile: d, healthcheck_exempt: '  '}\n",
             "healthcheck_exempt",
         ),
     ],
@@ -301,9 +302,28 @@ def test_bad_manifest_refused(run: Runner, manifest: str, needle: str) -> None:
     refused(run("--matrix", manifest=manifest), needle)
 
 
+@pytest.mark.parametrize("image_id", ["backend", "frontend", "a"])
+def test_only_the_waf_may_be_exempt_from_the_healthcheck(run: Runner, image_id: str) -> None:
+    manifest = (
+        f"images:\n  - {{id: {image_id}, repository: r, dockerfile: d,"
+        " healthcheck_exempt: flaky}\n"
+    )
+    refused(run("--matrix", manifest=manifest), "healthcheck_exempt")
+
+
+def test_the_two_exemption_allowlists_agree() -> None:
+    sys.path.insert(0, str(SCRIPT.parent))
+    import container_matrix  # noqa: PLC0415
+
+    shell = (REPO_ROOT / "scripts/ci/image-checks.sh").read_text(encoding="utf-8")
+    match = re.search(r"^HEALTHCHECK_EXEMPT_IDS=\((.*)\)$", shell, re.MULTILINE)
+    assert match
+    assert set(match[1].split()) == set(container_matrix.HEALTHCHECK_EXEMPT_IDS) == {"waf"}
+
+
 def test_image_check_settings_are_accepted_and_not_rendered(run: Runner) -> None:
     manifest = (
-        "images:\n  - {id: a, repository: r, dockerfile: d, distroless: true,"
+        "images:\n  - {id: waf, repository: r, dockerfile: d, distroless: true,"
         " run_env: {K: v}, run_args: ['--read-only'],"
         " healthcheck_exempt: probed by Kubernetes only}\n"
     )

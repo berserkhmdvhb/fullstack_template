@@ -30,15 +30,18 @@ flowchart TB
     subgraph Build["Build (CI/CD)"]
         BackendBuild["Dockerfile.backend<br/>Python 3.12"]
         FrontendBuild["Dockerfile.frontend<br/>Node 26"]
+        WafBuild["Dockerfile.waf (optional)<br/>Envoy + Coraza Wasm"]
     end
 
     subgraph K8s["Kubernetes Deployments"]
         Backend["Backend Deployment"]
         Frontend["Frontend Deployment"]
+        Waf["WAF Deployment<br/>(waf.enabled)"]
     end
 
     BackendBuild --> Backend
     FrontendBuild --> Frontend
+    WafBuild --> Waf
 ```
 
 ---
@@ -158,12 +161,15 @@ the Wasm magic number. The final stage only copies the module to `/etc/envoy/cor
 - **Trust on first use.** The asset's sha256 was recorded when the version was first pinned. Renovate proposes a
   new `CORAZA_WASM_VERSION` (the `# renovate:` line above it), and the build then fails the checksum until a
   maintainer records the new asset's sha256 (GitHub shows each release asset's digest). Renovate refreshes the
-  two base image digests.
+  two base image digests, and a `packageRule` versions Envoy's `distroless-vX.Y.Z` tag (regex versioning), so
+  new Envoy patches and minors are proposed too.
 - **No HEALTHCHECK:** distroless Envoy has no binary to probe with, so its manifest entry sets
-  `healthcheck_exempt` and Kubernetes probes the chart's health listener instead. Run bare, the image prints
+  `healthcheck_exempt` and Kubernetes probes the chart's health listener instead. The exemption is
+  allowed only for the `waf` id (`container_matrix.py` and `image-checks.sh` both refuse it on any
+  other image), and an exempt image that declares a HEALTHCHECK fails the check. Run bare, the image prints
   its version: the chart passes the whole Envoy configuration, and the base image's default configuration
   (which binds the admin interface to every address) is never used.
-- **Request bodies are inspected.** The chart loads Coraza's recommended configuration (`@recommended-conf`), enforcing (`SecRuleEngine On`), with `SecRequestBodyAccess On` and `SecResponseBodyAccess Off`, then the OWASP CRS. `SecRequestBodyLimit` and `SecRequestBodyInMemoryLimit` are `config.MAX_REQUEST_BODY_BYTES`, the backend's own limit (10 MiB), so the WAF never accepts a body the backend refuses, or the reverse.
+- **Request bodies are inspected.** The chart loads Coraza's recommended configuration (`@recommended-conf`), enforcing (`SecRuleEngine On`), with `SecRequestBodyAccess On` and `SecResponseBodyAccess Off`, then the OWASP CRS. `SecRequestBodyLimit`, `SecRequestBodyInMemoryLimit` (with `SecRequestBodyLimitAction Reject`) and Envoy's listener buffer (`per_connection_buffer_limit_bytes`, which caps what Envoy buffers for the filter) are all `config.MAX_REQUEST_BODY_BYTES`. In the cluster that one chart value also sets the backend's own limit (through the ConfigMap); the backend's built-in default (10 MiB, `settings.py`) is kept equal to it by a test. A larger body gets a `413` from the WAF and never reaches the upstream uninspected; a 2 MiB body passes (proven by a run).
 - **Runtime:** Envoy loads the module from that file (`vm_config.code.local.filename`), so nothing is fetched at
   runtime; the admin interface is disabled, a separate listener answers the probes, and the root filesystem
   is read-only. Build it locally with
@@ -179,8 +185,10 @@ The release workflow builds the images (the two app images and the WAF image) wi
 flowchart TB
     CI["release.yml build job<br/>(one matrix leg per image)"] --> Backend["Dockerfile.backend"]
     CI --> Frontend["Dockerfile.frontend"]
+    CI --> Waf["Dockerfile.waf"]
     Backend -->|"push + digest check"| Registry["ghcr.io/&lt;owner&gt;/&lt;repo&gt;/backend"]
     Frontend -->|"push + digest check"| Registry2["ghcr.io/&lt;owner&gt;/&lt;repo&gt;/frontend"]
+    Waf -->|"push + digest check"| Registry3["ghcr.io/&lt;owner&gt;/&lt;repo&gt;/waf"]
 ```
 
 ### Advantages

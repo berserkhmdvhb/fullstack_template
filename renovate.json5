@@ -156,6 +156,14 @@
       "groupName": "uv"
     },
     {
+      // The WAF base (Dockerfile.waf) is tagged distroless-vX.Y.Z, which docker versioning cannot read: without this
+      // rule only the digest of the same tag would be refreshed, and a new Envoy patch or minor never proposed.
+      "description": "Envoy's distroless tags are versioned by their X.Y.Z",
+      "matchPackageNames": ["envoyproxy/envoy"],
+      "versioning": "regex:^distroless-v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
+      "pinDigests": true
+    },
+    {
       "description": "Tell the reviewer why pin drift is red",
       "matchFileNames": ["tools/pins.tsv", "infra/security/config.yaml"],
       "prBodyNotes": ["The `pins` check is red until `make pins-refresh` has written the vendor checksums and the hashed locks. Run it and push."]

@@ -726,9 +726,12 @@ operational steps in
   Pod runs as the image's user (65532) with a read-only root filesystem. The base is the newest
   supported Envoy minor (1.39), proven with the pinned Coraza release by a local run, because
   Coraza's own CI stops at an end-of-life minor. Coraza runs its recommended configuration,
-  enforcing, and inspects request bodies (`SecRequestBodyAccess On`) up to the backend's own
-  limit, `config.MAX_REQUEST_BODY_BYTES` (`SecRequestBodyLimit`, `SecRequestBodyInMemoryLimit`),
-  so a SQL injection in a form or JSON body is blocked, not only one in the URL. Envoy's admin
+  enforcing, and inspects request bodies (`SecRequestBodyAccess On`) up to
+  `config.MAX_REQUEST_BODY_BYTES` (`SecRequestBodyLimit`, `SecRequestBodyInMemoryLimit`,
+  `SecRequestBodyLimitAction Reject`, and Envoy's listener buffer), so a SQL injection in a form
+  or JSON body is blocked, not only one in the URL, and a larger body is a `413`. The same chart
+  value sets the backend's limit through the ConfigMap; the backend's built-in default is kept
+  equal to it by a test. Envoy's admin
   interface (which serves endpoints such as `/quitquitquit`) is disabled; the probes ask
   a separate listener (`waf.health.port`, `waf.health.path`) that answers a fixed `200`.
 
@@ -741,9 +744,9 @@ operational steps in
 
 > **OpenShift:** the chart's WAF is the vanilla-K8s (Gateway or Ingress) expression; on
 > OpenShift it sits behind the Route/Router edge. The in-cluster proxy validates on
-> any cluster; the exact wasm image pin and the SQLi/XSS→403 behaviour are confirmed
-> on a cluster (runbook §4); the image itself is proven to load the Wasm and block a
-> CRS match locally.
+> any cluster; the SQLi/XSS→403 behaviour on your own edge is confirmed on a cluster
+> (runbook §4). The WAF image is this repository's own (`Dockerfile.waf`, pinned and signed),
+> and a local run proves it loads the Wasm, passes benign traffic and blocks CRS matches.
 
 ---
 

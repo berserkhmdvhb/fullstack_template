@@ -23,8 +23,10 @@ case "$1" in
   upgrade) exit "${STUB_UPGRADE_RC:-0}" ;;
   template|get) [[ "$1" == template || -z "${STUB_NO_RELEASE-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
        printf -- '---\nkind: Job\nmetadata:\n  name: svc-migrate-r2\n  labels:\n    app.kubernetes.io/component: migration\n'
-       for c in ${STUB_RENDERED-backend frontend web-ui}; do
-         printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-%s\n  labels:\n    app.kubernetes.io/component: %s\n' "$c" "$c"
+       # Each entry is <component label>[=<image id>]: a Deployment with that label running that image.
+       for e in ${STUB_RENDERED-backend frontend web-ui}; do
+         c="${e%%=*}" i="${e#*=}"
+         printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-%s\n  labels:\n    app.kubernetes.io/component: %s\nspec:\n  template:\n    spec:\n      containers:\n        - name: %s\n          image: ghcr.io/o/r/%s:t1\n' "$c" "$c" "$c" "$i"
        done ;;
 esac
 STUB
@@ -239,6 +241,14 @@ STUB
   DIGESTS="{\"FRONTEND_IMAGE_DIGEST\":\"$D\"}" run bash "$SCRIPT"
   [ "$status" -eq 1 ]
   [[ "$output" == *"BACKEND_IMAGE_DIGEST"* ]]
+}
+
+@test "an image whose component label differs from its id, without a digest, fails closed" {
+  STUB_RENDERED="backend frontend jobs=worker" DEPLOY_IMAGES=backend,frontend,worker run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"WORKER_IMAGE_DIGEST"* ]]
+  run grep -q "helm upgrade" "$LOG"
+  [ "$status" -ne 0 ]
 }
 
 @test "missing inputs are refused" {

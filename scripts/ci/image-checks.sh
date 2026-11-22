@@ -27,6 +27,9 @@ USER_RE='^[1-9][0-9]*(:[0-9]+)?$'
 FORBIDDEN='sh|bash|ash|dash|zsh|busybox|apt|apt-get|dpkg|apk|pip|pip3|npm|npx|curl|wget'
 BIN_DIRS='bin|sbin|usr/bin|usr/sbin|usr/local/bin|usr/local/sbin'
 LABELS=(source version revision created title)
+# The only images that may skip the HEALTHCHECK run (the WAF has no binary to probe with);
+# .github/scripts/container_matrix.py holds the same list (a test keeps the two equal).
+HEALTHCHECK_EXEMPT_IDS=(waf)
 NS=1000000000
 
 failed=0
@@ -97,12 +100,19 @@ show_diagnostics() {
 check_healthcheck() {
   local test times start interval timeout retries bound exempt
   exempt="$(manifest_get '.healthcheck_exempt // ""')"
-  if [[ -n "$exempt" ]]; then
-    echo "healthcheck: skipped (${exempt})"
-    return
-  fi
   test="$(docker image inspect --format '{{if .Config.Healthcheck}}{{.Config.Healthcheck.Test}}{{end}}' "$ref")" \
     || { fail "docker image inspect failed reading the HEALTHCHECK of ${ref}"; return; }
+  if [[ -n "$exempt" ]]; then
+    if [[ " ${HEALTHCHECK_EXEMPT_IDS[*]} " != *" ${id} "* ]]; then
+      fail "healthcheck_exempt is allowed only for ${HEALTHCHECK_EXEMPT_IDS[*]}, not ${id}; the HEALTHCHECK is checked"
+    elif [[ -n "$test" && "$test" != "[NONE]" ]]; then
+      fail "the image declares a HEALTHCHECK, so it may not be healthcheck_exempt"
+      return
+    else
+      echo "healthcheck: skipped (${exempt})"
+      return
+    fi
+  fi
   if [[ -z "$test" || "$test" == "[NONE]" ]]; then
     fail "the image declares no HEALTHCHECK"
     return

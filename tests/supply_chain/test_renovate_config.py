@@ -142,3 +142,68 @@ def test_the_split_values_format_is_matched_once_a_digest_is_set() -> None:
     ]
     unpinned = re.sub(r'digest: "sha256:[0-9a-f]{64}"', 'digest: ""', values)
     assert not pattern.search(unpinned), "an empty digest is not matched"
+
+
+def test_no_private_planning_reference_in_the_new_files() -> None:
+    for rel in (
+        "renovate.json5",
+        "tools/pins.tsv",
+        "scripts/pins_refresh.py",
+        "scripts/github-settings.sh",
+    ):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert not re.search(r"spec section|design doc", text, re.IGNORECASE), rel
+
+
+def test_renovate_maintains_uv_lock_and_moves_the_uv_pin_with_its_image() -> None:
+    cfg = renovate()
+    assert cfg["lockFileMaintenance"]["enabled"] is True
+    assert cfg["minimumReleaseAge"] == "7 days"
+    rule = next(r for r in cfg["packageRules"] if r.get("groupName") == "uv")
+    assert set(rule["matchPackageNames"]) == {"astral-sh/uv", "ghcr.io/astral-sh/uv"}
+
+
+def test_uv_lock_maintenance_is_not_blocked_by_the_release_age_check() -> None:
+    # A lock refresh has no release timestamp: with minimumReleaseAge set, the default
+    # timestamp-required behaviour would create no branch. uv's exclude-newer holds the 7 days.
+    rules = renovate()["packageRules"]
+    rule = next(r for r in rules if r.get("matchUpdateTypes") == ["lockFileMaintenance"])
+    assert rule["matchManagers"] == ["pep621"]
+    assert "minimumReleaseAge" in rule
+    assert rule["minimumReleaseAge"] is None
+    # An update with no release timestamp is held by the default timestamp-required behaviour.
+    assert rule["minimumReleaseAgeBehaviour"] == "timestamp-optional"
+    assert renovate()["minimumReleaseAge"] == "7 days"
+
+
+def test_the_envoy_distroless_tag_is_versioned_so_new_releases_are_proposed() -> None:
+    """`distroless-vX.Y.Z` is not a version Renovate's docker versioning can parse: without a rule
+    only the digest of the same tag is refreshed and a new Envoy patch or minor never proposed."""
+    dockerfile = (ROOT / "Dockerfile.waf").read_text(encoding="utf-8")
+    tag = re.search(r"^FROM envoyproxy/envoy:(\S+)@sha256:", dockerfile, re.MULTILINE)
+    assert tag
+    rule = next(
+        r for r in renovate()["packageRules"] if r.get("matchPackageNames") == ["envoyproxy/envoy"]
+    )
+    assert rule["pinDigests"] is True
+    versioning = re.fullmatch(r"regex:(.+)", rule["versioning"])
+    assert versioning
+    pattern = _compile(versioning[1])
+    found = pattern.fullmatch(tag[1])
+    assert found
+    assert found.group("major") + "." + found.group("minor") + "." + found.group("patch") == (
+        tag[1].removeprefix("distroless-v")
+    )
+    for other in ("v1.39.6", "distroless-dev", "contrib-v1.39.6", "distroless-v1.39-latest"):
+        assert not pattern.fullmatch(other), other
+
+
+def test_every_other_new_pin_has_a_tag_renovate_versions_by_default() -> None:
+    """The other new pins use plain semver or a version-suffix tag (docker versioning reads it)."""
+    values = (ROOT / "charts" / "your-service-name" / "values.yaml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "Dockerfile.waf").read_text(encoding="utf-8")
+    tags = re.findall(r"^\s+tag: [\"']?(\S+?)[\"']?\n\s+digest: \"sha256:", values, re.MULTILINE)
+    tags += re.findall(r"^FROM debian:(\S+)@", dockerfile, re.MULTILINE)
+    assert tags
+    for tag in tags:
+        assert re.fullmatch(r"\d+(\.\d+)*(-[a-z]+)?", tag), tag
