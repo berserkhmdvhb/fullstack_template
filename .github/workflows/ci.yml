@@ -295,25 +295,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The same build arguments as the release build: the matrix's own, plus the label values.
+      # The same build arguments as the release build: the matrix's own, plus the label values. The one local
+      # build path, scripts/ci/build-image.sh, is also make image-checks' and the kind job's.
       - name: Build the image locally
         env:
           ENTRY: ${{ toJSON(matrix) }}
-          DOCKERFILE: ${{ matrix.dockerfile }}
-          CONTEXT: ${{ matrix.context }}
           PLATFORM: ${{ matrix.platform }}
           SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
           VCS_REF: ${{ github.sha }}
           VCS_BRANCH: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          created="$(TZ=UTC git show -s --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ "${VCS_REF}")"
-          args=()
-          while IFS= read -r arg; do args+=(--build-arg "${arg}"); done \
-            < <(jq -r '(.build_args // {}) | to_entries[] | "\(.key)=\(.value)"' <<<"${ENTRY}")
-          args+=(--build-arg "SOURCE_URL=${SOURCE_URL}" --build-arg "VCS_REF=${VCS_REF}" \
-            --build-arg "VCS_BRANCH=${VCS_BRANCH}" --build-arg "BUILD_DATE=${created}")
-          docker buildx build --load --platform "${PLATFORM}" --file "${DOCKERFILE}" --tag "${IMAGE_REF}" "${args[@]}" "${CONTEXT}"
+        run: bash scripts/ci/build-image.sh "${ENTRY}" "${IMAGE_REF}"
       - name: Check the image
         run: bash scripts/ci/image-checks.sh --strict "${IMAGE_ID}" "${IMAGE_REF}"
 

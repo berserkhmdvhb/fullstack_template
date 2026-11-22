@@ -5,9 +5,9 @@
 #
 # Usage: image-checks-local.sh [<image-id>...]    (default: every image in the manifest)
 #
-# The build arguments are the manifest's own, rendered by .github/scripts/container_matrix.py exactly as in
-# CI, plus local label values (a reserved .invalid source URL, HEAD's commit and time), so the strict label
-# checks hold. Needs docker, jq and Python with PyYAML (the project venv has it); IMAGE_CHECKS_MANIFEST
+# The build is the images job's (scripts/ci/build-image.sh), with the manifest's own build arguments
+# rendered by .github/scripts/container_matrix.py exactly as in CI, plus local label values (a reserved
+# .invalid source URL, HEAD's commit and time), so the strict label checks hold. Needs docker, jq and Python with PyYAML (the project venv has it); IMAGE_CHECKS_MANIFEST
 # overrides the manifest path.
 set -euo pipefail
 
@@ -38,7 +38,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-created="$(TZ=UTC git show -s --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ HEAD)"
 rc=0
 for id in "${ids[@]}"; do
   entry="$(ID="$id" jq -c '.include[] | select(.id == env.ID)' <<<"$matrix")"
@@ -48,14 +47,9 @@ for id in "${ids[@]}"; do
     continue
   fi
   ref="image-checks-local/${id}:$$"
-  args=()
-  while IFS= read -r arg; do args+=(--build-arg "$arg"); done \
-    < <(jq -r '(.build_args // {}) | to_entries[] | "\(.key)=\(.value)"' <<<"$entry")
-  args+=(--build-arg "SOURCE_URL=https://example.invalid/local/image-checks"
-    --build-arg "VCS_REF=${head_sha}" --build-arg "VCS_BRANCH=local" --build-arg "BUILD_DATE=${created}")
   built+=("$ref")
-  docker buildx build --load --file "$(jq -r '.dockerfile' <<<"$entry")" --tag "$ref" \
-    "${args[@]}" "$(jq -r '.context' <<<"$entry")"
+  SOURCE_URL="https://example.invalid/local/image-checks" VCS_REF="${head_sha}" VCS_BRANCH=local \
+    bash scripts/ci/build-image.sh "$entry" "$ref"
   bash scripts/ci/image-checks.sh --strict "$id" "$ref" || rc=1
 done
 # The last command is the exit status (a bare `exit` after the trap trips shellcheck SC2329).

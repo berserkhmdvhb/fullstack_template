@@ -21,6 +21,8 @@ RELEASE_IF = (
 )
 CACHE_WORDS = ("cache-from", "cache-to", "type=gha", "actions/cache")
 LABEL_ARGS = ("SOURCE_URL", "VCS_REF", "VCS_BRANCH", "BUILD_DATE")
+# The one build path of the images job, make image-checks and the kind job.
+BUILD = REPO / "scripts" / "ci" / "build-image.sh"
 
 
 def _ci() -> dict[str, Any]:
@@ -110,9 +112,8 @@ def test_the_images_job_never_pushes_logs_in_or_touches_secrets_or_a_cache() -> 
 
 def test_the_images_job_builds_locally_and_checks_strictly() -> None:
     runs = _runs(_ci()["images"])
-    assert re.search(
-        r"docker buildx build\b.*--load|--load\b.*docker buildx build", runs, re.DOTALL
-    )
+    assert 'bash scripts/ci/build-image.sh "${ENTRY}" "${IMAGE_REF}"' in runs
+    assert re.search(r"docker buildx build --load\b", BUILD.read_text(encoding="utf-8"))
     assert "scripts/ci/image-checks.sh --strict" in runs
     assert '"${IMAGE_ID}"' in runs
 
@@ -122,11 +123,13 @@ def test_the_images_job_passes_the_release_build_arguments_from_the_matrix() -> 
     step = next(s for s in job["steps"] if "SOURCE_URL" in s.get("env", {}))
     assert step["env"]["SOURCE_URL"] == "${{ github.server_url }}/${{ github.repository }}"
     assert step["env"]["VCS_REF"] == "${{ github.sha }}"
-    assert "(.build_args // {})" in step["run"]
-    for arg in LABEL_ARGS:
-        assert f"{arg}=" in step["run"], arg
+    assert step["env"]["ENTRY"] == "${{ toJSON(matrix) }}"
     assert "${{" not in step["run"]
-    assert "git show -s --format=%cd" in step["run"]
+    build = BUILD.read_text(encoding="utf-8")
+    assert "(.build_args // {})" in build
+    for arg in LABEL_ARGS:
+        assert f"{arg}=" in build, arg
+    assert "git show -s --format=%cd" in build
 
 
 def test_the_plan_job_renders_the_matrix_with_the_helper_and_the_images_job_uses_it() -> None:
@@ -148,7 +151,7 @@ def test_pull_requests_build_linux_amd64_only_whatever_the_variable_says() -> No
     assert job["runs-on"] == "${{ matrix.runner }}"
     build = next(s for s in job["steps"] if "SOURCE_URL" in s.get("env", {}))
     assert build["env"]["PLATFORM"] == "${{ matrix.platform }}"
-    assert '--platform "${PLATFORM}"' in build["run"]
+    assert '--platform "${PLATFORM}"' in BUILD.read_text(encoding="utf-8")
     assert "vars." not in _text(job)
 
 
