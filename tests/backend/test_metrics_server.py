@@ -39,5 +39,11 @@ def test_the_metrics_server_answers_on_its_port_and_the_api_app_does_not() -> No
     # The rate-limit counters and the pool gauges the SLOs and dashboards use.
     assert "rate_limit_rejections_total" in body
     assert "rate_limit_storage_failures_total" in body
-    for name in ("db_pool_size", "db_pool_checked_out", "db_pool_checked_in", "db_pool_overflow"):
+    for name in (
+        "db_pool_size",
+        "db_pool_checked_out",
+        "db_pool_checked_in",
+        "db_pool_overflow",
+        "db_pool_max_overflow",
+    ):
         assert name in body

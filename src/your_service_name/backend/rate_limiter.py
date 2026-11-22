@@ -44,10 +44,10 @@ STORAGE_FAILURES = Counter(
     ["reason"],
 )
 
-#: Requests answered 429 by the rate-limit middleware (no labels: bounded cardinality).
+#: Requests the default per-IP limit answered 429 (no labels: bounded cardinality).
 REJECTIONS = Counter(
     "rate_limit_rejections_total",
-    "Requests rejected with 429 by the rate limiter.",
+    "Requests rejected with 429 by the default per-IP rate limit (not the CSP report limit).",
 )
 
 DEFAULT_WARN_INTERVAL_SECONDS: Final[float] = 60.0

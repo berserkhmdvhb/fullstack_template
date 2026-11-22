@@ -250,15 +250,19 @@ curl -fsS https://app.your-domain.example/
 The backend serves these on the metrics port (`METRICS_PORT`, default registry, one process per Pod):
 
 - `http_requests_total{handler,method,status}` — requests by route, method and status.
-- `http_request_duration_seconds{handler,method,status}` — request latency histogram.
-- `http_request_size_bytes` / `http_response_size_bytes` — request and response size histograms.
-- `http_requests_inprogress` — requests being handled now.
-- `rate_limit_rejections_total` — requests answered 429 by the rate limiter.
+- `http_request_duration_seconds{handler,method}` — latency histogram, buckets 0.1, 0.5, 1 s (no `status` label).
+- `http_request_duration_highr_seconds` — latency histogram, no labels, 21 buckets (0.01 s to 60 s), for percentiles.
+- `http_request_size_bytes{handler}` / `http_response_size_bytes{handler}` — Summaries of the `Content-Length` header values (count and sum only).
+- `process_*` and `python_*` — the Prometheus client's default process and runtime series (CPU, memory, file descriptors, GC).
+- `rate_limit_rejections_total` — requests answered 429 by the default per-IP limit (the CSP report limit is not counted).
 - `rate_limit_storage_failures_total{reason}` — limiter storage failures let through (fail open; `error|timeout`).
-- `db_pool_size` — configured connection pool size (absent on pools that do not report it, e.g. SQLite).
+- `db_pool_size` — configured pool size.
 - `db_pool_checked_out` — pool connections in use.
 - `db_pool_checked_in` — idle connections in the pool.
-- `db_pool_overflow` — current pool overflow, as SQLAlchemy reports it (signed).
+- `db_pool_overflow` — SQLAlchemy's signed overflow: open connections minus the pool size. It starts at `-DB_POOL_SIZE` (an idle Pod shows that); above 0, overflow connections are open.
+- `db_pool_max_overflow` — configured maximum overflow (`DB_MAX_OVERFLOW`; -1 is unlimited).
+
+The `db_pool_*` gauges come from the live pool at scrape time; the file-SQLite fallback and PostgreSQL use a queue pool and report all five, a `:memory:` or null pool has none of them and all five are absent.
 
 ```bash
 # Access Prometheus UI (if port-forwarded)

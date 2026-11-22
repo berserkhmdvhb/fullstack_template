@@ -3,18 +3,28 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
-from prometheus_client import REGISTRY
+from prometheus_client import CollectorRegistry
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import AsyncAdaptedQueuePool, NullPool, StaticPool
 
+from your_service_name.backend.db import pool_metrics
 from your_service_name.backend.db.pool_metrics import PoolCollector, register_pool_metrics
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-NAMES = ("db_pool_size", "db_pool_checked_out", "db_pool_checked_in", "db_pool_overflow")
+    import pytest
+
+NAMES = (
+    "db_pool_max_overflow",
+    "db_pool_size",
+    "db_pool_checked_out",
+    "db_pool_checked_in",
+    "db_pool_overflow",
+)
 POOL_SIZE = 2
 
 
@@ -42,33 +52,57 @@ async def test_a_queue_pool_reports_its_size_use_and_overflow(tmp_path: Path) ->
     assert released["db_pool_checked_in"] == 1
 
 
-async def test_pools_without_the_methods_yield_no_samples_and_do_not_raise(tmp_path: Path) -> None:
+async def test_pools_without_the_methods_yield_no_samples(tmp_path: Path) -> None:
     for pool in (StaticPool, NullPool):
         engine = _engine(tmp_path, poolclass=pool)
         try:
-            samples = _scrape(engine)
+            assert _scrape(engine) == {}
         finally:
             await engine.dispose()
-        assert set(samples) <= set(NAMES)
-        if pool is NullPool:
-            assert "db_pool_size" not in samples
 
 
 def test_no_engine_yields_nothing() -> None:
     assert _scrape(None) == {}
 
 
-def test_a_failing_pool_never_raises_at_scrape_time() -> None:
-    class _Broken:
-        class sync_engine:  # noqa: N801
-            @staticmethod
-            def pool() -> None: ...
+class _FakePool:
+    """``size`` answers; ``checkedout`` raises; ``checkedin`` answers a non-number."""
 
-    assert _scrape(_Broken()) == {}  # type: ignore[arg-type]
+    _max_overflow = 4
+
+    @staticmethod
+    def size() -> int:
+        return 5
+
+    @staticmethod
+    def checkedout() -> int:
+        msg = "pool is gone"
+        raise RuntimeError(msg)
+
+    @staticmethod
+    def checkedin() -> str:
+        return "n/a"
 
 
-def test_registering_twice_does_not_raise_or_duplicate() -> None:
-    register_pool_metrics(lambda: None)
-    register_pool_metrics(lambda: None)
-    collectors = [c for c in list(REGISTRY._collector_to_names) if isinstance(c, PoolCollector)]
-    assert len(collectors) == 1
+def test_a_raising_or_non_numeric_method_is_skipped_and_the_scrape_does_not_raise() -> None:
+    engine = SimpleNamespace(sync_engine=SimpleNamespace(pool=_FakePool()))
+    assert _scrape(engine) == {"db_pool_size": 5, "db_pool_max_overflow": 4}  # type: ignore[arg-type]
+
+
+async def test_the_configured_max_overflow_is_exported(tmp_path: Path) -> None:
+    engine = _engine(tmp_path, poolclass=AsyncAdaptedQueuePool, pool_size=2, max_overflow=3)
+    try:
+        assert _scrape(engine)["db_pool_max_overflow"] == 3  # noqa: PLR2004
+    finally:
+        await engine.dispose()
+
+
+def test_registering_twice_does_not_raise_or_duplicate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pool_metrics, "_registered", None)
+    registry = CollectorRegistry()
+    register_pool_metrics(lambda: None, registry)
+    register_pool_metrics(lambda: None, registry)
+    assert len(registry._collector_to_names) == 1
+    assert set(registry._names_to_collectors) == set(NAMES)
