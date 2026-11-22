@@ -16,9 +16,11 @@
 {{- toJson $list -}}
 {{- end -}}
 
-{{/* The app chart's fullname, computed as its chart.fullname does (no fullnameOverride). */}}
+{{/* The app chart's fullname: values.fullname (its fullnameOverride), else as chart.fullname derives it. */}}
 {{- define "bootstrap.chartFullname" -}}
-{{- if contains .Values.chartName .Values.release -}}
+{{- if .Values.fullname -}}
+{{- .Values.fullname | trunc 63 | trimSuffix "-" -}}
+{{- else if contains .Values.chartName .Values.release -}}
 {{- .Values.release | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
 {{- printf "%s-%s" .Values.release .Values.chartName | trunc 63 | trimSuffix "-" -}}

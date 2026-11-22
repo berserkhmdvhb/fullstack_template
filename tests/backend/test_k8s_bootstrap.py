@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -58,7 +59,7 @@ KIND_TO_RESOURCE = {
 }
 # Helm stores each release revision as a Secret in the release namespace.
 HELM_RELEASE_SECRETS = {("", "secrets")}
-# The read and check rights the deploy needs beyond the chart's kinds, each with its user (pinned).
+# The deploy-ops rights beyond the chart's kinds, each with its user. Pinned exactly, and no exec.
 DEPLOY_CHECKS = {
     "app": {
         # helm --wait reads a Deployment's ReplicaSets and Pods; deploy-verify.sh lists Pods.
@@ -66,14 +67,17 @@ DEPLOY_CHECKS = {
         ("apps", "replicasets"): {"get", "list", "watch"},
         # migration-job-lib.sh prints the migration Job's logs on a failed deploy.
         ("", "pods/log"): {"get"},
-        # deploy-verify.sh runs each image's own health probe with kubectl exec.
-        ("", "pods/exec"): {"create"},
-        # deploy-env.sh port-forwards the backend Service for the smoke test.
+        # deploy-env.sh's smoke test and deploy-verify.sh's health checks port-forward.
         ("", "pods/portforward"): {"create"},
     },
     # helm --wait reads a StatefulSet's Pods.
     "db": {("", "pods"): {"get", "list", "watch"}},
 }
+DEPLOY_ENV = ROOT / "scripts" / "ci" / "deploy-env.sh"
+DEPLOY_OPS = ROOT / ".github" / "workflows" / "deploy-ops.yml"
+# Secrets in the app namespace that neither Helm nor the chart creates: an image pull secret, an
+# edge TLS secret and a database CA secret (wiki/gke-cluster-setup.md, values.yaml).
+SECRET_HEADROOM = 3
 
 
 @pytest.fixture(scope="module")
@@ -214,7 +218,7 @@ def test_the_quota_and_limitrange_keep_the_chart_defaults_without_cpu_limits(
         "services": "10",
         "persistentvolumeclaims": "5",
         "configmaps": "10",
-        "secrets": "10",
+        "secrets": "15",
     }
     limits = _one(docs, "LimitRange", app)["spec"]["limits"]
     container = next(item for item in limits if item["type"] == "Container")
@@ -386,3 +390,71 @@ def test_a_service_account_subject_carries_its_namespace(helm: str) -> None:
     assert result.returncode == 0, result.stderr
     for b in (d for d in _docs(result.stdout) if d["kind"] == "RoleBinding"):
         assert b["subjects"] == [{"kind": "ServiceAccount", "name": "ci", "namespace": "ops"}]
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_the_deploy_ops_rights_hold_no_exec(helm: str, env: str) -> None:
+    for rights in DEPLOY_CHECKS.values():
+        assert not [r for _, r in rights if "exec" in r or "attach" in r]
+    for role in (d for d in bootstrap(helm, env) if d["kind"] == "Role"):
+        resources = {r for rule in role["rules"] for r in rule["resources"]}
+        assert not {"pods/exec", "pods/attach"} & resources
+
+
+def _history_max(text: str, pattern: str) -> set[int]:
+    found = {int(m) for m in re.findall(pattern, text)}
+    assert found, pattern
+    return found
+
+
+def test_the_secrets_quota_covers_the_helm_history_the_chart_and_headroom(helm: str) -> None:
+    # Every helm upgrade and rollback of the deploy passes one explicit --history-max.
+    script = DEPLOY_ENV.read_text()
+    ops = DEPLOY_OPS.read_text()
+    for text, calls in ((script, ("helm upgrade", "helm rollback")), (ops, ("helm rollback",))):
+        joined = text.replace("\\\n", " ")
+        for line in (ln for ln in joined.splitlines() if ln.lstrip().startswith(calls)):
+            assert "--history-max" in line, line
+    history = _history_max(script, r"HELM_HISTORY_MAX=(\d+)") | _history_max(
+        ops, r"--history-max (\d+)"
+    )
+    assert len(history) == 1, history
+    (history_max,) = history
+    chart_secrets = max(
+        sum(1 for d in docs if d["kind"] == "Secret" and d["metadata"]["namespace"] == "svc-dev")
+        for docs in (
+            chart(helm, "-f", str(CHART / values), *args)
+            for values in VALUES_FILES
+            for args in ((), ALL_ON)
+        )
+    )
+    quota = int(_one(bootstrap(helm, "dev"), "ResourceQuota")["spec"]["hard"]["secrets"])
+    # One more release Secret exists while an upgrade runs, before Helm prunes the oldest.
+    assert quota >= history_max + 1 + chart_secrets + SECRET_HEADROOM
+
+
+def test_the_bootstrap_names_the_charts_rbac_by_the_configured_fullname(helm: str) -> None:
+    sets = ("--set", "release=svc", "--set", "fullname=acme-api")
+    result = subprocess.run(
+        [
+            helm,
+            "template",
+            "bootstrap",
+            str(BOOTSTRAP),
+            "-f",
+            str(BOOTSTRAP / "values.dev.yaml"),
+            *sets,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    docs = chart(helm, "-f", str(CHART / "values.dev.yaml"), "--set", "fullnameOverride=acme-api")
+    chart_names = {d["metadata"]["name"] for d in docs if d["kind"] in {"Role", "RoleBinding"}}
+    assert chart_names == {"acme-api-role", "acme-api-binding"}
+    _, named = _rules(_one(_docs(result.stdout), "Role", "svc-dev"))
+    assert {n for _, names in named.values() for n in names} == chart_names
+    # Unset, the fullname is derived from the release, as the chart derives it.
+    values = yaml.safe_load((BOOTSTRAP / "values.yaml").read_text())
+    assert values["fullname"] == ""

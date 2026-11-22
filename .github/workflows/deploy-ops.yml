@@ -110,7 +110,8 @@ jobs:
         run: |
           NAMESPACE="${SERVICE_NAME}-${DEPLOY_ENV}"
           helm history "${SERVICE_NAME}" -n "${NAMESPACE}" --max 5
-          helm rollback "${SERVICE_NAME}" ${REVISION:+"${REVISION}"} -n "${NAMESPACE}" --wait --timeout "${HELM_TIMEOUT}"
+          # --history-max: the same as HELM_HISTORY_MAX in scripts/ci/deploy-env.sh (the quota allows it).
+          helm rollback "${SERVICE_NAME}" ${REVISION:+"${REVISION}"} -n "${NAMESPACE}" --wait --timeout "${HELM_TIMEOUT}" --history-max 5
           helm history "${SERVICE_NAME}" -n "${NAMESPACE}" --max 5
           echo "- Rolled ${SERVICE_NAME} back in ${DEPLOY_ENV} (revision: ${REVISION:-previous})" >> "$GITHUB_STEP_SUMMARY"
       # A report only: Helm has no per-revision removal, and this job changes nothing.

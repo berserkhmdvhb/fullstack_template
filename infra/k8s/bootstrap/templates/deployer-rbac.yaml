@@ -1,6 +1,7 @@
 {{/*
    The deployer's rights, one Role and RoleBinding per namespace: what `helm upgrade --install` of the
-   app chart needs, and the deploy's own checks (scripts/ci/deploy-env.sh), nothing else.
+   app chart needs, and the deploy's own checks (scripts/ci/deploy-env.sh), nothing else. No pods/exec:
+   the verify step asks each Pod over a port-forward.
    - Write access to exactly the kinds the chart renders in that namespace, plus Helm's release
      Secrets. tests/backend/test_k8s_bootstrap.py derives that set from the chart, so a kind added
      to the chart fails the test until it is added here.
@@ -63,19 +64,22 @@ rules:
     resources: [rolebindings]
     resourceNames: [{{ printf "%s-binding" $fullname }}]
     verbs: [update, patch, delete]
-  # The deploy's checks: helm --wait reads ReplicaSets and Pods; deploy-verify.sh lists Pods and runs
-  # each image's health probe (exec); the smoke test port-forwards; a failed migration prints its logs.
+  # The deploy's checks, one line each:
+  # helm --wait reads a Deployment's Pods; deploy-verify.sh lists them.
   - apiGroups: [""]
     resources: [pods]
     verbs: {{ toJson $read }}
+  # helm --wait reads a Deployment's ReplicaSets.
   - apiGroups: [apps]
     resources: [replicasets]
     verbs: {{ toJson $read }}
+  # migration-job-lib.sh prints a failed migration's logs.
   - apiGroups: [""]
     resources: [pods/log]
     verbs: [get]
+  # The smoke test and deploy-verify.sh's health checks reach the Pods over a port-forward.
   - apiGroups: [""]
-    resources: [pods/exec, pods/portforward]
+    resources: [pods/portforward]
     verbs: [create]
 {{- else }}
   # The chart's kinds in the database namespace.

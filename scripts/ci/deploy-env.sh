@@ -35,6 +35,10 @@ NAMESPACE="${SERVICE_NAME}-${DEPLOY_ENV}"
 # in-cluster: the backend refuses a Host that is not in the ALLOWED_HOSTS the chart renders.
 BACKEND_SERVICE="${SERVICE_NAME}-backend"
 VALUES="$WORK_DIR/image-values.json"
+# Helm keeps this many release revisions (Secrets in the namespace). 5 is enough to roll back past a
+# few bad deploys, and it bounds the Secrets the namespace quota must allow (infra/k8s/bootstrap,
+# quota.hard.secrets; a test checks the two together). deploy-ops.yml's rollback passes the same.
+HELM_HISTORY_MAX=5
 
 # The digest variable of an image id: uppercase, non-alphanumerics to _ (as release.yml writes them).
 digest_var() { local v="${1^^}"; echo "${v//[^A-Z0-9_]/_}_IMAGE_DIGEST"; }
@@ -77,7 +81,8 @@ helm upgrade --install "$SERVICE_NAME" "$CHART_DIR" \
   -f "$CHART_DIR/values.${DEPLOY_ENV}.yaml" -f "$VALUES" \
   --set guards.rejectPlaceholders=true \
   --namespace "$NAMESPACE" \
-  --rollback-on-failure --wait --wait-for-jobs --timeout "$HELM_TIMEOUT" || helm_rc=$?
+  --rollback-on-failure --wait --wait-for-jobs --timeout "$HELM_TIMEOUT" \
+  --history-max "$HELM_HISTORY_MAX" || helm_rc=$?
 if (( helm_rc != 0 )); then
   echo "::group::migration Job of ${SERVICE_NAME} in ${DEPLOY_ENV} (the deploy failed)"
   migration_job_report_newest "$NAMESPACE" "$SERVICE_NAME" || true
@@ -107,7 +112,8 @@ if ! checks; then
   if [[ -z "$recorded" ]]; then
     fail "verify or smoke failed in ${DEPLOY_ENV}, and there is no earlier deployed revision to roll back to"
   fi
-  helm rollback "$SERVICE_NAME" "$recorded" -n "$NAMESPACE" --wait --timeout "$HELM_TIMEOUT"
+  helm rollback "$SERVICE_NAME" "$recorded" -n "$NAMESPACE" --wait --timeout "$HELM_TIMEOUT" \
+    --history-max "$HELM_HISTORY_MAX"
   echo "- Rolled $SERVICE_NAME back to revision $recorded in ${DEPLOY_ENV} after a failed verify or smoke" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
   fail "verify or smoke failed; rolled ${SERVICE_NAME} back to revision ${recorded} in ${DEPLOY_ENV}"
 fi

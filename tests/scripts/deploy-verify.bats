@@ -31,9 +31,13 @@ case "$args" in
     printf '%s\n' "${!v-}" ;;
   *"get pods"*app.kubernetes.io/name=*) printf '%s\n' "${STUB_PODS-}" ;;
   *"get pods"*) c="$(comp)"; n="${c//-/_}"; v="STUB_PODNAMES_${n^^}"; printf '%s\n' "${!v-pod-$c|}" ;;
-  *exec*)
-    case " ${STUB_EXEC_FAIL-} " in *" $(sed -n 's/.* exec \([^ ]*\) --.*/\1/p' <<<"$args") "*) exit 1 ;; esac
-    echo ok ;;
+  *port-forward*)
+    # Each forwarded pod gets the next local port; curl reads the table to know the pod.
+    pod="$(sed -n 's/.*port-forward pod\/\([^ ]*\) .*/\1/p' <<<"$args")"
+    port=$((41000 + $(wc -l < "$STUB_PORTS")))
+    echo "$pod $port $$" >> "$STUB_PORTS"
+    echo "Forwarding from 127.0.0.1:$port -> ${args##*:}"
+    exec sleep 30 ;;
   *) echo "stub kubectl: unexpected: $args" >&2; exit 99 ;;
 esac
 STUB
@@ -42,7 +46,20 @@ STUB
 [[ -z "${STUB_NO_RELEASE-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
 printf -- '---\nkind: Job\nmetadata:\n  name: job-r1\n  labels:\n    app.kubernetes.io/component: migration\n'
 STUB
-  chmod +x "$BATS_TEST_TMPDIR/bin/kubectl" "$BATS_TEST_TMPDIR/bin/helm"
+  cat > "$BATS_TEST_TMPDIR/bin/curl" <<'STUB'
+#!/usr/bin/env bash
+# Stub curl: the status code comes from the forwarded pod (STUB_HTTP_<code>="pod ..."), else 200.
+echo "curl $*" >> "${STUB_LOG:-/dev/null}"
+port="$(sed -n 's/.*127\.0\.0\.1:\([0-9]*\).*/\1/p' <<<"${*: -1}")"
+pod="$(awk -v p="$port" '$2 == p {print $1}' "$STUB_PORTS")"
+case " ${STUB_HTTP_500-} " in *" $pod "*) printf 500; exit 0 ;; esac
+case " ${STUB_HTTP_302-} " in *" $pod "*) printf 302; exit 0 ;; esac
+case " ${STUB_HTTP_DOWN-} " in *" $pod "*) printf 000; exit 7 ;; esac
+printf 200
+STUB
+  chmod +x "$BATS_TEST_TMPDIR/bin/kubectl" "$BATS_TEST_TMPDIR/bin/helm" "$BATS_TEST_TMPDIR/bin/curl"
+  export STUB_PORTS="$BATS_TEST_TMPDIR/ports"
+  : > "$STUB_PORTS"
   export PATH="$BATS_TEST_TMPDIR/bin:$PATH"
   export STUB_LOG="$BATS_TEST_TMPDIR/kubectl.log"
   export STUB_JOBS="1||"
@@ -156,24 +173,45 @@ STUB
 }
 
 @test "check 5 fails when the backend health route fails" {
-  STUB_EXEC_FAIL="pod-backend" run bash "$SCRIPT"
+  STUB_HTTP_500="pod-backend" run bash "$SCRIPT"
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: backend health failed"* ]]
 }
 
 @test "check 5 fails when the frontend health route fails" {
-  STUB_EXEC_FAIL="pod-frontend" run bash "$SCRIPT"
+  STUB_HTTP_500="pod-frontend" run bash "$SCRIPT"
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: frontend health failed"* ]]
 }
 
-@test "check 5 probes the backend with Python and the frontend with Node (neither image has curl)" {
+@test "check 5 treats a 3xx as unhealthy and a route that does not answer as unhealthy" {
+  STUB_HTTP_302="pod-frontend" run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: frontend health failed"* ]]
+  STUB_HTTP_DOWN="pod-backend" run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ERROR: backend health failed"* ]]
+}
+
+@test "check 5 asks each pod over a port-forward, never with exec, and follows no redirect" {
   run bash "$SCRIPT"
   [ "$status" -eq 0 ]
-  grep -q "exec pod-backend -- /app/.venv/bin/python -c .*/api/v1/health" "$STUB_LOG"
-  grep -q "exec pod-frontend -- /nodejs/bin/node -e .*/" "$STUB_LOG"
-  run grep -q " -- curl" "$STUB_LOG"
+  grep -q "^-n rel-dev port-forward pod/pod-backend :8000$" "$STUB_LOG"
+  grep -q "^-n rel-dev port-forward pod/pod-frontend :3000$" "$STUB_LOG"
+  grep -q "^curl .*--max-time 5 http://127.0.0.1:41000/api/v1/health$" "$STUB_LOG"
+  grep -q "^curl .*--max-time 5 http://127.0.0.1:41001/$" "$STUB_LOG"
+  run grep -Eq "(^| )exec |^curl .*(-L|--location)( |$)" "$STUB_LOG"
   [ "$status" -ne 0 ]
+}
+
+@test "check 5 stops each port-forward after its check" {
+  run timeout 20 bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$STUB_PORTS")" -eq 2 ]
+  while read -r _ _ pid; do
+    run kill -0 "$pid"
+    [ "$status" -ne 0 ]
+  done < "$STUB_PORTS"
 }
 
 @test "a missing release is a usage error" {
@@ -207,10 +245,10 @@ STUB
   [ "$status" -eq 2 ]
 }
 
-@test "kubectl is never asked for anything but reads and exec" {
+@test "kubectl is never asked for anything but reads and port-forward" {
   run bash "$SCRIPT"
   [ "$status" -eq 0 ]
-  run grep -E " (apply|delete|patch|create|replace|edit|scale|rollout) " "$STUB_LOG"
+  run grep -E " (apply|delete|patch|create|replace|edit|scale|rollout|exec) " "$STUB_LOG"
   [ "$status" -eq 1 ]
 }
 
@@ -218,12 +256,12 @@ STUB
   STUB_PODS=$'new|Running|\nold|Running|2026-01-01T00:00:00Z'
   STUB_IMAGES_BACKEND=$'new||registry/img@'"$D_BACKEND"$' \nold|2026-01-01T00:00:00Z|registry/img@sha256:'"$(printf 'e%.0s' {1..64})"' '
   STUB_PODNAMES_BACKEND=$'old|2026-01-01T00:00:00Z\nnew|'
-  STUB_EXEC_FAIL="old"
-  export STUB_PODS STUB_IMAGES_BACKEND STUB_PODNAMES_BACKEND STUB_EXEC_FAIL
+  STUB_HTTP_500="old"
+  export STUB_PODS STUB_IMAGES_BACKEND STUB_PODNAMES_BACKEND STUB_HTTP_500
   run bash "$SCRIPT"
   [ "$status" -eq 0 ]
-  grep -q "exec new -- /app/.venv/bin/python" "$STUB_LOG"
-  run grep -q "exec old" "$STUB_LOG"
+  grep -q "port-forward pod/new :8000" "$STUB_LOG"
+  run grep -q "port-forward pod/old" "$STUB_LOG"
   [ "$status" -ne 0 ]
 }
 

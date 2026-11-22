@@ -6,7 +6,8 @@
 #   2. the migration Job named in the release manifest (one per revision), if it still exists, completed
 #   3. every pod of the service is Running (or Succeeded)
 #   4. every pod of each component runs the expected image DIGEST (the pod's imageID)
-#   5. the backend and frontend health routes answer (kubectl exec, no ingress needed)
+#   5. the backend and frontend health routes answer: each Pod is asked over a port-forward with the
+#      runner's curl, so no command runs inside a Pod and no ingress is needed
 # Pods being deleted (deletionTimestamp set) are skipped in checks 3 to 5: after `helm --wait` the old
 # ReplicaSet's pods can still be draining with the old image.
 #
@@ -103,22 +104,37 @@ done
 echo "all running images match the expected digests"
 
 echo "== Check 5: Health endpoints =="
-# Neither image has curl or a shell, so each probe is the image's own runtime. A 2xx is healthy; a 3xx is
-# not (redirects are not followed), and so is anything that fails to answer.
-PY_PROBE='import sys, urllib.request as u; u.build_opener(type("N", (u.HTTPRedirectHandler,), {"redirect_request": lambda *a: None})).open(sys.argv[1], timeout=5)'
-NODE_PROBE='fetch(process.argv[1], {redirect: "manual", signal: AbortSignal.timeout(5000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))'
+# A 2xx is healthy. A 3xx is not (curl follows no redirect without -L), and neither is anything that
+# fails to answer within 5 seconds.
+http_ok() {
+  local code
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$1" 2>/dev/null)" || return 1
+  [[ "$code" =~ ^2[0-9][0-9]$ ]]
+}
+# Forward a random local port to one live Pod of the component, ask it, then stop the forward.
 health() {
-  local comp="$1" url="$2" pod
+  local comp="$1" port="$2" path="$3" pod log pf local_port="" ok=1 i
   pod="$("${K[@]}" get pods -l "app.kubernetes.io/component=${comp}" \
     -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.metadata.deletionTimestamp}{"\n"}{end}' \
     | awk -F'|' '$1 != "" && $2 == "" {print $1; exit}')"
   [[ -n "$pod" ]] || fail "no $comp pod to check"
-  local probe=(/nodejs/bin/node -e "$NODE_PROBE" "$url")
-  [[ "$comp" != backend ]] || probe=(/app/.venv/bin/python -c "$PY_PROBE" "$url")
-  "${K[@]}" exec "$pod" -- "${probe[@]}" >/dev/null || fail "$comp health failed"
+  log="$(mktemp)"
+  "${K[@]}" port-forward "pod/${pod}" ":${port}" >"$log" 2>&1 &
+  pf=$!
+  for ((i = 0; i < ${PF_WAIT_TRIES:-50}; i++)); do
+    local_port="$(sed -n 's/^Forwarding from 127\.0\.0\.1:\([0-9]*\) .*/\1/p' "$log" | head -n 1)"
+    [[ -z "$local_port" ]] || break
+    kill -0 "$pf" 2>/dev/null || break
+    sleep 0.2
+  done
+  if [[ -n "$local_port" ]] && http_ok "http://127.0.0.1:${local_port}${path}"; then ok=0; fi
+  kill "$pf" 2>/dev/null || true
+  wait "$pf" 2>/dev/null || true
+  rm -f "$log"
+  (( ok == 0 )) || fail "$comp health failed"
   echo "$comp health: OK"
 }
-health backend "http://localhost:${BACKEND_PORT:-8000}/api/${API_VERSION:-v1}/health"
-health frontend "http://localhost:${FRONTEND_PORT:-3000}/"
+health backend "${BACKEND_PORT:-8000}" "/api/${API_VERSION:-v1}/health"
+health frontend "${FRONTEND_PORT:-3000}" "/"
 
 echo "== Verification complete: all checks passed =="

@@ -111,8 +111,18 @@ deployer:
 
 **What the deployer may do:** create, change and delete exactly the kinds the chart renders in that
 namespace, plus the Secrets Helm keeps its release history in; and read Pods and ReplicaSets, read Pod
-logs, `exec` and port-forward, which the deploy's wait, verify and smoke steps use. A test derives the
-kind list from the chart, so a kind added to the chart fails it until the Role covers the kind.
+logs and port-forward, which the deploy's wait, verify and smoke steps use. It can't `exec` into a
+Pod: the verify step asks each Pod's health route over a port-forward. A test derives the kind list
+from the chart, so a kind added to the chart fails it until the Role covers the kind.
+
+**The quota and Helm's history:** the deploy keeps 5 release revisions (`helm upgrade --history-max`,
+`HELM_HISTORY_MAX` in `scripts/ci/deploy-env.sh`), each a Secret. The Secrets quota covers them, the
+one written during an upgrade, the chart's own Secrets and headroom; a test recomputes it, so raise the
+two together.
+
+**A `fullnameOverride`:** when the release sets the chart's `fullnameOverride`, set `fullname` to the
+same value in the bootstrap's `values.<env>.yaml`, so the deployer may change the chart's own Role and
+RoleBinding (`<fullname>-role`, `<fullname>-binding`). Unset, it is derived as the chart derives it.
 
 **What it may never do:** use a wildcard, `escalate`, `bind` or `impersonate`; touch namespaces,
 ResourceQuotas or LimitRanges; or change its own Role and RoleBinding. The chart has its own Role

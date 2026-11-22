@@ -2,9 +2,12 @@
 
 # The Helm release name of the app (SERVICE_NAME in CI). The app namespace is <release>-<environment>.
 release: your-service-name
-# The app chart's name. With the release it gives the names of the chart's own Role and RoleBinding,
-# the only ones the deployer may change.
+# The app chart's name. With the release it gives the chart's fullname, and so the names of its own
+# Role and RoleBinding (<fullname>-role, <fullname>-binding), the only ones the deployer may change.
 chartName: your-service-name
+# The app chart's fullname. Set it to the chart's fullnameOverride when the release uses one; ""
+# derives it as the chart does: <release> when it contains chartName, else <release>-<chartName>.
+fullname: ""
 environment: dev
 # "" => <release>-<environment>. The database namespace is <namespace>-<dbSuffix>, as the chart derives it.
 namespace: ""
@@ -38,7 +41,10 @@ quota:
     services: "10"
     persistentvolumeclaims: "5"
     configmaps: "10"
-    secrets: "10"
+    # Helm's release history (the deploy keeps 5: HELM_HISTORY_MAX in scripts/ci/deploy-env.sh), plus
+    # the one written during an upgrade, the chart's own Secrets and headroom for a pull,
+    # TLS and database CA secret. A test recomputes it.
+    secrets: "15"
 
 # The app namespace's LimitRange. No CPU in default or max: a max with no default becomes the
 # default limit, so either one would put a CPU limit on every container.

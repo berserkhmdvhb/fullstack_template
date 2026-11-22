@@ -6,6 +6,9 @@
   "additionalProperties": false,
 
   "properties": {
+    "nameOverride":     { "type": "string", "description": "Replaces the chart name in chart.name and chart.fullname." },
+    "fullnameOverride": { "type": "string", "description": "Replaces chart.fullname. Set the bootstrap's fullname to the same value (infra/k8s/bootstrap)." },
+
     "environment": {
       "description": "Deploy environment. Drives ENV, config, and which value-set is in force.",
       "type": "string",
