@@ -10,7 +10,9 @@ would let anything run; the proxied text files keep the page policy and the no-f
 
 from __future__ import annotations
 
+import itertools
 import os
+import random
 import re
 import shutil
 import socket
@@ -169,7 +171,7 @@ def test_a_proxied_text_file_is_revalidated(server: httpx.Client, path: str) -> 
 
 # Every response carries nosniff, X-Frame-Options DENY and exactly one Content-Security-Policy: the
 # static set's `default-src 'none'` (set by the headers rule) or the page policy (set by the proxy).
-# The two sets are complements, so look-alike paths that are not static fall to the page policy.
+# Look-alike paths that are not static fall to the page policy.
 _STATIC = "static"
 _PAGE = "page"
 _OK, _MISSING = status.HTTP_200_OK, status.HTTP_404_NOT_FOUND
@@ -197,6 +199,9 @@ _EVERY_RESPONSE = [
     ("/.png", _MISSING, _PAGE),
     ("/.SVG", _MISSING, _PAGE),
     ("/x/.webp", _MISSING, _PAGE),
+    # A case variant of a backend prefix is not the backend's: a frontend path with the page policy.
+    ("/API/v1/x.svg", _MISSING, _PAGE),
+    ("/Docs/a.png", _MISSING, _PAGE),
 ]
 
 
@@ -234,11 +239,8 @@ def test_a_docs_path_ending_in_an_image_extension_keeps_the_backends_one_policy(
     assert res.headers.get_list("content-security-policy") == [_BACKEND_CSP]
 
 
-# Next.js answers these with a built-in 308 before `headers()` and the proxy run, so they carry none
-# of the headers above. That is accepted: the redirect comes before every hook, its body is only
-# the target path, a browser follows it instead of rendering it, and turning the normalisation off
-# (`skipTrailingSlashRedirect`) would turn these URLs into 404 pages. This pins that they stay
-# nothing but a redirect: if Next ever renders a page for them, they would need the headers.
+# Next.js's own 308 normalisation redirects are exempt from the headers above; the reason is in
+# frontend/static-paths.ts. This pins that they stay nothing but a redirect.
 @pytest.mark.parametrize("path", ["//t.svg", "/a.svg/", "/_next/image/", "//favicon.ico"])
 def test_next_builtin_redirects_stay_bare_redirects(server: httpx.Client, path: str) -> None:
     # The raw path, as sent: httpx would read a leading `//` as a host.
@@ -249,3 +251,112 @@ def test_next_builtin_redirects_stay_bare_redirects(server: httpx.Client, path: 
     assert res.headers["location"]
     assert "text/html" not in res.headers.get("content-type", "")
     assert "<" not in res.text
+
+
+def _raw_get(client: httpx.Client, path: str) -> httpx.Response:
+    """GET the path exactly as written (httpx would read a leading `//` as a host)."""
+    request = client.build_request("GET", "/")
+    request.url = request.url.copy_with(raw_path=path.encode())
+    return client.send(request)
+
+
+def _backend_paths() -> list[str]:
+    """`BACKEND_PATHS` read from its one definition in static-paths.ts."""
+    source = (_ROOT / "static-paths.ts").read_text(encoding="utf-8")
+    docs = re.search(r"DOCS_PATH = '([^']+)'", source)
+    listed = re.search(r"BACKEND_PATHS[^=]*= \[([^\]]+)\]", source)
+    assert docs, "static-paths.ts no longer defines DOCS_PATH"
+    assert listed, "static-paths.ts no longer defines BACKEND_PATHS"
+    items = [item.strip() for item in listed.group(1).split(",")]
+    return [docs.group(1) if item == "DOCS_PATH" else item.strip("'") for item in items]
+
+
+def _mixed(text: str) -> str:
+    return "".join(c.upper() if i % 2 == 0 else c.lower() for i, c in enumerate(text))
+
+
+_IMAGE_EXTENSIONS = ["svg", "png", "jpg", "jpeg", "gif", "webp"]
+
+
+def _generated_paths(backend: list[str]) -> list[str]:
+    """A deterministic sample of prefix x letter case x stem x extension x trailing segment."""
+    prefixes = [
+        "",
+        *(p.lstrip("/") for p in backend),
+        "apix",
+        "api.svg",
+        "docs.png",
+        "openapi.json.svg",
+        "_next/static",
+        "_next/staticfoo",
+        "_next/image",
+        "_next/image-x",
+        "a/b",
+        "api/v1/a/b",
+        "_next/static/chunks",
+    ]
+    cases = [str.lower, str.upper, _mixed]
+    stems = ["", "..", "photo", "a.b.c"]
+    extensions = [
+        *(f".{case(e)}" for e in _IMAGE_EXTENSIONS for case in (str.upper, _mixed)),
+        *(f".{e}" for e in _IMAGE_EXTENSIONS),
+        ".json",
+        ".webmanifest",
+        ".html",
+        ".txt",
+        ".xml",
+        "",
+    ]
+    trailing = ["", "/tail"]
+    every = sorted(
+        {
+            "/" + "/".join(filter(None, [case(prefix), stem + ext])) + tail
+            for prefix, case, stem, ext, tail in itertools.product(
+                prefixes, cases, stems, extensions, trailing
+            )
+        }
+    )
+    pinned = ["/API/v1/x.svg", "/Api/v1/x.png", "/DOCS/x.svg", "/Docs/a.png", "/OpenAPI.json/x.svg"]
+    return pinned + random.Random(20261122).sample(every, 400)  # noqa: S311 - a fixed sample
+
+
+def _exempt_redirect(res: httpx.Response) -> bool:
+    """Next.js's own 308 normalisation redirect (see frontend/static-paths.ts)."""
+    return (
+        res.status_code == status.HTTP_308_PERMANENT_REDIRECT
+        and bool(res.headers.get("location"))
+        and "text/html" not in res.headers.get("content-type", "")
+        and "<" not in res.text
+    )
+
+
+def _is_exact_backend(path: str, backend: list[str]) -> bool:
+    segments = path.split("/")
+    if "." in segments or ".." in segments or path.endswith("/"):
+        return False  # normalised or redirected before the proxy sees it
+    return any(path == p or path.startswith(f"{p}/") for p in backend)
+
+
+def test_generated_paths_all_carry_one_policy_and_backend_paths_reach_the_backend(
+    server: httpx.Client,
+) -> None:
+    """The invariant over a generated cross product, one server, every failure listed."""
+    backend = _backend_paths()
+    failures = []
+    paths = _generated_paths(backend)
+    for path in paths:
+        res = _raw_get(server, path)
+        if _exempt_redirect(res):
+            continue
+        problems = []
+        if len(res.headers.get_list("content-security-policy")) != 1:
+            problems.append(f"{len(res.headers.get_list('content-security-policy'))} CSP")
+        if res.headers.get("x-frame-options") != "DENY":
+            problems.append("no XFO DENY")
+        if res.headers.get("x-content-type-options") != "nosniff":
+            problems.append("no nosniff")
+        if _is_exact_backend(path, backend) and res.headers.get("x-backend") != "stub":
+            problems.append("did not reach the backend")
+        if problems:
+            failures.append(f"{path} -> {res.status_code}: {', '.join(problems)}")
+    assert not failures, f"{len(failures)} of {len(paths)} paths:\n" + "\n".join(failures)

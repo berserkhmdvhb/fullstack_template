@@ -109,9 +109,10 @@ export function proxy(request: NextRequest) {
 export const config = {
   // Run on every route except the static paths (build output, the favicon, image files), which are
   // served straight from disk and carry the static policy that next.config.ts sets instead. Every
-  // other path, look-alikes such as /favicon.icox included, gets the page policy here. Next.js needs
+  // other path, look-alikes such as /favicon.icox and case variants such as /API/v1/x.svg included,
+  // gets the page policy here. Every literal matches in any letter case, as in headers(). Next.js needs
   // this as a literal; static-paths.ts is the list it is built from, and a test checks they are equal.
   matcher: [
-    '/((?!(?:_next/static|_next/image)(?:/|$)|(?:favicon\\.ico)$|(?!(?:api/v1|docs|openapi\\.json)(?:/|$))(?:.*/)?[^/]+\\.(?:[sS][vV][gG]|[pP][nN][gG]|[jJ][pP][gG]|[jJ][pP][eE][gG]|[gG][iI][fF]|[wW][eE][bB][pP])$).*)',
+    '/((?!(?:_[nN][eE][xX][tT]/[sS][tT][aA][tT][iI][cC]|_[nN][eE][xX][tT]/[iI][mM][aA][gG][eE])(?:/|$)|(?:[fF][aA][vV][iI][cC][oO][nN]\\.[iI][cC][oO])$|(?!(?:[aA][pP][iI]/[vV]1|[dD][oO][cC][sS]|[oO][pP][eE][nN][aA][pP][iI]\\.[jJ][sS][oO][nN])(?:/|$))(?:.*/)?[^/]+\\.(?:[sS][vV][gG]|[pP][nN][gG]|[jJ][pP][gG]|[jJ][pP][eE][gG]|[gG][iI][fF]|[wW][eE][bB][pP])$).*)',
   ],
 };
