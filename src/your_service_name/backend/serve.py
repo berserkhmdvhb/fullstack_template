@@ -72,9 +72,11 @@ def _reload(environ: Mapping[str, str]) -> bool:
     """``BACKEND_RELOAD`` is on; ``ValueError`` when ``ENV`` is production."""
     if (environ.get("BACKEND_RELOAD") or "").strip().lower() not in {"true", "1", "yes"}:
         return False
-    from your_service_name.backend.settings import PRODUCTION_ENVS  # noqa: PLC0415 - lazy
+    from your_service_name.backend.settings import PRODUCTION_ENVS, _EnvName  # noqa: PLC0415 - lazy
 
-    if (environ.get("ENV") or "dev").strip().lower() in PRODUCTION_ENVS:
+    # ENV as the app reads it: the environment, then .env (the one given here, if it has ENV).
+    env = environ.get("ENV") or _EnvName().ENV
+    if env.strip().lower() in PRODUCTION_ENVS:
         msg = "BACKEND_RELOAD is a developer option and is refused when ENV is production"
         raise ValueError(msg)
     return True

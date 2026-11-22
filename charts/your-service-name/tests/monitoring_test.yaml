@@ -242,6 +242,7 @@ tests:
       - equal: {path: 'spec.groups[3].name', value: database-health}
       - equal: {path: 'spec.groups[4].name', value: app-health}
       - matchRegex: {path: 'spec.groups[0].rules[0].expr', pattern: 'kube_pod_container_status_restarts_total\{namespace="app"'}
+      - matchRegex: {path: 'spec.groups[3].rules[1].expr', pattern: 'kube_job_failed\{namespace="app-db", job_name'}
       - notMatchRegex: {path: 'spec.groups[0].rules[0].expr', pattern: 'exported_namespace'}
 
   - it: the schema refuses an unknown gmp key

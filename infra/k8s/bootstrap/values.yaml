@@ -20,7 +20,8 @@ podSecurityVersion: v1.30
 # ClusterRules (the kube-state-metrics and cAdvisor alerts). A namespaced Rules object cannot see
 # those series, and the deployer has no cluster rights, so the admin applies this once. Set it with
 # the chart's monitoring.flavour: gmp in the chart's values.<env>.yaml (the selectors there, such as
-# monitoring.gmp.objectNamespaceLabel, are read from the same file).
+# monitoring.gmp.objectNamespaceLabel, are read from the same file). The bootstrap refuses it when
+# that environment's flavour is not gmp, rather than running the kube alerts twice.
 gmpClusterRules: false
 database:
   # true: the chart's in-cluster PostgreSQL is used, so the database namespace is created too.

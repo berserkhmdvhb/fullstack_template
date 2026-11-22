@@ -592,12 +592,78 @@ def test_the_bootstrap_renders_no_clusterrules_by_default(helm: str) -> None:
     assert "gmpClusterRules: false" in (BOOTSTRAP / "values.yaml").read_text(encoding="utf-8")
 
 
+def _gmp_args(tmp_path: Path, *, flavour: str = "gmp") -> list[str]:
+    """gmpClusterRules on, and the environment's chart flavour (a layered chart values file)."""
+    boot = tmp_path / "boot.yaml"
+    boot.write_text("gmpClusterRules: true\n", encoding="utf-8")
+    chart_values = tmp_path / "chart.yaml"
+    chart_values.write_text(f"monitoring:\n  flavour: {flavour}\n", encoding="utf-8")
+    return ["--values", str(boot), "--chart-values", str(chart_values)]
+
+
+def _rule_set(
+    groups: list[dict[str, Any]], *, label: str = "namespace"
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Every rule by group and name, whole (alert, expr, for, labels, annotations), with the one
+    configurable difference, the object-namespace label, put back to `namespace`."""
+    return {
+        (g["name"], r["alert"]): {
+            **r,
+            "expr": r["expr"].replace(f'{label}="', 'namespace="'),
+        }
+        for g in groups
+        for r in g["rules"]
+    }
+
+
+def test_the_bootstraps_clusterrules_are_the_operators_kube_rules_rule_by_rule(
+    helm: str, tmp_path: Path
+) -> None:
+    """One source: nothing but the namespace label differs between the flavours' cluster rules."""
+    cluster = _one(bootstrap(helm, "dev", *_gmp_args(tmp_path)), "ClusterRules")
+    operator = _one(
+        chart(
+            helm,
+            "-f",
+            str(CHART / "values.dev.yaml"),
+            "--set",
+            "monitoring.prometheusRule=true",
+            release="your-service-name",
+            ns="your-service-name-dev",
+        ),
+        "PrometheusRule",
+    )
+    gmp_rules = _rule_set(cluster["spec"]["groups"], label="exported_namespace")
+    operator_rules = _rule_set([g for g in operator["spec"]["groups"] if g["name"] != "app-health"])
+    assert gmp_rules
+    assert gmp_rules == operator_rules
+
+
+def test_gmp_cluster_rules_with_the_operator_flavour_fail_clearly(
+    helm: str, tmp_path: Path
+) -> None:
+    result = run_bootstrap(helm, "dev", *_gmp_args(tmp_path, flavour="prometheus-operator"))
+    assert result.returncode != 0
+    assert "gmpClusterRules" in result.stderr
+    assert "prometheus-operator" in result.stderr
+    assert "ClusterRules" not in result.stdout
+
+
+def test_gmp_cluster_rules_with_no_gmp_flavour_anywhere_fail_clearly(
+    helm: str, tmp_path: Path
+) -> None:
+    """The environment's chart files default to the operator flavour: refused, not forced."""
+    boot = tmp_path / "boot.yaml"
+    boot.write_text("gmpClusterRules: true\n", encoding="utf-8")
+    result = run_bootstrap(helm, "dev", "--values", str(boot))
+    assert result.returncode != 0
+    assert "monitoring.flavour" in result.stderr
+
+
 def test_the_bootstrap_renders_the_charts_clusterrules_when_asked(
     helm: str, tmp_path: Path
 ) -> None:
-    extra = tmp_path / "gmp.yaml"
-    extra.write_text("gmpClusterRules: true\n", encoding="utf-8")
-    docs = bootstrap(helm, "dev", "--values", str(extra))
+    docs = bootstrap(helm, "dev", *_gmp_args(tmp_path))
     rules = [d for d in docs if d["kind"] == "ClusterRules"]
     assert len(rules) == 1
     assert rules[0]["apiVersion"] == "monitoring.googleapis.com/v1"

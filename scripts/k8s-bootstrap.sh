@@ -19,11 +19,13 @@
 # See wiki/infrastructure.md.
 #
 # Usage: k8s-bootstrap.sh <dev|qa|production|local> [--release NAME] [--namespace NS] [--db|--no-db]
-#                         [--values FILE]...
+#                         [--values FILE]... [--chart-values FILE]...
 #   --release NAME   the Helm release name (SERVICE_NAME; default your-service-name)
 #   --namespace NS   the app namespace (default <release>-<env>)
 #   --db / --no-db   create the database namespace or not (default: the env config)
 #   --values FILE    an extra bootstrap config file, layered last (repeatable)
+#   --chart-values FILE  an extra chart values file the deploy layers over values.<env>.yaml
+#                    (repeatable); read for the chart's monitoring.flavour and the app's names
 # Needs helm and yq (scripts/tools.sh install helm4 yq), used only to render and read the config.
 # ===========================================================================
 set -Eeuo pipefail
@@ -45,6 +47,7 @@ case "$1" in
 esac
 
 args=() files=("$DIR/values.yaml" "$DIR/values.${ENV_NAME}.yaml") release="" namespace=""
+chart_files=("$CHART/values.yaml" "$CHART/values.${ENV_NAME}.yaml")
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --release|--namespace)
@@ -52,6 +55,9 @@ while [[ $# -gt 0 ]]; do
       label "$1" "$2"
       if [[ "$1" == --release ]]; then release="$2"; else namespace="$2"; fi
       shift 2 ;;
+    --chart-values)
+      [[ $# -ge 2 && -f "$2" ]] || die "--chart-values needs an existing file"
+      chart_files+=("$2"); shift 2 ;;
     --db) args+=(--set database.inCluster=true); shift ;;
     --no-db) args+=(--set database.inCluster=false); shift ;;
     --values)
@@ -73,6 +79,7 @@ namespace="${namespace:-$(conf namespace)}"
 namespace="${namespace:-${release}-$(conf environment)}"
 label namespace "$namespace"
 chart_args=(-f "$CHART/values.${ENV_NAME}.yaml" -n "$namespace" --set rbac.create=true)
+for f in "${chart_files[@]:2}"; do chart_args+=(-f "$f"); done
 for key in fullname:fullnameOverride nameOverride:nameOverride serviceAccountName:serviceAccount.name; do
   value="$(conf "${key%%:*}")"
   [[ -z "$value" ]] || { label "${key%%:*}" "$value"; chart_args+=(--set-string "${key##*:}=$value"); }
@@ -86,9 +93,13 @@ app_rbac="$(helm template "$release" "$CHART" "${chart_args[@]}" --show-only tem
 # deployer cannot apply. Same pattern as the app's Role: rendered from the chart, applied here.
 cluster_rules=""
 if [[ "$(conf gmpClusterRules)" == "true" ]]; then
+  # Only for an environment whose chart flavour is gmp: with the operator flavour the PrometheusRule
+  # already holds these alerts, and forcing gmp here would run them twice.
+  flavour="$(yq ea ". as \$i ireduce ({}; . * \$i) | .monitoring.flavour // \"prometheus-operator\"" "${chart_files[@]}")"
+  [[ "$flavour" == "gmp" ]] ||
+    die "gmpClusterRules is true but the chart's monitoring.flavour for ${ENV_NAME} is '${flavour}', not gmp: set monitoring.flavour: gmp in values.${ENV_NAME}.yaml (or --chart-values), or turn gmpClusterRules off"
   cluster_rules="$(helm template "$release" "$CHART" "${chart_args[@]}" \
-    --set monitoring.flavour=gmp --set monitoring.gmp.clusterRules.enabled=true \
-    --show-only templates/gmp-cluster-rules.yaml)"
+    --set monitoring.gmp.clusterRules.enabled=true --show-only templates/gmp-cluster-rules.yaml)"
 fi
 printf '%s\n%s\n' "$boot" "$app_rbac"
 [[ -z "$cluster_rules" ]] || printf '%s\n' "$cluster_rules"

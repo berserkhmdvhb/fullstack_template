@@ -628,7 +628,7 @@ key: password
       # trailing timestamp with [0-9]+ so we DON'T also fire on the weekly
       # "<name>-pg-backup-verify-<timestamp>" Jobs (cross-cutting finding).
       expr: |
-        kube_job_failed{{ "{" }}{{ if eq .Values.monitoring.flavour "gmp" }}{{ $kns }}="{{ include "chart.dbNamespace" . }}", {{ end }}job_name=~"{{ include "chart.fullname" . }}-pg-backup-[0-9]+"} == 1
+        kube_job_failed{{ "{" }}{{ $kns }}="{{ include "chart.dbNamespace" . }}", job_name=~"{{ include "chart.fullname" . }}-pg-backup-[0-9]+"} == 1
       for: 1h
       labels:
         severity: warning

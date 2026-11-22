@@ -272,3 +272,22 @@ def test_a_busy_metrics_port_exits_non_zero_with_a_message(
     assert "9102" in err
     assert "Traceback" not in err
     assert not calls
+
+
+def test_production_from_a_dot_env_alone_refuses_reload(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """ENV is read the way the app reads it (the environment, then .env), not os.environ alone."""
+    (tmp_path / ".env").write_text("ENV=production\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ENV", raising=False)
+    monkeypatch.setenv("BACKEND_RELOAD", "true")
+    with pytest.raises(ValueError, match="BACKEND_RELOAD"):
+        serve.build_options({"BACKEND_RELOAD": "true"})
+
+
+def test_a_dev_dot_env_allows_reload(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text("ENV=dev\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ENV", raising=False)
+    assert serve.build_options({"BACKEND_RELOAD": "true"})["reload"] is True

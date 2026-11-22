@@ -328,7 +328,7 @@ evaluates only series of its own namespace, so with `gmp` it holds the app set (
 kube-state-metrics and cAdvisor set is a cluster-scoped `ClusterRules`. The deployer has no cluster
 rights, so the deploy never renders it (`monitoring.gmp.clusterRules.enabled: false`): the admin
 bootstrap does, with `gmpClusterRules: true` (in the bootstrap values) and `monitoring.flavour: gmp` in
-the chart's `values.<env>.yaml`, like the app's Role. The `kube_*` selectors name the object's
+the chart's `values.<env>.yaml` (or `--chart-values FILE` on the bootstrap), like the app's Role. The bootstrap refuses `gmpClusterRules` when that environment's flavour is not `gmp`, instead of running the kube alerts twice. The `kube_*` selectors name the object's
 namespace with `monitoring.gmp.objectNamespaceLabel` (default `exported_namespace`; a third-party
 report says GMP relabels kube-state-metrics so, **verify it against your GMP** by reading the labels
 of `kube_pod_status_phase`). The prometheus-operator flavour is unchanged: one `PrometheusRule`,
