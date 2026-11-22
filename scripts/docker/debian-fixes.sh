@@ -126,13 +126,17 @@ done
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-# apt downloads as its unprivileged _apt user, which needs to write the directory.
-[[ $EUID -ne 0 ]] || chown _apt "$work"
-apt-get update -qq || die "apt-get update failed"
+# apt downloads as its unprivileged _apt user (as Debian images have it), which needs to write the directory.
+if [[ $EUID -eq 0 ]] && id _apt > /dev/null 2>&1; then
+  chown _apt "$work"
+fi
+apt-get update -qq ||
+  die "apt-get update failed (apt's error is above), so ${specs[*]} cannot be fetched ($DOC)"
 # apt checks each download against the archive's signed indices before it writes the .deb.
 (cd "$work" && apt-get download -qq "${specs[@]}") ||
-  die "the Debian archive does not serve ${specs[*]}: set each entry to the version that" \
-    "'apt-cache policy <package>' names as the candidate, or remove it if the base ships the fix ($DOC)"
+  die "could not download ${specs[*]} (apt's error is above). If apt found no such version, the" \
+    "archive no longer serves it: set each entry to the version 'apt-cache policy <package>' names as the" \
+    "candidate, or remove it if the base ships the fix ($DOC)"
 
 records="$out/var/lib/dpkg/status.d"
 mkdir -p "$records"
@@ -156,7 +160,7 @@ for spec in "${specs[@]}"; do
     [[ -z "$path" ]] || check_path "the fixed $pkg" "$path"
   done < "$work/$pkg.paths"
   if [[ -f "$work/$pkg.control/conffiles" ]]; then
-    while read -r -a words; do
+    while read -r -a words || [[ ${#words[@]} -gt 0 ]]; do
       [[ ${#words[@]} -gt 0 ]] || continue
       conffile="${words[-1]#/}"
       if [[ -e "$out/$conffile" && -e "$base/$conffile" ]] && ! cmp -s "$out/$conffile" "$base/$conffile"; then

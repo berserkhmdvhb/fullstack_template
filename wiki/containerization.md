@@ -263,7 +263,7 @@ only the fixed version, while a scanner that reports layer by layer may still li
   `trixie-updates`, `trixie-security`) serves one version of a package, until a newer one replaces it there
   (snapshot.debian.org keeps every version, but the build uses the archive the Debian image names). Once a
   later point release or security update supersedes a listed version, the build cannot download it and fails
-  (`the Debian archive does not serve libc6=...`). By then the base has normally caught up and the entry is
+  (`could not download libc6=...`). By then the base has normally caught up and the entry is
   gone; if not, set the entry to the candidate `apt-cache policy <package>` shows in the Debian image.
 
 ---

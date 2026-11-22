@@ -411,7 +411,7 @@ docker compose up -d
 - Review vulnerabilities in the SBOM
 - Update vulnerable dependencies
 - A finding in a package of a distroless base that Debian has fixed but the base has not shipped yet, and an
-  image build that fails with `the base already ships` or `the Debian archive does not serve`: see
+  image build that fails with `the base already ships` or `could not download`: see
   [Debian fixes the base has not shipped yet](./containerization.md#debian-fixes-the-base-has-not-shipped-yet)
 - If false positive, add to Grype ignore list in `infra/security/grype.yaml`
 

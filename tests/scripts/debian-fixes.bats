@@ -28,6 +28,7 @@ setup() {
   cat > "$STUBS/apt-get" <<'SH'
 #!/usr/bin/env bash
 echo "apt-get $*" >> "$CALLS"
+[[ "$1" != update || -z "${STUB_UPDATE_FAILS:-}" ]] || { echo "E: Failed to fetch" >&2; exit 100; }
 [[ "$1" == download ]] || exit 0
 [[ -z "${STUB_GONE:-}" ]] || { echo "E: Version not found" >&2; exit 100; }
 for spec in "$@"; do
@@ -40,7 +41,8 @@ SH
 case "$1" in
   --print-architecture) echo "$STUB_ARCH" ;;
   --compare-versions)
-    [[ "$3" == lt && "$2" == [0-9]* && "$4" == [0-9]* ]] || exit 2
+    # Like dpkg: an embedded space or nothing after the epoch colon is an error (exit 2).
+    [[ "$3" == lt && "$2$4" != *" "* && "$2" != *: && "$4" != *: ]] || exit 2
     mapfile -t order < <(printf '%s\n%s\n' "$2" "$4" | sort -V)
     [[ "$2" != "$4" && "${order[0]}" == "$2" ]] ;;
   *) exit 2 ;;
@@ -70,7 +72,12 @@ case "$1" in
     d="$(mktemp -d)"
     chmod 755 "$d"
     payload "$2" "$d"
-    tar -C "$d" -cf - .
+    if [[ -n "${STUB_FILES_ONLY:-}" ]]; then
+      # A tar that lists only the files, no directory entries.
+      (cd "$d" && find . -type f -print0 | tar --null -T - --no-recursion -cf -)
+    else
+      tar -C "$d" -cf - .
+    fi
     rm -rf "$d" ;;
   -x) "$0" --fsys-tarfile "$2" | tar -xf - -C "$3" ;;
   -e)
@@ -202,18 +209,31 @@ fix() {
 }
 
 @test "a base version dpkg cannot compare is refused, not taken as older" {
-  base_record libc6 not-a-version
+  base_record libc6 "1:"
   fix "libc6=2.41-12+deb13u5"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"dpkg cannot compare the base's libc6 version 'not-a-version'"* ]]
+  [[ "$output" == *"dpkg cannot compare the base's libc6 version '1:'"* ]]
   [ ! -s "$CALLS" ]
 }
 
 @test "a version the archive no longer serves fails and says what to change" {
   STUB_GONE=1 fix "libc6=2.41-12+deb13u5"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"the Debian archive does not serve libc6=2.41-12+deb13u5"* ]]
+  [[ "$output" == *"could not download libc6=2.41-12+deb13u5"* ]]
   [[ "$output" == *"apt-cache policy"*"wiki/containerization.md#debian-fixes-the-base-has-not-shipped-yet"* ]]
+}
+
+@test "a failing apt-get update stops the build and names the fixes" {
+  STUB_UPDATE_FAILS=1 fix "libc6=2.41-12+deb13u5"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"apt-get update failed"*"libc6=2.41-12+deb13u5 cannot be fetched"* ]]
+  [ "$(grep -c 'apt-get download' "$CALLS")" -eq 0 ]
+}
+
+@test "a file under a directory the base has as a symlink is refused when the package lists no directories" {
+  STUB_PREFIX=lib STUB_FILES_ONLY=1 fix "libc6=2.41-12+deb13u5"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ships /lib/stub/libc6.so under /lib, a symlink in the base"* ]]
 }
 
 @test "a fixed package path under a directory the base has as a symlink is refused" {
