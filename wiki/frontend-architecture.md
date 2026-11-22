@@ -72,7 +72,7 @@ frontend/
 │   │   ├── theme-provider.tsx  # Dark/light theme toggle
 │   │   ├── feedback-provider.tsx # ARIA live region for accessibility
 │   │   └── error-boundary-content.tsx # Error boundary UI
-│   ├── api/healthz/route.ts    # API route for health checks (used by K8s probes and nginx)
+│   ├── api/healthz/route.ts    # API route for health checks (used by K8s probes)
 │   ├── items/page.tsx          # Items CRUD page
 │   ├── layout.tsx              # Root layout
 │   ├── page.tsx                # Home page

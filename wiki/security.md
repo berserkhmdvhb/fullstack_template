@@ -29,7 +29,7 @@ Security is implemented at multiple layers:
 ```mermaid
 flowchart TB
     subgraph Edge["Edge Security"]
-        IC["NGINX Ingress<br/>TLS termination<br/>Rate limiting<br/>Security headers"]
+        IC["Ingress controller<br/>TLS termination<br/>Rate limiting"]
     end
 
     subgraph App["Application Security"]
@@ -92,14 +92,12 @@ On the paths it proxies to the backend (`/api/v1`, `/docs`, `/openapi.json`), Ne
 `http://<release>-backend:8000/api/v1/health`). Next always sets it, and removing it in `proxy.ts` cancels
 the rewrite, so the frontend cannot drop it. It discloses internal topology (CWE-200, low severity).
 Expose the app through an edge or a gateway that does not proxy through the frontend, never the frontend
-port directly. The shipped nginx proxies nothing; as a safeguard for an adopter who adds a proxy location,
-its config hides `X-Middleware-Rewrite` and `X-Powered-By` from proxied responses (`proxy_hide_header` at
-http level, inherited by that location). The live header test lists the header as a known Next exposure and
+port directly. The live header test lists the header as a known Next exposure and
 allows it only on proxied paths of the frontend port.
 
 ### Ingress-Level Headers
 
-Additional headers are applied via NGINX Ingress annotations:
+Additional headers are applied via the Ingress controller's annotations:
 
 ```yaml
 metadata:
@@ -246,7 +244,7 @@ environment variables (see `backend/main.py`). The template ships
 
 Per-IP rate limiting via the **`limits`** library's async API (`limits.aio`) in
 `backend/middleware/rate_limiting.py` (a `BaseHTTPMiddleware`) and `backend/rate_limiter.py`, plus
-optional NGINX Ingress annotations:
+optional Ingress controller annotations:
 
 ### Backend Rate Limiting
 
@@ -572,11 +570,8 @@ copied from the Debian package. There is no `libpq`: the driver is asyncpg.
 
 | Package | Purpose |
 |---------|---------|
-| `nginx-light` | Edge proxy (production) / static file serving |
 | `tini` | Init system |
-| `curl` | Health checks (the nginx image only; the backend probe is Python) |
 | `ca-certificates` | TLS certificate validation |
-| `gettext-base` | `envsubst` for config templating |
 
 ---
 
@@ -603,7 +598,7 @@ spec:
 
 | Policy | Direction | Source | Destination | Purpose |
 |--------|-----------|--------|-------------|---------|
-| `allow-from-ingress` | Ingress | ingress-nginx namespace | app pods on 8000/3000/8081 | Ingress → services |
+| `allow-from-ingress` | Ingress | ingress-nginx namespace | app pods on 8000/3000 | Ingress → services |
 | `allow-backend-to-db` | Egress | backend pods | postgresql:5432 + DNS | Backend → database |
 | `allow-migration-to-db` | Egress | migration job | postgresql:5432 + DNS | Migration → database |
 
@@ -780,4 +775,4 @@ every layer would give the browser several competing `max-age` values. Today the
 https only (`max-age=31536000; includeSubDomains; preload`), and the browser applies it per host, so the
 pages (which call the API same-origin) are covered. In the edge modes the edge sets HSTS once and the
 backend's copy is turned off. A test per layer pins the final header set (`frontend/next.config.test.ts`,
-`tests/supply_chain/test_nginx_headers.py`, the live `TestFinalHeaderSet`).
+`frontend/static-paths.test.ts`, the live `TestFinalHeaderSet`).

@@ -160,7 +160,7 @@ All frontend commands are run from the `frontend/` directory:
 # Create a kind cluster
 kind create cluster --name your-service-name
 
-# Install NGINX Ingress Controller
+# Install an Ingress controller
 helm install ingress-nginx ingress-nginx \
   --repo https://kubernetes.github.io/ingress-nginx \
   --namespace ingress-nginx --create-namespace
@@ -176,12 +176,11 @@ helm install cert-manager cert-manager \
 
 ```bash
 # Build the :local images into the node daemon (imagePullPolicy: IfNotPresent picks them up)
-make compose-build-backend compose-build-frontend compose-build-nginx
+make compose-build-backend compose-build-frontend
 
 # kind: load each :local image into the cluster (minikube builds straight into the node)
 kind load docker-image your-service-name-backend:local --name your-service-name
 kind load docker-image your-service-name-frontend:local --name your-service-name
-kind load docker-image your-service-name-nginx:local --name your-service-name
 ```
 
 ### Deploy to Local Cluster
@@ -221,7 +220,6 @@ For rapid iteration, rebuild and redeploy:
 # 2. Rebuild affected images (bare :local tags — rebuild only what changed)
 make compose-build-backend   # if backend changed
 make compose-build-frontend  # if frontend changed
-make compose-build-nginx     # if nginx changed
 
 # 3. Reload into cluster (kind; minikube builds straight into the node)
 kind load docker-image your-service-name-backend:local --name your-service-name

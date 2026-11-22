@@ -10,7 +10,6 @@ Per-service Dockerfiles, buildx builds in GitHub Actions, container runtime, and
 - [Per-Service Dockerfiles](#per-service-dockerfiles)
 - [Dockerfile.backend](#dockerfilebackend)
 - [Dockerfile.frontend](#dockerfilefrontend)
-- [Dockerfile.nginx](#dockerfilenginx)
 - [Image builds in CI](#image-builds-in-ci)
 - [Container Runtime](#container-runtime)
 - [Image Tags](#image-tags)
@@ -23,25 +22,22 @@ Per-service Dockerfiles, buildx builds in GitHub Actions, container runtime, and
 
 ## Overview
 
-The project uses **three dedicated Dockerfiles**, one per service. Each image contains only the dependencies it needs and starts its service directly via `CMD`. There is no `SERVICE_MODE` variable.
+The project uses **two dedicated Dockerfiles**, one per service (backend and frontend). Each image contains only the dependencies it needs and starts its service directly via `CMD`. There is no `SERVICE_MODE` variable.
 
 ```mermaid
 flowchart TB
     subgraph Build["Build (CI/CD)"]
         BackendBuild["Dockerfile.backend<br/>Python 3.12"]
         FrontendBuild["Dockerfile.frontend<br/>Node 26"]
-        NginxBuild["Dockerfile.nginx<br/>nginx-light"]
     end
 
     subgraph K8s["Kubernetes Deployments"]
         Backend["Backend Deployment"]
         Frontend["Frontend Deployment"]
-        Nginx["Nginx Deployment"]
     end
 
     BackendBuild --> Backend
     FrontendBuild --> Frontend
-    NginxBuild --> Nginx
 ```
 
 ---
@@ -52,7 +48,6 @@ flowchart TB
 |------------|---------|-----------|------|
 | `Dockerfile.backend` | FastAPI + Uvicorn | `debian:13-slim` (build), distroless `python3-debian13` (runtime) | 8000 |
 | `Dockerfile.frontend` | Next.js standalone | `node:26-trixie-slim` (build), distroless `nodejs26-debian13` (runtime) | 3000 |
-| `Dockerfile.nginx` | Static assets | `nginx:alpine` | 8081 |
 
 ---
 
@@ -100,7 +95,7 @@ is asyncpg, so no `libpq` is installed. A test pins the digests, the Debian majo
 absence of `RUN`.
 
 **Key features**:
-- **OCI metadata labels** — version, revision, branch, build date, vendor, and `source` (the repository URL, from the `SOURCE_URL` build argument; GHCR links the package to it). All three images carry them, and the build workflow fills each one: the commit SHA, the branch or tag, the commit time (UTC, RFC 3339) and `${{ github.server_url }}/${{ github.repository }}`
+- **OCI metadata labels** — version, revision, branch, build date, vendor, and `source` (the repository URL, from the `SOURCE_URL` build argument; GHCR links the package to it). Both images carry them, and the build workflow fills each one: the commit SHA, the branch or tag, the commit time (UTC, RFC 3339) and `${{ github.server_url }}/${{ github.repository }}`
 - **Non-root user** — runs as `appuser` (UID 10001, with a passwd and group entry and a home directory)
 - **Tini init** — proper PID 1 for signal handling
 - **Health check** — a stdlib Python probe (`python -m your_service_name.backend.healthcheck`) of `/healthz`, with a 4 s timeout; it reads `HEALTHCHECK_SCHEME`, `BACKEND_PORT` and `API_VERSION`, and treats a redirect or a TLS failure as unhealthy
@@ -118,7 +113,10 @@ WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --include=dev --ignore-scripts
 COPY frontend/ ./
-RUN npm run openapi-gen && npx next build
+ARG VERSION
+ARG VCS_REF
+RUN npm run openapi-gen \
+ && NEXT_DEPLOYMENT_ID="$(node scripts/deployment-id.mjs "${VERSION}" "${VCS_REF}")" npx next build
 
 FROM gcr.io/distroless/nodejs26-debian13@sha256:... AS runtime
 LABEL org.opencontainers.image.title="Your Service Name — Frontend"
@@ -139,53 +137,28 @@ CMD ["server.js"]   # the image's ENTRYPOINT is /nodejs/bin/node
 - **Standalone output** — Next.js `output: 'standalone'` for minimal production bundle
 - **Non-root user** — numeric UID 10001 (distroless has no `appuser`)
 - **Health check** — fetches the frontend root `/` with the bundled Node (no shell or curl)
-
----
-
-## Dockerfile.nginx
-
-```dockerfile
-FROM nginx:alpine
-LABEL org.opencontainers.image.title="Your Service Name Nginx"
-LABEL org.opencontainers.image.version="${VERSION}"
-
-COPY infra/nginx/nginx.conf /etc/nginx/nginx.conf
-COPY --from=frontend /app/public /usr/share/nginx/html
-
-HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \
-  CMD curl -fsS "http://localhost:8081/healthz" || exit 1
-
-EXPOSE 8081
-CMD ["nginx", "-g", "daemon off;"]
-```
-
-**Key features**:
-- **Lightweight** — based on `nginx:alpine`
-- **Static assets** — serves Next.js `_next/static` and `public/` files
-- **Health endpoint** — `/healthz` for readiness checks
-- **Non-root** — nginx worker runs as `nginx` user (UID 101)
+- **Static assets** — the Next.js server serves `/_next/static` (hashed, immutable, one-year cache) and the `public/` files itself; there is no separate static image. A CDN in front caches them at the edge. The cache and security headers per path come from [`frontend/static-paths.ts`](../frontend/static-paths.ts) and `frontend/next.config.ts`.
+- **Deployment id** — the builder stage sets `NEXT_DEPLOYMENT_ID` from the `VERSION` and `VCS_REF` build arguments (`frontend/scripts/deployment-id.mjs`), so a client caught mid-rollout reloads instead of loading a chunk that is gone
 
 ---
 
 ## Image builds in CI
 
-The release workflow builds the three images with `docker/build-push-action` (buildx) on a GitHub-hosted runner, only on a push to `main` or a `v*` tag (a pull request builds locally, without pushing, to check the images). No Docker-in-Docker, no privileged runner:
+The release workflow builds the two images with `docker/build-push-action` (buildx) on a GitHub-hosted runner, only on a push to `main` or a `v*` tag (a pull request builds locally, without pushing, to check the images). No Docker-in-Docker, no privileged runner:
 
 ```mermaid
 flowchart TB
     CI["release.yml build job<br/>(one matrix leg per image)"] --> Backend["Dockerfile.backend"]
     CI --> Frontend["Dockerfile.frontend"]
-    CI --> Nginx["Dockerfile.nginx"]
     Backend -->|"push + digest check"| Registry["ghcr.io/&lt;owner&gt;/&lt;repo&gt;/backend"]
     Frontend -->|"push + digest check"| Registry2["ghcr.io/&lt;owner&gt;/&lt;repo&gt;/frontend"]
-    Nginx -->|"push + digest check"| Registry3["ghcr.io/&lt;owner&gt;/&lt;repo&gt;/nginx"]
 ```
 
 ### Advantages
 
 | Feature | Benefit |
 |---------|---------|
-| **Matrix legs** | The three images build in parallel |
+| **Matrix legs** | The two images build in parallel |
 | **Cold builds** | The release build uses no layer cache, so every layer is built from the commit, the pinned bases and the locked dependencies |
 | **Digest check** | The pushed manifest digest must equal the build's digest |
 | **Pinned actions** | Every action is pinned by a full commit SHA |
@@ -217,7 +190,7 @@ Each failure prints an `::error::` line (an unhealthy container also prints its 
 
 - **Pull request:** the `images` job in [`ci.yml`](../.github/workflows/ci.yml) builds each image locally with the release build's arguments and runs the script with `--strict`. It has no registry login, push, secret or cache.
 - **Release:** the `image-checks` job in [`reusable-build.yml`](../.github/workflows/reusable-build.yml) pulls each pushed image by its digest and runs the script with `--strict`; `sign-attest` needs it, so an image that fails is never signed. A multi-platform build must run it once per platform.
-- **Locally:** `make image-checks` builds the images with throwaway tags (label values set locally, so `--strict` holds), runs the script and removes them; `make image-checks IDS="backend nginx"` limits it. It needs docker, jq and the project venv (PyYAML); it builds with the manifest's own build arguments, as CI does.
+- **Locally:** `make image-checks` builds the images with throwaway tags (label values set locally, so `--strict` holds), runs the script and removes them; `make image-checks IDS="backend frontend"` limits it. It needs docker, jq and the project venv (PyYAML); it builds with the manifest's own build arguments, as CI does.
 
 ---
 
@@ -229,7 +202,6 @@ Each container starts its service directly via `CMD`:
 |---------|------|---------|------|
 | **Backend** | `tini` | `python -m your_service_name.backend.serve` (one Uvicorn process) | `appuser` (10001) |
 | **Frontend** | — | `node server.js` | `appuser` (10001) |
-| **Nginx** | — | `nginx -g daemon off;` | `nginx` (101) |
 
 There is no `SERVICE_MODE` variable. Each Dockerfile has a single `CMD` that starts its service.
 
@@ -244,7 +216,7 @@ The `plan` job of `release.yml` generates the tag from the Git ref (see [Version
 | **Git tag** (e.g., `v1.2.3`) | `1.2.3-prod-abc1234`, `latest` |
 | **Push to `main`** | `0.0.0-main-abc1234` (baseline from the `VERSION` file) |
 
-A pull request never pushes an image. The tags name the multi-architecture index. The tag is the same for all three images; each image has its own repository (`ghcr.io/<owner>/<repo>/backend`, `/frontend`, `/nginx`).
+A pull request never pushes an image. The tags name the multi-architecture index. The tag is the same for both images; each image has its own repository (`ghcr.io/<owner>/<repo>/backend`, and `/frontend`).
 
 ---
 
@@ -256,14 +228,13 @@ Each Dockerfile includes a built-in health check:
 |---------|----------|----------|---------|
 | **Backend** | `/api/${API_VERSION}/health` | 15s | 5s |
 | **Frontend** | `/` | 15s | 5s |
-| **Nginx** | `/healthz` | 15s | 5s |
 
 ---
 
 ## Build Helpers
 
 > The former root-level `build_docker.sh` / `build_podman.sh` / `build_apptainer.sh`
-> helpers were removed (they predated the per-service Dockerfiles and NGINX edge). Build images
+> helpers were removed (they predated the per-service Dockerfiles). Build images
 > directly from the per-service Dockerfiles below.
 
 ### Per-Service Build
@@ -271,7 +242,6 @@ Each Dockerfile includes a built-in health check:
 ```bash
 docker build -t your-service-name:backend  -f Dockerfile.backend  .
 docker build -t your-service-name:frontend -f Dockerfile.frontend .
-docker build -t your-service-name:nginx    -f Dockerfile.nginx    .
 ```
 
 ### Docker Compose (full stack, local)
@@ -292,7 +262,7 @@ delivered, plus signing.
 
 ```mermaid
 flowchart LR
-    Build["reusable-build.yml build<br/>(3 images)"] --> Verify["digest check<br/>digest-*.env artifacts"]
+    Build["reusable-build.yml build<br/>(2 images)"] --> Verify["digest check<br/>digest-*.env artifacts"]
     Verify --> Sign["sign + attest<br/>after the Grype gate"]
     Verify --> Digest["digest-pin<br/>deploy-verify.sh"]
 ```
@@ -350,7 +320,7 @@ helm upgrade --install your-service-name charts/your-service-name \
 The `ci/deploy.yml` pipeline handles automated deployment — **Helm-native** (see
 [`wiki/ci-cd.md`](./ci-cd.md)):
 
-1. **build** (`release.yml`) — builds and pushes the backend, frontend and nginx images, one matrix leg each
+1. **build** (`release.yml`) — builds and pushes the backend and frontend images, one matrix leg each
 2. **helm-checks** (`deploy.yml`) — lints + renders the chart for the target environment (validation gate)
 3. **deploy-<env>** — `helm upgrade --install` by digest (migrations via the per-revision Job), then rolling update
 4. **verify and smoke** — post-deployment health checks inside each deploy job

@@ -206,7 +206,7 @@ Browser automation tests:
 
 | Test File | What It Tests |
 |-----------|--------------|
-| `e2e/smoke.spec.ts` | Smoke tests (backend API, frontend load, nginx) |
+| `e2e/smoke.spec.ts` | Smoke tests (backend API, frontend load) |
 | `e2e/items-workflow.spec.ts` | Full items CRUD workflow in browser |
 | `e2e/a11y.spec.ts` | axe accessibility scan, zero violations (see below) |
 

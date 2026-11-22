@@ -1,6 +1,6 @@
 # Infrastructure
 
-Kubernetes resources, NGINX Ingress, Docker Compose for local development, and the entrypoint system.
+Kubernetes resources, the Ingress, Docker Compose for local development, and the entrypoint system.
 
 ---
 
@@ -8,8 +8,8 @@ Kubernetes resources, NGINX Ingress, Docker Compose for local development, and t
 
 - [Overview](#overview)
 - [Kubernetes Resources](#kubernetes-resources)
-- [NGINX Ingress Controller](#nginx-ingress-controller)
-- [Nginx Static Server](#nginx-static-server)
+- [Ingress](#ingress)
+- [Static assets](#static-assets)
 - [Entrypoint System](#entrypoint-system)
 - [Docker Compose (Local Dev)](#docker-compose-local-dev)
 - [Health Probes](#health-probes)
@@ -24,13 +24,12 @@ The infrastructure layer consists of Kubernetes resources that manage the applic
 ```mermaid
 flowchart TB
     subgraph Public["Public Facing"]
-        IC["NGINX Ingress Controller<br/>TLS termination<br/>Rate limiting"]
+        IC["Ingress controller<br/>TLS termination<br/>Rate limiting"]
     end
 
     subgraph Internal["Internal Services"]
         BE["Backend<br/>FastAPI<br/>Port: 8000"]
-        FE["Frontend<br/>Next.js<br/>Port: 3000"]
-        NG["Nginx<br/>Static assets<br/>Port: 8081"]
+        FE["Frontend<br/>Next.js, pages and /_next/static<br/>Port: 3000"]
     end
 
     subgraph Data["Data"]
@@ -38,9 +37,8 @@ flowchart TB
     end
 
     User["User"] -->|"HTTPS"| IC
-    IC -->|"/"| FE
-    IC -->|"/api/*, /docs"| BE
-    IC -->|"/_next/*"| NG
+    IC -->|"everything else"| FE
+    IC -->|"/api, /docs, /openapi.json"| BE
     FE -->|"API calls"| BE
     BE --> PG
 ```
@@ -63,20 +61,9 @@ The base resource set maps 1:1 into the chart. Per-env differences live in
 
 ---
 
-## NGINX Ingress Controller
+## Ingress
 
-The NGINX Ingress Controller is the edge gateway.
-
-### Ingress Resource
-
-The Ingress resource defines three routing rules:
-
-| Host | Path | Backend | Purpose |
-|------|------|---------|---------|
-| `api.your-domain.example` | `/api/*`, `/docs`, `/openapi.json` | Backend :8000 | API requests |
-| `app.your-domain.example` | `/` | Frontend :3000 | UI rendering |
-| `app.your-domain.example` | `/_next/static/*`, `/public/*` | Nginx :8081 | Static assets |
-| `your-service-name.your-domain.example` | `/` | Combined | Single-domain access |
+The Ingress is the edge. It sends `/api`, `/docs` and `/openapi.json` to the backend (:8000) and everything else to the frontend (:3000), which serves its own pages and `/_next/static` assets (see [Static assets](#static-assets)). The chart's `values.yaml` holds the controller class and annotations.
 
 ### Security Headers
 
@@ -117,14 +104,9 @@ spec:
 
 ---
 
-## Nginx Static Server
+## Static assets
 
-Nginx serves **static assets** (Next.js `_next/static`, public files) with caching headers:
-
-- Serves files from the Next.js build output
-- Configured via `infra/nginx/nginx.conf`
-- Health endpoint at `/healthz`
-- Binds to port 8081 (ClusterIP service)
+The frontend server serves its own static assets: `/_next/static` is hashed and immutable with a one-year cache, and `public/` files carry the cache policy set in `frontend/next.config.ts`. [`frontend/static-paths.ts`](../frontend/static-paths.ts) is the one list of static paths. A CDN in front (Cloudflare or any other) caches the hashed assets at the edge, which is where the load-time gain comes from. Details: [Frontend Deployment](./frontend-deployment.md#static-assets).
 
 ---
 
@@ -138,9 +120,8 @@ The `infra/runtime/entrypoint.sh` script is retained **only for local developmen
 # Start a single service locally
 ./infra/runtime/entrypoint.sh --mode backend
 ./infra/runtime/entrypoint.sh --mode frontend
-./infra/runtime/entrypoint.sh --mode nginx
 
-# Start all services (local dev only)
+# Start backend and frontend together (local dev only)
 ./infra/runtime/entrypoint.sh --mode all
 ```
 
@@ -155,16 +136,11 @@ The `infra/runtime/entrypoint.sh` script is retained **only for local developmen
 - Starts Next.js standalone server (`node .next/standalone/server.js`)
 - Binds to `${FRONTEND_HOST}:${FRONTEND_PORT}`
 
-### Nginx Entry
-
-- Starts Nginx with the static config
-- Binds to `${NGINX_HOST}:${NGINX_PORT}`
-
 ---
 
 ## Docker Compose (Local Dev)
 
-The `docker-compose.yml` orchestrates the full stack for local development with 4 services:
+The `docker-compose.yml` orchestrates the full stack for local development with three services:
 
 ```mermaid
 flowchart TB
@@ -172,12 +148,10 @@ flowchart TB
         PG["postgres<br/>image: postgres:16-alpine<br/>health: pg_isready"]
         BE["backend<br/>Dockerfile.backend<br/>depends: postgres healthy<br/>health: /api/v1/health"]
         FE["frontend<br/>Dockerfile.frontend<br/>depends: backend healthy<br/>health: GET /"]
-        NG["nginx<br/>Dockerfile.nginx<br/>depends: backend healthy<br/>health: /healthz"]
     end
 
     PG -->|"healthy"| BE
     BE -->|"healthy"| FE
-    BE -->|"healthy"| NG
 ```
 
 ### Service Dependencies
@@ -186,7 +160,6 @@ flowchart TB
 |---------|-----------|-----------|
 | backend | postgres | `service_healthy` |
 | frontend | backend | `service_healthy` |
-| nginx | backend | `service_healthy` |
 
 ### Local Access
 
@@ -196,7 +169,6 @@ Access services directly on their ports:
 |---------|-----|
 | **Backend API** | `http://localhost:8000` |
 | **Frontend** | `http://localhost:3000` |
-| **Nginx (static)** | `http://localhost:8081` |
 | **API Docs** | `http://localhost:8000/docs` |
 
 ### Volumes
@@ -224,7 +196,6 @@ Access services directly on their ports:
 | **postgres** | `pg_isready` | CMD-SHELL | Exit 0 |
 | **backend** | `/api/${API_VERSION}/health` | HTTP GET | 200 |
 | **frontend** | `/api/healthz` | HTTP GET | 200 |
-| **nginx** | `/healthz` | HTTP GET | 200 |
 
 ### Health Endpoint Behavior
 
@@ -244,8 +215,6 @@ Access services directly on their ports:
 | `FRONTEND_HOST` | 127.0.0.1 | Frontend bind host |
 | `FRONTEND_PORT` | 3000 | Frontend bind port |
 | `FRONTEND_ROOT` | `./frontend` (local) / `/app/frontend` (container) | Frontend build root |
-| `NGINX_HOST` | 127.0.0.1 | Nginx bind host |
-| `NGINX_PORT` | 8081 | Nginx bind port |
 
 ### Kubernetes-Specific Configuration
 

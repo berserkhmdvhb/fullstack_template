@@ -201,7 +201,7 @@ kubectl -n your-service-name-<env> exec <pod-name> -- \
 
 | Issue | Solution |
 |-------|----------|
-| Ingress controller not running | Install NGINX Ingress Controller |
+| Ingress controller not running | Install an Ingress controller |
 | Wrong host/path | Check Ingress resource configuration |
 | TLS certificate issue | Check cert-manager and Certificate resource |
 | Service misconfiguration | Verify Service name and port match Ingress |
@@ -320,7 +320,6 @@ docker compose ps
 # View logs for specific service
 docker compose logs backend
 docker compose logs frontend
-docker compose logs nginx
 
 # Restart a specific service
 docker compose restart backend
@@ -328,15 +327,13 @@ docker compose restart backend
 
 ### Port Conflicts
 
-**Symptom**: `Bind for 0.0.0.0:8000 failed: port is already allocated` (or 3000, 8081)
+**Symptom**: `Bind for 0.0.0.0:8000 failed: port is already allocated` (or 3000)
 
 **Solution**: Change the port in `.env`:
 ```bash
 BACKEND_PORT=9000
 # or
 FRONTEND_PORT=3001
-# or
-NGINX_PORT=8082
 ```
 
 ### Volume Permission Issues
@@ -448,10 +445,9 @@ kubectl --context=<context> get namespaces
 # Check all services are healthy (local dev — each service on its own port)
 curl -fsS http://127.0.0.1:${BACKEND_PORT}/api/v1/health
 curl -fsS http://127.0.0.1:${FRONTEND_PORT}/
-curl -fsS http://127.0.0.1:${NGINX_PORT}/healthz
 
 # Check environment variables
-env | grep -E 'BACKEND|FRONTEND|NGINX|PUBLIC|DATABASE|API_VERSION'
+env | grep -E 'BACKEND|FRONTEND|PUBLIC|DATABASE|API_VERSION'
 
 # Check Python version
 python --version

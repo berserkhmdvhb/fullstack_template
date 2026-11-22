@@ -145,7 +145,7 @@ The job writes these to `GITHUB_OUTPUT`; the image matrix is the script's `--mat
 
 ## Image Tagging
 
-Three per-service images are tagged: `backend`, `frontend` and `nginx`, nested under the repository path.
+Two per-service images are tagged: `backend` and `frontend`, nested under the repository path.
 
 ### Tag Policy
 
@@ -156,7 +156,7 @@ Images are pushed only by `release.yml`, on a push to `main` or a `v*` tag; a pu
 | **Git tag** (`v1.2.3`) | `1.2.3-prod-abc1234` | `latest` |
 | **Push to `main`** | `0.0.0-main-abc1234` (baseline from `VERSION`) | — |
 
-Each tag is applied to all three images (backend, frontend, nginx).
+Each tag is applied to both images (backend and frontend).
 
 ### Tag Format
 
@@ -169,7 +169,7 @@ Example: `1.2.3-prod-abc1234`
 ### Kubernetes Image Reference
 
 The Helm chart takes the image tag from `charts/your-service-name/values.<env>.yaml` (`images.*.tag` —
-one tag for all three images), or via `--set images.<svc>.tag=<tag>` at deploy; the release workflow passes the
+one tag for both images), or via `--set images.<svc>.tag=<tag>` at deploy; the release workflow passes the
 git-derived version and pins each image by digest. The pre-Helm per-image `newTag` overlay block is gone — the `k8s/` Kustomize tree
 was removed in Phase 2 Stage C. See `charts/your-service-name/values.yaml` for the authoritative schema.
 
@@ -186,9 +186,9 @@ flowchart LR
     SCM --> VersionFile["_version.py"]
     SCM --> CI["release.yml: plan"]
     CI --> BuildEnv["version + image_tag"]
-    BuildEnv --> BuildKit["Image build<br/>(3 images)"]
+    BuildEnv --> BuildKit["Image build<br/>(2 images)"]
     BuildKit --> Labels["OCI Image Labels"]
-    BuildKit --> Tags["Docker Tags<br/>(backend, frontend, nginx)"]
+    BuildKit --> Tags["Docker Tags<br/>(backend, frontend)"]
     BuildKit --> K8s["Kubernetes Deploy"]
     CI --> ImagePlan["image matrix"]
     ImagePlan --> BuildKit
@@ -196,7 +196,7 @@ flowchart LR
 
 ### OCI Image Labels
 
-Applied in `Dockerfile.backend`, `Dockerfile.frontend`, and `Dockerfile.nginx`:
+Applied in `Dockerfile.backend` and `Dockerfile.frontend`:
 
 ```dockerfile
 LABEL org.opencontainers.image.title="Your Service Name"

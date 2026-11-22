@@ -38,7 +38,7 @@ Complete guide to setting up, configuring, and running the service template loca
 | Tool | Purpose |
 |------|---------|
 | **kind** or **minikube** | Local Kubernetes cluster for development |
-| **Helm** (optional) | Package manager for cluster-level dependencies (cert-manager, ingress-nginx) |
+| **Helm** (optional) | Package manager for cluster-level dependencies (cert-manager and an Ingress controller) |
 
 ### Optional
 
@@ -83,14 +83,14 @@ infra/adapt/replace_service_name.sh -n awesome_solution
 
 The README badges (CI and OpenSSF Scorecard) use `<owner>/<your-service-name>`; replace `<owner>` with your GitHub organisation or user, and the repository name if it differs from the service name.
 
-The images' OCI `source` label defaults to `https://github.com/your-org/your-repo` for local and kind builds (CI passes the real URL). Set `REPOSITORY=owner/name` in `infra/adapt/adopt.conf` and run `infra/adapt/adopt.sh` to stamp it into the three Dockerfiles; see [Adaptation](adaptation.md#config-driven-adoption-kubernetes-deployments).
+The images' OCI `source` label defaults to `https://github.com/your-org/your-repo` for local and kind builds (CI passes the real URL). Set `REPOSITORY=owner/name` in `infra/adapt/adopt.conf` and run `infra/adapt/adopt.sh` to stamp it into the two Dockerfiles; see [Adaptation](adaptation.md#config-driven-adoption-kubernetes-deployments).
 
 ### Configure Ports (Optional)
 
 Ports are environment-driven — there is no adaptation script. The defaults
-(`BACKEND_PORT=8000`, `FRONTEND_PORT=3000`, `NGINX_PORT=8081`) come from `.env` / `.env.example`
+(`BACKEND_PORT=8000`, `FRONTEND_PORT=3000`) come from `.env` / `.env.example`
 and drive `docker-compose.yml` and the workflows' `env` blocks. In Kubernetes the container ports are fixed
-and external access is handled by the NGINX Ingress Controller (see
+and external access is handled by the Ingress (see
 [Infrastructure](./infrastructure.md)).
 
 > See [Adaptation Guide](./adaptation.md) for the service-rename script and the ports reference.
@@ -277,7 +277,7 @@ The fastest way to run the full stack locally:
 # Build all images
 docker compose build
 
-# Start all services (postgres, backend, frontend, nginx)
+# Start all services (postgres, backend, frontend)
 docker compose up -d
 
 # View logs
@@ -294,13 +294,11 @@ docker compose down
 | **postgres** | 5432 (internal) | `pg_isready` |
 | **backend** | `${BACKEND_PORT}` | `/api/${API_VERSION}/health` |
 | **frontend** | `${FRONTEND_PORT}` | `GET /` |
-| **nginx** | `${NGINX_PORT}` | `/healthz` |
 
 ### Access
 
 - **Backend API**: `http://localhost:8000`
 - **Frontend**: `http://localhost:3000`
-- **Nginx (static)**: `http://localhost:8081`
 - **API Docs**: `http://localhost:8000/docs`
 
 ---
@@ -338,13 +336,12 @@ must already live on the node — build them there (no registry push).
 ```bash
 # minikube: point Docker at the node daemon, then build the :local images
 eval $(minikube docker-env)
-make compose-build-backend compose-build-frontend compose-build-nginx
+make compose-build-backend compose-build-frontend
 
 # kind: build into the host daemon, then load each :local image into the cluster
-make compose-build-backend compose-build-frontend compose-build-nginx
+make compose-build-backend compose-build-frontend
 kind load docker-image your-service-name-backend:local --name your-service-name
 kind load docker-image your-service-name-frontend:local --name your-service-name
-kind load docker-image your-service-name-nginx:local --name your-service-name
 ```
 
 ### 4. Deploy with Helm
@@ -397,7 +394,7 @@ kubectl -n your-service-name-local logs -l app.kubernetes.io/name=your-service-n
 
 ### 1. Build and Push Images
 
-The CI pipeline builds and pushes all three images (buildx — see
+The CI pipeline builds and pushes both images (buildx — see
 [`containerization.md`](containerization.md)); each carries an immutable per-commit tag and
 production pins the digest (`images.backend.digest` in `values.production.yaml`).
 
@@ -407,11 +404,9 @@ image you just built:
 ```bash
 docker build -t <registry>/your-service-name-backend:latest  -f Dockerfile.backend  .
 docker build -t <registry>/your-service-name-frontend:latest -f Dockerfile.frontend .
-docker build -t <registry>/your-service-name-nginx:latest    -f Dockerfile.nginx    .
 
 docker push <registry>/your-service-name-backend:latest
 docker push <registry>/your-service-name-frontend:latest
-docker push <registry>/your-service-name-nginx:latest
 ```
 
 ### 2. Configure Secrets

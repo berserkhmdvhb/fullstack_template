@@ -10,7 +10,7 @@ How the Next.js frontend is built, served, and deployed in production.
 - [Build Process](#build-process)
 - [Standalone Output](#standalone-output)
 - [Production Server](#production-server)
-- [Nginx Static Serving](#nginx-static-serving)
+- [Static Assets](#static-assets)
 - [Security Headers](#security-headers)
 - [Environment Variables](#environment-variables)
 - [Deployment Checklist](#deployment-checklist)
@@ -19,7 +19,7 @@ How the Next.js frontend is built, served, and deployed in production.
 
 ## Overview
 
-The frontend is built as a **Next.js standalone application** and served by the Node.js runtime via its own container image (`Dockerfile.frontend`). Static assets are served by Nginx in a separate container (`Dockerfile.nginx`) for optimal caching. In Kubernetes, the frontend and nginx run as separate Deployments behind an NGINX Ingress Controller.
+The frontend is built as a **Next.js standalone application** and served by the Node.js runtime via its own container image (`Dockerfile.frontend`). The same server serves the pages and the static assets (`/_next/static` and the files in `public/`); there is no separate static image. In Kubernetes the frontend runs as one Deployment behind the Ingress, which sends `/api`, `/docs` and `/openapi.json` to the backend and everything else here. A CDN in front (Cloudflare or any other) caches the hashed assets at the edge, which is where the load-time gain comes from.
 
 ```mermaid
 flowchart TB
@@ -30,19 +30,16 @@ flowchart TB
     end
 
     subgraph Deploy["Deploy (Runtime)"]
-        Node["Node.js<br/>Next.js standalone server<br/>(Dockerfile.frontend)"]
-        Nginx["Nginx<br/>Static assets<br/>(Dockerfile.nginx)"]
+        Node["Node.js<br/>Next.js standalone server<br/>pages + /_next/static<br/>(Dockerfile.frontend)"]
     end
 
     subgraph Route["Request Routing"]
-        IC["NGINX Ingress<br/>(Kubernetes)"]
+        IC["Ingress<br/>(Kubernetes)"]
     end
 
     NPM --> OpenAPI --> NextBuild
     NextBuild --> Node
-    NextBuild --> Nginx
-    IC -->|"/"| Node
-    IC -->|"/_next/*"| Nginx
+    IC -->|"everything but the backend paths"| Node
 ```
 
 ---
@@ -189,42 +186,25 @@ const nextConfig: NextConfig = {
 
 ---
 
-## Nginx Static Serving
+## Static Assets
 
-Nginx serves **static assets** (`_next/static`, public files) with caching. It runs in a separate container built from `Dockerfile.nginx`:
+The Next.js server serves its own static assets. Which paths count as static, and the exemptions, are defined once in [`frontend/static-paths.ts`](../frontend/static-paths.ts); the cache table for `public/` files is in [`frontend/next.config.ts`](../frontend/next.config.ts).
 
-### Configuration
+| Asset | Cache-Control |
+|-------|---------------|
+| `/_next/static/*` (content-hashed) | `public, max-age=31536000, immutable` (Next.js sets it) |
+| `/logo.png`, `/favicon.ico` | `public, max-age=604800` |
+| `/robots.txt`, `/sitemap.xml`, `/health.txt` | `no-cache` |
 
-```nginx
-# infra/nginx/nginx.conf
+Static responses carry the same security headers as pages, with `Content-Security-Policy: default-src 'none'` instead of the per-request page policy.
 
-server {
-    listen ${NGINX_PORT};
-    server_name _;
+### Deployment id
 
-    root /app/frontend/public;
+The image build sets `NEXT_DEPLOYMENT_ID` from the image version and commit (`frontend/scripts/deployment-id.mjs`). Next.js adds it to asset URLs (`?dpl=`) and to responses, so a client caught in the middle of a rollout reloads instead of requesting a chunk that is gone.
 
-    # Next.js static assets (long cache)
-    location /_next/static/ {
-        alias /app/frontend/.next/static/;
-        expires 365d;
-        add_header Cache-Control "public, immutable";
-    }
+### CDN
 
-    # Health check
-    location /healthz {
-        return 200 'ok';
-        add_header Content-Type text/plain;
-    }
-}
-```
-
-### Caching Strategy
-
-| Asset Type | Cache Duration | Directive |
-|-----------|---------------|-----------|
-| `_next/static/*` | 365 days | `public, immutable` |
-| Public files | Default | Browser default |
+Put a CDN in front for the best load times. The hashed `/_next/static` URLs never change content, so the CDN can cache them for a year at the edge.
 
 ---
 
@@ -241,6 +221,7 @@ async headers() {
       headers: [
         { key: 'Referrer-Policy', value: 'no-referrer' },
         { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'X-Frame-Options', value: 'DENY' },
         { key: 'Permissions-Policy', value: 'geolocation=(), microphone=(), camera=()' },
         { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
         { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
@@ -294,10 +275,9 @@ These are read at server startup:
 ### Post-Deploy (Kubernetes)
 
 - [ ] Frontend pod is running and ready
-- [ ] Nginx pod is running and ready
 - [ ] Frontend loads at expected URL (via Ingress)
 - [ ] API calls reach the backend
-- [ ] Static assets load correctly from nginx (check Network tab)
+- [ ] Static assets load correctly with the immutable `Cache-Control` (check Network tab)
 - [ ] Security headers are present (check Response headers)
 - [ ] Theme toggle works (dark/light)
 - [ ] Items CRUD operations work end-to-end

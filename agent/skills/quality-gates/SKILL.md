@@ -60,7 +60,7 @@ Notes:
   filter.
 - Integration/e2e/live pass `-o addopts=""` to **clear** the default marker filter, otherwise the
   `-m` flag would conflict with it.
-- `make test-live` needs the full running stack (backend + frontend + NGINX); in CI it runs in the `live` job on a GitHub-hosted runner.
+- `make test-live` needs the full running stack (backend + frontend); in CI it runs in the `live` job on a GitHub-hosted runner.
 
 ### Test marker model (backend)
 

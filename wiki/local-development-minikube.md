@@ -1,7 +1,7 @@
 # Local Deployment (Minikube / kind)
 
-Complete guide to running the three-image stack (**backend** / **frontend** /
-**nginx** + PostgreSQL) on a local cluster. **Minikube and kind are the two
+Complete guide to running the two-image stack (**backend** / **frontend**
++ PostgreSQL) on a local cluster. **Minikube and kind are the two
 first-class local clusters** here (any Kubernetes works too) — and **every step
 has three interchangeable ways to do it**:
 
@@ -115,7 +115,7 @@ kind version        # if you installed kind
 stack, then verify it is reachable.
 
 **Minikube** — give it generous resources (the stack is backend + frontend +
-nginx + PostgreSQL):
+PostgreSQL):
 ```bash
 minikube start --cpus=4 --memory=4096 --disk-size=20g --driver=docker
 ```
@@ -171,7 +171,7 @@ build→verify→roll→health loop after the first deploy.
 
 ### ① Manual
 
-Build the three images, then get them onto the cluster node — **this is the one
+Build the two images, then get them onto the cluster node — **this is the one
 step that differs by cluster** (the `:local` tag + `IfNotPresent` mean the
 kubelet reads them straight off the node daemon, no registry):
 
@@ -179,7 +179,6 @@ kubelet reads them straight off the node daemon, no registry):
 # Build on the host daemon (both clusters):
 docker build -t your-service-name-backend:local  -f Dockerfile.backend  .
 docker build -t your-service-name-frontend:local -f Dockerfile.frontend .
-docker build -t your-service-name-nginx:local    -f Dockerfile.nginx    .
 
 # Minikube: point the shell at the node daemon so builds land there directly
 # (if you already built on the host daemon, `minikube image load <name>:local`):
@@ -188,9 +187,8 @@ eval "$(minikube docker-env)"
 # kind: the node is its own container — load the images you just built into it
 kind load docker-image your-service-name-backend:local
 kind load docker-image your-service-name-frontend:local
-kind load docker-image your-service-name-nginx:local
 
-docker images | grep your-service-name     # confirm the three :local images
+docker images | grep your-service-name     # confirm the two :local images
 ```
 
 ### ② make
@@ -303,7 +301,6 @@ make k8s-status HELM_ENV=local    # deployments + pods + services + per-service 
 # One tunnel per service, in separate terminals (or background with &)
 kubectl port-forward -n your-service-name-local svc/your-service-name-backend  8000:8000
 kubectl port-forward -n your-service-name-local svc/your-service-name-frontend 3000:3000
-kubectl port-forward -n your-service-name-local svc/your-service-name-nginx    8081:8081
 ```
 
 Then:
@@ -313,7 +310,6 @@ Then:
 | Backend API | http://localhost:8000/api/v1/ |
 | Backend docs | http://localhost:8000/docs |
 | Frontend | http://localhost:3000/ |
-| Nginx static | http://localhost:8081/ |
 
 ### ② make
 
@@ -330,23 +326,22 @@ The wrapper (`scripts/port-forward.sh`) forwards every service in
 overrides the *local* port for one service — repeat it, one `key=lp` per service:
 
 ```bash
-# All three, each on an explicit local port:
+# Both, each on an explicit local port:
 ./scripts/port-forward.sh --env local \
-  --port backend=8000 --port frontend=3000 --port nginx=8080
+  --port backend=8000 --port frontend=3000
 ```
 
 Omit `--port` for a service and it defaults to that service's container port, so
 the bare command already lands on the standard ports below:
 
 ```bash
-./scripts/port-forward.sh --env local   # backend:8000, frontend:3000, nginx:8081
+./scripts/port-forward.sh --env local   # backend:8000, frontend:3000
 ```
 
 | key | container port (in-pod) | what it is |
 | --- | --- | --- |
 | `backend` | 8000 | FastAPI/Uvicorn |
 | `frontend` | 3000 | Next.js |
-| `nginx` | 8081 | static assets |
 
 ```bash
 # Backend only:
@@ -370,7 +365,6 @@ the bare command already lands on the standard ports below:
 ```bash
 kubectl logs -n your-service-name-local -l app.kubernetes.io/component=backend  -f
 kubectl logs -n your-service-name-local -l app.kubernetes.io/component=frontend -f
-kubectl logs -n your-service-name-local -l app.kubernetes.io/component=nginx    -f
 # Multi-pod tailing (needs `stern`):
 stern -n your-service-name-local your-service-name
 ```

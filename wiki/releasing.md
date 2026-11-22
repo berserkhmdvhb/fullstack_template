@@ -18,7 +18,7 @@ Git tag policy, the release workflow, GitHub release notes, Kubernetes deploymen
 
 ## Overview
 
-Releases are triggered by **Git tags**. A `v*` tag runs [`release.yml`](../.github/workflows/release.yml): it computes the version from the tag, builds and pushes the three images, verifies their digests, scans them, signs and attests them, attaches the SBOMs, the VEX document, the licence report and the image digests to a draft GitHub Release, and deploys to Kubernetes by digest. The quality gate ([`ci.yml`](../.github/workflows/ci.yml)) runs on the same tag.
+Releases are triggered by **Git tags**. A `v*` tag runs [`release.yml`](../.github/workflows/release.yml): it computes the version from the tag, builds and pushes the two images, verifies their digests, scans them, signs and attests them, attaches the SBOMs, the VEX document, the licence report and the image digests to a draft GitHub Release, and deploys to Kubernetes by digest. The quality gate ([`ci.yml`](../.github/workflows/ci.yml)) runs on the same tag.
 
 ```mermaid
 flowchart LR
@@ -127,7 +127,7 @@ git push origin v1.2.3
 Watch the runs in the repository's **Actions** tab. Both must pass:
 
 1. **CI** — the `CI OK` gate (lint, types, tests, security, chart, workflow hardening)
-2. **Release** — `plan`, `build` (three images), `digests`, `sbom`, `grype`, then `deploy`
+2. **Release** — `plan`, `build` (two images), `digests`, `sbom`, `grype`, then `deploy`
 
 ---
 
@@ -184,10 +184,8 @@ After the release run succeeds, create a GitHub release:
 # Build and push per-service images
 docker build -f Dockerfile.backend -t <registry>/your-service-name-backend:1.2.3-prod-abc1234 .
 docker build -f Dockerfile.frontend -t <registry>/your-service-name-frontend:1.2.3-prod-abc1234 .
-docker build -f Dockerfile.nginx -t <registry>/your-service-name-nginx:1.2.3-prod-abc1234 .
 docker push <registry>/your-service-name-backend:1.2.3-prod-abc1234
 docker push <registry>/your-service-name-frontend:1.2.3-prod-abc1234
-docker push <registry>/your-service-name-nginx:1.2.3-prod-abc1234
 
 # Deploy to production (Helm — the chart creates the namespaces; production uses an external DB).
 # An auth mode must be set first: wiki/getting-started.md#production-needs-an-auth-mode
@@ -195,13 +193,11 @@ helm upgrade --install your-service-name charts/your-service-name \
   -f charts/your-service-name/values.production.yaml \
   -n your-service-name-production --create-namespace \
   --set images.backend.tag=1.2.3-prod-abc1234 \
-  --set images.frontend.tag=1.2.3-prod-abc1234 \
-  --set images.nginx.tag=1.2.3-prod-abc1234
+  --set images.frontend.tag=1.2.3-prod-abc1234
 
 # Verify rollout
 kubectl -n your-service-name-production rollout status deployment/your-service-name-backend
 kubectl -n your-service-name-production rollout status deployment/your-service-name-frontend
-kubectl -n your-service-name-production rollout status deployment/your-service-name-nginx
 ```
 
 ### Deployment Verification
@@ -237,7 +233,7 @@ kubectl -n your-service-name get pdb
 # Check the image digest in the registry (needs a login to ghcr.io)
 docker buildx imagetools inspect ghcr.io/<owner>/<repo>/backend:1.2.3-prod-abc1234
 
-# Verify Kubernetes deployments (all 3 services)
+# Verify Kubernetes deployments (backend and frontend)
 kubectl -n your-service-name get deployments
 kubectl -n your-service-name get pods
 ```

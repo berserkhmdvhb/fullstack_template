@@ -64,6 +64,7 @@ All notable changes to this project, following [Keep a Changelog](https://keepac
 
 ### Removed
 - `infra/security/publish-sbom-registry.sh`, the `devsec.sh publish` subcommand and its tests; the SBOM is attested and published as a release asset instead.
+- **The nginx static tier.** The template builds two images, backend and frontend. The Next.js server serves its own pages and `/_next/static` assets (hashed, immutable, one-year cache), `public/` files carry the cache table in `frontend/next.config.ts`, and `frontend/static-paths.ts` is the one list of static paths. `deploymentId` is set from the image version and commit, so a client caught mid-rollout reloads instead of breaking. A CDN in front caches the assets at the edge. Removed: `Dockerfile.nginx`, `infra/nginx/`, the nginx Deployment, Service, HPA and NetworkPolicy rules in the chart, the `NGINX_*` variables, the `--mode nginx` entrypoint mode and the nginx Compose service (Compose now runs backend, frontend and postgres). Ports: backend 8000, frontend 3000.
 
 ---
 

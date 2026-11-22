@@ -75,7 +75,7 @@ package manager and no `pip`, and a materially smaller CVE surface. The builder 
 the same Debian interpreter, so the copied virtual environment always matches. The image's command and
 HEALTHCHECK are Python modules, `tini` is copied from the Debian package with its dpkg record (so the SBOM
 lists it), and every consumer that used to run a shell or `curl` inside the container now uses the
-image's own interpreter. The frontend was already distroless; nginx stays on its pinned Alpine image.
+image's own interpreter. The frontend was already distroless.
 
 See [`wiki/containerization.md`](./containerization.md) and the container-hardening notes in
 [`wiki/security.md`](./security.md).

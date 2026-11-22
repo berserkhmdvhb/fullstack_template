@@ -87,7 +87,6 @@ infra/adapt/replace_service_name.sh -n awesome_solution
 | Run scripts, entrypoint & CI (`BACKEND_ENTRY`) | `your_service_name.backend.main:app` | `awesome_solution.backend.main:app` |
 | `Dockerfile.backend` | `your_service_name` references | `awesome_solution` references |
 | `Dockerfile.frontend` | `your_service_name` references | `awesome_solution` references |
-| `Dockerfile.nginx` | `your_service_name` references | `awesome_solution` references |
 | All Python imports | `from your_service_name...` | `from awesome_solution...` |
 
 ---
@@ -102,10 +101,9 @@ the remaining ports are environment-driven. Change them by editing the relevant 
 |----------|---------|-------|
 | `BACKEND_PORT` | 8000 | `.env` / `.env.example`, `docker-compose.yml`, `.github/workflows/deploy.yml` |
 | `FRONTEND_PORT` | 3000 | `.env` / `.env.example`, `docker-compose.yml`, `.github/workflows/deploy.yml` |
-| `NGINX_PORT` | 8081 | `.env` / `.env.example`, `docker-compose.yml`, `.github/workflows/deploy.yml` |
 
-> **Note**: In Kubernetes the container ports are fixed (`backend :8000`, `frontend :3000`,
-> `nginx :8081`); external access goes through the NGINX Ingress Controller and per-env differences
+> **Note**: In Kubernetes the container ports are fixed (`backend :8000`, `frontend :3000`);
+> external access goes through the Ingress and per-env differences
 > live in `charts/your-service-name/values.<env>.yaml`. Changing the local-development ports does not
 > require rebuilding images.
 
@@ -156,7 +154,7 @@ projectName = "your_actual_service_name"
 
 ### 3. Docker Image Labels
 
-Edit `Dockerfile.backend`, `Dockerfile.frontend`, and `Dockerfile.nginx`:
+Edit `Dockerfile.backend`, and `Dockerfile.frontend`:
 
 ```dockerfile
 LABEL org.opencontainers.image.title="Your Actual Service Name"

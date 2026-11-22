@@ -25,12 +25,12 @@ Production-grade template for API-based services with a FastAPI backend, Next.js
 flowchart TB
     User["User / Browser"]
 
-    subgraph Edge["Edge Layer — NGINX Ingress"]
-        IC["NGINX Ingress Controller<br/>TLS termination<br/>Rate limiting<br/>Security headers"]
+    subgraph Edge["Edge Layer — Ingress"]
+        IC["Ingress controller<br/>TLS termination<br/>Rate limiting"]
     end
 
     subgraph Frontend["Frontend — Next.js 16"]
-        FE["React 19 + TypeScript<br/>Tailwind CSS · React Query<br/>Zod validation · React Hook Form"]
+        FE["React 19 + TypeScript<br/>Tailwind CSS · React Query<br/>Zod validation · React Hook Form<br/>Serves its own /_next/static"]
     end
 
     subgraph Backend["Backend — FastAPI"]
@@ -40,14 +40,9 @@ flowchart TB
         DB[("PostgreSQL<br/>(SQLite fallback)")]
     end
 
-    subgraph Static["Static Assets"]
-        NGINX["Nginx<br/>Static file serving"]
-    end
-
     User -->|"HTTPS"| IC
-    IC -->|"/"| FE
+    IC -->|"/ and /_next/static"| FE
     IC -->|"/api/*, /docs"| API
-    IC -->|"/_next/*"| NGINX
     API --> SVC --> REPO --> DB
 ```
 
@@ -59,8 +54,8 @@ flowchart TB
 |-------|-----------|---------|
 | **Backend** | Python, FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2 | 3.12+ |
 | **Frontend** | Next.js 16, React 19, TypeScript 6.0, Tailwind CSS 4 | Node 26+ |
-| **Edge/Gateway** | NGINX Ingress Controller (Kubernetes) | — |
-| **Static** | Nginx (light, in-cluster) | — |
+| **Edge/Gateway** | Ingress controller (Kubernetes) | — |
+| **Static** | The Next.js server (immutable `/_next/static`; a CDN caches it at the edge) | — |
 | **Database** | PostgreSQL 16 (asyncpg) / SQLite fallback | — |
 | **Orchestration** | Kubernetes, Helm (per-env `values.<env>.yaml`) | 1.28+ |
 | **CI/CD** | GitHub Actions, buildx, Playwright | — |
@@ -75,10 +70,9 @@ flowchart TB
 ```
 .
 ├── .github/                    # GitHub Actions workflows, composite actions, helper scripts
-├── docker-compose.yml          # Local dev stack (4 services)
+├── docker-compose.yml          # Local dev stack (3 services)
 ├── Dockerfile.backend          # Backend container (FastAPI + Uvicorn)
 ├── Dockerfile.frontend         # Frontend container (Next.js)
-├── Dockerfile.nginx            # Nginx static assets container
 ├── Makefile                    # Development shortcuts
 ├── pyproject.toml              # Python project config (Ruff, MyPy, pytest)
 ├── alembic.ini                 # Database migration config
@@ -88,8 +82,7 @@ flowchart TB
 │
 ├── charts/your-service-name/   # Helm chart (the deploy mechanism; values.<env>.yaml per environment)
 ├── infra/                      # Infrastructure scripts & configs
-│   ├── runtime/                # Entrypoint for local dev: starts backend/frontend/nginx (--mode all)
-│   ├── nginx/
+│   ├── runtime/                # Entrypoint for local dev: starts backend and frontend (--mode all)
 │   ├── db/
 │   ├── adapt/                  # Service name adaptation
 │   └── security/               # SBOM, Grype, Grant scan scripts
@@ -132,7 +125,7 @@ flowchart TB
 
 ## Key Design Principles
 
-1. **One role per process** — Each container runs exactly one service (backend, frontend, or nginx) via its own dedicated Dockerfile. No `SERVICE_MODE` variable.
+1. **One role per process** — Each container runs exactly one service (backend or frontend) via its own dedicated Dockerfile. No `SERVICE_MODE` variable.
 2. **No hard-coded ports** — All ports, hosts, and URLs are configurable via environment variables.
 3. **API-first** — Backend exposes OpenAPI spec; frontend generates typed API client from it.
 4. **Testing pyramid** — Four layers: unit → integration → e2e → live, for both backend and frontend.

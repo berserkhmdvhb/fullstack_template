@@ -163,11 +163,11 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 
 ## Runtime Mode (Local Dev Only)
 
-> **Note**: No reverse proxy is used. The NGINX Ingress Controller serves as the edge gateway in Kubernetes. For local development, `infra/runtime/entrypoint.sh` can start the backend, frontend and nginx together (`--mode all`) or individually (`--mode backend` / `frontend` / `nginx`).
+> **Note**: No reverse proxy is used. The Ingress is the edge in Kubernetes, and the Next.js server serves its own static assets. For local development, `infra/runtime/entrypoint.sh` can start the backend and frontend together (`--mode all`) or individually (`--mode backend` / `frontend`).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SERVICE_MODE` | `backend` | Which services `infra/runtime/entrypoint.sh` starts: `backend`, `frontend`, `nginx` or `all`. No longer used in production, where each container runs one service directly (uvicorn for backend, node for frontend, nginx for the edge proxy). |
+| `SERVICE_MODE` | `backend` | Which services `infra/runtime/entrypoint.sh` starts: `backend`, `frontend` or `all`. Not used in production, where each container runs one service directly (uvicorn for the backend, node for the frontend). |
 
 ---
 
@@ -178,7 +178,7 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 | `TLS_CERT_PEM` | _(empty)_ | TLS certificate in PEM format (enables HTTPS) |
 | `EXTRA_CA_PEM` | _(empty)_ | Custom root CA certificate for internal PKI |
 
-> When `TLS_CERT_PEM` is empty, the service runs in plain HTTP mode. TLS termination is handled by the NGINX Ingress Controller in production.
+> When `TLS_CERT_PEM` is empty, the service runs in plain HTTP mode. TLS termination is handled by the Ingress controller in production.
 
 ---
 

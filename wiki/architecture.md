@@ -18,14 +18,14 @@ High-level overview of the service template architecture, component roles, and d
 
 ## Overview
 
-The service template follows a **gateway pattern** with services deployed to Kubernetes behind an NGINX Ingress Controller:
+The service template follows a **gateway pattern** with services deployed to Kubernetes behind an Ingress. Two images run: the backend and the frontend. The Next.js server serves its own pages and `/_next/static` assets, which are hashed and immutable with a one-year cache; a CDN in front caches them at the edge (see [frontend-deployment.md](frontend-deployment.md)):
 
 ```mermaid
 flowchart TB
     User["User / Browser"]
 
     subgraph Edge["Edge Layer"]
-        IC["NGINX Ingress Controller<br/>TLS termination<br/>Rate limiting<br/>Security headers"]
+        IC["Ingress controller<br/>TLS termination<br/>Rate limiting"]
     end
 
     subgraph App["Application Layer"]
@@ -34,14 +34,12 @@ flowchart TB
     end
 
     subgraph Support["Support Layer"]
-        NGINX["Nginx<br/>Static assets"]
         DB[("PostgreSQL 16<br/>Async I/O")]
     end
 
     User -->|"HTTPS"| IC
-    IC -->|"/"| FE
+    IC -->|"/ (pages, /_next/static)"| FE
     IC -->|"/api/*"| BE
-    IC -->|"/_next/*"| NGINX
     FE -->|"/api/*"| BE
     BE --> DB
 ```
@@ -90,7 +88,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant U as User Browser
-    participant I as NGINX Ingress
+    participant I as Ingress
     participant F as Frontend (Next.js)
     participant B as Backend (FastAPI)
     participant D as PostgreSQL
@@ -104,7 +102,7 @@ sequenceDiagram
     F-->>I: HTML + data
     I-->>U: Response
 
-    Note over U,B: All communication flows through NGINX Ingress<br/>Frontend calls backend via API routes
+    Note over U,B: All communication flows through the Ingress<br/>Frontend calls backend via API routes
 ```
 
 ### API Request Lifecycle
@@ -131,7 +129,7 @@ flowchart LR
 
 | Layer | Technology | Responsibility |
 |-------|-----------|---------------|
-| **Edge/Gateway** | NGINX Ingress Controller | TLS termination, routing, rate limiting, security headers, health checks |
+| **Edge/Gateway** | Ingress controller | TLS termination, routing, rate limiting, health checks |
 | **Frontend** | Next.js 16, React 19 | UI rendering, state management, API communication, form validation |
 | **Backend API** | FastAPI | Request handling, validation, business logic orchestration |
 | **Services** | Python | Business logic, transaction coordination |
@@ -140,7 +138,7 @@ flowchart LR
 | **Schemas** | Pydantic v2 | Request/response validation, serialization |
 | **Database** | PostgreSQL 16 | Persistent storage, ACID transactions |
 | **Migrations** | Alembic | Schema evolution, versioned migrations |
-| **Static** | Nginx (in-cluster) | Static asset serving with caching |
+| **Static** | The Next.js server | Serves `/_next/static` (immutable) and `public/` files; a CDN caches them at the edge |
 | **Orchestration** | Kubernetes | Pod scheduling, scaling, health probes, rolling updates |
 
 ---
@@ -159,7 +157,6 @@ flowchart TB
         subgraph AppNS["your-service-name"]
             BE["Backend Deployment"]
             FE["Frontend Deployment"]
-            NG["Nginx Deployment"]
         end
 
         subgraph DBNS["your-service-name-db"]
@@ -175,9 +172,9 @@ flowchart TB
 
 | Resource | Purpose |
 |----------|---------|
-| **Deployment** | Backend (2-10 replicas), Frontend (2-5 replicas), Nginx (1 replica) |
-| **Service** | ClusterIP services for backend (:8000), frontend (:3000), nginx (:8081) |
-| **Ingress** | NGINX Ingress with TLS, security headers, rate limiting |
+| **Deployment** | Backend (2-10 replicas), Frontend (2-5 replicas) |
+| **Service** | ClusterIP services for backend (:8000) and frontend (:3000) |
+| **Ingress** | Routes `/api`, `/docs` and `/openapi.json` to the backend and everything else to the frontend, with TLS and rate limiting |
 | **HPA** | Horizontal Pod Autoscaler (CPU/memory based) |
 | **PDB** | Pod Disruption Budget (minAvailable: 1) |
 | **NetworkPolicy** | Default deny + explicit allow rules |
@@ -237,11 +234,11 @@ flowchart LR
 
 ## Design Decisions
 
-### Why NGINX Ingress Controller?
+### Why an Ingress?
 
 - **Kubernetes-native** — Standard pattern, well-supported, automatic TLS via cert-manager
 - **Declarative routing** — Ingress resources define routing rules
-- **Annotations** — Rate limiting, security headers, SSL redirect via annotations
+- **Annotations** — Rate limiting and SSL redirect via the controller's annotations
 - **Alternatives**: Traefik, or cloud load balancers for advanced needs
 
 ### Why Helm?
@@ -259,7 +256,7 @@ live in `values.<env>.yaml`, not separate overlays.
 
 ### Why Per-Service Dockerfiles?
 
-- **Smaller images** — Each image contains only the dependencies it needs (backend: Python, frontend: Node, nginx: nginx-light).
+- **Smaller images** — Each image contains only the dependencies it needs (backend: Python, frontend: Node).
 - **Independent builds** — A frontend change does not rebuild the backend image, and vice versa.
 - **Clear responsibility** — Each Dockerfile has one job: build and run one service.
 - **Faster CI** — Parallel builds, smaller layers, better cache utilization.

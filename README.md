@@ -18,7 +18,7 @@ It ensures:
 
 ## Features
 
-- **Consistent Architecture**: Backend (FastAPI), Frontend (Next.js 16), NGINX Ingress gateway
+- **Consistent Architecture**: Backend (FastAPI), Frontend (Next.js 16, which serves its own static assets), and an Ingress at the edge
 - **Kubernetes Deployment**: Helm chart with per-env values (dev/qa/production/local), HPA, PDB, NetworkPolicy
 - **Developer Experience**: Makefile shortcuts, run scripts, `.env` support, local K8s via kind/minikube
 - **Code Quality & Security**: Ruff, Mypy, Pytest, CodeQL, gitleaks, supply-chain (digest-pin, typosquat scan, OpenVEX, CI self-check; keyless image signing + SLSA provenance)
@@ -35,7 +35,6 @@ It ensures:
 ├── docker-compose.yml      # Local development stack (optional)
 ├── Dockerfile.backend      # Backend image (FastAPI + Uvicorn)
 ├── Dockerfile.frontend     # Frontend image (Next.js standalone)
-├── Dockerfile.nginx        # NGINX static-asset image
 ├── charts/your-service-name/  # Helm chart (dev/qa/production/local via values.<env>.yaml)
 ├── .github/                # GitHub Actions workflows, composite actions, helper scripts
 ├── Makefile
@@ -86,8 +85,8 @@ infra/adapt/replace_service_name.sh -n awesome_solution --dry-run
 infra/adapt/replace_service_name.sh -n awesome_solution
 ```
 
-> Ports are environment-driven (no adaptation script): set `BACKEND_PORT` / `FRONTEND_PORT` /
-> `NGINX_PORT` in `.env`, `docker-compose.yml`, the workflows' `env` blocks (`.github/workflows/deploy.yml`), and the Helm `values.<env>.yaml`.
+> Ports are environment-driven (no adaptation script): set `BACKEND_PORT` / `FRONTEND_PORT`
+> in `.env`, `docker-compose.yml`, the workflows' `env` blocks (`.github/workflows/deploy.yml`), and the Helm `values.<env>.yaml`.
 > See [`wiki/adaptation.md`](wiki/adaptation.md).
 
 ---
@@ -120,7 +119,7 @@ make compose-build-backend compose-build-frontend
 # (reads charts/your-service-name/values.local.yaml; a per-revision migration Job runs the migration)
 ./scripts/e2e.sh --env local
 
-# Access the service (self-cleaning port-forwards to backend/frontend/nginx)
+# Access the service (self-cleaning port-forwards to backend/frontend)
 ./scripts/port-forward.sh --env local &
 ```
 
@@ -148,7 +147,7 @@ docker compose build --no-cache
 docker compose up -d
 ```
 
-This brings up **four services** (postgres, backend, frontend, nginx) with health-gated startup.
+This brings up **three services** (postgres, backend, frontend) with health-gated startup.
 
 ---
 
@@ -159,7 +158,7 @@ flowchart LR
   Client[User / Browser]
 
   subgraph Edge["Edge Layer"]
-    Ingress["NGINX Ingress<br/>TLS termination<br/>Rate limiting<br/>Security headers"]
+    Ingress["Ingress controller<br/>TLS termination<br/>Rate limiting"]
   end
 
   FE["Next.js 16 Frontend"]
@@ -182,10 +181,8 @@ flowchart TB
     subgraph AppNS["your-service-name"]
       BE["Backend Deployment<br/>2-10 replicas (HPA)"]
       FE["Frontend Deployment<br/>2-5 replicas (HPA)"]
-      NG["NGINX Deployment<br/>Static assets"]
       BS["Backend Service :8000"]
       FS["Frontend Service :3000"]
-      NS["NGINX Service :8081"]
     end
 
     subgraph DBNS["your-service-name-db"]
@@ -194,9 +191,8 @@ flowchart TB
   end
 
   User -->|"HTTPS"| IC
-  IC -->|"/"| FS
+  IC -->|"/ (pages and /_next/static)"| FS
   IC -->|"/api/*"| BS
-  IC -->|"/_next/*"| NS
   BE --> PG
   FE -->|"API calls"| BE
 ```

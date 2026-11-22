@@ -70,7 +70,7 @@ repeating it.
 
 **Rule.** Ports, hosts, URLs, and environment-specific values come from the environment /
 `.env` / Helm `values.<env>.yaml` — never as literals in code or CI. The template's defaults
-(`BACKEND_PORT=8000`, `FRONTEND_PORT=3000`, `NGINX_PORT=8081`, `API_VERSION=v1`) live in
+(`BACKEND_PORT=8000`, `FRONTEND_PORT=3000`, `API_VERSION=v1`) live in
 `.env.example` and `.github/workflows/deploy.yml` (its `env` block); an adopter overrides them without editing code.
 
 **Smell → fix.**
@@ -79,7 +79,7 @@ repeating it.
 - A per-environment difference baked into a shared file → move it to `values.<env>.yaml`.
 
 **Why.** Hard-coded infra values are the single most common thing an adopter has to rip out. The
-container ports are fixed (`backend :8000`, `frontend :3000`, `nginx :8081`); only the *exposed*
+container ports are fixed (`backend :8000`, `frontend :3000`); only the *exposed*
 ports vary, via the Ingress and the per-env values. Depth:
 [`wiki/infrastructure.md`](wiki/infrastructure.md), [`wiki/environment-variables.md`](wiki/environment-variables.md).
 
