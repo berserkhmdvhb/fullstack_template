@@ -50,7 +50,7 @@ DEFAULT_CSP_REPORT_RATE_LIMIT: Final[str] = "20/minute"
 DEFAULT_CSP_REPORT_MAX_BYTES: Final[int] = 16 * 1024
 # The package's own name: the default tracing service name (the adapt script renames the package).
 DEFAULT_SERVICE_NAME: Final[str] = __name__.split(".", maxsplit=1)[0]
-# The chart's ingress `proxy-body-size` (10m, which nginx reads as MiB); a test keeps them equal.
+# 10 MiB. The backend owns the body limit; the chart sets no edge annotation for it.
 DEFAULT_MAX_REQUEST_BODY_BYTES: Final[int] = 10 * 1024 * 1024
 
 # HMAC family only: JWT alg name -> hashlib digest name (a JWT "HS256" is hashlib "sha256").
@@ -435,14 +435,14 @@ class Settings(BaseSettings):
     MAX_REQUEST_BODY_BYTES: int = Field(
         default=DEFAULT_MAX_REQUEST_BODY_BYTES,
         gt=0,
-        description="Largest accepted request body in bytes; more is a 413. The default (10 MiB) "
-        "is the chart's ingress `proxy-body-size`, so the edge and the service agree.",
+        description="Largest accepted request body in bytes; more is a 413. The default is 10 MiB; "
+        "the chart sets no edge limit, so this is the one place the limit lives.",
     )
     ALLOWED_HOSTS: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["*"],
         description="Comma-separated `Host` values the service answers (`*.example.com` matches "
         "subdomains, `*` anything; an entry never carries a port). Anything else is a 400; the "
-        "probe and metrics paths are exempt. The chart sets it from the ingress hosts and the "
+        "probe and metrics paths are exempt. The chart sets it from the edge hosts and the "
         "backend Service names.",
         json_schema_extra={"production": "Must be set and must not contain `*`."},
     )

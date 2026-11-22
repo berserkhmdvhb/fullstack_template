@@ -99,7 +99,7 @@ Examples:
   ./scripts/e2e.sh verify --env dev
   ./scripts/e2e.sh render --env production
   ./scripts/e2e.sh deploy --env dev --dry-run
-  ./scripts/e2e.sh deploy --env local --set ingress.enabled=false   # coexistence: no Ingress clash
+  ./scripts/e2e.sh deploy --env local --set edge.mode=tunnel   # coexistence: no edge object clash
 EOF
 }
 
@@ -426,10 +426,10 @@ cmd_deploy() {
   local -a args=("apply" "--env" "${ENV_NAME}" "--release" "${HELM_RELEASE}")
   local vf; for vf in "${EXTRA_VALUES[@]}"; do args+=("--values" "${vf}"); done
   local s;  for s  in "${SET_ARGS[@]}"; do args+=("--set" "${s}"); done
-  # Coexistence window: `local` disables its Ingress so its host/path can't collide
+  # Coexistence window: `local` renders no edge object so its host/path can't collide
   # with the still-live Kustomize `local` deploy. Drop this after Stage C (k8s/ gone).
-  if [ "${ENV_NAME}" = "local" ] && ! printf ' %s ' " ${SET_ARGS[*]} " | grep -q "ingress.enabled=false"; then
-    args+=("--set" "ingress.enabled=false")
+  if [ "${ENV_NAME}" = "local" ] && ! printf ' %s ' " ${SET_ARGS[*]} " | grep -q "edge.mode="; then
+    args+=("--set" "edge.mode=tunnel")
   fi
   [ "${DRY_RUN}" = "true" ] && args+=("--dry-run")
 

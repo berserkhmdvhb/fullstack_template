@@ -18,12 +18,13 @@ config:
   # for every environment; no build-time API URL to inject per env.
   NEXT_PUBLIC_API_URL: "/api/v1"
 
-ingress:
+edge:
   hosts:
     api: qa-api.your-domain.example
     app: qa-app.your-domain.example
     root: qa.your-domain.example
-  tlsSecretName: your-service-name-qa-tls
+  ingress:
+    tlsSecretName: your-service-name-qa-tls
 
 postgresql:
   enabled: true

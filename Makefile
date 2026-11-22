@@ -4,7 +4,7 @@
     ruff-format ruff-format-check ruff-lint ruff-lint-fix mypy-check \
     openapi-gen openapi-drift-check env-docs env-docs-check \
     shellcheck image-checks frontend-deployment-id tools tools-dry-run pins-refresh \
-    check-all check-all-dry precommit \
+    check-all check-all-dry precommit chart-unittest \
     test test-unit test-integration test-e2e test-contract test-live test-file test-file-function test-fast \
     test-coverage test-coverage-xml test-cov-html test-coverage-rep test-coverage-file \
     check-updates check-toml \
@@ -70,6 +70,7 @@ help::
 	@echo "  check-all                Run dev tool drift check + format + lint + mypy"
 	@echo "  check-all-dry            Same as above but without auto-format (format-check)"
 	@echo "  precommit                Run every pre-commit hook on all files (pinned pre-commit, no network)"
+	@echo "  chart-unittest           Run the chart's helm-unittest suites (pinned plugin, no cluster)"
 	@echo "  openapi-gen              Regenerate openapi.json + TS types from the backend single source"
 	@echo "  openapi-drift-check      Fail if committed openapi.json / types.gen.d.ts is stale (CI mirror)"
 	@echo "  env-docs                 Regenerate the backend-settings block of wiki/environment-variables.md"
@@ -314,6 +315,11 @@ check-all-dry: dev-tools-outdated ruff-format-check ruff-lint mypy-check env-doc
 precommit:
 	@test -x .tools/bin/pre-commit || { echo "pre-commit not found; run: scripts/tools.sh install pre-commit" >&2; exit 1; }
 	.tools/bin/pre-commit run --all-files
+
+# The chart's helm-unittest suites (charts/your-service-name/tests), run by the pinned plugin
+# (tools/pins.tsv; scripts/tools.sh install helm-unittest; found through HELM_PLUGINS above).
+chart-unittest:
+	helm unittest charts/your-service-name
 
 # -------------------------------------------------------------------
 # Tests

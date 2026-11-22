@@ -10,11 +10,20 @@ Verify the rollout:
   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
   kubectl -n {{ .Release.Namespace }} get job {{ include "chart.migrationJobName" . }}   # this revision's migration Job
 
-{{- if .Values.ingress.enabled }}
+{{- if eq .Values.edge.mode "tunnel" }}
 
-Ingress hosts (TLS via {{ .Values.ingress.issuer }}):
-  API  : http{{ if .Values.ingress.tlsSecretName }}s{{ end }}://{{ .Values.ingress.hosts.api }}
-  APP  : http{{ if .Values.ingress.tlsSecretName }}s{{ end }}://{{ .Values.ingress.hosts.app }}
+Edge mode "tunnel": no Ingress or HTTPRoute is rendered. Point the tunnel at these routes
+(hostname + path -> in-cluster URL; see the edge docs in wiki/infrastructure.md):
+{{- range $role := list "api" "app" "root" }}
+{{- range include "chart.edgeRoutes" (dict "ctx" $ "role" $role) | fromJsonArray }}
+  {{ printf "%s%s" (index $.Values.edge.hosts $role) .path | printf "%-56s" }} {{ printf "%-10s" .match }} -> http://{{ .name }}.{{ $.Release.Namespace }}.svc.cluster.local:{{ .port }}
+{{- end }}
+{{- end }}
+{{- else }}
+
+Edge mode "{{ .Values.edge.mode }}" hosts:
+  API  : http{{ if or (eq .Values.edge.mode "gateway") .Values.edge.ingress.tlsSecretName }}s{{ end }}://{{ .Values.edge.hosts.api }}
+  APP  : http{{ if or (eq .Values.edge.mode "gateway") .Values.edge.ingress.tlsSecretName }}s{{ end }}://{{ .Values.edge.hosts.app }}
 {{- end }}
 
 Port-forward the backend API locally:

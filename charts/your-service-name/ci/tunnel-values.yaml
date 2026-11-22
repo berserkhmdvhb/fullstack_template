@@ -1,0 +1,3 @@
+# ct lint/install values: the tunnel edge (no edge object; NOTES prints the route table).
+edge:
+  mode: tunnel

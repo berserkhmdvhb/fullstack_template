@@ -1,0 +1,165 @@
+suite: edge mode gateway (the default)
+release:
+  name: svc
+  namespace: app
+templates:
+  - httproute.yaml
+  - ingress.yaml
+tests:
+  - it: renders one HTTPRoute per host role and no Ingress
+    asserts:
+      - hasDocuments:
+          count: 3
+        template: httproute.yaml
+      - hasDocuments:
+          count: 0
+        template: ingress.yaml
+      - isKind:
+          of: HTTPRoute
+        template: httproute.yaml
+      - isAPIVersion:
+          of: gateway.networking.k8s.io/v1
+        template: httproute.yaml
+
+  - it: the api host serves the backend routes only
+    template: httproute.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: svc-your-service-name-api
+      - equal:
+          path: metadata.namespace
+          value: app
+      - equal:
+          path: spec.hostnames
+          value: [api.your-domain.example]
+      - equal:
+          path: spec.parentRefs
+          value:
+            - name: your-gateway
+              namespace: gateway-system
+      - equal:
+          path: spec.rules
+          value:
+            - matches: [{path: {type: PathPrefix, value: /api}}]
+              backendRefs: [{name: svc-your-service-name-backend, port: 8000}]
+            - matches: [{path: {type: PathPrefix, value: /docs}}]
+              backendRefs: [{name: svc-your-service-name-backend, port: 8000}]
+            - matches: [{path: {type: Exact, value: /openapi.json}}]
+              backendRefs: [{name: svc-your-service-name-backend, port: 8000}]
+      - matchSnapshot: {}
+
+  - it: the app host serves the frontend routes only
+    template: httproute.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: svc-your-service-name-app
+      - equal:
+          path: spec.hostnames
+          value: [app.your-domain.example]
+      - equal:
+          path: spec.rules
+          value:
+            - matches: [{path: {type: PathPrefix, value: /}}]
+              backendRefs: [{name: svc-your-service-name-frontend, port: 3000}]
+      - matchSnapshot: {}
+
+  - it: the root host serves every route, in list order
+    template: httproute.yaml
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: metadata.name
+          value: svc-your-service-name-root
+      - equal:
+          path: spec.hostnames
+          value: [your-service-name.your-domain.example]
+      - lengthEqual:
+          path: spec.rules
+          count: 4
+      - equal:
+          path: spec.rules[3]
+          value:
+            matches: [{path: {type: PathPrefix, value: /}}]
+            backendRefs: [{name: svc-your-service-name-frontend, port: 3000}]
+      - matchSnapshot: {}
+
+  - it: timeouts render only when set
+    template: httproute.yaml
+    documentIndex: 2
+    asserts:
+      - notExists:
+          path: spec.rules[0].timeouts
+  - it: timeouts land on every rule when set
+    template: httproute.yaml
+    documentIndex: 2
+    set:
+      edge:
+        gateway:
+          timeouts: {request: 120s, backendRequest: 100s}
+    asserts:
+      - equal:
+          path: spec.rules[0].timeouts
+          value: {request: 120s, backendRequest: 100s}
+      - equal:
+          path: spec.rules[3].timeouts
+          value: {request: 120s, backendRequest: 100s}
+
+  - it: parentRefs come from values, with an optional sectionName
+    template: httproute.yaml
+    documentIndex: 0
+    set:
+      edge:
+        gateway:
+          parentRefs:
+            - {name: shared, namespace: infra, sectionName: https}
+    asserts:
+      - equal:
+          path: spec.parentRefs
+          value:
+            - {name: shared, namespace: infra, sectionName: https}
+
+  - it: a custom route shows up on the root and api hosts (a backend route)
+    set:
+      edge:
+        routes:
+          - {path: /api, match: PathPrefix, service: backend}
+          - {path: /healthz, match: Exact, service: backend}
+          - {path: /, match: PathPrefix, service: frontend}
+    asserts:
+      - contains:
+          path: spec.rules
+          content:
+            matches: [{path: {type: Exact, value: /healthz}}]
+            backendRefs: [{name: svc-your-service-name-backend, port: 8000}]
+        template: httproute.yaml
+        documentIndex: 0
+      - contains:
+          path: spec.rules
+          content:
+            matches: [{path: {type: Exact, value: /healthz}}]
+            backendRefs: [{name: svc-your-service-name-backend, port: 8000}]
+        template: httproute.yaml
+        documentIndex: 2
+      - lengthEqual:
+          path: spec.rules
+          count: 1
+        template: httproute.yaml
+        documentIndex: 1
+
+  - it: the WAF switch moves the backend routes to the WAF Service and its port
+    set:
+      waf:
+        enabled: true
+    template: httproute.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.rules[0].backendRefs
+          value: [{name: svc-your-service-name-waf, port: 8080}]
+      - equal:
+          path: spec.rules[2].backendRefs
+          value: [{name: svc-your-service-name-waf, port: 8080}]

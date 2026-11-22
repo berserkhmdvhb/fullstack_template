@@ -164,15 +164,12 @@
       }
     },
 
-    "ingress": {
+    "edge": {
+      "description": "How traffic reaches the Services: Gateway API HTTPRoutes, a plain Ingress, or a tunnel that renders nothing. One routes list feeds every mode.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled":         { "type": "boolean" },
-        "className":       { "type": "string" },
-        "issuer":          { "type": "string" },
-        "tlsSecretName":   { "type": "string" },
-        "annotations":     { "type": "object", "additionalProperties": { "type": "string" } },
+        "mode": { "type": "string", "enum": ["gateway", "tunnel", "ingress"] },
         "hosts": {
           "type": "object",
           "additionalProperties": false,
@@ -181,7 +178,58 @@
             "app":  { "type": "string" },
             "root": { "type": "string" }
           }
-        }
+        },
+        "routes": {
+          "description": "The one routes list. The root host serves every route, the api host the backend routes, the app host the frontend routes.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "match", "service"],
+            "properties": {
+              "path":    { "type": "string", "pattern": "^/" },
+              "match":   { "type": "string", "enum": ["PathPrefix", "Exact"] },
+              "service": { "type": "string", "enum": ["backend", "frontend"] }
+            }
+          }
+        },
+        "gateway": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "parentRefs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                  "name":        { "type": "string" },
+                  "namespace":   { "type": "string" },
+                  "sectionName": { "type": "string" }
+                }
+              }
+            },
+            "timeouts": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "request":        { "type": "string" },
+                "backendRequest": { "type": "string" }
+              }
+            }
+          }
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "className":     { "type": "string" },
+            "annotations":   { "type": "object", "additionalProperties": { "type": "string" } },
+            "tlsSecretName": { "type": "string" }
+          }
+        },
+        "tunnel": { "type": "object", "additionalProperties": false }
       }
     },
 

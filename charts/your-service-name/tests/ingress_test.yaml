@@ -1,0 +1,113 @@
+suite: edge mode ingress
+release:
+  name: svc
+  namespace: app
+set:
+  edge:
+    mode: ingress
+templates:
+  - httproute.yaml
+  - ingress.yaml
+tests:
+  - it: renders one Ingress and no HTTPRoute
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: httproute.yaml
+      - hasDocuments:
+          count: 1
+        template: ingress.yaml
+      - isKind:
+          of: Ingress
+        template: ingress.yaml
+      - isAPIVersion:
+          of: networking.k8s.io/v1
+        template: ingress.yaml
+
+  - it: is controller-agnostic by default (no class, no annotations, no TLS)
+    template: ingress.yaml
+    asserts:
+      - notExists:
+          path: spec.ingressClassName
+      - notExists:
+          path: metadata.annotations
+      - notExists:
+          path: spec.tls
+
+  - it: derives the three host rules from the routes list
+    template: ingress.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: svc-your-service-name
+      - equal:
+          path: spec.rules
+          value:
+            - host: api.your-domain.example
+              http:
+                paths:
+                  - {path: /api, pathType: Prefix, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
+                  - {path: /docs, pathType: Prefix, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
+                  - {path: /openapi.json, pathType: Exact, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
+            - host: app.your-domain.example
+              http:
+                paths:
+                  - {path: /, pathType: Prefix, backend: {service: {name: svc-your-service-name-frontend, port: {number: 3000}}}}
+            - host: your-service-name.your-domain.example
+              http:
+                paths:
+                  - {path: /api, pathType: Prefix, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
+                  - {path: /docs, pathType: Prefix, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
+                  - {path: /openapi.json, pathType: Exact, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
+                  - {path: /, pathType: Prefix, backend: {service: {name: svc-your-service-name-frontend, port: {number: 3000}}}}
+      - matchSnapshot: {}
+
+  - it: className, annotations and TLS render when set
+    template: ingress.yaml
+    set:
+      edge:
+        ingress:
+          className: my-class
+          annotations: {example.com/a: "b"}
+          tlsSecretName: my-tls
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: my-class
+      - equal:
+          path: metadata.annotations
+          value: {example.com/a: "b"}
+      - equal:
+          path: spec.tls
+          value:
+            - hosts: [api.your-domain.example, app.your-domain.example, your-service-name.your-domain.example]
+              secretName: my-tls
+
+  - it: a custom route shows up on the api and root hosts
+    template: ingress.yaml
+    set:
+      edge:
+        routes:
+          - {path: /api, match: PathPrefix, service: backend}
+          - {path: /healthz, match: Exact, service: backend}
+          - {path: /, match: PathPrefix, service: frontend}
+    asserts:
+      - contains:
+          path: spec.rules[0].http.paths
+          content: {path: /healthz, pathType: Exact, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
+      - contains:
+          path: spec.rules[2].http.paths
+          content: {path: /healthz, pathType: Exact, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
+
+  - it: the WAF switch moves the backend routes to the WAF Service and its port
+    template: ingress.yaml
+    set:
+      waf:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service
+          value: {name: svc-your-service-name-waf, port: {number: 8080}}
+      - equal:
+          path: spec.rules[1].http.paths[0].backend.service
+          value: {name: svc-your-service-name-frontend, port: {number: 3000}}

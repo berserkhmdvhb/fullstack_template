@@ -180,34 +180,45 @@ secrets:
   dbPassword: ""         # <-- supply out-of-band (see note above)
   statsPass: ""          # <-- supply out-of-band (see note above)
 
-# ---- Ingress --------------------------------------------------------------
-ingress:
-  enabled: true
-  className: nginx
-  issuer: letsencrypt-prod
-  tlsSecretName: your-service-name-tls
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/limit-rps: "100"
-    nginx.ingress.kubernetes.io/limit-connections: "50"
-    nginx.ingress.kubernetes.io/limit-rps-burst: "150"
-    nginx.ingress.kubernetes.io/limit-req-status-code: "429"
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "5"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/enable-access-log: "true"
+# ---- Edge -----------------------------------------------------------------
+# How traffic reaches the two Services. ONE routes list drives every mode, so a path is
+# written once: the root host serves every route, the api host the `backend` routes, the
+# app host the `frontend` routes.
+#   gateway : Gateway API HTTPRoutes (the default) attached to a Gateway you run.
+#   ingress : a controller-agnostic networking.k8s.io/v1 Ingress (no class or annotations by
+#             default).
+#   tunnel  : no edge object; the platform's tunnel (for example Cloudflare Tunnel) carries the
+#             traffic and NOTES.txt prints the route table to configure it from.
+# `backend` resolves to the API Service (the WAF Service when waf.enabled), `frontend` to the UI
+# Service.
+edge:
+  mode: gateway
   hosts:
     api: api.your-domain.example
     app: app.your-domain.example
     root: your-service-name.your-domain.example
+  routes:
+    - {path: /api, match: PathPrefix, service: backend}
+    - {path: /docs, match: PathPrefix, service: backend}
+    - {path: /openapi.json, match: Exact, service: backend}
+    - {path: /, match: PathPrefix, service: frontend}
+  gateway:
+    # The Gateway(s) the HTTPRoutes attach to. The placeholder renders; replace it before a deploy.
+    parentRefs:
+      - {name: your-gateway, namespace: gateway-system}
+    # Optional, rendered on every rule when set, for example {request: 120s, backendRequest: 100s}.
+    timeouts: {}
+  ingress:
+    className: ""           # "" => no ingressClassName, so the cluster's default class applies
+    annotations: {}         # controller-specific annotations; none by default
+    tlsSecretName: ""       # set to add a tls block (one secret for all three hosts)
+  tunnel: {}
 
 # ---- Web Application Firewall (WAF) --------------------------------------
 # In-cluster Coraza WAF (Go, CNCF) running as an Envoy wasm plugin with the OWASP
 # Core Rule Set — a reverse proxy that fronts the API surface (/api, /docs,
 # /openapi.json), see templates/waf-proxy.yaml. OFF BY DEFAULT: waf.enabled=false
-# renders nothing extra and the Ingress routes straight to the backend, so there
+# renders nothing extra and the edge routes straight to the backend, so there
 # is no side effect until you turn it on. Enable on QA/production to filter
 # SQLi/XSS/etc. at the edge. The UI/static tiers bypass it (not SQLi targets).
 #

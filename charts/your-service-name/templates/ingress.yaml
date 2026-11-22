@@ -1,4 +1,4 @@
-{{- if .Values.ingress.enabled }}
+{{- if eq .Values.edge.mode "ingress" }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -6,81 +6,36 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
 {{- include "chart.labels" . | nindent 4 }}
+  {{- with .Values.edge.ingress.annotations }}
   annotations:
-{{- toYaml .Values.ingress.annotations | nindent 4 }}
+{{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
-  ingressClassName: {{ .Values.ingress.className }}
-  {{- if .Values.ingress.tlsSecretName }}
+  {{- with .Values.edge.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.edge.ingress.tlsSecretName }}
   tls:
-    # All three host rules (api, app, root) share one cert — the issuer must cover
-    # all three names (C-L1: the root host previously had a rule but no TLS entry).
-    # Empty tlsSecretName => no TLS block (plain HTTP): e.g. a Cilium cluster with
-    # no cert-manager, matching the deployed sample. Set it to enable HTTPS.
+    # All three host rules share one cert, so the issuer must cover all three names.
+    # An empty tlsSecretName renders no TLS block (plain HTTP).
     - hosts:
-        - {{ .Values.ingress.hosts.api | quote }}
-        - {{ .Values.ingress.hosts.app | quote }}
-        - {{ .Values.ingress.hosts.root | quote }}
-      secretName: {{ .Values.ingress.tlsSecretName }}
+        - {{ .Values.edge.hosts.api | quote }}
+        - {{ .Values.edge.hosts.app | quote }}
+        - {{ .Values.edge.hosts.root | quote }}
+      secretName: {{ .Values.edge.ingress.tlsSecretName }}
   {{- end }}
   rules:
-    # ---- API routes -> Backend ----
-    - host: {{ .Values.ingress.hosts.api | quote }}
+  {{- range $role := list "api" "app" "root" }}
+    - host: {{ index $.Values.edge.hosts $role | quote }}
       http:
         paths:
-          - path: /api
-            pathType: Prefix
+        {{- range include "chart.edgeRoutes" (dict "ctx" $ "role" $role) | fromJsonArray }}
+          - path: {{ .path }}
+            pathType: {{ trimPrefix "Path" .match }}
             backend:
               service:
-                name: {{ include "chart.apiBackendService" . }}
-                port: { number: 8000 }
-          - path: /docs
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "chart.apiBackendService" . }}
-                port: { number: 8000 }
-          - path: /openapi.json
-            pathType: Exact
-            backend:
-              service:
-                name: {{ include "chart.apiBackendService" . }}
-                port: { number: 8000 }
-    # ---- UI routes -> Frontend (default) ----
-    - host: {{ .Values.ingress.hosts.app | quote }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "chart.fullname" . }}-frontend
-                port: { number: 3000 }
-    # ---- Single-domain fallback ----
-    - host: {{ .Values.ingress.hosts.root | quote }}
-      http:
-        paths:
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "chart.apiBackendService" . }}
-                port: { number: 8000 }
-          - path: /docs
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "chart.apiBackendService" . }}
-                port: { number: 8000 }
-          - path: /openapi.json
-            pathType: Exact
-            backend:
-              service:
-                name: {{ include "chart.apiBackendService" . }}
-                port: { number: 8000 }
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "chart.fullname" . }}-frontend
-                port: { number: 3000 }
+                name: {{ .name }}
+                port: { number: {{ .port }} }
+        {{- end }}
+  {{- end }}
 {{- end }}

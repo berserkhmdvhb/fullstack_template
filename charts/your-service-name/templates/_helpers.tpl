@@ -98,7 +98,7 @@ matchLabels:
    API-path backend Service name. When the WAF is enabled the API surface is
    fronted by the Coraza proxy (templates/waf-proxy.yaml), so API paths target
    `<name>-waf`; otherwise they go straight to `<name>-backend`. Keeps the
-   waf.enabled swap in one place (ingress.yaml calls this for every API path).
+   waf.enabled swap in one place (chart.edgeRoutes calls this for every backend route).
 */}}
 {{- define "chart.apiBackendService" -}}
 {{- if .Values.waf.enabled -}}
@@ -106,6 +106,31 @@ matchLabels:
 {{- else -}}
 {{- printf "%s-backend" (include "chart.fullname" .) -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+   The one routes list (edge.routes), resolved for a host role: root serves every route, api the
+   `backend` routes, app the `frontend` routes. Emits a JSON array of {path, match, name, port}
+   (read it back with fromJsonArray). `backend` is the WAF-aware Service and its port; `frontend`
+   is the UI Service. Called with (dict "ctx" . "role" "api|app|root"); httproute.yaml, ingress.yaml
+   and NOTES.txt all render from this, so a path is never written twice.
+*/}}
+{{- define "chart.edgeRoutes" -}}
+{{- $role := .role -}}
+{{- $ctx := .ctx -}}
+{{- $out := list -}}
+{{- range $ctx.Values.edge.routes -}}
+{{- if or (eq $role "root") (and (eq $role "api") (eq .service "backend")) (and (eq $role "app") (eq .service "frontend")) -}}
+{{- $name := printf "%s-frontend" (include "chart.fullname" $ctx) -}}
+{{- $port := $ctx.Values.config.FRONTEND_PORT -}}
+{{- if eq .service "backend" -}}
+{{- $name = include "chart.apiBackendService" $ctx -}}
+{{- $port = ternary $ctx.Values.waf.service.port $ctx.Values.config.BACKEND_PORT $ctx.Values.waf.enabled -}}
+{{- end -}}
+{{- $out = append $out (dict "path" .path "match" .match "name" $name "port" (int $port)) -}}
+{{- end -}}
+{{- end -}}
+{{- toJson $out -}}
 {{- end -}}
 
 {{/*
@@ -142,14 +167,14 @@ imagePullSecrets:
 {{- end -}}
 
 {{/*
-   The Host values the backend answers (its ALLOWED_HOSTS): the ingress hosts, plus the backend
+   The Host values the backend answers (its ALLOWED_HOSTS): the edge hosts, plus the backend
    Service's in-cluster names, because the frontend's server-side calls reach the backend by
    Service name. Ports are not listed: the backend strips the port before it matches.
 */}}
 {{- define "chart.allowedHosts" -}}
 {{- $svc := printf "%s-backend" (include "chart.fullname" .) -}}
 {{- $ns := .Release.Namespace -}}
-{{- $hosts := list .Values.ingress.hosts.api .Values.ingress.hosts.app .Values.ingress.hosts.root $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns) -}}
+{{- $hosts := list .Values.edge.hosts.api .Values.edge.hosts.app .Values.edge.hosts.root $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns) -}}
 {{- if .Values.backend.extraAllowedHosts -}}
 {{- $hosts = concat $hosts (list (trim .Values.backend.extraAllowedHosts)) -}}
 {{- end -}}

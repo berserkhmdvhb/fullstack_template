@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from tests.backend.test_chart_opt_in_features import ENVS, _docs, helm  # noqa: F401  (fixture)
@@ -24,17 +26,34 @@ def test_the_app_runs_as_backend_and_frontend_only(helm: str, env: str) -> None:
     assert not {c for c in components if "nginx" in c or c == "static"}
 
 
-@pytest.mark.parametrize("env", ENVS)
-def test_the_ingress_sends_every_ui_path_to_the_frontend_and_nothing_to_a_static_port(
-    helm: str,  # noqa: F811
-    env: str,
-) -> None:
-    ingress = next(d for d in _docs(helm, env=env) if d["kind"] == "Ingress")
-    backends = [
+def _gateway_backends(docs: list[dict[str, Any]]) -> list[tuple[str, str, int]]:
+    return [
+        (r["matches"][0]["path"]["value"], ref["name"], ref["port"])
+        for d in docs
+        if d["kind"] == "HTTPRoute"
+        for r in d["spec"]["rules"]
+        for ref in r["backendRefs"]
+    ]
+
+
+def _ingress_backends(docs: list[dict[str, Any]]) -> list[tuple[str, str, int]]:
+    ingress = next(d for d in docs if d["kind"] == "Ingress")
+    return [
         (p["path"], p["backend"]["service"]["name"], p["backend"]["service"]["port"]["number"])
         for rule in ingress["spec"]["rules"]
         for p in rule["http"]["paths"]
     ]
+
+
+@pytest.mark.parametrize("env", ENVS)
+@pytest.mark.parametrize("mode", ["gateway", "ingress"])
+def test_the_edge_sends_every_ui_path_to_the_frontend_and_nothing_to_a_static_port(
+    helm: str,  # noqa: F811
+    env: str,
+    mode: str,
+) -> None:
+    docs = _docs(helm, "--set", f"edge.mode={mode}", env=env)
+    backends = _gateway_backends(docs) if mode == "gateway" else _ingress_backends(docs)
     assert STATIC_TIER_PORT not in {port for _, _, port in backends}
     assert not [b for b in backends if b[1].endswith("-nginx")]
     assert ("/", "svc-your-service-name-frontend", 3000) in backends

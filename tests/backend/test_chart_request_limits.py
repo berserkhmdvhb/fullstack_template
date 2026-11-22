@@ -1,5 +1,5 @@
 # your-service-name — adaptable service template (see wiki/getting-started.md)
-"""The chart renders ALLOWED_HOSTS, and the body limit default is the ingress limit."""
+"""The chart renders ALLOWED_HOSTS; the body limit lives in the backend, not at the edge."""
 
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ ENVS = ["dev", "qa", "local", "production"]
 NAMESPACE = "team-ns"
 RELEASE = "svc"
 BACKEND_SERVICE = f"{RELEASE}-your-service-name-backend"
-_UNITS = {"": 1, "k": 1024, "m": 1024**2, "g": 1024**3}
 
 
 @pytest.fixture(autouse=True)
@@ -62,10 +61,10 @@ def _values(env: str) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("env", ENVS)
-def test_allowed_hosts_are_the_ingress_hosts_and_the_backend_service_names(env: str) -> None:
+def test_allowed_hosts_are_the_edge_hosts_and_the_backend_service_names(env: str) -> None:
     rendered = rendered_config(env)["ALLOWED_HOSTS"].split(",")
-    base = yaml.safe_load((CHART / "values.yaml").read_text("utf-8"))["ingress"]["hosts"]
-    hosts = {**base, **_values(env).get("ingress", {}).get("hosts", {})}
+    base = yaml.safe_load((CHART / "values.yaml").read_text("utf-8"))["edge"]["hosts"]
+    hosts = {**base, **_values(env).get("edge", {}).get("hosts", {})}
     extra = _values(env).get("backend", {}).get("extraAllowedHosts", "")
     assert rendered == [
         hosts["api"],
@@ -102,24 +101,11 @@ def test_the_production_render_passes_the_production_validator_once_auth_is_chos
     assert "*" not in settings.ALLOWED_HOSTS
 
 
-def _bytes(size: str) -> int:
-    match = re.fullmatch(r"(\d+)([kKmMgG]?)", size)
-    assert match, size
-    return int(match[1]) * _UNITS[match[2].lower()]
-
-
-def test_the_body_limit_default_is_the_ingress_body_size() -> None:
-    """One fact with a checked copy: nginx `proxy-body-size` (m = MiB) and the setting default."""
-    key = "nginx.ingress.kubernetes.io/proxy-body-size"
-    sizes = {}
+def test_the_body_limit_lives_in_the_backend_and_no_values_file_sets_an_edge_annotation() -> None:
+    """The nginx annotations are gone: the 10 MiB body limit is the backend setting's default."""
     for path in sorted(CHART.glob("values*.yaml")):
-        loaded = yaml.safe_load(path.read_text("utf-8")) or {}
-        value = ((loaded.get("ingress") or {}).get("annotations") or {}).get(key)
-        if value is not None:
-            sizes[path.name] = _bytes(str(value))
-    assert sizes, "the chart no longer sets proxy-body-size"
-    assert set(sizes.values()) == {DEFAULT_MAX_REQUEST_BODY_BYTES}, sizes
-    assert Settings().MAX_REQUEST_BODY_BYTES == DEFAULT_MAX_REQUEST_BODY_BYTES
+        assert "nginx.ingress.kubernetes.io" not in path.read_text("utf-8"), path.name
+    assert Settings().MAX_REQUEST_BODY_BYTES == DEFAULT_MAX_REQUEST_BODY_BYTES == 10 * 1024**2
 
 
 def test_extra_allowed_hosts_are_appended_for_local_clusters_only() -> None:

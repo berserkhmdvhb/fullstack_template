@@ -1,0 +1,3 @@
+# ct lint/install values: the Gateway API edge (the default mode).
+edge:
+  mode: gateway

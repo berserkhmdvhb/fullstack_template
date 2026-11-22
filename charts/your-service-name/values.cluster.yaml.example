@@ -51,16 +51,20 @@ global:
   imagePullSecrets:
     - registry-credentials
 
-# --- Ingress ---------------------------------------------------------------
-ingress:
-  className: <INGRESS-CLASS>     # the ingress controller on YOUR cluster, e.g. cilium or nginx
+# --- Edge ------------------------------------------------------------------
+edge:
+  mode: gateway                  # gateway (Gateway API HTTPRoute) | ingress | tunnel
   hosts:
     api:  api.your-domain.example          # adopt.sh stamps your-domain.example -> your base domain
     app:  app.your-domain.example
     root: your-service-name.your-domain.example
-  tlsSecretName: <TLS-SECRET>    # "" => plain HTTP (no cert-manager); set a real cert secret for HTTPS
-  annotations: {}                # nginx.ingress.kubernetes.io/* annotations are INERT on non-nginx
-                                 # controllers (e.g. Cilium) — leave this empty unless you run ingress-nginx
+  gateway:
+    parentRefs:
+      - {name: <GATEWAY-NAME>, namespace: <GATEWAY-NAMESPACE>}   # the Gateway on YOUR cluster
+  ingress:                       # used when mode is ingress
+    className: <INGRESS-CLASS>   # "" => the cluster's default class
+    tlsSecretName: <TLS-SECRET>  # "" => plain HTTP (no cert-manager); set a real cert secret for HTTPS
+    annotations: {}              # controller-specific; nginx.ingress.kubernetes.io/* is inert elsewhere
 
 # --- Storage (match your cluster's StorageClass) ---------------------------
 # Confirm with `kubectl get storageclass`; the chart default `standard` may not

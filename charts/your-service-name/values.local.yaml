@@ -36,12 +36,13 @@ config:
 # (gitignored) and pass it with an extra `-f`. This DB password is also the
 # internal Postgres password (single source), so it is the one value to provide.
 
-ingress:
+edge:
   hosts:
     api: local-api.your-service.test
     app: local-app.your-service.test
     root: local.your-service.test
-  tlsSecretName: your-service-name-local-tls
+  ingress:
+    tlsSecretName: your-service-name-local-tls
 
 postgresql:
   enabled: true

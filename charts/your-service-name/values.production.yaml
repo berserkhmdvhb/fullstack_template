@@ -40,12 +40,13 @@ config:
   # for every environment; no build-time API URL to inject per env.
   NEXT_PUBLIC_API_URL: "/api/v1"
 
-ingress:
+edge:
   hosts:
     api: api.your-domain.example
     app: app.your-domain.example
     root: your-service-name.your-domain.example
-  tlsSecretName: your-service-name-tls
+  ingress:
+    tlsSecretName: your-service-name-tls
 
 # Production uses a managed DB — the in-cluster StatefulSet is disabled and the
 # app points at externalDatabase.host. Raise quota.* too if on a larger cluster.

@@ -1,0 +1,31 @@
+suite: edge values schema
+release:
+  name: svc
+  namespace: app
+templates:
+  - httproute.yaml
+tests:
+  - it: rejects an unknown mode
+    set: {edge: {mode: nginx}}
+    asserts:
+      - failedTemplate: {}
+  - it: rejects a route with an unknown service
+    set:
+      edge:
+        routes: [{path: /x, match: PathPrefix, service: database}]
+    asserts:
+      - failedTemplate: {}
+  - it: rejects a route with an unknown key
+    set:
+      edge:
+        routes: [{path: /x, match: PathPrefix, service: backend, rewrite: /y}]
+    asserts:
+      - failedTemplate: {}
+  - it: rejects the retired top-level ingress block
+    set: {ingress: {enabled: true}}
+    asserts:
+      - failedTemplate: {}
+  - it: rejects an unknown host role
+    set: {edge: {hosts: {admin: admin.your-domain.example}}}
+    asserts:
+      - failedTemplate: {}

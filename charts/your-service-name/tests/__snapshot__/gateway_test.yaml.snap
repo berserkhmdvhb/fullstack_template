@@ -1,0 +1,119 @@
+the api host serves the backend routes only:
+  1: |
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-api
+      namespace: app
+    spec:
+      hostnames:
+        - api.your-domain.example
+      parentRefs:
+        - name: your-gateway
+          namespace: gateway-system
+      rules:
+        - backendRefs:
+            - name: svc-your-service-name-backend
+              port: 8000
+          matches:
+            - path:
+                type: PathPrefix
+                value: /api
+        - backendRefs:
+            - name: svc-your-service-name-backend
+              port: 8000
+          matches:
+            - path:
+                type: PathPrefix
+                value: /docs
+        - backendRefs:
+            - name: svc-your-service-name-backend
+              port: 8000
+          matches:
+            - path:
+                type: Exact
+                value: /openapi.json
+the app host serves the frontend routes only:
+  1: |
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-app
+      namespace: app
+    spec:
+      hostnames:
+        - app.your-domain.example
+      parentRefs:
+        - name: your-gateway
+          namespace: gateway-system
+      rules:
+        - backendRefs:
+            - name: svc-your-service-name-frontend
+              port: 3000
+          matches:
+            - path:
+                type: PathPrefix
+                value: /
+the root host serves every route, in list order:
+  1: |
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-root
+      namespace: app
+    spec:
+      hostnames:
+        - your-service-name.your-domain.example
+      parentRefs:
+        - name: your-gateway
+          namespace: gateway-system
+      rules:
+        - backendRefs:
+            - name: svc-your-service-name-backend
+              port: 8000
+          matches:
+            - path:
+                type: PathPrefix
+                value: /api
+        - backendRefs:
+            - name: svc-your-service-name-backend
+              port: 8000
+          matches:
+            - path:
+                type: PathPrefix
+                value: /docs
+        - backendRefs:
+            - name: svc-your-service-name-backend
+              port: 8000
+          matches:
+            - path:
+                type: Exact
+                value: /openapi.json
+        - backendRefs:
+            - name: svc-your-service-name-frontend
+              port: 3000
+          matches:
+            - path:
+                type: PathPrefix
+                value: /

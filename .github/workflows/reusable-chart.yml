@@ -23,8 +23,9 @@ jobs:
           persist-credentials: false
       - name: Install the pinned Helm
         run: |
-          scripts/tools.sh install helm4
+          scripts/tools.sh install helm4 helm-unittest
           echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+          echo "HELM_PLUGINS=$PWD/.tools/helm-plugins" >> "$GITHUB_ENV"
       # ct calls yamllint (with the tracked config the pre-commit hook also uses) and yamale (Chart.yaml schema).
       # GitHub runners ship neither and no uv, so each gets a venv from its hashed lock, as zizmor does in ci.yml.
       - name: Install chart-testing, yamllint and yamale
@@ -42,12 +43,16 @@ jobs:
           PATH="$RUNNER_TEMP/yamllint/bin:$RUNNER_TEMP/yamale/bin:$PATH" ct lint --charts "${CHART_DIR}" \
             --lint-conf .github/ct-lintconf.yaml --chart-yaml-schema .github/ct-chart-schema.yaml \
             --validate-maintainers=false --check-version-increment=false
+      - name: Chart unit tests and golden renders
+        run: |
+          : "${CHART_DIR:?CHART_DIR is required}"
+          helm unittest "${CHART_DIR}"
       - name: Lint and render every values file
         run: |
           : "${CHART_DIR:?CHART_DIR is required}"
           helm version --short
           helm lint "${CHART_DIR}"
-          for f in "${CHART_DIR}"/values.*.yaml; do
+          for f in "${CHART_DIR}"/values.*.yaml "${CHART_DIR}"/ci/*-values.yaml; do
             name="$(basename "${f}" .yaml)"
             echo "== ${name}"
             helm lint "${CHART_DIR}" -f "${f}"

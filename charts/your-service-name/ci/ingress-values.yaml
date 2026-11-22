@@ -1,0 +1,5 @@
+# ct lint/install values: the controller-agnostic Ingress edge.
+edge:
+  mode: ingress
+  ingress:
+    tlsSecretName: your-service-name-tls

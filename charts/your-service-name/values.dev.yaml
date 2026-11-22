@@ -35,12 +35,13 @@ config:
   # for every environment; no build-time API URL to inject per env.
   NEXT_PUBLIC_API_URL: "/api/v1"
 
-ingress:
+edge:
   hosts:
     api: dev-api.your-domain.example
     app: dev-app.your-domain.example
     root: dev.your-domain.example
-  tlsSecretName: your-service-name-dev-tls
+  ingress:
+    tlsSecretName: your-service-name-dev-tls
 
 postgresql:
   enabled: true

@@ -1,0 +1,44 @@
+suite: edge mode tunnel
+release:
+  name: svc
+  namespace: app
+set:
+  edge:
+    mode: tunnel
+templates:
+  - httproute.yaml
+  - ingress.yaml
+  - NOTES.txt
+tests:
+  - it: renders neither an HTTPRoute nor an Ingress
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: httproute.yaml
+      - hasDocuments:
+          count: 0
+        template: ingress.yaml
+
+  - it: NOTES prints the tunnel route table from the routes list
+    template: NOTES.txt
+    asserts:
+      - matchRegexRaw:
+          pattern: 'api.your-domain.example/api\s+PathPrefix\s+-> http://svc-your-service-name-backend.app.svc.cluster.local:8000'
+      - matchRegexRaw:
+          pattern: 'app.your-domain.example/\s+PathPrefix\s+-> http://svc-your-service-name-frontend.app.svc.cluster.local:3000'
+      - matchRegexRaw:
+          pattern: 'your-service-name.your-domain.example/openapi.json\s+Exact\s+-> http://svc-your-service-name-backend.app.svc.cluster.local:8000'
+      - matchSnapshotRaw: {}
+
+  - it: a custom route shows up in the route table, and the WAF switch moves it
+    template: NOTES.txt
+    set:
+      waf:
+        enabled: true
+      edge:
+        routes:
+          - {path: /healthz, match: Exact, service: backend}
+          - {path: /, match: PathPrefix, service: frontend}
+    asserts:
+      - matchRegexRaw:
+          pattern: 'api.your-domain.example/healthz\s+Exact\s+-> http://svc-your-service-name-waf.app.svc.cluster.local:8080'
