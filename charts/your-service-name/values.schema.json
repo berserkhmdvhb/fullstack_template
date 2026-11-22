@@ -289,6 +289,11 @@
         "monitoringPodSelector": {
           "description": "matchLabels of the scraping Pods; empty means app.kubernetes.io/name: prometheus.",
           "$ref": "#/definitions/labels"
+        },
+        "backendExtraIngressPeers": {
+          "description": "NetworkPolicy peers (from entries) also admitted to the backend port, with the WAF on or off; for example the auth proxy in AUTH_MODE=gateway. Empty adds no rule.",
+          "type": "array",
+          "items": { "type": "object" }
         }
       }
     },

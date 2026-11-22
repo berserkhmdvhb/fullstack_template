@@ -129,6 +129,7 @@ give the Gateway a namespace or list its Pods in `extraPeers` with a `podSelecto
 | frontend | backend, backend port | `waf.enabled: false` (server-side calls, `BACKEND_URL`) |
 | Edge peers, frontend | WAF, `waf.service.port` | `waf.enabled: true`; then nothing but the WAF reaches the backend |
 | WAF | backend, backend port | `waf.enabled: true` |
+| `networkPolicy.backendExtraIngressPeers` (NetworkPolicy peers, for example the auth proxy) | backend, backend port | when set, with the WAF on or off; empty adds no rule. These peers reach the backend around the WAF |
 | `monitoringPodSelector` Pods in the `monitoringNamespaceSelector` namespace (`networkPolicy`) | backend, the metrics port (today the API port) | only with a scrape target (`monitoring.scrapeAnnotations`, on by default, or `monitoring.serviceMonitor`); empty selectors mean `app.kubernetes.io/name: prometheus` in the `monitoring` namespace; `monitoringNamespaceSelector: null` removes the rule |
 | backend, migration Job | PostgreSQL :5432 (or `externalDatabase.egressCIDR`) | always |
 | every egress policy | kube-dns :53 (`networkPolicy.dns`; empty: `k8s-app: kube-dns` in `kube-system`; plus optional `ipBlocks` such as NodeLocal DNSCache) | always |

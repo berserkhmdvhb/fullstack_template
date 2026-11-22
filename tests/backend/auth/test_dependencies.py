@@ -287,6 +287,20 @@ class TestGatewayTrustedPeer:
         for value in ("forged", "real", "admin", "viewer"):
             assert value not in caplog.text
 
+    @pytest.mark.parametrize("value", ["forged, real", "forged,real", ","])
+    def test_an_identity_with_a_comma_is_401(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, value: str
+    ) -> None:
+        """Peer AUTH_PROXY (trusted): a comma means a proxy joined its value onto a client copy."""
+        _gateway(monkeypatch)
+        with caplog.at_level(logging.INFO), _client(_make_app(), AUTH_PROXY) as client:
+            res = client.get(ME_PATH, headers={"X-Authenticated-User-Id": value})
+        assert res.status_code == status.HTTP_401_UNAUTHORIZED
+        records = [r for r in caplog.records if "comma" in r.getMessage()]
+        assert [r.levelno for r in records] == [logging.INFO]
+        assert "forged" not in caplog.text
+        assert "real" not in caplog.text
+
     def test_a_repeated_configured_header_is_401(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Peer AUTH_PROXY: the count follows AUTH_USER_ID_HEADER, in any letter case."""
         _gateway(monkeypatch, AUTH_USER_ID_HEADER="X-Trusted-Subject")

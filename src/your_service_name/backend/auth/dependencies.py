@@ -198,6 +198,12 @@ def _principal_from_gateway(request: Request, settings: Settings) -> Principal:
             "Only the auth proxy may set it."
         )
         raise NotAuthenticatedError(msg)
+    # An id never holds a comma: one means a proxy joined its value onto a client's copy. (Roles
+    # are a comma-separated list by design, so the same check cannot apply to them.)
+    if "," in user_id:
+        logger.info("Gateway identity refused: the identity header holds a comma")
+        msg = "Gateway identity header must hold one value (AUTH_MODE=gateway)."
+        raise NotAuthenticatedError(msg)
     roles: list[str] = []
     raw_roles = request.headers.get(roles_header)
     if raw_roles:

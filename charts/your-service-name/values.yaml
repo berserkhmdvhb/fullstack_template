@@ -170,6 +170,7 @@ config:
   # is a 401). Never list a hop that does not both authenticate and strip client copies: not the
   # edge (Gateway, ingress controller, cloudflared), the WAF or the frontend. API traffic must reach
   # the backend through that proxy, or same-origin /api/v1 calls get a 401 (wiki/security.md).
+  # Admit the proxy to the backend with networkPolicy.backendExtraIngressPeers.
   # The frontend reads the same ConfigMap and drops these headers (and any x-authenticated-*)
   # from browser requests.
   AUTH_PROXY_CIDRS: ""
@@ -279,6 +280,11 @@ networkPolicy:
   # managed Prometheus) runs in another namespace with other labels: set both.
   monitoringNamespaceSelector: {}
   monitoringPodSelector: {}
+  # Extra NetworkPolicy peers (a list of `from` entries: podSelector, namespaceSelector, ipBlock)
+  # admitted to the backend Pods on the backend port, with the WAF on or off. For the auth proxy in
+  # AUTH_MODE=gateway: list it here AND in config.AUTH_PROXY_CIDRS. Empty adds no rule. Every peer
+  # listed can reach the backend around the WAF, so list only what must.
+  backendExtraIngressPeers: []
 
 # ---- Web Application Firewall (WAF) --------------------------------------
 # In-cluster Coraza WAF (Go, CNCF) running as an Envoy wasm plugin with the OWASP

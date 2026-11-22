@@ -1,0 +1,80 @@
+suite: networkPolicy.backendExtraIngressPeers admits extra peers (an auth proxy) to the backend
+release:
+  name: svc
+  namespace: app
+templates:
+  - network-policy.yaml
+tests:
+  - it: empty by default - no extra rule (WAF off)
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            from: [{podSelector: {matchLabels: {app.kubernetes.io/name: auth-proxy}}}]
+            ports: [{protocol: TCP, port: 8000}]
+      # The frontend, the edge peers and the metrics scrape: nothing else.
+      - lengthEqual: {path: spec.ingress, count: 3}
+  - it: empty by default - no extra rule (WAF on)
+    template: network-policy.yaml
+    set: {waf: {enabled: true}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      # The WAF and the metrics scrape: nothing else.
+      - lengthEqual: {path: spec.ingress, count: 2}
+  - it: set, WAF off - the peers reach the backend port
+    template: network-policy.yaml
+    set:
+      networkPolicy:
+        backendExtraIngressPeers:
+          - podSelector: {matchLabels: {app.kubernetes.io/name: auth-proxy}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from: [{podSelector: {matchLabels: {app.kubernetes.io/name: auth-proxy}}}]
+            ports: [{protocol: TCP, port: 8000}]
+  - it: set, WAF on - the peers reach the backend port, beside the WAF
+    template: network-policy.yaml
+    set:
+      waf: {enabled: true}
+      networkPolicy:
+        backendExtraIngressPeers:
+          - podSelector: {matchLabels: {app.kubernetes.io/name: auth-proxy}}
+          - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: auth}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector: {matchLabels: {app.kubernetes.io/name: auth-proxy}}
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: auth}}
+            ports: [{protocol: TCP, port: 8000}]
+      - contains:
+          path: spec.ingress
+          content:
+            from: [{podSelector: {matchLabels: {app.kubernetes.io/component: waf}}}]
+            ports: [{protocol: TCP, port: 8000}]
+  - it: the port follows config.BACKEND_PORT
+    template: network-policy.yaml
+    set:
+      config: {BACKEND_PORT: "9000"}
+      networkPolicy:
+        backendExtraIngressPeers:
+          - podSelector: {matchLabels: {app.kubernetes.io/name: auth-proxy}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from: [{podSelector: {matchLabels: {app.kubernetes.io/name: auth-proxy}}}]
+            ports: [{protocol: TCP, port: 9000}]
+  - it: the schema rejects a non-list
+    template: network-policy.yaml
+    set: {networkPolicy: {backendExtraIngressPeers: {podSelector: {}}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "backendExtraIngressPeers"

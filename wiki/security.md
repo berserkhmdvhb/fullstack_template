@@ -162,7 +162,10 @@ Two kinds of header are believed only from listed senders, and each kind has its
   the connection does. Any other peer gets a `401`, logged at info level without the header values.
   Empty trusts nobody, so every request gets a `401`; in production `gateway` mode with an empty
   list stops startup. An identity or roles header that appears more than once (names compared in
-  any letter case), or an identity that is blank, is a `401` too, even from a listed peer.
+  any letter case), or an identity that is blank or holds a comma (a proxy that joined its value
+  onto a client's copy), is a `401` too, even from a listed peer. The roles header stays a
+  comma-separated list by design, so a joined roles value cannot be detected: that rests on the
+  auth proxy's duty below.
 - **Client-IP headers count only from the proxies in their own list**, `TRUSTED_PROXY_CIDRS` (see
   [Client IP](#client-ip)). Being a client-IP hop does not make a proxy an auth proxy: list a range
   in both only when that proxy authenticates and strips client copies of the identity headers.
@@ -188,9 +191,18 @@ authenticate, is believed.
 route the API host (and `/api/v1` on the app host) to the auth proxy at the edge, or point the
 frontend's same-origin proxy at it with `BACKEND_URL`. Otherwise a browser's same-origin `/api/v1`
 calls through the frontend get a `401`, by design: the frontend is not in the list and strips the
-headers. With the WAF on, the WAF connects to the backend, so put the auth proxy between the WAF and
-the backend. Which component connects to the backend in each mode:
+headers. The auth proxy needs three things: a NetworkPolicy flow to the backend
+(`networkPolicy.backendExtraIngressPeers`, or an edge peer when the edge is the proxy), its Pod range
+in `AUTH_PROXY_CIDRS`, and the routing above. Which component connects to the backend in each mode:
 [Infrastructure, NetworkPolicy per mode](./infrastructure.md#networkpolicy-per-mode).
+
+**With the WAF on.** The intended chain is WAF → auth proxy → backend: the WAF's upstream points at
+the auth proxy, the proxy is listed in `networkPolicy.backendExtraIngressPeers` and in
+`AUTH_PROXY_CIDRS`, and the WAF is in neither. **The chart's WAF cannot do this today:** its
+upstream is the backend Service, fixed in `templates/waf-proxy.yaml`, and its egress policy admits
+only the backend Pods. Until that is configurable, gateway mode with the chart's WAF leaves two
+choices: run the WAF off, or route the API to an auth proxy that is admitted by
+`backendExtraIngressPeers`, so that API traffic reaches the backend around the WAF.
 
 ### OIDC mode
 

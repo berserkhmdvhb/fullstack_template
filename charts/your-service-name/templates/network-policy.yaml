@@ -45,7 +45,8 @@ spec:
 {{- end }}
 ---
 # ---- 3. Allow -> backend: the frontend's server-side calls and the edge, or, with the WAF on,
-#         only the WAF (nothing reaches the backend around it); plus the metrics scrape ----
+#         only the WAF; plus networkPolicy.backendExtraIngressPeers (the only way around the WAF) and
+#         the metrics scrape ----
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -84,8 +85,16 @@ spec:
           port: {{ $backendPort }}
 {{- end }}
 {{- end }}
-{{- /* The metrics scrape: only with a scrape target; a null namespace selector disables it. */}}
 {{- $np := .Values.networkPolicy }}
+{{- /* Extra peers (an auth proxy), with the WAF on or off. */}}
+{{- with $np.backendExtraIngressPeers }}
+    - from:
+{{- toYaml . | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ $backendPort }}
+{{- end }}
+{{- /* The metrics scrape: only with a scrape target; a null namespace selector disables it. */}}
 {{- if and (or .Values.monitoring.scrapeAnnotations .Values.monitoring.serviceMonitor) (not (kindIs "invalid" $np.monitoringNamespaceSelector)) }}
     - from:
         - namespaceSelector:
