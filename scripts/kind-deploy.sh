@@ -216,8 +216,9 @@ if [[ -n "$base" ]]; then
   # the first backup on a WaitForFirstConsumer class, so its --wait would time out: install it
   # without backups (the upgrade below turns them on).
   base_extra=()
-  if ! helm template "$RELEASE" "$base_chart" -n "$NS" -f "$base_chart/values.local.yaml" -f "$values" \
-      --show-only templates/postgresql-statefulset.yaml 2>/dev/null | grep -q 'claimName: .*-pg-backup-pvc'; then
+  base_db="$(helm template "$RELEASE" "$base_chart" -n "$NS" -f "$base_chart/values.local.yaml" -f "$values" \
+    --show-only templates/postgresql-statefulset.yaml 2>/dev/null || true)"
+  if ! grep -q 'claimName: .*-pg-backup-pvc' <<<"$base_db"; then
     echo "kind-deploy: the base chart does not bind its backup PVC at install: installing it without backups"
     base_extra=(--set postgresql.backup.enabled=false)
   fi
