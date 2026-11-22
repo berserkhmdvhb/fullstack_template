@@ -415,13 +415,13 @@ cmd_verify() {
 
 # ===========================================================================
 # deploy — apply the chart via k8s-env.sh (helm upgrade --install: migration
-# per-revision migration Job, secrets from values.<env>.yaml, both namespaces created),
+# per-revision migration Job, secrets from values.<env>.yaml, both namespaces from the bootstrap),
 # then verify. No secret is injected here.
 # ===========================================================================
 cmd_deploy() {
   lib_banner "e2e deploy" "env=${ENV_NAME}  app=${NAMESPACE}  db=${DB_NAMESPACE}"
   # The chart apply (helm upgrade --install, per-revision migration Job, secrets
-  # from values.<env>.yaml, both namespaces created) is owned by k8s-env.sh —
+  # from values.<env>.yaml, both namespaces from the bootstrap) is owned by k8s-env.sh —
   # reuse it rather than reimplementing the flow. No secret is injected here.
   local -a args=("apply" "--env" "${ENV_NAME}" "--release" "${HELM_RELEASE}")
   local vf; for vf in "${EXTRA_VALUES[@]}"; do args+=("--values" "${vf}"); done

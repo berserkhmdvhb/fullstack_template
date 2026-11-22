@@ -17,9 +17,11 @@
 # Why this exists
 #   `make k8s-apply` installs the chart but does not wait, and says nothing about
 #   whether the rollout actually succeeded. This script closes both gaps. The
-#   chart creates both namespaces and a per-revision migration Job (not a Helm hook),
-#   so — unlike the retired Kustomize flow — there is no namespace to pre-create,
-#   no dev secret to inject, and no migration Job to delete-recreate by hand.
+#   chart creates no namespace (namespaces.create=false): apply first applies the
+#   admin bootstrap (scripts/k8s-bootstrap.sh: the namespaces, quota, LimitRange
+#   and deployer RBAC), so it needs admin rights on the cluster. The chart makes a
+#   per-revision migration Job (not a Helm hook), so there is no dev secret to
+#   inject and no migration Job to delete-recreate by hand.
 #
 # Inputs (flags)
 #   -e, --env local|dev|qa|production   environment      (default: dev)
@@ -195,16 +197,26 @@ cmd_apply() {
   log_info "values   : ${VALUES_FILE#"$LIB_REPO_ROOT"/}"
   log_info "namespace: ${NAMESPACE}"
 
+  # The chart creates no namespace (namespaces.create=false). The namespaces, with the
+  # restricted Pod Security labels, the quota, the LimitRange and the deployer RBAC, come
+  # from the admin bootstrap: render it and apply it first (idempotent; needs admin rights).
+  local -a boot=("${LIB_DIR}/k8s-bootstrap.sh" "${ENV_NAME}" --release "${HELM_RELEASE}" --namespace "${NAMESPACE}")
+  log_step "${boot[*]} | kubectl apply -f -"
+  if [ "${DRY_RUN}" = "true" ]; then
+    run "${boot[*]} | kubectl apply -f -"
+  else
+    "${boot[@]}" | kubectl apply -f -
+  fi
+
   # helm upgrade --install is idempotent: the first install and every later deploy
-  # use the same command. The chart creates both namespaces and a new migration Job
-  # per release revision, so there is no namespace to pre-create and no migration
-  # Job to delete-recreate. Extra -f files (from --values) override
-  # values.<env>.yaml; --set KEY=VALUE (repeatable) overrides individual values.
+  # use the same command. The chart makes a new migration Job per release revision,
+  # so there is no migration Job to delete-recreate. Extra -f files (from --values)
+  # override values.<env>.yaml; --set KEY=VALUE (repeatable) overrides individual values.
   local -a helm=(upgrade --install "${HELM_RELEASE}" "${LIB_CHART_DIR}" -f "${VALUES_FILE}")
   local vf s
   for vf in "${EXTRA_VALUES[@]}"; do helm+=(-f "${vf}"); done
   for s in "${SET_ARGS[@]}"; do helm+=(--set "${s}"); done
-  helm+=(-n "${NAMESPACE}" --create-namespace)
+  helm+=(-n "${NAMESPACE}")
 
   log_step "helm ${helm[*]}"
   run helm "${helm[@]}"
@@ -251,8 +263,8 @@ cmd_delete() {
   confirm "uninstall release ${HELM_RELEASE} (env=${ENV_NAME}) from ${NAMESPACE}?" || exit 0
   log_step "helm uninstall ${HELM_RELEASE} -n ${NAMESPACE}"
   run helm uninstall "${HELM_RELEASE}" -n "${NAMESPACE}"
-  # Helm does not garbage-collect the namespaces the chart created; note how to
-  # remove them so a re-install starts clean (and a lingering -db PVC is a choice).
+  # The namespaces come from the bootstrap, not the release, so they persist; note how
+  # to remove them so a re-install starts clean (and a lingering -db PVC is a choice).
   log_warn "release removed; namespaces ${NAMESPACE} and ${NAMESPACE}-db persist — delete them with: kubectl delete namespace ${NAMESPACE} ${NAMESPACE}-db"
   log_ok "delete complete for env=${ENV_NAME}"
 }

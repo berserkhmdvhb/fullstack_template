@@ -18,6 +18,7 @@ same conventions so they compose into a predictable workflow.
 | [`rebuild-and-roll.sh`](#rebuild-and-rollsh) | Build each image, verify it, roll the workload, health-check it |
 | [`e2e.sh`](#e2esh) | Deploy + verify the whole stack end-to-end (the "did it actually come up?" gate) |
 | [`k8s-env.sh`](#k8s-envsh) | Apply / delete / status / wait for a whole Helm environment (release) |
+| [`k8s-bootstrap.sh`](#k8s-bootstrapsh) | Render the one-time admin bootstrap of an environment (namespaces, quota, deployer RBAC) |
 | [`port-forward.sh`](#port-forwardsh) | Self-cleaning port-forwards to every service |
 | [`logs.sh`](#logssh) | Aggregate (or live-tail) logs across services |
 | [`secrets.sh`](#secretssh) | Create / inspect / delete a namespace Secret, safely |
@@ -119,9 +120,10 @@ chart's values file (`values.<env>.yaml`). Explicit `--namespace` / `--tag` stil
 
 ### `k8s-env.sh`
 Lifecycle for a whole environment — one command instead of a runbook's worth of
-`kubectl`. `apply` runs `helm upgrade --install` against `charts/your-service-name`
-with `values.<env>.yaml`, creates both namespaces (`--create-namespace`), lets the
-a per-revision migration Job (not a hook) start, then waits for every service to be Ready.
+`kubectl`. `apply` first applies the admin bootstrap ([`k8s-bootstrap.sh`](#k8s-bootstrapsh): both
+namespaces, quota, LimitRange, deployer RBAC; it needs admin rights), then runs `helm upgrade --install`
+against `charts/your-service-name` with `values.<env>.yaml` (the chart creates no namespace), lets the
+per-revision migration Job (not a hook) start, then waits for every service to be Ready.
 `delete` uninstalls the release; `status` / `wait` inspect or block on readiness.
 
 ```bash
@@ -136,6 +138,19 @@ a per-revision migration Job (not a hook) start, then waits for every service to
 > Secrets and the migration are **owned by the chart** — `apply` injects nothing by hand.
 > App + db-credentials secrets render from `values.<env>.yaml`; every release
 > revision creates its own migration Job (`<fullname>-migrate-r<revision>`, kept 24 hours, not a Helm hook).
+
+### `k8s-bootstrap.sh`
+Renders the **one-time admin bootstrap** of one environment to stdout and never contacts a cluster: the
+app namespace (and, with the in-cluster database, the `-db` one) on the restricted Pod Security profile,
+the app namespace's ResourceQuota and LimitRange, and the deployer's Role and RoleBinding in each
+namespace. The config is `infra/k8s/bootstrap/values.<env>.yaml`. A cluster admin applies it; what it
+creates and how to set the deployer is in
+[`wiki/infrastructure.md`](../wiki/infrastructure.md#namespace-bootstrap-one-time-admin-step).
+
+```bash
+./scripts/k8s-bootstrap.sh dev | kubectl apply -f -
+./scripts/k8s-bootstrap.sh production --release my-service   # print only
+```
 
 ### `e2e.sh`
 The **"did the whole thing actually come up correctly?"** gate — one command that
@@ -163,7 +178,8 @@ command exits non-zero if anything FAILs, so it doubles as a CI gate.
 **What `deploy` does, step by step** (all read from `values.<env>.yaml` — nothing hard-coded):
 
 1. Delegates the apply to `k8s-env.sh apply --env <env>` (`helm upgrade --install` against the chart).
-   The chart creates **both** namespaces (app + `<app>-db`); nothing is pre-created.
+   `k8s-env.sh` applies the bootstrap first, which creates **both** namespaces (app + `<app>-db`); the
+   chart creates none.
 2. **Secrets render from the values file** — the app Secret and the `…-db-credentials` secret come from
    `values.<env>.yaml` (dev/local defaults match the bundled Postgres init creds; `qa`/`production` leave
    them empty for a managed DB + sealed/ESO/SOPS). Nothing is injected by hand, nothing committed.

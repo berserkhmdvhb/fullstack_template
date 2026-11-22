@@ -1,0 +1,6 @@
+environment: production
+# Production uses a managed database (the chart's values.production.yaml), so no database namespace.
+database:
+  inCluster: false
+deployer:
+  name: your-deployer-production

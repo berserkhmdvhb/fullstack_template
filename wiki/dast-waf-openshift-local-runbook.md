@@ -58,8 +58,9 @@ Use the chart's env values so namespace/image/secret resolve from one source
 (see `wiki/local-development-minikube.md` for the `make`/script equivalents):
 
 ```bash
+scripts/k8s-bootstrap.sh qa --release mysvc | kubectl apply -f -   # the namespaces (admin, once)
 helm install mysvc ./charts/your-service-name \
-  --create-namespace --namespace mysvc-qa \
+  --namespace mysvc-qa \
   -f charts/your-service-name/values.qa.yaml
 helm status mysvc -n mysvc-qa          # wait for READY (migration Job + workloads)
 ```

@@ -131,13 +131,15 @@ make compose-build-backend compose-build-frontend
 
 # Deploy with the Helm chart (reads charts/your-service-name/values.production.yaml).
 # Production needs an auth mode first: wiki/getting-started.md#production-needs-an-auth-mode
+# Once per environment, as a cluster admin: the namespaces, quota and deployer RBAC (wiki/infrastructure.md)
+scripts/k8s-bootstrap.sh production | kubectl apply -f -
 helm upgrade --install your-service-name ./charts/your-service-name \
   -f ./charts/your-service-name/values.production.yaml \
-  --namespace your-service-name --create-namespace
+  --namespace your-service-name-production
 
 # Verify rollout
-kubectl -n your-service-name rollout status deployment/your-service-name-backend
-kubectl -n your-service-name rollout status deployment/your-service-name-frontend
+kubectl -n your-service-name-production rollout status deployment/your-service-name-backend
+kubectl -n your-service-name-production rollout status deployment/your-service-name-frontend
 ```
 
 ### D) Docker Compose (full local stack)

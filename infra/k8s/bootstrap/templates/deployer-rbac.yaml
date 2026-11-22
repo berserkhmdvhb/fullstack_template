@@ -1,0 +1,123 @@
+{{/*
+   The deployer's rights, one Role and RoleBinding per namespace: what `helm upgrade --install` of the
+   app chart needs, and the deploy's own checks (scripts/ci/deploy-env.sh), nothing else.
+   - Write access to exactly the kinds the chart renders in that namespace, plus Helm's release
+     Secrets. tests/backend/test_k8s_bootstrap.py derives that set from the chart, so a kind added
+     to the chart fails the test until it is added here.
+   - Never: a wildcard, escalate, bind or impersonate; namespaces, resourcequotas or limitranges;
+     or this Role and RoleBinding. The deployer may create Roles and RoleBindings (the chart has its
+     own), but may change or delete only the chart's, by name. Kubernetes refuses a Role or binding
+     that grants more than the deployer holds, so it can't widen its own rights.
+*/}}
+{{- $helm := list "get" "list" "watch" "create" "update" "patch" "delete" }}
+{{- $read := list "get" "list" "watch" }}
+{{- $fullname := include "bootstrap.chartFullname" . }}
+{{- range (include "bootstrap.namespaces" . | fromJsonArray) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bootstrap-deployer
+  namespace: {{ .name }}
+  labels:
+{{- include "bootstrap.labels" $ | nindent 4 }}
+rules:
+{{- if eq .role "app" }}
+  # The chart's kinds in the app namespace. Secrets also hold Helm's release records.
+  - apiGroups: [""]
+    resources: [configmaps, secrets, services, serviceaccounts]
+    verbs: {{ toJson $helm }}
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: {{ toJson $helm }}
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: {{ toJson $helm }}
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: {{ toJson $helm }}
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: {{ toJson $helm }}
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies, ingresses]
+    verbs: {{ toJson $helm }}
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes]
+    verbs: {{ toJson $helm }}
+  - apiGroups: [networking.gke.io]
+    resources: [healthcheckpolicies, gcpbackendpolicies]
+    verbs: {{ toJson $helm }}
+  - apiGroups: [monitoring.coreos.com]
+    resources: [servicemonitors, prometheusrules]
+    verbs: {{ toJson $helm }}
+  # The chart's own Role and RoleBinding (its ServiceAccount reads ConfigMaps).
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, list, watch, create]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles]
+    resourceNames: [{{ printf "%s-role" $fullname }}]
+    verbs: [update, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    resourceNames: [{{ printf "%s-binding" $fullname }}]
+    verbs: [update, patch, delete]
+  # The deploy's checks: helm --wait reads ReplicaSets and Pods; deploy-verify.sh lists Pods and runs
+  # each image's health probe (exec); the smoke test port-forwards; a failed migration prints its logs.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: {{ toJson $read }}
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: {{ toJson $read }}
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [pods/exec, pods/portforward]
+    verbs: [create]
+{{- else }}
+  # The chart's kinds in the database namespace.
+  - apiGroups: [""]
+    resources: [secrets, services, persistentvolumeclaims]
+    verbs: {{ toJson $helm }}
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: {{ toJson $helm }}
+  - apiGroups: [batch]
+    resources: [cronjobs]
+    verbs: {{ toJson $helm }}
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: {{ toJson $helm }}
+  # helm --wait reads the StatefulSet's Pods.
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: {{ toJson $read }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bootstrap-deployer
+  namespace: {{ .name }}
+  labels:
+{{- include "bootstrap.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: bootstrap-deployer
+subjects:
+{{- if eq $.Values.deployer.kind "ServiceAccount" }}
+  - kind: ServiceAccount
+    name: {{ $.Values.deployer.name }}
+    namespace: {{ required "deployer.namespace is required for a ServiceAccount" $.Values.deployer.namespace }}
+{{- else if has $.Values.deployer.kind (list "User" "Group") }}
+  - apiGroup: rbac.authorization.k8s.io
+    kind: {{ $.Values.deployer.kind }}
+    name: {{ required "deployer.name is required" $.Values.deployer.name | quote }}
+{{- else }}
+{{- fail "deployer.kind must be User, Group or ServiceAccount" }}
+{{- end }}
+{{- end }}

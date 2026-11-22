@@ -309,10 +309,11 @@ After building and pushing the images, deploy with the Helm chart. Namespaces ar
 # Image tag + registry come from charts/your-service-name/values.<environment>.yaml.
 ./scripts/e2e.sh --env <environment>                 # helm upgrade --install then verify
 
-# Or the raw Helm call:
+# Or the raw calls: the admin bootstrap once (the namespaces; wiki/infrastructure.md), then Helm:
+scripts/k8s-bootstrap.sh <environment> | kubectl apply -f -
 helm upgrade --install your-service-name charts/your-service-name \
   -f charts/your-service-name/values.<environment>.yaml \
-  -n your-service-name-<environment> --create-namespace
+  -n your-service-name-<environment>
 ```
 
 ### CI/CD Deployment

@@ -50,7 +50,8 @@ edge:
     tlsSecretName: your-service-name-tls
 
 # Production uses a managed DB — the in-cluster StatefulSet is disabled and the
-# app points at externalDatabase.host. Raise quota.* too if on a larger cluster.
+# app points at externalDatabase.host. On a larger cluster, raise the namespace quota
+# (infra/k8s/bootstrap) too.
 postgresql:
   enabled: false
 

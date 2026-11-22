@@ -187,11 +187,12 @@ docker build -f Dockerfile.frontend -t <registry>/your-service-name-frontend:1.2
 docker push <registry>/your-service-name-backend:1.2.3-prod-abc1234
 docker push <registry>/your-service-name-frontend:1.2.3-prod-abc1234
 
-# Deploy to production (Helm — the chart creates the namespaces; production uses an external DB).
+# Deploy to production (Helm; production uses an external DB). The namespaces come from the admin
+# bootstrap, applied once (scripts/k8s-bootstrap.sh production; wiki/infrastructure.md).
 # An auth mode must be set first: wiki/getting-started.md#production-needs-an-auth-mode
 helm upgrade --install your-service-name charts/your-service-name \
   -f charts/your-service-name/values.production.yaml \
-  -n your-service-name-production --create-namespace \
+  -n your-service-name-production \
   --set images.backend.tag=1.2.3-prod-abc1234 \
   --set images.frontend.tag=1.2.3-prod-abc1234
 

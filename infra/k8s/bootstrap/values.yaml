@@ -1,0 +1,52 @@
+# Defaults for every environment; values.<env>.yaml overrides only what differs.
+
+# The Helm release name of the app (SERVICE_NAME in CI). The app namespace is <release>-<environment>.
+release: your-service-name
+# The app chart's name. With the release it gives the names of the chart's own Role and RoleBinding,
+# the only ones the deployer may change.
+chartName: your-service-name
+environment: dev
+# "" => <release>-<environment>. The database namespace is <namespace>-<dbSuffix>, as the chart derives it.
+namespace: ""
+dbSuffix: db
+# The Kubernetes version of the Pod Security rules the namespaces enforce (restricted).
+podSecurityVersion: v1.30
+database:
+  # true: the chart's in-cluster PostgreSQL is used, so the database namespace is created too.
+  inCluster: true
+
+# The identity the deploy runs as, bound in each namespace. kind: User, Group or ServiceAccount
+# (a ServiceAccount also needs its namespace). The default is a placeholder. On GKE the user name is
+# the deployer's Google service account email, for example
+#   kind: User
+#   name: gh-deployer-dev@<PROJECT_ID>.iam.gserviceaccount.com
+deployer:
+  kind: User
+  name: your-deployer
+  namespace: ""
+
+# The app namespace's ResourceQuota. The caps fit a single developer-laptop node (14 CPU
+# allocatable) with the chart's HPA maxReplicas; raise both together for bigger clusters. The
+# database namespace has none. There is no limits.cpu: CPU limits are off by default (they throttle),
+# and a CPU-limit quota would refuse every Pod without one.
+quota:
+  hard:
+    requests.cpu: "6"
+    requests.memory: 12Gi
+    limits.memory: 20Gi
+    pods: "20"
+    services: "10"
+    persistentvolumeclaims: "5"
+    configmaps: "10"
+    secrets: "10"
+
+# The app namespace's LimitRange. No CPU in default or max: a max with no default becomes the
+# default limit, so either one would put a CPU limit on every container.
+limitRange:
+  container:
+    default: {memory: 512Mi}
+    defaultRequest: {cpu: 100m, memory: 128Mi}
+    max: {memory: 2Gi}
+    min: {cpu: 50m, memory: 64Mi}
+  pod:
+    max: {memory: 4Gi}

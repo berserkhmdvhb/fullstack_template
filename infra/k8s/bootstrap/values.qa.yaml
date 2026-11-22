@@ -1,0 +1,3 @@
+environment: qa
+deployer:
+  name: your-deployer-qa

@@ -223,10 +223,11 @@ the app Secret and the `…-db-credentials` Secret from `values.local.yaml` + yo
 ### ① Manual
 
 ```bash
+scripts/k8s-bootstrap.sh local | kubectl apply -f -   # the namespaces (wiki/infrastructure.md)
 helm upgrade --install your-service-name charts/your-service-name \
   -f charts/your-service-name/values.local.yaml \
   -f charts/your-service-name/values.secret.yaml \
-  -n your-service-name-local --create-namespace
+  -n your-service-name-local
 ```
 
 ### ② make

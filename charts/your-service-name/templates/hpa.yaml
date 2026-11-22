@@ -1,6 +1,6 @@
 {{/*
-   Backend HPA. maxReplicas is coupled to quota.limits.cpu (fits a laptop node) —
-   raise both together when targeting a larger cluster.
+   Backend HPA. maxReplicas is coupled to the namespace ResourceQuota (infra/k8s/bootstrap;
+   it fits a laptop node): raise both together when targeting a larger cluster.
 */}}
 {{- if .Values.hpa.backend.enabled }}
 apiVersion: autoscaling/v2

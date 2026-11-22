@@ -258,7 +258,7 @@ mask_conn() {
 #   db  namespace = <HELM_RELEASE>-<env>-db   (e.g. your-service-name-dev-db)
 #
 # The chart derives the db namespace as <.Release.Namespace>-db (namespaces.dbSuffix),
-# so these match exactly what `helm install --create-namespace -n <app-ns>` creates.
+# so these match exactly the namespaces scripts/k8s-bootstrap.sh creates for <env>.
 #   lib_helm_ns app dev   ->   your-service-name-dev
 #   lib_helm_ns db  dev   ->   your-service-name-dev-db
 # ---------------------------------------------------------------------------

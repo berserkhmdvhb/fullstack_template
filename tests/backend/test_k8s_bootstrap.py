@@ -1,0 +1,388 @@
+# your-service-name — adaptable service template (see wiki/getting-started.md)
+"""The one-time admin bootstrap (scripts/k8s-bootstrap.sh, infra/k8s/bootstrap); the chart's side.
+
+The chart creates no namespace by default (namespaces.create: false) and carries no ResourceQuota or
+LimitRange. The bootstrap creates the namespaces on the restricted Pod Security profile, the quota
+and the LimitRange, and a least-privilege deployer Role per namespace. The deployer's resource set
+is derived from the chart here, so a kind added to the chart fails this test until the Role has it.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
+
+from tests.backend.test_chart_pod_security import ALL_ON, VALUES_FILES
+from tests.backend.test_chart_production_guard import CHART, ROOT, find_helm, require_helm
+
+SCRIPT = ROOT / "scripts" / "k8s-bootstrap.sh"
+BOOTSTRAP = ROOT / "infra" / "k8s" / "bootstrap"
+ENVS = ["dev", "qa", "production", "local"]
+PSS_LABELS = {
+    f"pod-security.kubernetes.io/{mode}{suffix}": value
+    for mode in ("enforce", "audit", "warn")
+    for suffix, value in (("", "restricted"), ("-version", "v1.30"))
+}
+HELM_VERBS = {"get", "list", "watch", "create", "update", "patch", "delete"}
+BOOTSTRAP_NAME = "bootstrap-deployer"
+
+# Kind -> (apiGroup, resource). A kind the chart renders that is missing here fails the test: add it
+# here AND to the deployer Role (infra/k8s/bootstrap/templates/deployer-rbac.yaml).
+KIND_TO_RESOURCE = {
+    "ConfigMap": ("", "configmaps"),
+    "Secret": ("", "secrets"),
+    "Service": ("", "services"),
+    "ServiceAccount": ("", "serviceaccounts"),
+    "PersistentVolumeClaim": ("", "persistentvolumeclaims"),
+    "Deployment": ("apps", "deployments"),
+    "StatefulSet": ("apps", "statefulsets"),
+    "Job": ("batch", "jobs"),
+    "CronJob": ("batch", "cronjobs"),
+    "HorizontalPodAutoscaler": ("autoscaling", "horizontalpodautoscalers"),
+    "PodDisruptionBudget": ("policy", "poddisruptionbudgets"),
+    "NetworkPolicy": ("networking.k8s.io", "networkpolicies"),
+    "Ingress": ("networking.k8s.io", "ingresses"),
+    "HTTPRoute": ("gateway.networking.k8s.io", "httproutes"),
+    "HealthCheckPolicy": ("networking.gke.io", "healthcheckpolicies"),
+    "GCPBackendPolicy": ("networking.gke.io", "gcpbackendpolicies"),
+    "ServiceMonitor": ("monitoring.coreos.com", "servicemonitors"),
+    "PrometheusRule": ("monitoring.coreos.com", "prometheusrules"),
+    "Role": ("rbac.authorization.k8s.io", "roles"),
+    "RoleBinding": ("rbac.authorization.k8s.io", "rolebindings"),
+}
+# Helm stores each release revision as a Secret in the release namespace.
+HELM_RELEASE_SECRETS = {("", "secrets")}
+# The read and check rights the deploy needs beyond the chart's kinds, each with its user (pinned).
+DEPLOY_CHECKS = {
+    "app": {
+        # helm --wait reads a Deployment's ReplicaSets and Pods; deploy-verify.sh lists Pods.
+        ("", "pods"): {"get", "list", "watch"},
+        ("apps", "replicasets"): {"get", "list", "watch"},
+        # migration-job-lib.sh prints the migration Job's logs on a failed deploy.
+        ("", "pods/log"): {"get"},
+        # deploy-verify.sh runs each image's own health probe with kubectl exec.
+        ("", "pods/exec"): {"create"},
+        # deploy-env.sh port-forwards the backend Service for the smoke test.
+        ("", "pods/portforward"): {"create"},
+    },
+    # helm --wait reads a StatefulSet's Pods.
+    "db": {("", "pods"): {"get", "list", "watch"}},
+}
+
+
+@pytest.fixture(scope="module")
+def helm() -> str:
+    return require_helm(find_helm(), ci=bool(os.environ.get("CI")))
+
+
+def _docs(text: str) -> list[dict[str, Any]]:
+    return [d for d in yaml.safe_load_all(text) if d]
+
+
+def chart(helm: str, *args: str, release: str = "svc", ns: str = "svc-dev") -> list[dict[str, Any]]:
+    result = subprocess.run(
+        [helm, "template", release, str(CHART), "-n", ns, *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return _docs(result.stdout)
+
+
+def run_bootstrap(helm: str, *args: str) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "PATH": f"{Path(helm).parent}{os.pathsep}{os.environ['PATH']}"}
+    return subprocess.run(
+        ["bash", str(SCRIPT), *args],  # noqa: S607 - bash from PATH, as an admin runs it
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+
+def bootstrap(helm: str, *args: str) -> list[dict[str, Any]]:
+    result = run_bootstrap(helm, *args)
+    assert result.returncode == 0, result.stderr
+    return _docs(result.stdout)
+
+
+def _one(docs: list[dict[str, Any]], kind: str, ns: str | None = None) -> dict[str, Any]:
+    found = [
+        d
+        for d in docs
+        if d["kind"] == kind and (ns is None or d["metadata"].get("namespace") == ns)
+    ]
+    assert len(found) == 1, (kind, ns, found)
+    return found[0]
+
+
+# ---- The chart ---------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("values", VALUES_FILES)
+def test_the_chart_creates_no_namespace_quota_or_limitrange_by_default(
+    helm: str, values: str
+) -> None:
+    kinds = {d["kind"] for d in chart(helm, "-f", str(CHART / values), *ALL_ON)}
+    assert not kinds & {"Namespace", "ResourceQuota", "LimitRange"}
+
+
+def test_namespaces_create_true_renders_both_namespaces_restricted_and_kept(helm: str) -> None:
+    docs = chart(helm, "-f", str(CHART / "values.dev.yaml"), "--set", "namespaces.create=true")
+    namespaces = {d["metadata"]["name"]: d["metadata"] for d in docs if d["kind"] == "Namespace"}
+    assert set(namespaces) == {"svc-dev", "svc-dev-db"}
+    for meta in namespaces.values():
+        assert PSS_LABELS.items() <= meta["labels"].items()
+        # Switching create off later must not make Helm delete a namespace and everything in it.
+        assert meta["annotations"]["helm.sh/resource-policy"] == "keep"
+
+
+def test_values_and_schema_carry_no_quota_or_limitrange_and_create_defaults_false() -> None:
+    values = yaml.safe_load((CHART / "values.yaml").read_text())
+    schema = json.loads((CHART / "values.schema.json").read_text())
+    assert "quota" not in values
+    assert "limitRange" not in values
+    assert not {"quota", "limitRange"} & set(schema["properties"])
+    assert values["namespaces"]["create"] is False
+    assert schema["properties"]["namespaces"]["properties"]["create"] == {"type": "boolean"}
+    assert not list(CHART.glob("templates/resourcequota.yaml"))
+
+
+# ---- The bootstrap render ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_the_bootstrap_renders_restricted_namespaces(helm: str, env: str) -> None:
+    docs = bootstrap(helm, env)
+    namespaces = {
+        d["metadata"]["name"]: d["metadata"]["labels"] for d in docs if d["kind"] == "Namespace"
+    }
+    app = f"your-service-name-{env}"
+    in_cluster_db = env != "production"
+    assert set(namespaces) == ({app, f"{app}-db"} if in_cluster_db else {app})
+    for labels in namespaces.values():
+        assert PSS_LABELS.items() <= labels.items()
+        assert labels["environment"] == env
+    # db-network-policy.yaml selects the app namespace by this label.
+    assert namespaces[app]["tier"] == "app-ns"
+    if in_cluster_db:
+        assert namespaces[f"{app}-db"]["tier"] == "db"
+    for d in docs:
+        assert "helm.sh/chart" not in d["metadata"].get("labels", {}), (
+            "the admin applies it; Helm never owns it"
+        )
+
+
+def test_the_db_namespace_follows_the_flags(helm: str) -> None:
+    names = {
+        d["metadata"]["name"]
+        for d in bootstrap(helm, "production", "--db")
+        if d["kind"] == "Namespace"
+    }
+    assert names == {"your-service-name-production", "your-service-name-production-db"}
+    docs = bootstrap(helm, "dev", "--no-db", "--release", "acme", "--namespace", "team-a")
+    assert {d["metadata"]["namespace"] for d in docs if "namespace" in d["metadata"]} == {"team-a"}
+    assert [d["metadata"]["name"] for d in docs if d["kind"] == "Namespace"] == ["team-a"]
+
+
+@pytest.mark.parametrize("args", [(), ("staging",), ("dev", "--bogus"), ("dev", "--release")])
+def test_the_script_refuses_bad_arguments(helm: str, args: tuple[str, ...]) -> None:
+    result = run_bootstrap(helm, *args)
+    assert result.returncode != 0
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_the_quota_and_limitrange_keep_the_chart_defaults_without_cpu_limits(
+    helm: str, env: str
+) -> None:
+    docs = bootstrap(helm, env)
+    app = f"your-service-name-{env}"
+    quota = _one(docs, "ResourceQuota", app)["spec"]["hard"]
+    assert quota == {
+        "requests.cpu": "6",
+        "requests.memory": "12Gi",
+        "limits.memory": "20Gi",
+        "pods": "20",
+        "services": "10",
+        "persistentvolumeclaims": "5",
+        "configmaps": "10",
+        "secrets": "10",
+    }
+    limits = _one(docs, "LimitRange", app)["spec"]["limits"]
+    container = next(item for item in limits if item["type"] == "Container")
+    pod = next(item for item in limits if item["type"] == "Pod")
+    # A LimitRange max with no default becomes the default limit, so CPU appears in neither.
+    assert container["default"] == {"memory": "512Mi"}
+    assert container["defaultRequest"] == {"cpu": "100m", "memory": "128Mi"}
+    assert container["max"] == {"memory": "2Gi"}
+    assert container["min"] == {"cpu": "50m", "memory": "64Mi"}
+    assert pod["max"] == {"memory": "4Gi"}
+    assert not [
+        d
+        for d in docs
+        if d["kind"] in {"ResourceQuota", "LimitRange"} and d["metadata"]["namespace"] != app
+    ]
+
+
+# ---- The deployer RBAC -------------------------------------------------------------------------
+
+
+def _rules(
+    role: dict[str, Any],
+) -> tuple[dict[tuple[str, str], set[str]], dict[tuple[str, str], tuple[set[str], set[str]]]]:
+    """(apiGroup, resource) -> verbs for open rules; -> (verbs, resourceNames) for named ones."""
+    open_: dict[tuple[str, str], set[str]] = {}
+    named: dict[tuple[str, str], tuple[set[str], set[str]]] = {}
+    for rule in role["rules"]:
+        for group in rule["apiGroups"]:
+            for res in rule["resources"]:
+                key = (group, res)
+                if rule.get("resourceNames"):
+                    verbs, names = named.setdefault(key, (set(), set()))
+                    verbs |= set(rule["verbs"])
+                    names |= set(rule["resourceNames"])
+                else:
+                    open_.setdefault(key, set()).update(rule["verbs"])
+    return open_, named
+
+
+def chart_resources(helm: str, release: str, ns: str) -> dict[str, set[tuple[str, str]]]:
+    """The (apiGroup, resource) set the chart renders per namespace, in every values file/option."""
+    out: dict[str, set[tuple[str, str]]] = {"app": set(), "db": set()}
+    for values in VALUES_FILES:
+        for args in (
+            (),
+            ALL_ON,
+            (
+                *ALL_ON,
+                "--set",
+                "edge.mode=ingress",
+                "--set-json",
+                'edge.namespaceSelector={"kubernetes.io/metadata.name":"x"}',
+            ),
+        ):
+            for d in chart(helm, "-f", str(CHART / values), *args, release=release, ns=ns):
+                kind = d["kind"]
+                assert kind in KIND_TO_RESOURCE, (
+                    f"{kind}: add it to KIND_TO_RESOURCE and the deployer Role"
+                )
+                group, resource = KIND_TO_RESOURCE[kind]
+                api_group = d["apiVersion"].rpartition("/")[0]
+                assert api_group == group, (kind, d["apiVersion"])
+                where = {ns: "app", f"{ns}-db": "db"}[d["metadata"]["namespace"]]
+                out[where].add((group, resource))
+    return out
+
+
+@pytest.mark.parametrize("release", ["your-service-name", "svc"])
+def test_the_deployer_role_covers_exactly_what_the_chart_renders(helm: str, release: str) -> None:
+    ns = f"{release}-dev"
+    derived = chart_resources(helm, release, ns)
+    assert {
+        "HTTPRoute",
+        "Ingress",
+        "HealthCheckPolicy",
+        "ServiceMonitor",
+        "StatefulSet",
+        "CronJob",
+    } <= {k for k, v in KIND_TO_RESOURCE.items() if v in derived["app"] | derived["db"]}
+    docs = bootstrap(helm, "dev", "--release", release)
+    chart_names = {
+        d["metadata"]["name"]
+        for d in chart(helm, "-f", str(CHART / "values.dev.yaml"), release=release, ns=ns)
+        if d["kind"] in {"Role", "RoleBinding"}
+    }
+    for where, namespace in (("app", ns), ("db", f"{ns}-db")):
+        open_, named = _rules(_one(docs, "Role", namespace))
+        managed = derived[where] | (HELM_RELEASE_SECRETS if where == "app" else set())
+        rbac = {k for k in managed if k[0] == "rbac.authorization.k8s.io"}
+        expected = {k: set(HELM_VERBS) for k in managed - rbac}
+        # The chart's own Role and RoleBinding: create and read freely, change only them, by name.
+        expected |= {k: {"get", "list", "watch", "create"} for k in rbac}
+        for key, verbs in DEPLOY_CHECKS[where].items():
+            expected[key] = expected.get(key, set()) | verbs
+        assert open_ == expected, where
+        assert {k: v[0] for k, v in named.items()} == {
+            k: {"update", "patch", "delete"} for k in rbac
+        }
+        for key, (_, names) in named.items():
+            kind = "Role" if key[1] == "roles" else "RoleBinding"
+            assert names == {
+                n for n in chart_names if n.endswith("-role" if kind == "Role" else "-binding")
+            }
+            assert BOOTSTRAP_NAME not in names
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_the_deployer_never_gets_wildcards_escalation_or_namespace_rights(
+    helm: str, env: str
+) -> None:
+    docs = bootstrap(helm, env)
+    roles = [d for d in docs if d["kind"] == "Role"]
+    assert len(roles) == len([d for d in docs if d["kind"] == "Namespace"])
+    for role in roles:
+        assert role["metadata"]["name"] == BOOTSTRAP_NAME
+        for rule in role["rules"]:
+            assert "*" not in rule["verbs"] + rule["resources"] + rule["apiGroups"]
+            assert not {"escalate", "bind", "impersonate"} & set(rule["verbs"])
+            assert not {"namespaces", "resourcequotas", "limitranges"} & set(rule["resources"])
+            for res in ("roles", "rolebindings"):
+                if res in rule["resources"] and {"update", "patch", "delete"} & set(rule["verbs"]):
+                    assert rule.get("resourceNames")
+                    assert BOOTSTRAP_NAME not in rule["resourceNames"]
+    # The chart never uses the bootstrap's names, so it can never take over the deployer's own RBAC.
+    for values in VALUES_FILES:
+        names = {d["metadata"]["name"] for d in chart(helm, "-f", str(CHART / values), *ALL_ON)}
+        assert BOOTSTRAP_NAME not in names
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_each_namespace_binds_the_configured_deployer(helm: str, env: str) -> None:
+    docs = bootstrap(helm, env)
+    config = yaml.safe_load((BOOTSTRAP / "values.yaml").read_text())["deployer"]
+    config |= (yaml.safe_load((BOOTSTRAP / f"values.{env}.yaml").read_text()) or {}).get(
+        "deployer", {}
+    )
+    bindings = [d for d in docs if d["kind"] == "RoleBinding"]
+    assert len(bindings) == len([d for d in docs if d["kind"] == "Role"])
+    for b in bindings:
+        assert b["metadata"]["name"] == BOOTSTRAP_NAME
+        assert b["roleRef"] == {
+            "apiGroup": "rbac.authorization.k8s.io",
+            "kind": "Role",
+            "name": BOOTSTRAP_NAME,
+        }
+        assert b["subjects"] == [
+            {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": config["name"]}
+        ]
+    # The committed default is a placeholder, never a real identity.
+    assert config["name"].startswith("your-deployer")
+
+
+def test_a_service_account_subject_carries_its_namespace(helm: str) -> None:
+    sets = ("deployer.kind=ServiceAccount", "deployer.name=ci", "deployer.namespace=ops")
+    result = subprocess.run(
+        [
+            helm,
+            "template",
+            "bootstrap",
+            str(BOOTSTRAP),
+            "-f",
+            str(BOOTSTRAP / "values.dev.yaml"),
+            *(a for s in sets for a in ("--set", s)),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    for b in (d for d in _docs(result.stdout) if d["kind"] == "RoleBinding"):
+        assert b["subjects"] == [{"kind": "ServiceAccount", "name": "ci", "namespace": "ops"}]

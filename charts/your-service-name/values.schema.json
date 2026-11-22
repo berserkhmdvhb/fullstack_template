@@ -27,7 +27,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "dbSuffix": { "type": "string" }
+        "dbSuffix": { "type": "string" },
+        "create":   { "type": "boolean" }
       }
     },
 
@@ -334,40 +335,6 @@
       "properties": {
         "backend":  { "$ref": "#/definitions/minAvailable" },
         "frontend": { "$ref": "#/definitions/minAvailable" }
-      }
-    },
-
-    "quota": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "hard":    { "type": "object", "additionalProperties": { "type": ["string", "integer"] } }
-      }
-    },
-
-    "limitRange": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "container": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "default":        { "type": "object", "additionalProperties": { "type": ["string", "integer"] } },
-            "defaultRequest": { "type": "object", "additionalProperties": { "type": ["string", "integer"] } },
-            "max":            { "type": "object", "additionalProperties": { "type": ["string", "integer"] } },
-            "min":            { "type": "object", "additionalProperties": { "type": ["string", "integer"] } }
-          }
-        },
-        "pod": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "max": { "type": "object", "additionalProperties": { "type": ["string", "integer"] } }
-          }
-        }
       }
     },
 

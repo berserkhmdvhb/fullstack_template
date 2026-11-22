@@ -5,9 +5,10 @@
 # (`helm upgrade --install -f charts/your-service-name/values.dev.yaml`).
 # The defaults here mirror the Kustomize base (dev-like).
 #
-# NOTE ON COUPLING: resources.{requests,limits} here, hpa.* maxReplicas, and
-# quota.* must be raised TOGETHER for bigger clusters. The defaults are sized so
-# the worst-case HPA surge fits a single developer-laptop node (see quota note).
+# NOTE ON COUPLING: resources.{requests,limits} here, hpa.* maxReplicas, and the
+# namespace ResourceQuota (infra/k8s/bootstrap, not this chart) must be raised TOGETHER
+# for bigger clusters. The defaults are sized so the worst-case HPA surge fits a single
+# developer-laptop node.
 # =============================================================================
 
 # Metadata-only label. NEVER enters a selector (selectors are stable identity
@@ -30,6 +31,11 @@ namespaces:
   # App namespace is .Release.Namespace; the db namespace is derived:
   #   db namespace = <.Release.Namespace>-<dbSuffix> (e.g. your-service-name-dev-db)
   dbSuffix: db
+  # false (the default): the chart assumes both namespaces exist. A cluster admin creates them once,
+  # with the restricted Pod Security labels, the ResourceQuota, the LimitRange and the deployer's
+  # RBAC: scripts/k8s-bootstrap.sh <env> | kubectl apply -f - (wiki/infrastructure.md). The deployer
+  # then needs no cluster-scoped rights. true renders the two Namespace objects from this chart.
+  create: false
 
 serviceAccount:
   name: your-service-name
@@ -324,7 +330,7 @@ waf:
     limits: {cpu: 500m, memory: 512Mi}
 
 # ---- Autoscaling ----------------------------------------------------------
-# backend maxReplicas:6 is coupled to quota.limits.cpu:13 (fits a laptop node).
+# backend maxReplicas:6 is coupled to the namespace ResourceQuota (infra/k8s/bootstrap).
 hpa:
   backend:
     enabled: true
@@ -345,32 +351,6 @@ pdb:
     minAvailable: 1
   frontend:
     minAvailable: 1
-
-# ---- Namespace ResourceQuota + LimitRange --------------------------------
-# Quota caps are chosen to stay consistent with hpa.* maxReplicas AND to fit a
-# single developer-laptop node (14 CPU allocatable). Postgres is excluded — it
-# lives in the separate db namespace. Raise together with hpa maxReplicas.
-quota:
-  enabled: true
-  hard:
-    requests.cpu: "6"
-    requests.memory: 12Gi
-    limits.cpu: "13"
-    limits.memory: 20Gi
-    pods: "20"
-    services: "10"
-    persistentvolumeclaims: "5"
-    configmaps: "10"
-    secrets: "10"
-limitRange:
-  enabled: true
-  container:
-    default: {cpu: 500m, memory: 512Mi}
-    defaultRequest: {cpu: 100m, memory: 128Mi}
-    max: {cpu: "2", memory: 2Gi}
-    min: {cpu: 50m, memory: 64Mi}
-  pod:
-    max: {cpu: "4", memory: 4Gi}
 
 # ---- Database tier --------------------------------------------------------
 # Internal PostgreSQL for local/dev/qa. Production sets enabled=false and uses a

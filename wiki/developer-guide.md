@@ -196,9 +196,10 @@ kind load docker-image your-service-name-frontend:local --name your-service-name
 ./scripts/e2e.sh --env local                 # helm upgrade --install (via k8s-env.sh) then verify
 ./scripts/e2e.sh verify --env local          # verify only — read-only, safe to re-run
 
-# Or the raw Helm call:
+# Or the raw calls: the admin bootstrap (the namespaces; wiki/infrastructure.md), then Helm:
+scripts/k8s-bootstrap.sh local | kubectl apply -f -
 helm upgrade --install your-service-name charts/your-service-name \
-  -f charts/your-service-name/values.local.yaml -n your-service-name-local --create-namespace
+  -f charts/your-service-name/values.local.yaml -n your-service-name-local
 ```
 
 ### Access the Service

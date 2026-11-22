@@ -1,12 +1,18 @@
 {{/*
-   App namespace. Equals .Release.Namespace (created via `helm install --create-namespace`).
-   Carries the stable `tier: app-ns` label that db-network-policy.yaml selects on,
-   plus Pod Security "restricted" (stateless app).
+   App namespace, rendered only with namespaces.create=true. By default the chart assumes it exists:
+   the admin bootstrap (scripts/k8s-bootstrap.sh) creates it with the same labels, so the deployer
+   needs no cluster-scoped rights. Equals .Release.Namespace. Carries the stable `tier: app-ns`
+   label that db-network-policy.yaml selects on, plus Pod Security "restricted".
+   resource-policy keep: switching namespaces.create off later must not make Helm delete the
+   namespace and everything in it.
 */}}
+{{- if .Values.namespaces.create }}
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     app.kubernetes.io/name: {{ include "chart.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
@@ -20,3 +26,4 @@ metadata:
     pod-security.kubernetes.io/audit-version: v1.30
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/warn-version: v1.30
+{{- end }}

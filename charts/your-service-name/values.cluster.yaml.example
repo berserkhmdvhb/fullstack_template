@@ -21,11 +21,12 @@
 #   cp charts/your-service-name/values.cluster.yaml.example \
 #      charts/your-service-name/values.<your-cluster>.yaml
 #   # edit values.<your-cluster>.yaml (fill the <ALL-CAPS> blanks)
+#   scripts/k8s-bootstrap.sh dev | kubectl apply -f -   # once, as a cluster admin: the namespaces
 #   helm upgrade --install your-service-name charts/your-service-name \
 #     -f charts/your-service-name/values.dev.yaml \            # or qa / production
 #     -f charts/your-service-name/values.<your-cluster>.yaml \
 #     -f charts/your-service-name/values.secret.yaml \          # DB password (gitignored)
-#     -n <namespace> --create-namespace
+#     -n your-service-name-dev
 # =============================================================================
 
 # --- Images (registry-pull) -------------------------------------------------

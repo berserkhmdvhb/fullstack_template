@@ -1,0 +1,4 @@
+# A local cluster (kind or minikube), applied by scripts/k8s-env.sh before the chart.
+environment: local
+deployer:
+  name: your-deployer-local

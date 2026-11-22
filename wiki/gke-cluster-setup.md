@@ -641,15 +641,11 @@ done
 
 **Don't create a key for any of these service accounts, ever.** If a tutorial tells you to download a JSON key, it's describing the old way.
 
-**Deploy rights are Kubernetes RBAC, delivered by the deploy bootstrap.** The bootstrap creates, in each environment's app namespace, a `Role` and a `RoleBinding` for the deployer's service account email (the Kubernetes user name). For reference, the Role holds:
-- `get`, `list` and `watch` on pods, services, deployments, replicasets, jobs and events;
-- `get` on `pods/log`;
-- `create` on `pods/exec` (the verify check) and `pods/portforward` (the smoke test);
-- Helm's verbs on secrets, configmaps and the chart's other kinds, in that namespace only.
+**Deploy rights are Kubernetes RBAC, delivered by the namespace bootstrap.** The bootstrap creates, in each of the environment's namespaces, the `Role` and `RoleBinding` `bootstrap-deployer` for the deployer's service account email (the Kubernetes user name). The Role holds Helm's verbs on exactly the kinds the chart renders there (Helm's release Secrets included), read access to Pods and ReplicaSets, `get` on `pods/log`, and `create` on `pods/exec` (the verify check) and `pods/portforward` (the smoke test); never namespaces, quotas or its own RBAC. The full list and why: [Infrastructure: namespace bootstrap](./infrastructure.md#namespace-bootstrap-one-time-admin-step).
 
-Don't write these by hand.
+Don't write these by hand: render them (13.2).
 
-**Check:** until the bootstrap exists, each deployer can do nothing in the cluster. Run the check as an admin, once per environment:
+**Check:** until the bootstrap is applied, each deployer can do nothing in the cluster. Run the check as an admin, once per environment:
 
 ```bash
 for env in dev qa production; do
@@ -691,7 +687,7 @@ Then create the three new deployers (12.3) and update the environment variables 
 
 ## 13. The end-to-end check from GitHub
 
-> **Planned change:** the script sets the variables of 13.1; until then set them by hand. **After the first push:** the `check` run of 13.3. **Planned changes:** the namespaces, the RBAC and the pull secret.
+> **Planned change:** the script sets the variables of 13.1; until then set them by hand. **After the first push:** the `check` run of 13.3. **Planned change:** the pull secret.
 
 This proves the identity chain, from GitHub to the cluster:
 - GitHub can log in to Google with no secret;
@@ -716,11 +712,31 @@ printf '%s\n' "GCP_PROJECT_ID=$PROJECT_ID" "GKE_CLUSTER=$CLUSTER" "GKE_LOCATION=
 for env in dev qa production; do echo "GCP_DEPLOYER_SA ($env)=gh-deployer-$env@$PROJECT_ID.iam.gserviceaccount.com"; done
 ```
 
-Also set `SERVICE_NAME` (repository variable) to your service's name. It decides the Helm release name, and the namespaces are `<SERVICE_NAME>-<env>`: `<SERVICE_NAME>-dev`, `<SERVICE_NAME>-qa` and `<SERVICE_NAME>-production`. A database namespace `<SERVICE_NAME>-<env>-db` exists only when the chart's PostgreSQL or the external database is enabled. The deploy and ops workflows compute the namespace the same way, so the value must be the same everywhere.
+Also set `SERVICE_NAME` (repository variable) to your service's name. It decides the Helm release name, and the namespaces are `<SERVICE_NAME>-<env>`: `<SERVICE_NAME>-dev`, `<SERVICE_NAME>-qa` and `<SERVICE_NAME>-production`. A database namespace `<SERVICE_NAME>-<env>-db` exists only where the chart's in-cluster PostgreSQL is used (dev and qa by default); the bootstrap of 13.2 creates it. The deploy and ops workflows compute the namespace the same way, so the value must be the same everywhere.
 
 ### 13.2 The namespaces and the deployer RBAC come from the bootstrap
 
-**Don't create the namespaces by hand.** Until the bootstrap exists, the chart renders its own `Namespace` objects while the deploy doesn't pass `--create-namespace`, and a namespace made by hand lacks Helm's ownership metadata, which breaks `helm upgrade --install`. The bootstrap creates the namespaces with Pod Security labels, a quota and a LimitRange, plus the deployer RBAC of 12.3, and sets `namespaces.create: false` in the chart. Deploys stay off (`DEPLOY_ENABLED` unset) until the namespace and RBAC bootstrap exists and the platform rollout starts.
+**Don't create the namespaces by hand.** The chart creates none (`namespaces.create: false`) and the deploy doesn't pass `--create-namespace`. The bootstrap creates them with the restricted Pod Security labels, a quota and a LimitRange, plus the deployer RBAC of 12.3. Set each environment's deployer in `infra/k8s/bootstrap/values.<env>.yaml` (`deployer.name: gh-deployer-<env>@<PROJECT_ID>.iam.gserviceaccount.com`, kind `User`), then, as a cluster admin:
+
+```bash
+SERVICE_NAME="your-service-name"   # the SERVICE_NAME repository variable (13.1)
+for env in dev qa production; do
+  scripts/k8s-bootstrap.sh "$env" --release "$SERVICE_NAME" > "bootstrap-$env.yaml"   # renders only
+  kubectl apply -f "bootstrap-$env.yaml"
+done
+```
+
+Each deployer can then deploy only in its own environment's namespaces:
+
+```bash
+for env in dev qa production; do
+  echo "$env: $(kubectl auth can-i create deployments -n "$SERVICE_NAME-$env" --as="gh-deployer-$env@$PROJECT_ID.iam.gserviceaccount.com")" \
+    "$(kubectl auth can-i create resourcequotas -n "$SERVICE_NAME-$env" --as="gh-deployer-$env@$PROJECT_ID.iam.gserviceaccount.com")"
+done
+# → yes no   (three times)
+```
+
+What it creates and why: [Infrastructure: namespace bootstrap](./infrastructure.md#namespace-bootstrap-one-time-admin-step). Deploys stay off (`DEPLOY_ENABLED` unset) until the platform rollout starts.
 
 ### 13.3 The first check: `deploy-ops` `check`
 
@@ -848,7 +864,6 @@ When rows 1 to 12 pass (leaving out optional row 9 if you skipped section 10), y
 
 These come with the GitHub pipeline work, not in this guide:
 
-- **Namespaces and deploy rights:** the bootstrap creates the namespaces (with Pod Security labels, quota and LimitRange) and one Role per app namespace for each deployer; the chart stops creating namespaces.
 - **Settings script and release App:** The settings script replaces the hand steps of 11.2 and adds the `release` environment and its GitHub App.
 - **Domain, TLS and public traffic:** through Cloudflare. See [Cloudflare Setup](./cloudflare-setup.md): a Tunnel by default, so the cluster has no public load balancer. The alternative is a `Gateway` with a Google-managed certificate.
 - **Signed images only:** keyless cosign signing and build provenance in CI, then admission enforcement: a Kyverno policy or Binary Authorization on GKE, later.

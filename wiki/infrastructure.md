@@ -8,6 +8,7 @@ Kubernetes resources, the edge, Docker Compose for local development, and the en
 
 - [Overview](#overview)
 - [Kubernetes Resources](#kubernetes-resources)
+- [Namespace bootstrap (one-time admin step)](#namespace-bootstrap-one-time-admin-step)
 - [Edge](#edge)
 - [Collecting logs](#collecting-logs)
 - [Static assets](#static-assets)
@@ -65,6 +66,66 @@ template's own values keep rendering. Pass the same `--set` to a `helm upgrade` 
 
 The base resource set maps 1:1 into the chart. Per-env differences live in
 `values.<env>.yaml` (replicas, image tags/registry, hosts, gated Postgres), not in separate overlays.
+
+---
+
+## Namespace bootstrap (one-time admin step)
+
+The chart creates no namespace (`namespaces.create: false`, the default) and carries no quota. A cluster
+admin creates them once per environment, before the first deploy, so the deployer needs no
+cluster-scoped rights at all.
+
+**What it creates** ([`infra/k8s/bootstrap/`](../infra/k8s/bootstrap/), rendered by
+[`scripts/k8s-bootstrap.sh`](../scripts/k8s-bootstrap.sh)):
+- the app namespace `<release>-<env>` and, when the env uses the in-cluster PostgreSQL, the database
+  namespace `<release>-<env>-db`. Both enforce, audit and warn on the **restricted** Pod Security
+  profile, with the version label. Every workload of the chart meets it, PostgreSQL included; an
+  offline test checks each Pod template against the profile's rules.
+  The `tier` label (`app-ns`, `db`) is what the chart's NetworkPolicies select on;
+- the app namespace's ResourceQuota and LimitRange. They set no CPU limit (CPU limits throttle);
+  memory is capped. Raise the quota together with the chart's HPA `maxReplicas`;
+- in each namespace, the Role and RoleBinding `bootstrap-deployer` for the deploy identity.
+
+**Render and apply it,** per environment (`dev`, `qa`, `production`, or `local` for a local cluster):
+
+```bash
+scripts/k8s-bootstrap.sh dev > bootstrap-dev.yaml      # prints YAML; never contacts a cluster
+kubectl apply -f bootstrap-dev.yaml                    # as a cluster admin
+```
+
+`--release NAME` sets the release (`SERVICE_NAME` in CI; default `your-service-name`), `--namespace`
+the app namespace, and `--db` / `--no-db` overrides whether the database namespace is created.
+`scripts/k8s-env.sh apply` (and `make k8s-apply`) applies it for you before the chart, on a cluster
+where you are the admin. Re-applying is safe. Each environment's settings are in
+`infra/k8s/bootstrap/values.<env>.yaml`, over the defaults in `values.yaml`.
+
+**Set the deployer subject** in `values.<env>.yaml` (`deployer.kind`, `deployer.name`, and
+`deployer.namespace` for a ServiceAccount). The committed names are placeholders. On GKE the deploy
+logs in as the environment's Google service account, and Kubernetes RBAC sees its email as a user:
+
+```yaml
+deployer:
+  kind: User
+  name: gh-deployer-dev@<PROJECT_ID>.iam.gserviceaccount.com
+```
+
+**What the deployer may do:** create, change and delete exactly the kinds the chart renders in that
+namespace, plus the Secrets Helm keeps its release history in; and read Pods and ReplicaSets, read Pod
+logs, `exec` and port-forward, which the deploy's wait, verify and smoke steps use. A test derives the
+kind list from the chart, so a kind added to the chart fails it until the Role covers the kind.
+
+**What it may never do:** use a wildcard, `escalate`, `bind` or `impersonate`; touch namespaces,
+ResourceQuotas or LimitRanges; or change its own Role and RoleBinding. The chart has its own Role
+(its ServiceAccount reads ConfigMaps), so the deployer may create Roles and RoleBindings, but may change
+or delete only the chart's, by name, and the chart never uses the name `bootstrap-deployer`. Kubernetes
+refuses any Role or binding that grants more than the deployer already holds. That is why the quota,
+the LimitRange and this RBAC live in the bootstrap: a compromised deploy can't lift its own limits or
+widen its own rights.
+
+**An existing release that created its namespaces:** upgrade once with `namespaces.create=true` (the
+chart's Namespaces now carry `helm.sh/resource-policy: keep`), then apply the bootstrap and upgrade
+with the default. Without that first step, Helm deletes the namespaces it no longer renders, and
+everything in them.
 
 ---
 

@@ -1,0 +1,7 @@
+# The one-time admin bootstrap of an environment's namespaces. Not deployed with Helm: render it with
+# scripts/k8s-bootstrap.sh <env> and apply it as a cluster admin (wiki/infrastructure.md).
+apiVersion: v2
+name: k8s-bootstrap
+description: Namespaces, quota, LimitRange and the deployer's RBAC for one environment of your-service-name.
+type: application
+version: 0.1.0

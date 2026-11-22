@@ -692,21 +692,10 @@ rules:
 
 ### Resource Quotas
 
-Namespace-level resource quotas prevent resource exhaustion:
-
-```yaml
-# ResourceQuota
-hard:
-  requests.cpu: "4"
-  requests.memory: 8Gi
-  limits.cpu: "8"
-  limits.memory: 16Gi
-
-# LimitRange (default limits per container)
-default:
-  cpu: "500m"
-  memory: "512Mi"
-```
+A ResourceQuota and a LimitRange in the app namespace prevent resource exhaustion. They come from the
+admin bootstrap (`infra/k8s/bootstrap/values.yaml`), not the chart, so the deployer can't change them:
+see [Namespace bootstrap](./infrastructure.md#namespace-bootstrap-one-time-admin-step). CPU requests
+are capped and memory is limited; there is no CPU limit by default, because CPU limits throttle.
 
 ### Runtime Application Protection (DAST + WAF)
 

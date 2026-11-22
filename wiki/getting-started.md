@@ -357,10 +357,11 @@ kind load docker-image your-service-name-frontend:local --name your-service-name
 # Deploy + verify the whole stack in one command (recommended)
 ./scripts/e2e.sh --env local
 
-# Or the raw Helm call
+# Or the raw calls: the admin bootstrap (the namespaces; wiki/infrastructure.md), then Helm
+scripts/k8s-bootstrap.sh local | kubectl apply -f -
 helm upgrade --install your-service-name charts/your-service-name \
   -f charts/your-service-name/values.local.yaml \
-  -n your-service-name-local --create-namespace
+  -n your-service-name-local
 ```
 
 ### 5. Access the Service
@@ -424,10 +425,12 @@ kubeseal --format yaml < db-credentials.json | kubectl apply -f - -n your-servic
 ### 3. Deploy to Production
 
 ```bash
+# Once, as a cluster admin: the namespaces, quota and deployer RBAC (wiki/infrastructure.md)
+scripts/k8s-bootstrap.sh production | kubectl apply -f -
 # Deploy with Helm (image ref comes from values.production.yaml; CI sets the immutable tag/digest)
 helm upgrade --install your-service-name charts/your-service-name \
   -f charts/your-service-name/values.production.yaml \
-  -n your-service-name-production --create-namespace
+  -n your-service-name-production
 ```
 
 <a id="production-needs-an-auth-mode"></a>
