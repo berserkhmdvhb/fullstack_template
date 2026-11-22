@@ -115,9 +115,44 @@ matchLabels:
 {{- define "chart.backendPort" -}}{{ .Values.config.BACKEND_PORT }}{{- end -}}
 {{- define "chart.frontendPort" -}}{{ .Values.config.FRONTEND_PORT }}{{- end -}}
 
-{{/* The readiness probe paths, for the GKE load balancer health checks (a unit test pins them to the probes). */}}
+{{/* The database port: config.DB_PORT, for the server, its Service, the policies and the clients. */}}
+{{- define "chart.dbPort" -}}{{ .Values.config.DB_PORT }}{{- end -}}
+
+{{/*
+   The probe paths, one place: the Deployments' probes and the GKE load balancer health checks read
+   them. Readiness checks the schema; startup and liveness are process-only (a unit test pins
+   them to the backend's routes).
+*/}}
 {{- define "chart.backendReadyPath" -}}/api/v1/health{{- end -}}
+{{- define "chart.backendLivePath" -}}/api/v1/healthz{{- end -}}
 {{- define "chart.frontendReadyPath" -}}/api/healthz{{- end -}}
+
+{{/*
+   A container's resources from a values block {requests, cpuLimit}: the requests as set, a memory
+   limit equal to the memory request, and a CPU limit only when cpuLimit is set. Emits at column 0
+   (use `| nindent`).
+*/}}
+{{- define "chart.resources" -}}
+requests:
+{{- toYaml .requests | nindent 2 }}
+limits:
+  memory: {{ .requests.memory | quote }}
+{{- with .cpuLimit }}
+  cpu: {{ . | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
+   terminationGracePeriodSeconds: the preStop sleep + the drain + the margin (values.yaml, shutdown).
+   The backend's drain is Uvicorn's graceful timeout (config.BACKEND_GRACEFUL_TIMEOUT, read by
+   backend/serve.py); the frontend's is shutdown.frontendDrainSeconds.
+*/}}
+{{- define "chart.backendTerminationGrace" -}}
+{{- add (int .Values.shutdown.preStopSeconds) (int .Values.config.BACKEND_GRACEFUL_TIMEOUT) (int .Values.shutdown.marginSeconds) -}}
+{{- end -}}
+{{- define "chart.frontendTerminationGrace" -}}
+{{- add (int .Values.shutdown.preStopSeconds) (int .Values.shutdown.frontendDrainSeconds) (int .Values.shutdown.marginSeconds) -}}
+{{- end -}}
 
 {{/*
    The edge peers of the NetworkPolicy, per edge.mode, as a JSON array (read it back with
@@ -349,7 +384,7 @@ key: password
     seccompProfile:
       type: RuntimeDefault
   resources:
-{{- toYaml $p.resources | nindent 4 }}
+{{- include "chart.resources" $p.resources | nindent 4 }}
 {{- end -}}
 
 {{/*

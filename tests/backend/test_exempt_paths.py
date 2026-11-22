@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import os
 import re
 
-from tests.backend.test_chart_production_guard import CHART
+from tests.backend.test_chart_pod_security import pod_specs, render
+from tests.backend.test_chart_production_guard import CHART, find_helm, require_helm
 from your_service_name.backend import paths
 from your_service_name.utils.versioning_api import DEFAULT_API_VERSION
 
@@ -16,7 +18,13 @@ def _paths(template: str) -> list[str]:
 
 
 def test_the_chart_probe_paths_are_exempt() -> None:
-    probes = _paths("backend-deployment.yaml")
+    """The rendered probes: the deployment takes its paths from the chart's helpers."""
+    helm = require_helm(find_helm(), ci=bool(os.environ.get("CI")))
+    pods = pod_specs(render(helm, "values.yaml"))
+    container = pods["Deployment/svc-your-service-name-backend"][0]["containers"][0]
+    probes = [
+        container[k]["httpGet"]["path"] for k in ("startupProbe", "readinessProbe", "livenessProbe")
+    ]
     assert len(probes) >= 3, probes  # startup, readiness, liveness  # noqa: PLR2004
     assert set(probes) <= paths.exempt_paths(DEFAULT_API_VERSION)
 

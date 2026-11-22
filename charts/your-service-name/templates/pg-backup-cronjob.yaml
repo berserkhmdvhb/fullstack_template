@@ -49,7 +49,9 @@ spec:
                 - name: DB_HOST
                   value: {{ include "chart.fullname" . }}-postgresql
                 - name: DB_PORT
-                  value: "5432"
+                  value: {{ include "chart.dbPort" . | quote }}
+                - name: PGPORT
+                  value: {{ include "chart.dbPort" . | quote }}
                 - name: DB_USER
                   valueFrom:
                     secretKeyRef:
@@ -68,12 +70,7 @@ spec:
                 - name: backup-volume
                   mountPath: /backup
               resources:
-                requests:
-                  cpu: 100m
-                  memory: 128Mi
-                limits:
-                  cpu: 500m
-                  memory: 512Mi
+{{- include "chart.resources" .Values.resources.pgBackup | nindent 16 }}
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:

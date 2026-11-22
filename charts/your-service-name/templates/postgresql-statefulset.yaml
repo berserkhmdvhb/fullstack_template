@@ -44,14 +44,15 @@ spec:
       containers:
         - name: postgresql
           image: {{ .Values.postgresql.image }}
-          # 5432 is an unprivileged port, so the server needs no capability and no
+          # The port (config.DB_PORT) is unprivileged, so the server needs no capability and no
           # privilege escalation — drop ALL to satisfy the restricted profile.
+          args: ["-c", "port={{ include "chart.dbPort" . }}"]
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
           ports:
-            - containerPort: 5432
+            - containerPort: {{ include "chart.dbPort" . }}
               name: postgres
           env:
             - name: POSTGRES_USER
@@ -74,25 +75,20 @@ spec:
             - name: postgresql-data
               mountPath: /var/lib/postgresql/data
           resources:
-            requests:
-              cpu: 250m
-              memory: 512Mi
-            limits:
-              cpu: "1"
-              memory: 1Gi
+{{- include "chart.resources" .Values.resources.postgresql | nindent 12 }}
           livenessProbe:
             # TCP probe, NOT pg_isready (pg_isready returns PQPING_NO_ATTEMPT even
             # when the port is open — it crash-looped a healthy server). TCP-open is
-            # an accurate live/ready signal; Postgres binds 5432 within ~25ms.
+            # an accurate live/ready signal; Postgres binds its port within ~25ms.
             tcpSocket:
-              port: 5432
+              port: {{ include "chart.dbPort" . }}
             initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
           readinessProbe:
             tcpSocket:
-              port: 5432
+              port: {{ include "chart.dbPort" . }}
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3

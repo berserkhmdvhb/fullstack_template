@@ -60,6 +60,8 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+          resources:
+{{- include "chart.resources" .Values.waf.resources | nindent 12 }}
           ports:
             - name: http
               containerPort: {{ .Values.waf.service.port }}

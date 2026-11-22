@@ -153,8 +153,32 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "backend":  { "$ref": "#/definitions/resources" },
-        "frontend": { "$ref": "#/definitions/resources" }
+        "backend":    { "$ref": "#/definitions/resources" },
+        "frontend":   { "$ref": "#/definitions/resources" },
+        "waitForDb":  { "$ref": "#/definitions/resources" },
+        "migration":  { "$ref": "#/definitions/resources" },
+        "postgresql": { "$ref": "#/definitions/resources" },
+        "pgBackup":   { "$ref": "#/definitions/resources" }
+      }
+    },
+
+    "rollout": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxSurge":                { "type": ["integer", "string"], "pattern": "^[1-9][0-9]*%?$", "minimum": 1 },
+        "minReadySeconds":         { "type": "integer", "minimum": 0 },
+        "progressDeadlineSeconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "shutdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preStopSeconds":       { "type": "integer", "minimum": 1 },
+        "frontendDrainSeconds": { "type": "integer", "minimum": 1 },
+        "marginSeconds":        { "type": "integer", "minimum": 1 }
       }
     },
 
@@ -496,8 +520,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "requests": { "type": "object", "additionalProperties": { "type": ["string", "integer"] } },
-        "limits":   { "type": "object", "additionalProperties": { "type": ["string", "integer"] } }
+        "requests": {
+          "type": "object",
+          "additionalProperties": { "type": ["string", "integer"] },
+          "required": ["cpu", "memory"]
+        },
+        "cpuLimit": { "description": "A CPU limit; empty (the default) sets none. The memory limit is the memory request.", "type": ["string", "integer"] }
       }
     },
 

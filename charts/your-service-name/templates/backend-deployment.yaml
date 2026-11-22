@@ -14,11 +14,14 @@ spec:
   replicas: {{ .Values.replicas.backend }}
   {{- end }}
   revisionHistoryLimit: 3
+  # Zero-downtime: never fewer ready Pods than desired; the readiness probe gates each step.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0   # Zero-downtime: never drop below current count
+      maxSurge: {{ .Values.rollout.maxSurge }}
+      maxUnavailable: 0
+  minReadySeconds: {{ .Values.rollout.minReadySeconds }}
+  progressDeadlineSeconds: {{ .Values.rollout.progressDeadlineSeconds }}
   selector:
     matchLabels:
 {{- include "chart.selectorLabels" . | nindent 6 }}
@@ -90,22 +93,22 @@ spec:
             {{- end }}
           ports:
             - name: http
-              containerPort: 8000
+              containerPort: {{ include "chart.backendPort" . }}
               protocol: TCP
           resources:
-{{- toYaml .Values.resources.backend | nindent 12 }}
+{{- include "chart.resources" .Values.resources.backend | nindent 12 }}
           # Startup and liveness are process-only (/healthz): the migration Job can outlast the startup
           # budget, and a Pod must not be restarted for waiting on it. Only readiness checks the schema.
           startupProbe:
             httpGet:
-              path: /api/v1/healthz
+              path: {{ include "chart.backendLivePath" . }}
               port: http
             failureThreshold: 30
             periodSeconds: 5
             timeoutSeconds: 3
           readinessProbe:
             httpGet:
-              path: /api/v1/health
+              path: {{ include "chart.backendReadyPath" . }}
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -113,7 +116,7 @@ spec:
             failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /api/v1/healthz
+              path: {{ include "chart.backendLivePath" . }}
               port: http
             initialDelaySeconds: 30
             periodSeconds: 15
@@ -121,9 +124,10 @@ spec:
             failureThreshold: 3
           lifecycle:
             preStop:
-              exec:
-                # Let the LB drain before SIGTERM. Python, so no shell is started.
-                command: ["/app/.venv/bin/python", "-c", "import time; time.sleep(5)"]
+              # Let the endpoint leave the Services before SIGTERM. The native sleep action: the
+              # image has no shell to exec (Kubernetes 1.30).
+              sleep:
+                seconds: {{ .Values.shutdown.preStopSeconds }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -139,7 +143,7 @@ spec:
             medium: Memory
             sizeLimit: 128Mi
         {{- include "chart.dbCaVolume" . | nindent 8 }}
-      terminationGracePeriodSeconds: 60
+      terminationGracePeriodSeconds: {{ include "chart.backendTerminationGrace" . }}
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname

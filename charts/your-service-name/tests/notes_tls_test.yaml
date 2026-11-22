@@ -22,3 +22,8 @@ tests:
     set: {edge: {mode: tunnel}}
     asserts:
       - matchRegexRaw: {pattern: 'Cloudflare terminates TLS'}
+  - it: the port-forward hint follows the backend port
+    set: {config: {BACKEND_PORT: "9100"}}
+    asserts:
+      - matchRegexRaw: {pattern: 'port-forward svc/svc-your-service-name-backend 9100:9100'}
+      - matchRegexRaw: {pattern: 'http://127\.0\.0\.1:9100/api/v1/healthz'}

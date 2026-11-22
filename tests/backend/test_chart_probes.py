@@ -3,20 +3,31 @@
 
 from __future__ import annotations
 
-import re
+import functools
+import os
+from typing import Any
 
-from tests.backend.test_chart_production_guard import CHART
+from tests.backend.test_chart_pod_security import pod_specs, render
+from tests.backend.test_chart_production_guard import find_helm, require_helm
 from your_service_name.backend import paths
 from your_service_name.utils.versioning_api import DEFAULT_API_VERSION
 
 BASE = f"{paths.API_PREFIX}/{DEFAULT_API_VERSION}"
 
 
+@functools.cache
+def _containers() -> dict[str, dict[str, Any]]:
+    helm = require_helm(find_helm(), ci=bool(os.environ.get("CI")))
+    pods = pod_specs(render(helm, "values.yaml"))
+    return {
+        n.split("-")[-1]: spec[0]["containers"][0] for n, spec in pods.items() if "Deployment/" in n
+    }
+
+
 def _probe_path(probe: str, template: str = "backend-deployment.yaml") -> str:
-    text = (CHART / "templates" / template).read_text(encoding="utf-8")
-    match = re.search(rf"{probe}:\n\s+httpGet:\n\s+path: (\S+)", text)
-    assert match, probe
-    return match.group(1)
+    """The rendered path: the deployments take it from the chart's helpers, so the helm render (not
+    the template text) is what the probe uses."""
+    return str(_containers()[template.removesuffix("-deployment.yaml")][probe]["httpGet"]["path"])
 
 
 def test_liveness_uses_the_process_only_path() -> None:

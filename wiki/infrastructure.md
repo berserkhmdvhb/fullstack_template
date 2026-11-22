@@ -9,6 +9,7 @@ Kubernetes resources, the edge, Docker Compose for local development, and the en
 - [Overview](#overview)
 - [Kubernetes Resources](#kubernetes-resources)
 - [Namespace bootstrap (one-time admin step)](#namespace-bootstrap-one-time-admin-step)
+- [Workloads: rollout, resources and shutdown](#workloads-rollout-resources-and-shutdown)
 - [Edge](#edge)
 - [Collecting logs](#collecting-logs)
 - [Static assets](#static-assets)
@@ -175,6 +176,48 @@ current schema: remove them from its values first. From then on the deployer's u
 `scripts/k8s-env.sh apply` (`make k8s-apply`, `make deploy`), which runs as an admin, does steps 1 to
 3 itself when the release's stored manifest holds a Namespace, Role or RoleBinding, and prints each
 command (a dry run prints the upgrade it would run).
+
+---
+
+## Workloads: rollout, resources and shutdown
+
+The settings live in the chart's `values.yaml` (`rollout`, `shutdown`, `resources`); this page is the
+model, the values are the numbers.
+
+**Rolling updates.** The backend and frontend Deployments roll with `maxUnavailable: 0` and a surge
+(`rollout.maxSurge`): a new Pod starts first, and an old one stops only after the new one has been ready
+for `rollout.minReadySeconds`, so the readiness probes gate every step (the backend's also checks the
+schema, so a Pod waits for the migration Job). A rollout that makes no progress fails after
+`rollout.progressDeadlineSeconds`. Because no ready Pod is ever removed, a rollout cannot breach the
+PodDisruptionBudget, and the HPA's floor (`minReplicas`) stays above `pdb.*.minAvailable`, so a node
+drain can still evict one Pod. A single replica with a PDB of 1 blocks drains: keep two.
+
+**Resources.** Every container has a CPU request and a memory limit equal to its memory request (the
+chart renders the limit from the request, so the two cannot differ). CPU limits are off by default
+because they throttle; set `cpuLimit` on a block to add one. This holds for the backend, frontend, WAF,
+Cloud SQL proxy, migration Job (and its `wait-for-db` container), PostgreSQL and the backup jobs. The
+namespace LimitRange and ResourceQuota (`infra/k8s/bootstrap`) are the ceiling: raise the quota with
+the HPA `maxReplicas` plus the rollout surge. A test checks every container against the LimitRange's
+minimum and maximum.
+
+**Graceful shutdown.** On a delete the kubelet runs the `preStop` hook, then sends SIGTERM, then
+SIGKILL when `terminationGracePeriodSeconds` ends. The images have no shell, so `preStop` is the native
+`sleep` action (`shutdown.preStopSeconds`), which gives the endpoint time to leave the Services before
+SIGTERM. The grace period is derived, never set: the sleep, plus the drain, plus
+`shutdown.marginSeconds`. The backend's drain is Uvicorn's graceful timeout
+(`config.BACKEND_GRACEFUL_TIMEOUT`, read by the launcher). Next.js has no drain timeout: on SIGTERM it
+stops accepting, waits for open connections (idle keep-alive ones close in seconds) and exits, so
+`shutdown.frontendDrainSeconds` bounds a slow request. A test asserts that each grace period exceeds the
+sleep plus the drain.
+
+**Kubernetes version.** The `sleep` action (on by default from 1.30) and native sidecars (the Cloud SQL
+proxy; from 1.29) set the chart's `kubeVersion` to 1.30 or later; a Helm install on an older cluster
+refuses.
+
+**Ports and probe paths.** The backend, frontend and database ports come from `config.BACKEND_PORT`,
+`config.FRONTEND_PORT` and `config.DB_PORT` (the WAF's from `waf.service.port`), and the probe paths
+from one helper each; the templates write none of them. A test renders the chart with every port moved
+and fails on a default left behind.
 
 ---
 

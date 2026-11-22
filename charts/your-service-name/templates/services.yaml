@@ -57,8 +57,8 @@ spec:
   clusterIP: None        # headless — StatefulSet needs stable, per-pod network IDs (C-L6)
   ports:
     - name: postgres
-      port: 5432
-      targetPort: 5432
+      port: {{ include "chart.dbPort" . }}
+      targetPort: {{ include "chart.dbPort" . }}
       protocol: TCP
   selector:
 {{- include "chart.selectorLabels" . | nindent 4 }}

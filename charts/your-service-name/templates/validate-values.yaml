@@ -14,7 +14,7 @@
   (checked below) is the egress that matters.
 */ -}}
 {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.enabled (not .Values.cloudSqlProxy.enabled) (eq (toString .Values.externalDatabase.egressCIDR) "") }}
-{{- fail (printf "%s: externalDatabase is selected (postgresql.enabled=false) but externalDatabase.egressCIDR is empty. Set it to the managed DB's VPC subnet (e.g. your RDS CIDR) in values.production.yaml so the :5432 egress allow renders; empty => default-deny egress strands the DB." (include "chart.fullname" .)) }}
+{{- fail (printf "%s: externalDatabase is selected (postgresql.enabled=false) but externalDatabase.egressCIDR is empty. Set it to the managed DB's VPC subnet (e.g. your RDS CIDR) in values.production.yaml so the egress allow to its port (config.DB_PORT) renders; empty => default-deny egress strands the DB." (include "chart.fullname" .)) }}
 {{- end }}
 {{- /*
   The backend turns its production checks on only when config.ENV is production (or prod).

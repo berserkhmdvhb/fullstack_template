@@ -82,12 +82,7 @@ spec:
                   key: DB_USER
             {{- include "chart.dbEnv" . | nindent 12 }}
           resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 100m
-              memory: 128Mi
+{{- include "chart.resources" .Values.resources.waitForDb | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -116,12 +111,7 @@ spec:
             {{- . | nindent 12 }}
           {{- end }}
           resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
+{{- include "chart.resources" .Values.resources.migration | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

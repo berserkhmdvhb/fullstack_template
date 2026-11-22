@@ -13,11 +13,14 @@ spec:
   replicas: {{ .Values.replicas.frontend }}
   {{- end }}
   revisionHistoryLimit: 3
+  # Zero-downtime: never fewer ready Pods than desired; the readiness probe gates each step.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
+      maxSurge: {{ .Values.rollout.maxSurge }}
       maxUnavailable: 0
+  minReadySeconds: {{ .Values.rollout.minReadySeconds }}
+  progressDeadlineSeconds: {{ .Values.rollout.progressDeadlineSeconds }}
   selector:
     matchLabels:
 {{- include "chart.selectorLabels" . | nindent 6 }}
@@ -56,7 +59,7 @@ spec:
                 name: {{ include "chart.fullname" . }}-config
           env:
             - name: PORT
-              value: "3000"
+              value: {{ include "chart.frontendPort" . | quote }}
             - name: HOSTNAME
               value: "0.0.0.0"
             # The browser calls same-origin /api/v1; the Next.js server proxies
@@ -70,20 +73,20 @@ spec:
             {{- end }}
           ports:
             - name: http
-              containerPort: 3000
+              containerPort: {{ include "chart.frontendPort" . }}
               protocol: TCP
           resources:
-{{- toYaml .Values.resources.frontend | nindent 12 }}
+{{- include "chart.resources" .Values.resources.frontend | nindent 12 }}
           startupProbe:
             httpGet:
-              path: /api/healthz
+              path: {{ include "chart.frontendReadyPath" . }}
               port: http
             failureThreshold: 20
             periodSeconds: 5
             timeoutSeconds: 3
           readinessProbe:
             httpGet:
-              path: /api/healthz
+              path: {{ include "chart.frontendReadyPath" . }}
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -91,7 +94,7 @@ spec:
             failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /api/healthz
+              path: {{ include "chart.frontendReadyPath" . }}
               port: http
             initialDelaySeconds: 15
             periodSeconds: 15
@@ -99,15 +102,12 @@ spec:
             failureThreshold: 3
           lifecycle:
             preStop:
-              exec:
-                # Let the Ingress drop this pod from its endpoints before SIGTERM,
-                # so in-flight requests drain instead of being cut off (C-L5).
-                # Mirrors the backend; the Next.js server finishes on SIGTERM.
-                # Distroless ships no shell, so the drain is a Node timer, not `sh -c`.
-                command:
-                  - /nodejs/bin/node
-                  - "-e"
-                  - "setTimeout(() => {}, 5000)"
+              # Let the endpoint leave the Services before SIGTERM, so in-flight requests drain
+              # instead of being cut off. The native sleep action: the image has no shell
+              # (Kubernetes 1.30). On SIGTERM Next.js stops accepting, waits for open
+              # connections and exits (shutdown.frontendDrainSeconds bounds that wait).
+              sleep:
+                seconds: {{ .Values.shutdown.preStopSeconds }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -121,7 +121,7 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 128Mi
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: {{ include "chart.frontendTerminationGrace" . }}
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname

@@ -7,11 +7,11 @@ description: >-
 type: application
 version: 0.1.0
 appVersion: "1.0.0"
-# Chart uses networking.k8s.io/v1, autoscaling/v2 and policy/v1 (all >=1.22),
-# plus Helm features that assume a recent API surface — bound the supported range
-# so an install on an old cluster fails with a clear message instead of a
-# cryptic one (C-L9).
-kubeVersion: ">=1.23.0-0"
+# The floor is set by two features: the preStop sleep action (lifecycle.preStop.sleep, beta and
+# on by default from Kubernetes 1.30, GA in 1.34) and native sidecars (restartPolicy: Always on an
+# init container, beta and on by default from 1.29, GA in 1.33). An install on an older cluster
+# fails with a clear message instead of a cryptic one.
+kubeVersion: ">=1.30.0-0"
 keywords:
   - fastapi
   - nextjs

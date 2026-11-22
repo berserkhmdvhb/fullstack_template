@@ -45,6 +45,5 @@ def test_the_command_is_tini_and_the_python_launcher() -> None:
 
 
 def test_no_hook_needs_a_shell_in_the_backend_image() -> None:
-    pre_stop = _backend_container()["lifecycle"]["preStop"]["exec"]["command"]
-    assert pre_stop[0] == "/app/.venv/bin/python"
-    assert "sh" not in {c.rsplit("/", 1)[-1] for c in pre_stop}
+    """The preStop pause is the native sleep action (Kubernetes 1.30), not an exec."""
+    assert list(_backend_container()["lifecycle"]["preStop"]) == ["sleep"]

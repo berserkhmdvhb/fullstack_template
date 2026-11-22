@@ -34,8 +34,8 @@ Edge mode "ingress" hosts:
 {{- end }}
 
 Port-forward the backend API locally:
-  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ $fullname }}-backend 8000:8000
-  curl http://127.0.0.1:8000/api/v1/healthz
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ $fullname }}-backend {{ include "chart.backendPort" . }}:{{ include "chart.backendPort" . }}
+  curl http://127.0.0.1:{{ include "chart.backendPort" . }}{{ include "chart.backendLivePath" . }}
 
 {{- if not .Values.postgresql.enabled }}
 

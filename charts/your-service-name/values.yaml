@@ -124,14 +124,53 @@ replicas:
   backend: 2
   frontend: 2
 
-# Per-workload resources (kept faithful to the base manifests).
+# Rolling updates of the backend and the frontend: never fewer ready Pods than desired
+# (maxUnavailable is 0), up to maxSurge extra Pods, each counted ready only after it has been ready
+# for minReadySeconds, and a rollout that makes no progress for progressDeadlineSeconds is failed.
+# The readiness probes gate every step. (wiki/infrastructure.md, Workloads)
+rollout:
+  maxSurge: 25%
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+
+# Graceful shutdown, one source. A Pod's terminationGracePeriodSeconds is derived, never set:
+# preStopSeconds + the drain + marginSeconds, where the drain is config.BACKEND_GRACEFUL_TIMEOUT for
+# the backend and frontendDrainSeconds for the frontend. preStop is the native sleep action (the
+# images have no shell), so the endpoint is removed from the Services before SIGTERM arrives.
+# frontendDrainSeconds: Next.js stops accepting on SIGTERM, waits for open connections (idle
+# keep-alive ones close within Node's 5 s default) and exits; it has no drain timeout of its own, so
+# this bounds a slow request before SIGKILL. Needs Kubernetes 1.30 (Chart.yaml kubeVersion).
+shutdown:
+  preStopSeconds: 5
+  frontendDrainSeconds: 15
+  marginSeconds: 10
+
+# Per-container resources. Every container has a CPU request and a memory limit equal to its memory
+# request (the limit is rendered from the request, so the two cannot differ). CPU limits are off:
+# set cpuLimit (for example "1") to add one. The namespace LimitRange and ResourceQuota
+# (infra/k8s/bootstrap) must hold the sum, with the HPA maxReplicas plus the rollout surge.
 resources:
   backend:
-    requests: {cpu: 200m, memory: 256Mi}
-    limits: {cpu: "1", memory: 1Gi}
+    requests: {cpu: 200m, memory: 512Mi}
+    cpuLimit: ""
   frontend:
+    requests: {cpu: 100m, memory: 512Mi}
+    cpuLimit: ""
+  # The migration Job: its wait-for-db init container and the migrate container.
+  waitForDb:
+    requests: {cpu: 50m, memory: 64Mi}
+    cpuLimit: ""
+  migration:
     requests: {cpu: 100m, memory: 256Mi}
-    limits: {cpu: "1", memory: 1Gi}
+    cpuLimit: ""
+  # The in-cluster PostgreSQL (the database namespace has no LimitRange or quota).
+  postgresql:
+    requests: {cpu: 250m, memory: 1Gi}
+    cpuLimit: ""
+  # The backup and the backup-verify CronJobs.
+  pgBackup:
+    requests: {cpu: 100m, memory: 256Mi}
+    cpuLimit: ""
 
 # ---- Config (non-secret) -> ConfigMap ------------------------------------
 # DB_HOST is intentionally absent: it is computed in the template from the db
@@ -266,8 +305,8 @@ cloudSqlProxy:
     - {cidr: 169.254.169.252/32, ports: [987, 988]}
     - {cidr: 169.254.169.254/32, ports: [80]}
   resources:
-    requests: {cpu: 50m, memory: 64Mi}
-    limits: {cpu: 200m, memory: 128Mi}
+    requests: {cpu: 50m, memory: 128Mi}
+    cpuLimit: ""
 
 # ---- Edge -----------------------------------------------------------------
 # How traffic reaches the two Services. ONE routes list drives every mode, so a path is
@@ -393,8 +432,8 @@ waf:
   # backend keep-alive too; raising it past that causes intermittent 502s.
   upstreamIdleTimeoutSeconds: 60
   resources:
-    requests: {cpu: 100m, memory: 128Mi}
-    limits: {cpu: 500m, memory: 512Mi}
+    requests: {cpu: 100m, memory: 512Mi}
+    cpuLimit: ""
 
 # ---- Autoscaling ----------------------------------------------------------
 # backend maxReplicas:6 is coupled to the namespace ResourceQuota (infra/k8s/bootstrap).

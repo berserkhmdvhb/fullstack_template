@@ -29,7 +29,7 @@ spec:
               app.kubernetes.io/component: backend
       ports:
         - protocol: TCP
-          port: 5432
+          port: {{ include "chart.dbPort" . }}
     # Migration Job pods from the app namespace.
     - from:
         - namespaceSelector:
@@ -40,5 +40,5 @@ spec:
               app.kubernetes.io/component: migration
       ports:
         - protocol: TCP
-          port: 5432
+          port: {{ include "chart.dbPort" . }}
 {{- end }}

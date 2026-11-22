@@ -1,0 +1,54 @@
+suite: the backend and frontend roll out without losing capacity and stop gracefully
+release:
+  name: svc
+  namespace: app
+templates:
+  - backend-deployment.yaml
+  - frontend-deployment.yaml
+  - configmap.yaml
+tests:
+  - it: both Deployments surge, never drop a Pod and wait for readiness
+    template: backend-deployment.yaml
+    asserts: &rollout
+      - equal: {path: spec.strategy.type, value: RollingUpdate}
+      - equal: {path: spec.strategy.rollingUpdate.maxUnavailable, value: 0}
+      - equal: {path: spec.strategy.rollingUpdate.maxSurge, value: 25%}
+      - equal: {path: spec.minReadySeconds, value: 10}
+      - equal: {path: spec.progressDeadlineSeconds, value: 600}
+  - it: the frontend rolls out the same way
+    template: frontend-deployment.yaml
+    asserts: *rollout
+  - it: the rollout comes from values
+    template: frontend-deployment.yaml
+    set: {rollout: {maxSurge: 1, minReadySeconds: 30, progressDeadlineSeconds: 900}}
+    asserts:
+      - equal: {path: spec.strategy.rollingUpdate.maxSurge, value: 1}
+      - equal: {path: spec.minReadySeconds, value: 30}
+      - equal: {path: spec.progressDeadlineSeconds, value: 900}
+  - it: the backend preStop is the native sleep action, never an exec (the image has no shell)
+    template: backend-deployment.yaml
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].lifecycle.preStop', value: {sleep: {seconds: 5}}}
+  - it: the frontend preStop is the native sleep action, never an exec
+    template: frontend-deployment.yaml
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].lifecycle.preStop', value: {sleep: {seconds: 5}}}
+  - it: the backend grace period is preStop + the graceful timeout + the margin
+    template: backend-deployment.yaml
+    asserts:
+      - equal: {path: spec.template.spec.terminationGracePeriodSeconds, value: 45}
+  - it: the frontend grace period is preStop + the drain + the margin
+    template: frontend-deployment.yaml
+    asserts:
+      - equal: {path: spec.template.spec.terminationGracePeriodSeconds, value: 30}
+  - it: the backend port is the configured one
+    template: backend-deployment.yaml
+    set: {config: {BACKEND_PORT: "9100"}}
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].ports[0].containerPort', value: 9100}
+  - it: the frontend port and the PORT it listens on are the configured one
+    template: frontend-deployment.yaml
+    set: {config: {FRONTEND_PORT: "9200"}}
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].ports[0].containerPort', value: 9200}
+      - equal: {path: 'spec.template.spec.containers[0].env[0].value', value: "9200"}

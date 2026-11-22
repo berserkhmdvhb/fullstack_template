@@ -174,16 +174,16 @@ spec:
               app.kubernetes.io/component: postgresql
       ports:
         - protocol: TCP
-          port: 5432
+          port: {{ include "chart.dbPort" . }}
 {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.egressCIDR }}
-    # Managed DB (postgresql.enabled=false): allow egress to its subnet on :5432.
+    # Managed DB (postgresql.enabled=false): allow egress to its subnet on  (config.DB_PORT).
     # NetworkPolicy is IP-based; set externalDatabase.egressCIDR to the DB subnet.
     - to:
         - ipBlock:
             cidr: {{ .Values.externalDatabase.egressCIDR | quote }}
       ports:
         - protocol: TCP
-          port: 5432
+          port: {{ include "chart.dbPort" . }}
 {{- end }}
 {{- if .Values.cloudSqlProxy.enabled }}
     # Cloud SQL Auth Proxy sidecar: the instance (3307) and Google APIs (443), on cloudSqlProxy.egressCIDRs.
@@ -229,15 +229,15 @@ spec:
               app.kubernetes.io/component: postgresql
       ports:
         - protocol: TCP
-          port: 5432
+          port: {{ include "chart.dbPort" . }}
 {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.egressCIDR }}
-    # Managed DB (postgresql.enabled=false): allow egress to its subnet on :5432.
+    # Managed DB (postgresql.enabled=false): allow egress to its subnet on  (config.DB_PORT).
     - to:
         - ipBlock:
             cidr: {{ .Values.externalDatabase.egressCIDR | quote }}
       ports:
         - protocol: TCP
-          port: 5432
+          port: {{ include "chart.dbPort" . }}
 {{- end }}
 {{- if .Values.cloudSqlProxy.enabled }}
     # Cloud SQL Auth Proxy sidecar: the instance (3307) and Google APIs (443), on cloudSqlProxy.egressCIDRs.
