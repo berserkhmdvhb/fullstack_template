@@ -45,10 +45,14 @@ echo "kubectl $*" >> "$LOG"
 case "$1 $2" in
   "config get-contexts") printf 'kind-x\nother\n' ;;
   "config view") echo "https://127.0.0.1:6443" ;;
-  "auth can-i") echo "${STUB_CAN:-yes}"; [[ "${STUB_CAN:-yes}" == yes ]] ;;
+  "auth can-i") # STUB_CAN answers every check; STUB_DENY (a fragment of one check) answers that one no
+    can="${STUB_CAN:-yes}"; [[ -z "${STUB_DENY-}" || "$*" != *"$STUB_DENY"* ]] || can=no
+    echo "$can"; [[ "$can" == yes ]] ;;
   "apply -f") cat > /dev/null ;;
   "annotate "*|"label "*) # VERB KIND NAME [-n NS] K=V... --overwrite: recorded as "kind ns name K=V..."
     verb="$1" kind="$2" name="$3" ns=-; shift 3
+    [[ -z "${STUB_NOTFOUND-}" || "$verb" != annotate ]] ||
+      { echo "Error from server (NotFound): ${kind}s \"$name\" not found" >&2; exit 1; }
     [[ "${1-}" != -n ]] || { ns="$2"; shift 2; }
     [[ -n "${STUB_ANNOTATE_NOOP-}" && "$verb" == annotate ]] || echo "$kind $ns $name ${*/--overwrite/}" >> "$ANNOT" ;;
   "get "*)
@@ -239,6 +243,12 @@ orphans() {
   export STUB_NEW="$STUB_NEW"$'\n---\nkind: Secret\nmetadata:\n  name: kept'
 }
 
+# The same manifests with CRLF line ends; a stored manifest the line reader cannot classify (yq reads
+# the quoted key); and a stored Secret whose name it cannot read (flow style).
+crlf() { export STUB_OLD="${STUB_OLD//$'\n'/$'\r\n'}" STUB_NEW="${STUB_NEW//$'\n'/$'\r\n'}"; }
+quoted_key() { export STUB_OLD=$'"kind": Namespace\nmetadata:\n  name: app-ns'; }
+flow_secret() { export STUB_OLD="$STUB_OLD"$'\n---\nkind: Secret\nmetadata: {name: flow}'; }
+
 @test "a Namespace, PVC or Secret the current chart no longer renders is annotated keep before the first upgrade" {
   orphans
   run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
@@ -282,16 +292,29 @@ orphans() {
   [[ "$output" != *"/a_c"* && "$output" != *"/ab"* ]]
 }
 
-# A yq stub: the pinned version (from tools/pins.tsv) unless told otherwise, failing unless told not to.
+# A yq stub: the pinned version (from tools/pins.tsv) unless told otherwise. STUB_YQ_MODE is what it
+# does with the real yq's output: fail (exit 1, the default), empty (print nothing, exit 0), drop
+# (without its last line), dupdrop (its second line replaced by a copy of the first), rename (one
+# object's name changed), or phantom (on its second call, the render's, one object more).
 fake_yq() {
-  local pin
+  local pin real
   pin="$(awk -F'\t' '$1 == "yq" {print $2}' "$(dirname "$SCRIPT")/../tools/pins.tsv")"
-  # STUB_YQ_MODE: fail (exit 1, the default), empty (print nothing, exit 0), or drop (the real yq's
-  # output without its last line).
-  local real; real="$(command -v yq)"
-  # shellcheck disable=SC2016 # the stub expands $1 itself
-  printf '#!/usr/bin/env bash\n[[ "$1" != --version ]] || { echo "yq (https://github.com/mikefarah/yq/) version v%s"; exit 0; }\ncase "${STUB_YQ_MODE:-fail}" in\n  empty) exit 0 ;;\n  drop) "%s" "$@" | sed "\\$d" ;;\n  *) exit 1 ;;\nesac\n' \
-    "${1:-$pin}" "$real" > "$B/yq"
+  real="$(command -v yq)"
+  cat > "$B/yq" <<STUB
+#!/usr/bin/env bash
+[[ "\$1" != --version ]] || { echo "yq (https://github.com/mikefarah/yq/) version v${1:-$pin}"; exit 0; }
+echo call >> "$BATS_TEST_TMPDIR/yq.calls"
+case "\${STUB_YQ_MODE:-fail}" in
+  empty) exit 0 ;;
+  drop) "$real" "\$@" | sed '\$d' ;;
+  dupdrop) "$real" "\$@" | awk 'NR == 1 { first = \$0 } NR == 2 { \$0 = first } { print }' ;;
+  rename) "$real" "\$@" | sed 's/app-ns-logging/app-ns-loggin/' ;;
+  phantom)
+    "$real" "\$@"
+    [[ "\$(wc -l < "$BATS_TEST_TMPDIR/yq.calls")" -ne 2 ]] || printf 'Namespace - app-ns-logging\nNamespace/-/app-ns-logging\n' ;;
+  *) exit 1 ;;
+esac
+STUB
   chmod +x "$B/yq"
 }
 
@@ -394,4 +417,105 @@ fake_yq() {
   [[ "$output" == *"never been deployed"* ]]
   [[ "$output" != *"helm rollback"* ]]
   run ! grep -q "^helm upgrade" "$LOG"
+}
+
+@test "a yq that drops one object and duplicates another stops the run before any upgrade" {
+  orphans
+  fake_yq
+  STUB_YQ_MODE=dupdrop run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Namespace/-/app-ns-logging"* ]]
+  run ! grep -q -e "^helm upgrade" -e "annotate" "$LOG"
+}
+
+@test "a yq that renames one object stops the run before any upgrade" {
+  orphans
+  fake_yq
+  STUB_YQ_MODE=rename run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"    Namespace/-/app-ns-logging"* && "$output" == *$'\tNamespace/-/app-ns-loggin\n'* ]]
+  run ! grep -q -e "^helm upgrade" -e "annotate" "$LOG"
+}
+
+@test "a yq that adds an object to the current chart's render stops the run before any upgrade" {
+  # The phantom would be taken as still rendered, so the stored one would not be kept.
+  orphans
+  fake_yq
+  STUB_YQ_MODE=phantom run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"the current chart's render"* ]]
+  run ! grep -q -e "^helm upgrade" -e "annotate" "$LOG"
+}
+
+@test "an object the release owns that is not in the cluster stops the run before any upgrade" {
+  orphans
+  STUB_NOTFOUND=1 run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"NotFound"* && "$output" == *"is not in the cluster"* ]]
+  [[ "$output" != *"already gone"* ]]
+  run ! grep -q "^helm upgrade" "$LOG"
+}
+
+@test "a manifest with CRLF line ends is read as what it holds: its objects are kept before the first upgrade" {
+  orphans
+  crlf
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"nothing to do"* ]]
+  first="$(grep -n "^helm upgrade" "$LOG" | head -n 1 | cut -d: -f1)"
+  at="$(grep -n "^kubectl --context kind-x annotate namespace app-ns-logging helm.sh/resource-policy=keep --overwrite$" "$LOG" | cut -d: -f1)"
+  [ -n "$at" ]
+  (( at < first ))
+  [ "$(grep -c "annotate" "$LOG")" -eq 3 ]
+}
+
+@test "a CRLF manifest that holds Namespaces is not 'nothing to do': a non-admin is refused before any upgrade" {
+  orphans
+  crlf
+  STUB_CAN=no run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cluster admin"* && "$output" != *"nothing to do"* ]]
+  run ! grep -q "^helm upgrade" "$LOG"
+}
+
+@test "a manifest that cannot be classified is refused, not taken as holding nothing" {
+  quoted_key
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cannot classify"* && "$output" != *"nothing to do"* ]]
+  run ! grep -q -e "^helm upgrade" -e "annotate" "$LOG"
+}
+
+@test "a Secret the line reader cannot name stops the run before any upgrade" {
+  flow_secret
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cannot classify"* ]]
+  run ! grep -q -e "^helm upgrade" -e "annotate" "$LOG"
+}
+
+@test "an identity that cannot list Secrets is refused before any change" {
+  orphans
+  STUB_DENY="list secrets" run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cannot 'list secrets --all-namespaces'"*"cluster admin"* ]]
+  run ! grep -q -e "^helm upgrade" -e "annotate" -e "kind-x get secrets" "$LOG"
+}
+
+@test "the admin check asks for get, list and patch on the kinds it keeps and lists" {
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --dry-run
+  [ "$status" -eq 0 ]
+  for verb in get list patch; do
+    grep -q "auth can-i $verb namespaces$" "$LOG"
+    grep -q "auth can-i $verb persistentvolumeclaims --all-namespaces$" "$LOG"
+    grep -q "auth can-i $verb secrets --all-namespaces$" "$LOG"
+  done
+}
+
+@test "a re-run of a migrated release by an identity that cannot list Secrets exits 0 and lists nothing" {
+  echo switched > "$STATE"
+  STUB_DENY="list secrets" run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"nothing to do"*"cluster admin"* ]]
+  run ! grep -q "kind-x get secrets" "$LOG"
 }

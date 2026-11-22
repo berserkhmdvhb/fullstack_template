@@ -52,13 +52,13 @@ case "$1 $2" in
   "config get-contexts") echo stub-ctx ;;
   "config current-context") echo stub-ctx ;;
   "config view") echo "https://stub.invalid" ;;
-  "auth can-i") echo yes ;;
+  "auth can-i") echo "${STUB_CAN:-yes}" ;;
 esac
 STUB
   chmod +x "$B"/*
   export PATH="$B:$PATH" LIB_TS=0 NO_COLOR=1
-  # A stored Namespace document, named as Helm stores it (the migration checks yq's list of the
-  # manifest's Namespaces, PVCs and Secrets against a count of their documents).
+  # A stored Namespace document, named as Helm stores it (the migration refuses a Namespace, PVC or
+  # Secret document without a name).
   NS_DOC=$'---\nkind: Namespace\nmetadata:\n  name: svc-dev'
 }
 
@@ -227,5 +227,28 @@ STUB
   STUB_MANIFEST="$NS_DOC" run bash "$SCRIPT" apply --env dev --release svc --no-wait
   [ "$status" -ne 0 ]
   [[ "$output" == *"not the pinned"* ]]
+  run ! grep -q "^helm upgrade" "$LOG"
+}
+
+@test "a stored manifest with CRLF line ends still triggers the migration" {
+  STUB_MANIFEST="${NS_DOC//$'\n'/$'\r\n'}" run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"still owns its Namespace"* ]]
+  [ "$(grep -c "^helm upgrade" "$LOG")" -eq 3 ]
+  first="$(grep "^helm upgrade" "$LOG" | head -n 1)"
+  [[ "$first" == *"--set namespaces.create=true --set rbac.create=true"* ]]
+}
+
+@test "a CRLF manifest that holds Namespaces never gets the normal upgrade when the migration refuses" {
+  STUB_CAN=no STUB_MANIFEST="${NS_DOC//$'\n'/$'\r\n'}" run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cluster admin"* ]]
+  run ! grep -q "^helm upgrade" "$LOG"
+}
+
+@test "a stored manifest the gate cannot classify is refused, not upgraded" {
+  STUB_MANIFEST=$'---\n"kind": Namespace\nmetadata:\n  name: svc-dev' run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot classify"* ]]
   run ! grep -q "^helm upgrade" "$LOG"
 }

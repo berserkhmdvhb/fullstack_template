@@ -44,6 +44,8 @@ set -o errtrace
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/_yq.sh"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/_manifest.sh"
 trap 'lib_err_trap "k8s-env" "${LINENO}" "${BASH_COMMAND}" "$?"' ERR
 
 # ---- Defaults ---------------------------------------------------------------
@@ -233,8 +235,9 @@ cmd_apply() {
     # The deployed revision, as the script reads it: a later failed revision may lack the objects.
     # A release never deployed is read at its last revision: if that holds them, the script refuses
     # it with how to recover (a normal upgrade would delete them: Helm diffs against that revision).
-    # The revision comes from yq: only the pinned one.
-    local history="" manifest="" rev="" rc=0
+    # The revision comes from yq: only the pinned one. The manifest is read and classified by
+    # scripts/_manifest.sh, as the script does: one it cannot classify stops the deploy.
+    local history="" manifest="" documents="" rev="" rc=0
     history="$(helm history "${HELM_RELEASE}" -n "${NAMESPACE}" -o json 2>&1)" || rc=$?
     if [ "${rc}" -ne 0 ]; then
       grep -q "release: not found" <<<"${history}" \
@@ -246,10 +249,12 @@ cmd_apply() {
       [ -n "${rev}" ] || die "release ${HELM_RELEASE} in ${NAMESPACE} has a history but no revision: ${history}"
     fi
     if [ -n "${rev}" ]; then
-      manifest="$(helm get manifest "${HELM_RELEASE}" -n "${NAMESPACE}" --revision "${rev}" 2>&1)" \
-        || die "could not read release ${HELM_RELEASE} in ${NAMESPACE}: ${manifest}"
+      manifest="$(helm get manifest "${HELM_RELEASE}" -n "${NAMESPACE}" --revision "${rev}" | manifest_lf)" \
+        || die "could not read release ${HELM_RELEASE} in ${NAMESPACE} (above)"
+      documents="$(printf '%s\n' "${manifest}" | manifest_objects "${NAMESPACE}")" \
+        || die "cannot classify the manifest of release ${HELM_RELEASE} in ${NAMESPACE} (above): not upgrading a release that may still own its Namespaces"
     fi
-    if grep -Eqx 'kind: (Namespace|Role|RoleBinding)' <<<"${manifest}"; then
+    if manifest_holds "${documents}"; then
       log_warn "release ${HELM_RELEASE} still owns its Namespace, Role or RoleBinding objects: moving it onto the bootstrap first"
       log_step "${migrate[*]}"
       "${migrate[@]}" || die "the migration onto the bootstrap failed (above); nothing else was changed after it"

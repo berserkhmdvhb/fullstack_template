@@ -11,11 +11,12 @@
 #      the current chart no longer renders (an older chart's logging namespace, for one) is
 #      annotated helm.sh/resource-policy=keep and labelled migrate-to-bootstrap/release=<release>
 #      and migrate-to-bootstrap/namespace=<namespace> on the live object, then read back: no
-#      upgrade runs unless each carries all three. yq's list is checked against a grep count of the
-#      manifest's documents. Every stage
-#      of that computation is checked, so a failure stops the run rather than empty the set. The
-#      objects that carry the labels are listed at the end (on a re-run too, for a cluster admin)
-#      as kept and no longer managed, for a person to decide on;
+#      upgrade runs unless each carries all three, and one the cluster does not have stops the run.
+#      Two readers list those objects, a line reader (scripts/_manifest.sh) and yq, and the run stops
+#      before any change unless both give the same set, for the release and for the render. Every
+#      stage of that computation is checked, so a failure stops the run rather than empty the set.
+#      The objects that carry the labels are listed at the end (on a re-run too, for a cluster
+#      admin) as kept and no longer managed, for a person to decide on;
 #   1. one upgrade that still renders the namespaces and the app's RBAC (namespaces.create=true,
 #      rbac.create=true): they gain helm.sh/resource-policy: keep;
 #   2. the bootstrap (scripts/k8s-bootstrap.sh <env> | kubectl apply -f -), applied over them;
@@ -25,7 +26,8 @@
 # --values and --set), never the release's stored ones: an older release stored keys the current
 # schema refuses. It reads the release at its deployed revision and refuses a release in any other
 # status (failed, pending-*): roll that back first. A release that holds none of those objects is
-# left alone, so a re-run is safe. See wiki/infrastructure.md (namespace bootstrap).
+# left alone, so a re-run is safe; a manifest it cannot classify is refused, not taken as holding
+# none. See wiki/infrastructure.md (namespace bootstrap).
 #
 # Usage: migrate-to-bootstrap.sh <dev|qa|production|local> --context NAME [--release NAME]
 #                                [--namespace NS] [--values FILE]... [--set K=V]...
@@ -96,6 +98,8 @@ for tool in helm kubectl jq yq; do command -v "$tool" >/dev/null 2>&1 || die "$t
 # shellcheck source=/dev/null
 source "$ROOT/scripts/_yq.sh"
 pinned_yq "$ROOT" || exit 1
+# shellcheck source=/dev/null
+source "$ROOT/scripts/_manifest.sh"
 kc() { kubectl --context "$context" "$@"; }
 hc() { helm "$@" --kube-context "$context"; }
 grep -qxF -- "$context" <<<"$(kubectl config get-contexts -o name 2>/dev/null || true)" ||
@@ -124,17 +128,37 @@ deployed() { # the release's status must be deployed; prints its revision
   fi
   echo "$rev"
 }
-holds() { grep -Eqx 'kind: (Namespace|Role|RoleBinding)' <<<"$1"; }
+# Every manifest is read through manifest_lf, and classified by manifest_objects (scripts/_manifest.sh).
+stored_manifest() { hc get manifest "$release" -n "$namespace" --revision "$1" | manifest_lf; }
+classify() { # what it is, the manifest: a kind/namespace/name line per document, or the run stops
+  printf '%s\n' "$2" | manifest_objects "$namespace" ||
+    die "cannot classify $1 (above): refusing to take it as holding nothing"
+}
 # The kept objects' marker: two labels (selectable; each value a DNS label, so within 63 characters).
 selector="migrate-to-bootstrap/release=$release,migrate-to-bootstrap/namespace=$namespace"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-objects() { # manifest file, out file: its Namespace, PersistentVolumeClaim and Secret objects, sorted
-  yq -N 'select(.kind == "Namespace" or .kind == "PersistentVolumeClaim" or .kind == "Secret")
+# objects WHAT MANIFEST DOCUMENTS OUT: the manifest's Namespace, PersistentVolumeClaim and Secret
+# objects into OUT, sorted, as kind/namespace/name. Two readers list them: DOCUMENTS (classify's
+# lines) and yq. They must give the same set, in both directions, or a reader that printed too
+# little, too much or another name (and exited 0) would change what is kept.
+objects() {
+  local what="$1" out="$4"
+  printf '%s\n' "$3" > "$out.documents" || die "could not write the documents of $what"
+  awk -F/ '$1 ~ /^(Namespace|PersistentVolumeClaim|Secret)$/' "$out.documents" > "$out.lines" ||
+    die "could not select the objects of $what"
+  LC_ALL=C sort -u "$out.lines" > "$out" || die "could not sort the objects of $what"
+  printf '%s\n' "$2" | yq -N 'select(.kind == "Namespace" or .kind == "PersistentVolumeClaim" or .kind == "Secret")
     | select(.metadata.name != null)
-    | .kind + " " + (.metadata.namespace // "'"$namespace"'") + " " + .metadata.name
-    | sub("^Namespace [^ ]+ ", "Namespace - ")' "$1" > "$2.unsorted" || die "yq could not read $(basename "$1")"
-  LC_ALL=C sort -u "$2.unsorted" > "$2" || die "could not sort the objects of $(basename "$1")"
+    | .kind + "/" + (.metadata.namespace // "'"$namespace"'") + "/" + .metadata.name
+    | sub("^Namespace/[^/]+/", "Namespace/-/")' /dev/stdin > "$out.yq.unsorted" || die "yq could not read $what"
+  LC_ALL=C sort -u "$out.yq.unsorted" > "$out.yq" || die "could not sort yq's objects of $what"
+  LC_ALL=C comm -3 "$out" "$out.yq" > "$out.differ" || die "could not compare the two lists of $what"
+  if [[ -s "$out.differ" || ( -s "$out" && ! -s "$out.yq" ) ]]; then
+    echo "migrate-to-bootstrap: the two readers of $what disagree (left: the manifest has; right: only yq found):" >&2
+    sed 's/^/    /' "$out.differ" >&2
+    die "yq found $(wc -l < "$out.yq") Namespace, PersistentVolumeClaim and Secret objects in $what; the manifest has $(wc -l < "$out"): stopping before any change"
+  fi
 }
 marked() { # what an earlier or this run kept for this release: only the objects with its labels
   local kind kinds=(Namespace:namespaces PersistentVolumeClaim:persistentvolumeclaims Secret:secrets)
@@ -152,11 +176,18 @@ marked() { # what an earlier or this run kept for this release: only the objects
     sed 's/^/    /' "$work/marked"
   fi
 }
-admin() { # the identity's rights for the steps: namespaces, quotas and RBAC; prints the first it lacks
-  local check
-  for check in "create namespaces" "create resourcequotas -n $namespace" "create roles -n $namespace" \
-    "create rolebindings -n $namespace" "escalate roles -n $namespace" "patch namespaces" \
-    "patch persistentvolumeclaims --all-namespaces" "patch secrets --all-namespaces"; do
+admin() { # the identity's rights for every call below; prints the first it lacks
+  # The bootstrap's apply (get, create, patch), then keeping, reading back and listing (get, list,
+  # patch) the Namespaces, and the PersistentVolumeClaims and Secrets of any namespace.
+  local check verb kind
+  local -a checks=("create namespaces" "escalate roles -n $namespace")
+  for verb in get create patch; do
+    for kind in resourcequotas limitranges roles rolebindings; do checks+=("$verb $kind -n $namespace"); done
+  done
+  for verb in get list patch; do
+    checks+=("$verb namespaces" "$verb persistentvolumeclaims --all-namespaces" "$verb secrets --all-namespaces")
+  done
+  for check in "${checks[@]}"; do
     # shellcheck disable=SC2086 # the words are kubectl's arguments
     [[ "$(kc auth can-i $check 2>/dev/null || true)" == yes ]] || { echo "$check"; return 1; }
   done
@@ -164,8 +195,9 @@ admin() { # the identity's rights for the steps: namespaces, quotas and RBAC; pr
 
 # The deployed revision, read once its status is checked (every read below is at that revision).
 rev="$(deployed)"
-stored="$(hc get manifest "$release" -n "$namespace" --revision "$rev")"
-if ! holds "$stored"; then
+stored="$(stored_manifest "$rev")"
+documents="$(classify "the release's manifest" "$stored")"
+if ! manifest_holds "$documents"; then
   echo "migrate-to-bootstrap: $release in $namespace ($where) holds no Namespace, Role or RoleBinding: nothing to do"
   # The kept list reads labelled objects cluster-wide: only for a cluster admin.
   if admin > /dev/null; then marked; else echo "migrate-to-bootstrap: run it as a cluster admin to list what an earlier run kept"; fi
@@ -176,24 +208,17 @@ lacks="$(admin)" || die "this identity cannot '$lacks' in $where: run it as a cl
 # What the release holds and the first upgrade's render does not, Helm deletes in that upgrade. Each
 # stage is a file with its own status check, so a failure stops the run rather than empty the set.
 # (The manifests stay in memory: they hold the release's Secrets.)
-printf '%s\n' "$stored" | objects /dev/stdin "$work/old"
-# Completeness, by an independent parser: the documents whose top-level kind is one of the three,
-# counted with grep, must all be in yq's list, or a yq that printed too little (and exited 0) would
-# leave them out of the keep set and the upgrade would delete them. Only this side needs it: a short
-# list for the new render only keeps more.
-expected="$(grep -cEx 'kind: (Namespace|PersistentVolumeClaim|Secret)' <<<"$stored" || true)"
-found="$(wc -l < "$work/old.unsorted")"
-[[ "$found" -eq "$expected" ]] ||
-  die "yq found $found Namespace, PersistentVolumeClaim and Secret objects; the manifest has $expected: stopping before any change"
-render="$(helm template "$release" "$CHART" -n "$namespace" "${values[@]}" --set namespaces.create=true --set rbac.create=true)" ||
+objects "the release's manifest" "$stored" "$documents" "$work/old"
+render="$(helm template "$release" "$CHART" -n "$namespace" "${values[@]}" --set namespaces.create=true --set rbac.create=true | manifest_lf)" ||
   die "the current chart does not render with these values"
-printf '%s\n' "$render" | objects /dev/stdin "$work/new"
+documents="$(classify "the current chart's render" "$render")"
+objects "the current chart's render" "$render" "$documents" "$work/new"
 LC_ALL=C comm -23 "$work/old" "$work/new" > "$work/keep" || die "could not compare the release's objects with the chart's"
 mapfile -t keep < "$work/keep"
 show() { # kind namespace/name, or kind name for a Namespace
   local obj k n name
   for obj in "${keep[@]}"; do
-    read -r k n name <<<"$obj"
+    IFS=/ read -r k n name <<<"$obj"
     if [[ "$n" == - ]]; then echo "    $k $name"; else echo "    $k $n/$name"; fi
   done
 }
@@ -214,13 +239,13 @@ fi
 
 echo "==> 0. keep what the current chart no longer renders"
 for obj in "${keep[@]}"; do
-  read -r k n name <<<"$obj"
+  IFS=/ read -r k n name <<<"$obj"
   ns_arg=(); [[ "$n" == - ]] || ns_arg=(-n "$n")
   kind_lc="$(tr '[:upper:]' '[:lower:]' <<<"$k")"
   if ! out="$(kc annotate "$kind_lc" "$name" "${ns_arg[@]}" helm.sh/resource-policy=keep --overwrite 2>&1)"; then
+    # The release owns it and the cluster does not have it: not "already gone", but a state to look into.
     grep -q NotFound <<<"$out" || die "could not annotate $k $name: $out"
-    echo "  $k $name is already gone"
-    continue
+    die "$k $name is in the manifest of release $release and is not in the cluster ($where): $out. Check that the context and the namespace are the release's, and find out what removed it, before running this again; no upgrade ran"
   fi
   kc label "$kind_lc" "$name" "${ns_arg[@]}" "migrate-to-bootstrap/release=$release" \
     "migrate-to-bootstrap/namespace=$namespace" --overwrite > /dev/null || die "could not label $k $name"
@@ -236,7 +261,8 @@ echo "==> 2. the bootstrap"
 echo "==> 3. switch: an upgrade with both off; keep leaves them in place"
 "${upgrade[@]}" --set namespaces.create=false --set rbac.create=false
 rev="$(deployed)"
-after="$(hc get manifest "$release" -n "$namespace" --revision "$rev")"
-! holds "$after" || die "the release $release still holds a Namespace, Role or RoleBinding"
+after="$(stored_manifest "$rev")"
+documents="$(classify "the release's manifest after the switch" "$after")"
+! manifest_holds "$documents" || die "the release $release still holds a Namespace, Role or RoleBinding"
 echo "migrate-to-bootstrap: migrated: $release in $namespace ($where); the deployer's upgrades touch none of them"
 marked
