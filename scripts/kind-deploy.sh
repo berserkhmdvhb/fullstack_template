@@ -86,6 +86,7 @@ echo "kind-deploy: using $pin (1.$client client, 1.$server server)"
 # ---- The identities ---------------------------------------------------------------------------
 cd "$ROOT"
 kc() { kubectl --context "$CONTEXT" "$@"; }
+# shellcheck disable=SC2016 # yq's own variables, not the shell's
 deployer="$(yq ea '. as $i ireduce ({}; . * $i) | .deployer.name' infra/k8s/bootstrap/values.yaml "infra/k8s/bootstrap/values.$ENV_NAME.yaml")"
 as_deployer=(--as "$deployer" --as-group "$GROUP")
 helm_as() { helm --kube-context "$CONTEXT" --kube-as-user "$deployer" --kube-as-group "$GROUP" "$@"; }

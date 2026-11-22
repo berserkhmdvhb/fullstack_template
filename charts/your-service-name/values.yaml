@@ -491,9 +491,9 @@ waf:
   # keep-alive (ingress-nginx's `upstream-keepalive-timeout`, default 60 s) must stay below the
   # backend keep-alive too; raising it past that causes intermittent 502s.
   upstreamIdleTimeoutSeconds: 60
-  # Envoy's worker threads. Each runs its own Wasm VM with the Coraza rules loaded, so memory grows with
-  # it; Envoy's own default (one per CPU of the node, whatever the Pod's CPU request) was OOM-killed at
-  # startup under the 512Mi limit on a 24-CPU node. Scale the WAF with replicas, not threads.
+  # Envoy's worker threads. Each runs its own Wasm VM with the Coraza rules loaded, so memory
+  # grows with it; Envoy's own default (one per CPU of the node, whatever the Pod's CPU request)
+  # was OOM-killed at startup under the 512Mi limit on a 24-CPU node. Scale the WAF with replicas.
   concurrency: 2
   # The memory limit equals the request; Envoy's heap is bounded at 80% of it (overload manager).
   resources:

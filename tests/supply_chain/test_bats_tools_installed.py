@@ -10,8 +10,10 @@ from tests.supply_chain._workflows import REPO, workflow
 # Tools the bats tests mention but never run for real; each needs a reason.
 STUBBED = {
     "kubectl": "the tests put a stub kubectl on PATH",
-    "helm4": "the k8s-bootstrap and k8s-env tests put a stub helm on PATH",
-    "kind": "an awk variable in the migration helper, never the binary",
+    "kubectl-floor": "the kind-deploy tests put a stub kubectl-floor on PATH",
+    "helm4": "the k8s-bootstrap, k8s-env and kind-deploy tests put a stub helm on PATH",
+    "kind": "an awk variable in the migration helper; the kind-up and kind-deploy tests stub kind",
+    "ct": "the kind-deploy tests put a stub ct on PATH",
     "cosign": "named in an error message the scaffolder tests print",
     "python": "the backend virtualenv's interpreter, not a downloaded pin",
     "node": "named in the probe commands rebuild-and-roll.sh prints; docker and kubectl are stubs",

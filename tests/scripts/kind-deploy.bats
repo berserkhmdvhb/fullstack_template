@@ -32,6 +32,7 @@ esac
 STUB
   cp "$B/kubectl" "$B/kubectl-floor"
   for tool in helm kind docker ct; do
+    # shellcheck disable=SC2016 # expanded by the stub, not here
     printf '#!/usr/bin/env bash\necho "%s $*" >> "$LOG"\nexit 99\n' "$tool" > "$B/$tool"
   done
   chmod +x "$B"/*

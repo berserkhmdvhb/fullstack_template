@@ -264,6 +264,27 @@ def test_pull_request_paths_map_to_the_images_output(
     assert _run_filter(tmp_path, "pull_request", [path])["images"] == str(images).lower()
 
 
+@pytest.mark.parametrize(
+    ("path", "kind"),
+    [
+        ("charts/your-service-name/values.yaml", True),
+        ("infra/k8s/bootstrap/values.yaml", True),
+        ("infra/security/config.yaml", False),
+        ("Dockerfile.waf", True),
+        ("src/your_service_name/main.py", True),
+        ("scripts/kind-deploy.sh", True),
+        ("tools/kind-nodes.tsv", True),
+        ("Makefile", True),
+        ("wiki/infrastructure.md", False),
+        ("tests/scripts/kind-up.bats", False),
+    ],
+)
+def test_pull_request_paths_map_to_the_kind_output(
+    tmp_path: Path, path: str, *, kind: bool
+) -> None:
+    assert _run_filter(tmp_path, "pull_request", [path])["kind"] == str(kind).lower()
+
+
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch"])
 def test_main_tags_and_dispatch_force_every_output(tmp_path: Path, event: str) -> None:
     """A push covers both main and v* tags; neither is filtered."""
@@ -272,12 +293,13 @@ def test_main_tags_and_dispatch_force_every_output(tmp_path: Path, event: str) -
         "frontend": "true",
         "pins": "true",
         "images": "true",
+        "kind": "true",
     }
 
 
 def test_filter_outputs_match_the_declared_outputs() -> None:
     declared = set(workflow("ci.yml")["jobs"]["changes"]["outputs"])
-    assert declared == {"backend", "frontend", "pins", "images"}
+    assert declared == {"backend", "frontend", "pins", "images", "kind"}
 
 
 def test_integration_job_uploads_its_report_only_on_failure() -> None:

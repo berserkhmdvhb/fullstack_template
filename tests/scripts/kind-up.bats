@@ -73,6 +73,7 @@ STUB
   for args in "" "--node newest" "--delete"; do
     # shellcheck disable=SC2086 # the words are the arguments
     run bash "$SCRIPT" $args
+    # shellcheck disable=SC2086 # the words are the arguments
     STUB_NODE_IMAGE="$FLOOR" run bash "$SCRIPT" $args
   done
   run ! grep -q "get clusters" "$LOG"
