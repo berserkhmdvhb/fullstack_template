@@ -6,10 +6,9 @@
 
 import type { ProxyMatcher } from 'next/dist/build/analysis/get-page-static-info';
 import * as pageStaticInfo from 'next/dist/build/analysis/get-page-static-info';
-import { modifyRouteRegex } from 'next/dist/lib/redirect-status';
 import type { BaseNextRequest } from 'next/dist/server/base-http';
+import { buildCustomRoute } from 'next/dist/server/lib/router-utils/filesystem';
 import { getMiddlewareRouteMatcher } from 'next/dist/shared/lib/router/utils/middleware-route-matcher';
-import { getPathMatch } from 'next/dist/shared/lib/router/utils/path-match';
 import { describe, expect, it } from 'vitest';
 
 import { config } from './proxy';
@@ -32,13 +31,10 @@ const { getMiddlewareMatchers } = pageStaticInfo as unknown as {
 const routeMatcher = getMiddlewareRouteMatcher(getMiddlewareMatchers(config.matcher, {}));
 // The request is only read for `has`/`missing` conditions, which the matcher has none of.
 const proxyRuns = (path: string) => routeMatcher(path, {} as BaseNextRequest, {});
-const headerSources = STATIC_HEADER_SOURCES.map((source) =>
-  getPathMatch(source, {
-    strict: true,
-    removeUnnamedParams: true,
-    regexModifier: (regex) => modifyRouteRegex(regex),
-    sensitive: false,
-  }),
+// `buildCustomRoute` is the function the server's router runs on `headers()` (no base path, and
+// `caseSensitiveRoutes` is off), so the header side cannot drift from Next's own router.
+const headerSources = STATIC_HEADER_SOURCES.map(
+  (source) => buildCustomRoute('header', { source }).match,
 );
 const staticHeaderApplies = (path: string) => headerSources.some((match) => match(path) !== false);
 
@@ -114,6 +110,17 @@ describe('static paths', () => {
       return [`${path}: ${proxied ? 'both policies' : 'no policy'}`];
     });
     expect(paths.length).toBeGreaterThan(8000);
+    // Known paths, so the check cannot pass when both sides match everything or nothing.
+    expect(proxyRuns('/')).toBe(true);
+    expect(staticHeaderApplies('/')).toBe(false);
+    expect(proxyRuns('/t.svg')).toBe(false);
+    expect(staticHeaderApplies('/t.svg')).toBe(true);
+    expect(proxyRuns('/api/v1/x')).toBe(true);
+    expect(staticHeaderApplies('/api/v1/x')).toBe(false);
+    expect(proxyRuns('/_next/static/x.js')).toBe(false);
+    expect(staticHeaderApplies('/_next/static/x.js')).toBe(true);
+    expect(paths.filter(proxyRuns).length).toBeGreaterThan(0);
+    expect(paths.filter(staticHeaderApplies).length).toBeGreaterThan(0);
     const listed = wrong.slice(0, 40).join('\n');
     expect(wrong.length, `${wrong.length} of ${paths.length} paths, the first 40:\n${listed}`).toBe(
       0,
