@@ -2,28 +2,37 @@
  * The one list of paths the server hands out as static files, and so the paths the proxy skips.
  *
  * @remarks
- * Every response that `headers()` or the proxy can reach carries exactly one Content-Security-Policy.
- * A static path gets `default-src 'none'` from the `headers()` rule in `next.config.ts`
+ * Every response Next.js generates carries exactly one Content-Security-Policy (the exemptions are
+ * below). A static path gets `default-src 'none'` from the `headers()` rule in `next.config.ts`
  * (`STATIC_HEADER_SOURCES`); every other path gets the page policy from `proxy.ts`. Next.js matches
- * `headers()` sources case-insensitively and the proxy matcher case-sensitively, so every literal in
- * both is written with `anyCase`: the proxy matcher then excludes exactly the static paths, in any
- * letter case, and the two sets are complements (a path that merely looks like one, such as
- * `/favicon.icox`, `/_next/staticfoo` or `/a/.svg`, is not static and goes to the proxy).
- * The static paths are `/_next/static/*`, `/_next/image/*`, `/favicon.ico` and any file with a
- * non-empty name ending in one of the image extensions, at any depth, in any letter case, except
- * under a backend prefix (`BACKEND_PATHS`, in any letter case). The proxy sends only the exact-case
- * prefix to the backend; a case variant such as `/API/v1/x.svg` is a frontend path with the page policy.
+ * `headers()` sources case-insensitively by itself, and the proxy matcher case-sensitively, so
+ * every literal of the matcher (and of the image source) goes through `anyCase`. The matcher then
+ * excludes exactly the static paths, in any letter case, and the two sets are complements (a path
+ * that merely looks like one, such as `/favicon.icox`, `/_next/staticfoo` or `/a/.svg`, is not
+ * static and goes to the proxy). The static paths are `/_next/static` and `/_next/image` with
+ * everything below them, `/favicon.ico`, and any path whose last segment is a non-empty name ending
+ * in one of the image extensions, at any depth, in any letter case, except under a backend prefix
+ * (`BACKEND_PATHS`, in any letter case). The proxy sends only the exact-case prefix to the backend;
+ * a case variant such as `/API/v1/x.svg` is a frontend path with the page policy.
  *
- * Exempt: the 308 redirects Next.js itself issues to normalise a path (`//t.svg`, `/a.svg/`,
- * `/_next/image/`). They come before `headers()` and the proxy, so they carry none of these headers.
- * That is accepted: their body is only the target path, a browser follows them instead of rendering
- * them, and turning the normalisation off (`skipTrailingSlashRedirect`) would turn those URLs into
- * 404 pages. `tests/live/test_static_files.py` pins that they stay bare redirects.
+ * Exempt (the one place this is written down): the 308 redirects Next.js itself issues to
+ * normalise a path (`//t.svg`, `/a.svg/`, `/_next/image/`). They come before `headers()` and the
+ * proxy, so they carry none of these headers. That is accepted: their body is only the target path,
+ * a browser follows them instead of rendering them, and turning the normalisation off
+ * (`skipTrailingSlashRedirect`) would turn those URLs into 404 pages. Also exempt: TRACE (a
+ * plain-text 500 with no headers on a proxied path), CONNECT, and requests Node's HTTP parser
+ * rejects before Next.js runs (an unknown method, an oversized URL, a target that is not a path).
+ * That is accepted: a page cannot make a browser send TRACE or CONNECT, and a parser error carries
+ * no page content.
+ * `tests/live/test_static_files.py` pins that the redirects stay bare redirects and that a TRACE
+ * response without the headers has no HTML.
  *
  * Next.js needs the matcher in `proxy.ts` as a literal it can analyse at build time, so the literal
- * stays there and `static-paths.test.ts` checks it equals `proxyMatcher()`. Other files in
- * `public/` (`.json`, `.webmanifest`, `.html`, no extension) are not static here: they go through
- * the proxy and carry the page policy, which allows no inline script and no framing.
+ * stays there. `static-paths.test.ts` checks it equals `proxyMatcher()`, and compiles both sides
+ * with Next's own functions to check, over a generated set of paths, that each path gets exactly
+ * one of them. Other files in `public/` (`.json`, `.webmanifest`, `.html`, no extension) are not
+ * static here: they go through the proxy and carry the page policy, which allows no inline script
+ * and no framing.
  *
  * @packageDocumentation
  */
@@ -34,11 +43,11 @@ export const DOCS_PATH = '/docs';
 export const BACKEND_PATHS: readonly string[] = ['/api/v1', DOCS_PATH, '/openapi.json'];
 
 /** Directories of build output (the directory itself and everything below it). */
-const DIRECTORIES = ['_next/static', '_next/image'] as const;
+export const DIRECTORIES = ['_next/static', '_next/image'] as const;
 /** Single files at the root (exactly that path). */
-const FILES = ['favicon.ico'] as const;
+export const FILES = ['favicon.ico'] as const;
 /** Image types served from `public/`; an adopter's own files of these types are covered too. */
-const EXTENSIONS = ['svg', 'png', 'jpg', 'jpeg', 'gif', 'webp'] as const;
+export const EXTENSIONS = ['svg', 'png', 'jpg', 'jpeg', 'gif', 'webp'] as const;
 
 /**
  * A pattern that matches the literal in any letter case, letters written as character classes and

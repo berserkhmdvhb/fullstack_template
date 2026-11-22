@@ -169,7 +169,8 @@ def test_a_proxied_text_file_is_revalidated(server: httpx.Client, path: str) -> 
     _assert_final_set(res, page, exact_transport={"cache-control": "no-cache"})
 
 
-# Every response carries nosniff, X-Frame-Options DENY and exactly one Content-Security-Policy: the
+# Every response Next.js generates carries nosniff, X-Frame-Options DENY and exactly one
+# Content-Security-Policy (the exemptions are in frontend/static-paths.ts): the
 # static set's `default-src 'none'` (set by the headers rule) or the page policy (set by the proxy).
 # Look-alike paths that are not static fall to the page policy.
 _STATIC = "static"
@@ -267,8 +268,15 @@ def _backend_paths() -> list[str]:
     listed = re.search(r"BACKEND_PATHS[^=]*= \[([^\]]+)\]", source)
     assert docs, "static-paths.ts no longer defines DOCS_PATH"
     assert listed, "static-paths.ts no longer defines BACKEND_PATHS"
-    items = [item.strip() for item in listed.group(1).split(",")]
-    return [docs.group(1) if item == "DOCS_PATH" else item.strip("'") for item in items]
+    body = listed.group(1)
+    paths = []
+    for item in (item.strip() for item in body.split(",")):
+        quoted = re.fullmatch(r"'([^']*)'", item)
+        paths.append(docs.group(1) if item == "DOCS_PATH" else quoted.group(1) if quoted else item)
+    elements = re.findall(r"'[^']*'|\"[^\"]*\"|[A-Za-z_]\w*", body)
+    assert len(paths) == len(elements), f"BACKEND_PATHS read as {paths}, defined as {elements}"
+    assert all(p.startswith("/") for p in paths), f"BACKEND_PATHS read as {paths}: not all paths"
+    return paths
 
 
 def _mixed(text: str) -> str:
@@ -294,6 +302,8 @@ def _generated_paths(backend: list[str]) -> list[str]:
         "a/b",
         "api/v1/a/b",
         "_next/static/chunks",
+        "favicon.ico",
+        "favicon.icox",
     ]
     cases = [str.lower, str.upper, _mixed]
     stems = ["", "..", "photo", "a.b.c"]
@@ -317,6 +327,7 @@ def _generated_paths(backend: list[str]) -> list[str]:
         }
     )
     pinned = ["/API/v1/x.svg", "/Api/v1/x.png", "/DOCS/x.svg", "/Docs/a.png", "/OpenAPI.json/x.svg"]
+    pinned += ["/favicon.ico", "/FAVICON.ICO", "/Favicon.ico", "/favicon.ico/x", "/a/favicon.ico"]
     return pinned + random.Random(20261122).sample(every, 400)  # noqa: S311 - a fixed sample
 
 
@@ -360,3 +371,15 @@ def test_generated_paths_all_carry_one_policy_and_backend_paths_reach_the_backen
         if problems:
             failures.append(f"{path} -> {res.status_code}: {', '.join(problems)}")
     assert not failures, f"{len(failures)} of {len(paths)} paths:\n" + "\n".join(failures)
+
+
+@pytest.mark.parametrize("path", ["/", "/api/v1/x.svg", "/t.svg"])
+def test_trace_returns_no_page(server: httpx.Client, path: str) -> None:
+    """TRACE is exempt (see frontend/static-paths.ts) only while it carries no page."""
+    res = server.request("TRACE", path)
+    if len(res.headers.get_list("content-security-policy")) == 1:
+        assert res.headers.get("x-frame-options") == "DENY"
+        assert res.headers.get("x-content-type-options") == "nosniff"
+    else:
+        assert "text/html" not in res.headers.get("content-type", "")
+        assert "<" not in res.text
