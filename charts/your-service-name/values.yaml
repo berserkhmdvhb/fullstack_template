@@ -6,7 +6,8 @@
 # The defaults here mirror the Kustomize base (dev-like).
 #
 # NOTE ON COUPLING: resources.{requests,limits} here, hpa.* maxReplicas, and the
-# namespace ResourceQuota (infra/k8s/bootstrap, not this chart) must be raised TOGETHER
+# namespace ResourceQuota (infra/k8s/bootstrap, not this chart; a test computes its worst case and
+# fails when the quota is short) must be raised TOGETHER
 # for bigger clusters. The defaults are sized so the worst-case HPA surge fits a single
 # developer-laptop node.
 # =============================================================================

@@ -290,6 +290,64 @@ def test_a_memory_limit_that_differs_from_the_request_fails_the_render(helm: str
     assert "requests.memory" in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("request_memory", "limit_memory", "renders"),
+    [
+        ("1Gi", "1024Mi", True),
+        ("1Gi", "1000Mi", False),
+        ("512Mi", "536870912", True),
+        ("1G", "1000M", True),
+        ("1Ki", "1024", True),
+        ("1Ti", "1024Gi", True),
+        ("1K", "1000", True),
+        ("1T", "1000G", True),
+        ("1G", "1Gi", False),
+    ],
+)
+def test_the_memory_limit_is_compared_with_the_request_as_a_quantity(
+    helm: str,
+    request_memory: str,
+    limit_memory: str,
+    renders: bool,  # noqa: FBT001
+) -> None:
+    result = subprocess.run(
+        [
+            helm,
+            "template",
+            "svc",
+            str(CHART),
+            "--set-string",
+            f"resources.backend.requests.memory={request_memory}",
+            "--set-string",
+            f"resources.backend.limits.memory={limit_memory}",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is renders, result.stderr
+    if not renders:
+        assert "must equal" in result.stderr
+
+
+def test_a_memory_quantity_the_helper_cannot_read_is_refused(helm: str) -> None:
+    result = subprocess.run(
+        [
+            helm,
+            "template",
+            "svc",
+            str(CHART),
+            "--set-string",
+            "resources.backend.limits.memory=lots",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "lots" in result.stderr
+
+
 def test_the_defaults_render_the_memory_limit_and_no_cpu_limit(helm: str) -> None:
     limits = _backend_resources(helm)["limits"]
     assert limits == {"memory": _backend_resources(helm)["requests"]["memory"]}

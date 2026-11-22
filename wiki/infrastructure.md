@@ -84,7 +84,10 @@ the deployer needs no cluster-scoped rights and no RBAC rights at all.
   offline test checks each Pod template against the profile's rules.
   The `tier` label (`app-ns`, `db`) is what the chart's NetworkPolicies select on;
 - the app namespace's ResourceQuota and LimitRange. They set no CPU limit (CPU limits throttle);
-  memory is capped. Raise the quota together with the chart's HPA `maxReplicas`;
+  memory is capped. The quota is sized from the chart's worst case by a test (every Deployment at its
+  HPA maximum plus the rollout surge and terminating Pods, the WAF, the proxy sidecars and the migration
+  Job, with 20% headroom): raising replicas, an HPA `maxReplicas` or a request needs a quota bump in
+  `infra/k8s/bootstrap/values.yaml`, or that test fails;
 - in each namespace, the Role and RoleBinding `bootstrap-deployer` for the deploy identity;
 - the app's own Role and RoleBinding (its ServiceAccount reads ConfigMaps), rendered from the chart's
   `templates/rbac.yaml` with `helm template --show-only`, so their rules have one source.
@@ -200,7 +203,7 @@ backend, frontend, WAF, Cloud SQL proxy, migration Job (and its `wait-for-db` co
 the backup jobs. The backend and frontend get 1Gi, the former limit, so no workload lost headroom; the
 in-memory `/tmp` volume counts against that limit, so tune it down only with load data. The namespace
 LimitRange and ResourceQuota (`infra/k8s/bootstrap`) are the ceiling: raise the quota with the HPA
-`maxReplicas` plus the rollout surge. A test checks every container against the LimitRange's minimum
+`maxReplicas` plus the rollout surge (a test computes the worst case and fails when the quota falls short). A test checks every container against the LimitRange's minimum
 and maximum.
 
 **Graceful shutdown.** On a delete the kubelet runs the `preStop` hook, then sends SIGTERM, then

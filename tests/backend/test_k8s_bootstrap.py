@@ -215,9 +215,9 @@ def test_the_quota_and_limitrange_keep_the_chart_defaults_without_cpu_limits(
     quota = _one(docs, "ResourceQuota", app)["spec"]["hard"]
     assert quota == {
         "requests.cpu": "6",
-        "requests.memory": "18Gi",
-        "limits.memory": "20Gi",
-        "pods": "20",
+        "requests.memory": "27Gi",
+        "limits.memory": "27Gi",
+        "pods": "28",
         "services": "10",
         "persistentvolumeclaims": "5",
         "configmaps": "10",
