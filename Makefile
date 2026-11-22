@@ -4,7 +4,7 @@
     ruff-format ruff-format-check ruff-lint ruff-lint-fix mypy-check \
     openapi-gen openapi-drift-check env-docs env-docs-check \
     shellcheck image-checks frontend-deployment-id tools tools-dry-run pins-refresh \
-    check-all check-all-dry precommit chart-unittest \
+    check-all check-all-dry precommit chart-unittest kubeconform crd-schemas crd-schemas-check \
     test test-unit test-integration test-e2e test-contract test-live test-file test-file-function test-fast \
     test-coverage test-coverage-xml test-cov-html test-coverage-rep test-coverage-file \
     check-updates check-toml \
@@ -71,6 +71,9 @@ help::
 	@echo "  check-all-dry            Same as above but without auto-format (format-check)"
 	@echo "  precommit                Run every pre-commit hook on all files (pinned pre-commit, no network)"
 	@echo "  chart-unittest           Run the chart's helm-unittest suites (pinned plugin, no cluster)"
+	@echo "  kubeconform              Validate every chart and bootstrap render, strict and offline (local schemas only)"
+	@echo "  crd-schemas              Regenerate the vendored CRD schemas from their pinned sources (fetches, sha256-checked)"
+	@echo "  crd-schemas-check        Fail if the vendored CRD schemas differ from what their pinned sources generate"
 	@echo "  openapi-gen              Regenerate openapi.json + TS types from the backend single source"
 	@echo "  openapi-drift-check      Fail if committed openapi.json / types.gen.d.ts is stale (CI mirror)"
 	@echo "  env-docs                 Regenerate the backend-settings block of wiki/environment-variables.md"
@@ -320,6 +323,22 @@ precommit:
 # (tools/pins.tsv; scripts/tools.sh install helm-unittest; found through HELM_PLUGINS above).
 chart-unittest:
 	helm unittest charts/your-service-name
+
+# Every render of the chart (each environment x edge mode x monitoring flavour, every optional object,
+# the Cloud SQL proxy) and of the admin bootstrap, through kubeconform -strict against local schemas
+# only: no network. Needs scripts/tools.sh install helm4 kubeconform yq k8s-openapi.
+kubeconform:
+	scripts/ci/kubeconform.sh
+
+# The vendored CRD schemas (charts/your-service-name/ci/crds), generated from the pinned upstream CRDs
+# in ci/crds/sources.tsv. The fetch is the only network step (sha256-checked, cached in .tools/crd-sources).
+crd-schemas:
+	$(PYTHON) -I scripts/ci/kube_schemas.py crds fetch
+	$(PYTHON) -I scripts/ci/kube_schemas.py crds generate
+
+crd-schemas-check:
+	$(PYTHON) -I scripts/ci/kube_schemas.py crds fetch
+	$(PYTHON) -I scripts/ci/kube_schemas.py crds check
 
 # -------------------------------------------------------------------
 # Tests

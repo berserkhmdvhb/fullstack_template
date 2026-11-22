@@ -32,6 +32,11 @@
 # kubectl (bare binary from dl.k8s.io, sha256 from <binary>.sha256 beside it): must stay within one
 # minor version of the cluster (the Kubernetes version-skew policy); change the pin when the cluster moves.
 #
+# k8s-openapi is data, not a tool: the Kubernetes OpenAPI spec at a release tag, which
+# scripts/ci/kubeconform.sh turns into the JSON schemas it validates against, offline. Its version is
+# the chart's kubeVersion floor (Chart.yaml), newest patch of that minor; move it with the floor. No
+# vendor checksum exists: hashed on download, and a changed file is refused.
+#
 uv	0.13.8	linux-amd64	https://github.com/astral-sh/uv/releases/download/0.13.8/uv-x86_64-unknown-linux-gnu.tar.gz	5acfd9177cfecf0bf87578f059728215ccc884388988f55f7a65041b57387d91
 
 # Helm major: see the default-helm line. Both majors are installed
@@ -48,6 +53,7 @@ helm4	4.3.2	linux-amd64	https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz	d1c02
 kubectl	1.37.2	linux-amd64	https://dl.k8s.io/release/v1.37.2/bin/linux/amd64/kubectl	c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4
 kind	0.33.0	linux-amd64	https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64	aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
 kubeconform	0.8.0	linux-amd64	https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz	9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+k8s-openapi	1.30.14	any	https://raw.githubusercontent.com/kubernetes/kubernetes/v1.30.14/api/openapi-spec/swagger.json	137f22097f146caa3150deda2eccceec1ecd0b628054d1887bf55f93e715c7cb
 ct	3.15.0	linux-amd64	https://github.com/helm/chart-testing/releases/download/v3.15.0/chart-testing_3.15.0_linux_amd64.tar.gz	467561730f25fe09d5e6cd09a3e1f6aa759871c657a57602947c716d9be2c583
 helm-unittest	1.2.1	linux-amd64	https://github.com/helm-unittest/helm-unittest/releases/download/v1.2.1/helm-unittest-linux-amd64-1.2.1.tgz	48e86ecc1467b009630e5954375e5d8494139f73b466df5fe8c04fa45b634939
 actionlint	1.7.12	linux-amd64	https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz	8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8

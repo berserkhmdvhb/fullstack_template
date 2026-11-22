@@ -41,10 +41,12 @@
     },
     {
       "customType": "regex",
-      "description": "tools/pins.tsv: kubectl (dl.k8s.io)",
+      // kubectl (dl.k8s.io), and the Kubernetes OpenAPI spec at a release tag (k8s-openapi, the kubeconform schemas).
+      "description": "tools/pins.tsv: kubectl (dl.k8s.io) and the Kubernetes OpenAPI spec",
       "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
       "matchStrings": [
-        "(?m)^(?<depName>kubectl)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://dl\\.k8s\\.io/[^\\t]+)\\t"
+        "(?m)^(?<depName>kubectl)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://dl\\.k8s\\.io/[^\\t]+)\\t",
+        "(?m)^(?<depName>k8s-openapi)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://raw\\.githubusercontent\\.com/kubernetes/kubernetes/[^\\t]+)\\t"
       ],
       "datasourceTemplate": "github-tags",
       "packageNameTemplate": "kubernetes/kubernetes",
@@ -199,6 +201,16 @@
       // Version-skew policy: kubectl stays within one minor of the cluster; change the pin when the cluster moves.
       "description": "kubectl follows the cluster, not the latest release",
       "matchDepNames": ["kubectl"],
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["tools/pins.tsv"],
+      "matchUpdateTypes": ["minor", "major"],
+      "enabled": false
+    },
+    {
+      // The kubeconform schemas are the chart's kubeVersion floor (Chart.yaml): only its patches are proposed; move
+      // the minor with the floor (a test keeps the two equal).
+      "description": "k8s-openapi follows the chart's kubeVersion floor, not the latest release",
+      "matchDepNames": ["k8s-openapi"],
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["tools/pins.tsv"],
       "matchUpdateTypes": ["minor", "major"],

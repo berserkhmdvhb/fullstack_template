@@ -65,7 +65,7 @@ USAGE = "usage: pins-refresh.sh [--check] [--base REF] [name...]"
 #   hashfile   a file holding the bare sha256, beside the asset
 #   yq-columns yq's `checksums` (one column per algorithm, ordered by checksums_hashes_order)
 #   gh-digest  the release-asset `digest` from the GitHub releases API (no vendor file exists)
-#   archive    a GitHub tag archive (no vendor checksum exists): hashed on download
+#   archive    a GitHub tag archive or a file at a tag (no vendor checksum): hashed on download
 #   uv         a Python tool: hashed lock in tools/requirements/, checked against PyPI
 #   none       uv downloads and verifies it itself
 SOURCES: dict[str, tuple[str, str, str]] = {
@@ -126,6 +126,7 @@ SOURCES: dict[str, tuple[str, str, str]] = {
     ),
     "yq": ("yq-columns", "{dir}/checksums", "https://github.com/mikefarah/yq/releases/download/"),
     "bats": ("archive", "", "https://github.com/bats-core/bats-core/archive/refs/tags/"),
+    "k8s-openapi": ("archive", "", "https://raw.githubusercontent.com/kubernetes/kubernetes/"),
     "shellcheck": ("gh-digest", "", "https://github.com/koalaman/shellcheck/releases/download/"),
     "node": (
         "sumfile",

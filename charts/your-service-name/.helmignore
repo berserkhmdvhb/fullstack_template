@@ -8,3 +8,5 @@ k8s/
 wiki/
 docs/
 *.md
+# The vendored CRD schemas validate renders in CI; a packaged chart does not need them.
+ci/crds/

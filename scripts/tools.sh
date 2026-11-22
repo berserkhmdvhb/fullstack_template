@@ -43,7 +43,7 @@ exes_for() {
     shellcheck) echo "shellcheck-v$VER/shellcheck:shellcheck" ;;
     node) echo "node-v$VER-linux-x64/bin/node:node node-v$VER-linux-x64/bin/npm:npm node-v$VER-linux-x64/bin/npx:npx" ;;
     uv) echo "uv-x86_64-unknown-linux-gnu/uv:uv uv-x86_64-unknown-linux-gnu/uvx:uvx" ;;
-    helm-unittest) echo "" ;;
+    helm-unittest|k8s-openapi) echo "" ;; # a plugin dir, and a data file (scripts/ci/kubeconform.sh reads it)
     *) echo "$1:$1" ;;
   esac
 }

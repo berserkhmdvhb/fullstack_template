@@ -1,0 +1,11 @@
+# The upstream CRDs the chart's schemas are generated from (scripts/ci/kube_schemas.py; `make crd-schemas`).
+# One place for their versions. Columns (tab-separated): name  version  url  sha256  kinds (comma-separated).
+# A pin is the newest stable release published at least 7 days before it was pinned (pinned 2026-11-22).
+# The sha256 of a GitHub release asset is its release digest; a file at a tag is hashed on download, and a
+# changed file is refused. Every served version of each listed kind is generated.
+gateway-api	1.7.0	https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.7.0/standard-install.yaml	4e2602c4cbe1afbc394d86f4ac6522e1a5263b01133bba1e40a6d1a549e753a1	HTTPRoute
+gke-gateway-api	1.4.0	https://raw.githubusercontent.com/GoogleCloudPlatform/gke-gateway-api/v1.4.0/config/crd/networking.gke.io_healthcheckpolicies.yaml	84ab87aa2728506e77c8069599ae1d814d4686a930ed4791e0aa43a8d8dd3356	HealthCheckPolicy
+gke-gateway-api	1.4.0	https://raw.githubusercontent.com/GoogleCloudPlatform/gke-gateway-api/v1.4.0/config/crd/networking.gke.io_gcpbackendpolicies.yaml	4386a156a7f616f857dea99eba7c740f30062d972a9dc9a1a4659237f92c2262	GCPBackendPolicy
+prometheus-engine	0.17.0	https://raw.githubusercontent.com/GoogleCloudPlatform/prometheus-engine/v0.17.0/manifests/setup.yaml	28c967a59f5fde91d0ee4468a1b31e7a3104d116babda2cb2aa2f52c1fc711d0	PodMonitoring,Rules,ClusterRules
+external-secrets	2.15.0	https://raw.githubusercontent.com/external-secrets/external-secrets/v2.15.0/deploy/crds/bundle.yaml	cbde8a1443d958c8a8c3fa76db1a72182440311ba0a3c40d2e07dcb5e78ce1f7	ExternalSecret
+prometheus-operator	0.95.2	https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.95.2/stripped-down-crds.yaml	ab6e3f856ea951a34c16911eb4ea42e898046843159164d72cfd3880b358670a	ServiceMonitor,PrometheusRule
