@@ -1,0 +1,190 @@
+WAF off - health checks and backend policies for the backend and frontend Services:
+  1: |
+    apiVersion: networking.gke.io/v1
+    kind: HealthCheckPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-backend
+      namespace: app
+    spec:
+      default:
+        config:
+          httpHealthCheck:
+            port: 8000
+            requestPath: /api/v1/health
+          type: HTTP
+      targetRef:
+        group: ""
+        kind: Service
+        name: svc-your-service-name-backend
+  2: |
+    apiVersion: networking.gke.io/v1
+    kind: GCPBackendPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-backend
+      namespace: app
+    spec:
+      default:
+        logging:
+          enabled: true
+          sampleRate: 1000000
+        timeoutSec: 120
+      targetRef:
+        group: ""
+        kind: Service
+        name: svc-your-service-name-backend
+  3: |
+    apiVersion: networking.gke.io/v1
+    kind: HealthCheckPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-frontend
+      namespace: app
+    spec:
+      default:
+        config:
+          httpHealthCheck:
+            port: 3000
+            requestPath: /api/healthz
+          type: HTTP
+      targetRef:
+        group: ""
+        kind: Service
+        name: svc-your-service-name-frontend
+  4: |
+    apiVersion: networking.gke.io/v1
+    kind: GCPBackendPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-frontend
+      namespace: app
+    spec:
+      default:
+        logging:
+          enabled: true
+          sampleRate: 1000000
+        timeoutSec: 120
+      targetRef:
+        group: ""
+        kind: Service
+        name: svc-your-service-name-frontend
+WAF on - the backend policies target the WAF Service and health-check through it:
+  1: |
+    apiVersion: networking.gke.io/v1
+    kind: HealthCheckPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-waf
+      namespace: app
+    spec:
+      default:
+        config:
+          httpHealthCheck:
+            port: 8080
+            requestPath: /api/v1/health
+          type: HTTP
+      targetRef:
+        group: ""
+        kind: Service
+        name: svc-your-service-name-waf
+  2: |
+    apiVersion: networking.gke.io/v1
+    kind: GCPBackendPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-waf
+      namespace: app
+    spec:
+      default:
+        logging:
+          enabled: true
+          sampleRate: 1000000
+        timeoutSec: 120
+      targetRef:
+        group: ""
+        kind: Service
+        name: svc-your-service-name-waf
+  3: |
+    apiVersion: networking.gke.io/v1
+    kind: HealthCheckPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-frontend
+      namespace: app
+    spec:
+      default:
+        config:
+          httpHealthCheck:
+            port: 3000
+            requestPath: /api/healthz
+          type: HTTP
+      targetRef:
+        group: ""
+        kind: Service
+        name: svc-your-service-name-frontend
+  4: |
+    apiVersion: networking.gke.io/v1
+    kind: GCPBackendPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-frontend
+      namespace: app
+    spec:
+      default:
+        logging:
+          enabled: true
+          sampleRate: 1000000
+        timeoutSec: 120
+      targetRef:
+        group: ""
+        kind: Service
+        name: svc-your-service-name-frontend

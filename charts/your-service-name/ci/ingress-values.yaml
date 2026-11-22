@@ -3,3 +3,5 @@ edge:
   mode: ingress
   ingress:
     tlsSecretName: your-service-name-tls
+  # Required in this mode: the namespace the Ingress controller runs in (the NetworkPolicy peer).
+  namespaceSelector: {kubernetes.io/metadata.name: ingress-controller}

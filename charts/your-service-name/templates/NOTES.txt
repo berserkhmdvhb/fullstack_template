@@ -13,17 +13,24 @@ Verify the rollout:
 {{- if eq .Values.edge.mode "tunnel" }}
 
 Edge mode "tunnel": no Ingress or HTTPRoute is rendered. Point the tunnel at these routes
-(hostname + path -> in-cluster URL; see the edge docs in wiki/infrastructure.md):
+(hostname + path -> in-cluster URL; see the edge docs in wiki/infrastructure.md).
+Cloudflare terminates TLS for the public hostnames; the hop from cloudflared to the Service is http:
 {{- range $role := include "chart.edgeRoles" . | fromJsonArray }}
 {{- range include "chart.edgeRoutes" (dict "ctx" $ "role" $role) | fromJsonArray }}
   {{ printf "%s%s" (index $.Values.edge.hosts $role) .path | printf "%-56s" }} {{ printf "%-10s" .match }} -> http://{{ .name }}.{{ $.Release.Namespace }}.svc.cluster.local:{{ .port }}
 {{- end }}
 {{- end }}
+{{- else if eq .Values.edge.mode "gateway" }}
+
+Edge mode "gateway" hosts (https when the Gateway listener holds a certificate; the chart does not
+manage it):
+  API  : {{ .Values.edge.hosts.api }}
+  APP  : {{ .Values.edge.hosts.app }}
 {{- else }}
 
-Edge mode "{{ .Values.edge.mode }}" hosts:
-  API  : http{{ if or (eq .Values.edge.mode "gateway") .Values.edge.ingress.tlsSecretName }}s{{ end }}://{{ .Values.edge.hosts.api }}
-  APP  : http{{ if or (eq .Values.edge.mode "gateway") .Values.edge.ingress.tlsSecretName }}s{{ end }}://{{ .Values.edge.hosts.app }}
+Edge mode "ingress" hosts:
+  API  : http{{ if .Values.edge.ingress.tlsSecretName }}s{{ end }}://{{ .Values.edge.hosts.api }}
+  APP  : http{{ if .Values.edge.ingress.tlsSecretName }}s{{ end }}://{{ .Values.edge.hosts.app }}
 {{- end }}
 
 Port-forward the backend API locally:

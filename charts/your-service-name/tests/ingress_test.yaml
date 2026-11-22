@@ -151,3 +151,18 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: a path with a colon or a hash renders exactly (the path is quoted)
+    template: ingress.yaml
+    set:
+      edge:
+        routes:
+          - {path: '/a:', match: Exact, service: backend}
+          - {path: '/a#b', match: Exact, service: backend}
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: '/a:'
+      - equal:
+          path: spec.rules[0].http.paths[1].path
+          value: '/a#b'

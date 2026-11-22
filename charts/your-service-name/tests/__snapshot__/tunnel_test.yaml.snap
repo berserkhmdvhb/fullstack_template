@@ -13,7 +13,8 @@ NOTES prints the tunnel route table from the routes list:
         kubectl -n app get job svc-your-service-name-migrate-r0   # this revision's migration Job
 
       Edge mode "tunnel": no Ingress or HTTPRoute is rendered. Point the tunnel at these routes
-      (hostname + path -> in-cluster URL; see the edge docs in wiki/infrastructure.md):
+      (hostname + path -> in-cluster URL; see the edge docs in wiki/infrastructure.md).
+      Cloudflare terminates TLS for the public hostnames; the hop from cloudflared to the Service is http:
         api.your-domain.example/api                              PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
         api.your-domain.example/docs                             PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
         api.your-domain.example/openapi.json                     Exact      -> http://svc-your-service-name-backend.app.svc.cluster.local:8000

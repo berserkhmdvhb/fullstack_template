@@ -1,0 +1,58 @@
+{{- /*
+   Optional GKE Gateway provider policies (edge.gateway.gke.enabled, gateway mode only), attached
+   to the Services the HTTPRoutes send to: the backend Service (the WAF Service when waf.enabled)
+   and the frontend Service. GKE does not infer health checks from readiness probes and checks `/`
+   otherwise, so each HealthCheckPolicy points at the readiness path on the serving port (through
+   the WAF when it is on). The GCPBackendPolicy sets the backend timeout, the load balancer access
+   log and, when named, a Cloud Armor policy.
+*/ -}}
+{{- if and (eq .Values.edge.mode "gateway") .Values.edge.gateway.gke.enabled }}
+{{- $gke := .Values.edge.gateway.gke }}
+{{- $fullname := include "chart.fullname" . }}
+{{- $backendPort := ternary .Values.waf.service.port (include "chart.backendPort" .) .Values.waf.enabled }}
+{{- $targets := list
+      (dict "name" (include "chart.apiBackendService" .) "port" $backendPort "path" (include "chart.backendReadyPath" .))
+      (dict "name" (printf "%s-frontend" $fullname) "port" (include "chart.frontendPort" .) "path" (include "chart.frontendReadyPath" .)) }}
+{{- range $targets }}
+---
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+{{- include "chart.labels" $ | nindent 4 }}
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        requestPath: {{ .path }}
+        port: {{ .port }}
+  targetRef:
+    group: ""
+    kind: Service
+    name: {{ .name }}
+---
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+{{- include "chart.labels" $ | nindent 4 }}
+spec:
+  default:
+    timeoutSec: {{ $gke.timeoutSec | int }}
+    logging:
+      enabled: true
+      sampleRate: {{ $gke.logging.sampleRate | int }}
+    {{- with $gke.securityPolicy }}
+    securityPolicy: {{ . | quote }}
+    {{- end }}
+  targetRef:
+    group: ""
+    kind: Service
+    name: {{ .name }}
+{{- end }}
+{{- end }}

@@ -18,30 +18,116 @@ spec:
     - Ingress
     - Egress
 ---
-# ---- 2. Allow Ingress Controller -> app pods ----
+{{- $peers := include "chart.edgePeers" . | fromJsonArray }}
+{{- $backendPort := include "chart.backendPort" . }}
+# ---- 2. Allow the edge -> frontend (peers per edge.mode, chart.edgePeers) ----
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "chart.fullname" . }}-allow-from-ingress
+  name: {{ include "chart.fullname" . }}-allow-to-frontend
   namespace: {{ .Release.Namespace }}
   labels:
 {{- include "chart.labels" . | nindent 4 }}
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+  policyTypes:
+    - Ingress
+{{- /* No peer => no rule: an empty `from` would admit every source. */}}
+{{- if $peers }}
+  ingress:
+    - from:
+{{- toYaml $peers | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ include "chart.frontendPort" . }}
+{{- end }}
+---
+# ---- 3. Allow -> backend: the frontend's server-side calls, the edge (or, with the WAF on, only
+#         the WAF: no edge peer reaches the backend around it), and the metrics scrape ----
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "chart.fullname" . }}-allow-to-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
   policyTypes:
     - Ingress
   ingress:
     - from:
-        - namespaceSelector:
+        - podSelector:
             matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
+              app.kubernetes.io/component: frontend
       ports:
         - protocol: TCP
-          port: 8000   # backend
+          port: {{ $backendPort }}
+{{- if .Values.waf.enabled }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: waf
+      ports:
         - protocol: TCP
-          port: 3000   # frontend
+          port: {{ $backendPort }}
+{{- else if $peers }}
+    - from:
+{{- toYaml $peers | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ $backendPort }}
+{{- end }}
+{{- with .Values.networkPolicy.monitoringNamespaceSelector }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+{{- toYaml . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ $backendPort }}
+{{- end }}
 ---
-# ---- 3. Allow Backend -> PostgreSQL (cross-namespace) + DNS ----
+{{- if .Values.waf.enabled }}
+# ---- 3b. Allow the edge -> WAF, and WAF -> backend + DNS ----
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "chart.fullname" . }}-allow-waf
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: waf
+  policyTypes:
+    - Ingress
+    - Egress
+{{- if $peers }}
+  ingress:
+    - from:
+{{- toYaml $peers | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.waf.service.port }}
+{{- end }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: backend
+      ports:
+        - protocol: TCP
+          port: {{ $backendPort }}
+{{- include "chart.dnsEgress" . | nindent 4 }}
+---
+{{- end }}
+# ---- 4. Allow Backend -> PostgreSQL (cross-namespace) + DNS ----
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -76,19 +162,13 @@ spec:
         - protocol: TCP
           port: 5432
 {{- end }}
-    - to:
-        - namespaceSelector: {}
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
+{{- include "chart.dnsEgress" . | nindent 4 }}
 {{- /* backend.networkPolicy.extraEgress: an OTLP collector (4318), a Redis (6379), ... */}}
 {{- with .Values.backend.networkPolicy.extraEgress }}
 {{ toYaml . | indent 4 }}
 {{- end }}
 ---
-# ---- 4. Allow Migration Job -> PostgreSQL (cross-namespace) + DNS ----
+# ---- 5. Allow Migration Job -> PostgreSQL (cross-namespace) + DNS ----
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -122,15 +202,9 @@ spec:
         - protocol: TCP
           port: 5432
 {{- end }}
-    - to:
-        - namespaceSelector: {}
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
+{{- include "chart.dnsEgress" . | nindent 4 }}
 ---
-# ---- 5. Allow Frontend -> Backend API + DNS ----
+# ---- 6. Allow Frontend -> Backend API + DNS ----
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -151,11 +225,5 @@ spec:
               app.kubernetes.io/component: backend
       ports:
         - protocol: TCP
-          port: 8000
-    - to:
-        - namespaceSelector: {}
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
+          port: {{ $backendPort }}
+{{- include "chart.dnsEgress" . | nindent 4 }}

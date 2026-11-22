@@ -1,0 +1,468 @@
+golden render, WAF off:
+  1: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-default-deny
+      namespace: app
+    spec:
+      podSelector: {}
+      policyTypes:
+        - Ingress
+        - Egress
+  2: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-allow-to-frontend
+      namespace: app
+    spec:
+      ingress:
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: edge-controller
+          ports:
+            - port: 3000
+              protocol: TCP
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: frontend
+      policyTypes:
+        - Ingress
+  3: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-allow-to-backend
+      namespace: app
+    spec:
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: frontend
+          ports:
+            - port: 8000
+              protocol: TCP
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: edge-controller
+          ports:
+            - port: 8000
+              protocol: TCP
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: monitoring
+          ports:
+            - port: 8000
+              protocol: TCP
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: backend
+      policyTypes:
+        - Ingress
+  4: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-allow-backend-to-db
+      namespace: app
+    spec:
+      egress:
+        - ports:
+            - port: 5432
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: app-db
+              podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: postgresql
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kube-system
+              podSelector:
+                matchLabels:
+                  k8s-app: kube-dns
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: backend
+      policyTypes:
+        - Egress
+  5: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-allow-migration-to-db
+      namespace: app
+    spec:
+      egress:
+        - ports:
+            - port: 5432
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: app-db
+              podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: postgresql
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kube-system
+              podSelector:
+                matchLabels:
+                  k8s-app: kube-dns
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: migration
+      policyTypes:
+        - Egress
+  6: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-allow-frontend-to-backend
+      namespace: app
+    spec:
+      egress:
+        - ports:
+            - port: 8000
+              protocol: TCP
+          to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: backend
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kube-system
+              podSelector:
+                matchLabels:
+                  k8s-app: kube-dns
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: frontend
+      policyTypes:
+        - Egress
+golden render, WAF on:
+  1: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-default-deny
+      namespace: app
+    spec:
+      podSelector: {}
+      policyTypes:
+        - Ingress
+        - Egress
+  2: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-allow-to-frontend
+      namespace: app
+    spec:
+      ingress:
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: edge-controller
+          ports:
+            - port: 3000
+              protocol: TCP
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: frontend
+      policyTypes:
+        - Ingress
+  3: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-allow-to-backend
+      namespace: app
+    spec:
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: frontend
+          ports:
+            - port: 8000
+              protocol: TCP
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: waf
+          ports:
+            - port: 8000
+              protocol: TCP
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: monitoring
+          ports:
+            - port: 8000
+              protocol: TCP
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: backend
+      policyTypes:
+        - Ingress
+  4: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-allow-waf
+      namespace: app
+    spec:
+      egress:
+        - ports:
+            - port: 8000
+              protocol: TCP
+          to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: backend
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kube-system
+              podSelector:
+                matchLabels:
+                  k8s-app: kube-dns
+      ingress:
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: edge-controller
+          ports:
+            - port: 8080
+              protocol: TCP
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: waf
+      policyTypes:
+        - Ingress
+        - Egress
+  5: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-allow-backend-to-db
+      namespace: app
+    spec:
+      egress:
+        - ports:
+            - port: 5432
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: app-db
+              podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: postgresql
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kube-system
+              podSelector:
+                matchLabels:
+                  k8s-app: kube-dns
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: backend
+      policyTypes:
+        - Egress
+  6: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-allow-migration-to-db
+      namespace: app
+    spec:
+      egress:
+        - ports:
+            - port: 5432
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: app-db
+              podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: postgresql
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kube-system
+              podSelector:
+                matchLabels:
+                  k8s-app: kube-dns
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: migration
+      policyTypes:
+        - Egress
+  7: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name-allow-frontend-to-backend
+      namespace: app
+    spec:
+      egress:
+        - ports:
+            - port: 8000
+              protocol: TCP
+          to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: backend
+        - ports:
+            - port: 53
+              protocol: UDP
+            - port: 53
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kube-system
+              podSelector:
+                matchLabels:
+                  k8s-app: kube-dns
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: frontend
+      policyTypes:
+        - Egress

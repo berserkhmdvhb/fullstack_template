@@ -112,6 +112,67 @@ matchLabels:
 {{- define "chart.backendPort" -}}{{ .Values.config.BACKEND_PORT }}{{- end -}}
 {{- define "chart.frontendPort" -}}{{ .Values.config.FRONTEND_PORT }}{{- end -}}
 
+{{/* The readiness probe paths, for the GKE load balancer health checks (a unit test pins them to the probes). */}}
+{{- define "chart.backendReadyPath" -}}/api/v1/health{{- end -}}
+{{- define "chart.frontendReadyPath" -}}/api/healthz{{- end -}}
+
+{{/*
+   The edge peers of the NetworkPolicy, per edge.mode, as a JSON array (read it back with
+   fromJsonArray): gateway, each parentRefs namespace once (none named: the release namespace) plus
+   the Google load balancer ranges when edge.gateway.gke.enabled; tunnel, edge.namespaceSelector or
+   the cloudflared namespace; ingress, edge.namespaceSelector (required). edge.extraPeers last.
+*/}}
+{{- define "chart.edgePeers" -}}
+{{- $edge := .Values.edge -}}
+{{- $peers := list -}}
+{{- if eq $edge.mode "gateway" -}}
+{{- $namespaces := list -}}
+{{- range $edge.gateway.parentRefs -}}
+{{- $namespaces = append $namespaces (default $.Release.Namespace .namespace) -}}
+{{- end -}}
+{{- range uniq $namespaces -}}
+{{- $peers = append $peers (dict "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" .))) -}}
+{{- end -}}
+{{- if $edge.gateway.gke.enabled -}}
+{{- /* Google's global external Application Load Balancer proxies and health checkers. */ -}}
+{{- range list "35.191.0.0/16" "130.211.0.0/22" -}}
+{{- $peers = append $peers (dict "ipBlock" (dict "cidr" .)) -}}
+{{- end -}}
+{{- end -}}
+{{- else -}}
+{{- if and (eq $edge.mode "ingress") (not $edge.namespaceSelector) -}}
+{{- fail "edge.namespaceSelector is required when edge.mode is ingress: set it to the matchLabels of your Ingress controller's namespace, for example {kubernetes.io/metadata.name: <controller-namespace>}" -}}
+{{- end -}}
+{{- $selector := $edge.namespaceSelector | default (dict "kubernetes.io/metadata.name" "cloudflared") -}}
+{{- $peers = append $peers (dict "namespaceSelector" (dict "matchLabels" $selector)) -}}
+{{- end -}}
+{{- toJson (concat $peers (default list $edge.extraPeers)) -}}
+{{- end -}}
+
+{{/*
+   The one DNS egress rule: kube-dns (networkPolicy.dns selectors) plus optional resolver ipBlocks.
+   Emits a list item at column 0; every egress policy includes it with `| nindent 4`.
+*/}}
+{{- define "chart.dnsEgress" -}}
+{{- $dns := .Values.networkPolicy.dns -}}
+- to:
+    - namespaceSelector:
+        matchLabels:
+{{- toYaml $dns.namespaceSelector | nindent 10 }}
+      podSelector:
+        matchLabels:
+{{- toYaml ($dns.podSelector | default dict) | nindent 10 }}
+{{- range $dns.ipBlocks }}
+    - ipBlock:
+        cidr: {{ . | quote }}
+{{- end }}
+  ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+{{- end -}}
+
 {{/* The host roles, in render order, as a JSON array (read it back with fromJsonArray). */}}
 {{- define "chart.edgeRoles" -}}
 {{- toJson (list "api" "app" "root") -}}

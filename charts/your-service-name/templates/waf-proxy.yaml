@@ -147,7 +147,7 @@ spec:
                                 address:
                                   socket_address:
                                     address: {{ include "chart.fullname" . }}-backend
-                                    port_value: 8000
+                                    port_value: {{ include "chart.backendPort" . }}
 ---
 apiVersion: v1
 kind: Service

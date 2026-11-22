@@ -1,0 +1,24 @@
+suite: NOTES prints https only when the chart knows it is true
+release:
+  name: svc
+  namespace: app
+templates:
+  - NOTES.txt
+tests:
+  - it: gateway - TLS lives on the Gateway listener, so no scheme is claimed
+    asserts:
+      - notMatchRegexRaw: {pattern: 'https?://api\.your-domain\.example'}
+      - matchRegexRaw: {pattern: 'API  : api\.your-domain\.example'}
+      - matchRegexRaw: {pattern: 'Gateway listener'}
+  - it: ingress without a TLS secret prints http
+    set: {edge: {mode: ingress, namespaceSelector: {kubernetes.io/metadata.name: edge-controller}}}
+    asserts:
+      - matchRegexRaw: {pattern: 'API  : http://api\.your-domain\.example'}
+  - it: ingress with a TLS secret prints https
+    set: {edge: {mode: ingress, namespaceSelector: {kubernetes.io/metadata.name: edge-controller}, ingress: {tlsSecretName: tls}}}
+    asserts:
+      - matchRegexRaw: {pattern: 'API  : https://api\.your-domain\.example'}
+  - it: tunnel - Cloudflare serves https at the edge, the in-cluster hop is http
+    set: {edge: {mode: tunnel}}
+    asserts:
+      - matchRegexRaw: {pattern: 'Cloudflare terminates TLS'}

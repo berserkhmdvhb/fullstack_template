@@ -235,3 +235,20 @@ tests:
       - hasDocuments:
           count: 0
         template: httproute.yaml
+
+  - it: a path with a colon or a hash renders exactly (the path is quoted)
+    template: httproute.yaml
+    documentIndex: 0
+    set:
+      edge:
+        routes:
+          - {path: '/a:', match: Exact, service: backend}
+          - {path: '/a#b', match: Exact, service: backend}
+    asserts:
+      - equal:
+          path: spec.rules
+          value:
+            - matches: [{path: {type: Exact, value: '/a:'}}]
+              backendRefs: [{name: svc-your-service-name-backend, port: 8000}]
+            - matches: [{path: {type: Exact, value: '/a#b'}}]
+              backendRefs: [{name: svc-your-service-name-backend, port: 8000}]

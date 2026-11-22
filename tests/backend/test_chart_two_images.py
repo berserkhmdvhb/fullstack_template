@@ -52,7 +52,8 @@ def test_the_edge_sends_every_ui_path_to_the_frontend_and_nothing_to_a_static_po
     env: str,
     mode: str,
 ) -> None:
-    docs = _docs(helm, "--set", f"edge.mode={mode}", env=env)
+    selector = ["--set", "edge.namespaceSelector.team=edge"] if mode == "ingress" else []
+    docs = _docs(helm, "--set", f"edge.mode={mode}", *selector, env=env)
     backends = _gateway_backends(docs) if mode == "gateway" else _ingress_backends(docs)
     assert STATIC_TIER_PORT not in {port for _, _, port in backends}
     assert not [b for b in backends if b[1].endswith("-nginx")]

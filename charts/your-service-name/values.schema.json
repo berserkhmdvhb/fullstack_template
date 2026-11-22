@@ -193,10 +193,36 @@
             }
           }
         },
+        "namespaceSelector": {
+          "description": "matchLabels of the namespace the edge runs in (tunnel: empty means cloudflared; ingress: required).",
+          "$ref": "#/definitions/labels"
+        },
+        "extraPeers": {
+          "description": "NetworkPolicy peers (ipBlock / namespaceSelector / podSelector) added to the edge allow in every mode.",
+          "type": "array",
+          "items": { "type": "object", "minProperties": 1 }
+        },
         "gateway": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "gke": {
+              "description": "GKE Gateway provider policies (networking.gke.io/v1 HealthCheckPolicy and GCPBackendPolicy).",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled":        { "type": "boolean" },
+                "timeoutSec":     { "type": "integer", "minimum": 1 },
+                "logging": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "sampleRate": { "type": "integer", "minimum": 0, "maximum": 1000000 }
+                  }
+                },
+                "securityPolicy": { "type": "string" }
+              }
+            },
             "parentRefs": {
               "type": "array",
               "items": {
@@ -230,6 +256,27 @@
           }
         },
         "tunnel": { "type": "object", "additionalProperties": false }
+      }
+    },
+
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dns": {
+          "description": "DNS egress peer: kube-dns by default, plus optional resolver ipBlocks (NodeLocal DNSCache).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "namespaceSelector": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string" } },
+            "podSelector":       { "$ref": "#/definitions/labels" },
+            "ipBlocks":          { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "monitoringNamespaceSelector": {
+          "description": "matchLabels of the namespace allowed to scrape the backend's /metrics; omit for no scrape rule.",
+          "$ref": "#/definitions/labels"
+        }
       }
     },
 
@@ -381,6 +428,10 @@
   "required": ["environment"],
 
   "definitions": {
+    "labels": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
     "image": {
       "type": "object",
       "additionalProperties": false,

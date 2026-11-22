@@ -1,0 +1,82 @@
+suite: network policy, edge mode tunnel
+release:
+  name: svc
+  namespace: app
+set:
+  edge:
+    mode: tunnel
+templates:
+  - network-policy.yaml
+tests:
+  - it: by default the cloudflared namespace reaches the frontend
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-frontend}
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudflared}}
+              ports: [{protocol: TCP, port: 3000}]
+
+  - it: WAF off - the cloudflared namespace reaches the backend
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - equal:
+          path: spec.ingress[1]
+          value:
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudflared}}
+            ports: [{protocol: TCP, port: 8000}]
+      - lengthEqual: {path: spec.ingress, count: 3}
+
+  - it: WAF on - the tunnel reaches the WAF, never the backend
+    set: {waf: {enabled: true}}
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudflared}}
+              ports: [{protocol: TCP, port: 8080}]
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
+      - notContains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudflared}}
+            ports: [{protocol: TCP, port: 8000}]
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+      - equal:
+          path: spec.ingress[1].from
+          value: [{podSelector: {matchLabels: {app.kubernetes.io/component: waf}}}]
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+
+  - it: edge.namespaceSelector replaces the default (no merge with it)
+    set:
+      edge:
+        namespaceSelector: {team: edge}
+        extraPeers:
+          - podSelector: {matchLabels: {app: cloudflared}}
+            namespaceSelector: {matchLabels: {team: edge}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-frontend}
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - namespaceSelector: {matchLabels: {team: edge}}
+            - podSelector: {matchLabels: {app: cloudflared}}
+              namespaceSelector: {matchLabels: {team: edge}}
+
+  - it: the GKE ranges are a gateway-mode peer only
+    set: {edge: {gateway: {gke: {enabled: true}}}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-frontend}
+    asserts:
+      - lengthEqual: {path: 'spec.ingress[0].from', count: 1}
+
+  - it: golden render, WAF off
+    asserts:
+      - matchSnapshot: {}
+  - it: golden render, WAF on
+    set: {waf: {enabled: true}}
+    asserts:
+      - matchSnapshot: {}

@@ -202,17 +202,57 @@ edge:
     - {path: /docs, match: PathPrefix, service: backend}
     - {path: /openapi.json, match: Exact, service: backend}
     - {path: /, match: PathPrefix, service: frontend}
+  # Who may reach the app Pods, per mode (templates/network-policy.yaml). The peers reach the
+  # frontend on its port, and the backend on its port (or, with waf.enabled, only the WAF).
+  #   gateway : each edge.gateway.parentRefs namespace (in-cluster Gateway Pods), plus the Google
+  #             load balancer ranges when edge.gateway.gke.enabled.
+  #   tunnel  : the namespace this selects (matchLabels); empty means
+  #             {kubernetes.io/metadata.name: cloudflared}.
+  #   ingress : the namespace this selects, REQUIRED (the chart does not guess your controller's
+  #             namespace; the render fails without it).
+  namespaceSelector: {}
+  # NetworkPolicy peers added in every mode, for example a regional load balancer's proxy-only
+  # subnet: [{ipBlock: {cidr: 10.129.0.0/23}}]. Empty by default.
+  extraPeers: []
   gateway:
     # The Gateway(s) the HTTPRoutes attach to. The placeholder renders; replace it before a deploy.
+    # A parentRef without a namespace means the release namespace.
     parentRefs:
       - {name: your-gateway, namespace: gateway-system}
-    # Optional, rendered on every rule when set, for example {request: 120s, backendRequest: 100s}.
+    # Optional, rendered on every rule when set, for example {request: 120s, backendRequest: 100s}
+    # (backendRequest must not exceed request).
     timeouts: {}
+    # GKE Gateway provider policies (networking.gke.io/v1), off by default. When enabled they
+    # render for the backend Service (the WAF Service when waf.enabled) and the frontend Service:
+    # a HealthCheckPolicy on each readiness path (GKE does not read readiness probes and checks
+    # `/` otherwise), and a GCPBackendPolicy with the timeout, the load balancer access log and an
+    # optional Cloud Armor policy. Enabling it also admits the Google load balancer ranges in the
+    # NetworkPolicy. Cloud CDN is not rendered: put the CDN in front (wiki/infrastructure.md).
+    gke:
+      enabled: false
+      timeoutSec: 120         # backend service timeout (the former edge proxy's 120 s)
+      logging:
+        sampleRate: 1000000   # 0..1000000; 1000000 logs every request
+      securityPolicy: ""      # a Cloud Armor policy name (WAF and rate-based rules); "" => none
   ingress:
     className: ""           # "" => no ingressClassName, so the cluster's default class applies
     annotations: {}         # controller-specific annotations; none by default
     tlsSecretName: ""       # set to add a tls block (one secret for all three hosts)
   tunnel: {}
+
+# ---- NetworkPolicy -------------------------------------------------------------
+# The app namespace is default-deny; templates/network-policy.yaml allows each flow on both ends.
+networkPolicy:
+  # DNS egress goes to kube-dns only (every egress policy uses it). ipBlocks adds resolver IPs,
+  # for example NodeLocal DNSCache: [169.254.20.10/32]. Helm merges maps, so an override keeps
+  # these default labels unless it sets the same key or sets a default key to null.
+  dns:
+    namespaceSelector: {kubernetes.io/metadata.name: kube-system}
+    podSelector: {k8s-app: kube-dns}
+    ipBlocks: []
+  # The namespace allowed to scrape the backend's /metrics (the Service's prometheus.io
+  # annotations and the optional ServiceMonitor), on the backend port. null => no scrape rule.
+  monitoringNamespaceSelector: {kubernetes.io/metadata.name: monitoring}
 
 # ---- Web Application Firewall (WAF) --------------------------------------
 # In-cluster Coraza WAF (Go, CNCF) running as an Envoy wasm plugin with the OWASP
@@ -244,9 +284,9 @@ waf:
   # below the backend's keep-alive (BACKEND_KEEPALIVE_TIMEOUT, 75 s in the launcher,
   # backend/serve.py), or Envoy can reuse a connection Uvicorn just closed and return a 502.
   # Envoy's own default is one hour, which is why it is set explicitly. A test compares the two.
-  # The same rule holds on the default path: ingress-nginx's `upstream-keepalive-timeout`
-  # (default 60 s) must stay below the backend keep-alive too; raising it past that causes
-  # intermittent 502s.
+  # The same rule holds for any proxy in front of the backend: an ingress controller's upstream
+  # keep-alive (ingress-nginx's `upstream-keepalive-timeout`, default 60 s) must stay below the
+  # backend keep-alive too; raising it past that causes intermittent 502s.
   upstreamIdleTimeoutSeconds: 60
   resources:
     requests: {cpu: 100m, memory: 128Mi}

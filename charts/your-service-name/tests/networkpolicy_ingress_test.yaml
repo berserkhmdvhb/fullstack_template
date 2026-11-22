@@ -1,0 +1,62 @@
+suite: network policy, edge mode ingress
+release:
+  name: svc
+  namespace: app
+set:
+  edge:
+    mode: ingress
+    namespaceSelector: {kubernetes.io/metadata.name: edge-controller}
+templates:
+  - network-policy.yaml
+tests:
+  - it: the render fails, naming the value, when edge.namespaceSelector is not set
+    set: {edge: {namespaceSelector: null}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'edge\.namespaceSelector is required when edge\.mode is ingress'
+
+  - it: the controller namespace reaches the frontend
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-frontend}
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: edge-controller}}
+              ports: [{protocol: TCP, port: 3000}]
+
+  - it: WAF off - the controller namespace reaches the backend
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - equal:
+          path: spec.ingress[1]
+          value:
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: edge-controller}}
+            ports: [{protocol: TCP, port: 8000}]
+
+  - it: WAF on - the controller reaches the WAF, never the backend
+    set: {waf: {enabled: true}}
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: edge-controller}}
+              ports: [{protocol: TCP, port: 8080}]
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
+      - notContains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: edge-controller}}
+            ports: [{protocol: TCP, port: 8000}]
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+
+  - it: golden render, WAF off
+    asserts:
+      - matchSnapshot: {}
+  - it: golden render, WAF on
+    set: {waf: {enabled: true}}
+    asserts:
+      - matchSnapshot: {}

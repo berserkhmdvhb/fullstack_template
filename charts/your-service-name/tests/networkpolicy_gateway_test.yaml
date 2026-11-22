@@ -1,0 +1,260 @@
+suite: network policy, edge mode gateway (the default)
+release:
+  name: svc
+  namespace: app
+templates:
+  - network-policy.yaml
+  - db-network-policy.yaml
+tests:
+  - it: default-deny is the only podSelector {} policy, and it allows nothing
+    documentSelector: {path: metadata.name, value: svc-your-service-name-default-deny}
+    asserts:
+      - equal: {path: spec.podSelector, value: {}}
+      - equal: {path: spec.policyTypes, value: [Ingress, Egress]}
+      - notExists: {path: spec.ingress}
+      - notExists: {path: spec.egress}
+
+  - it: six policies render with the WAF off
+    template: network-policy.yaml
+    asserts:
+      - hasDocuments: {count: 6}
+
+  - it: every ingress allow selects one component (never podSelector {})
+    set: {waf: {enabled: true}}
+    template: network-policy.yaml
+    documentSelector: {path: spec.policyTypes, value: [Ingress], matchMany: true}
+    asserts:
+      - matchRegex: {path: 'spec.podSelector.matchLabels["app.kubernetes.io/component"]', pattern: '^(frontend|backend)$'}
+
+  - it: WAF on adds exactly the WAF policy
+    set: {waf: {enabled: true}}
+    template: network-policy.yaml
+    asserts:
+      - hasDocuments: {count: 7}
+
+  - it: PostgreSQL admits only the backend and migration Pods (no edge peer)
+    template: db-network-policy.yaml
+    asserts:
+      - equal: {path: metadata.namespace, value: app-db}
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector: {matchLabels: {tier: app-ns}}
+                  podSelector: {matchLabels: {app.kubernetes.io/component: backend}}
+              ports: [{protocol: TCP, port: 5432}]
+            - from:
+                - namespaceSelector: {matchLabels: {tier: app-ns}}
+                  podSelector: {matchLabels: {app.kubernetes.io/component: migration}}
+              ports: [{protocol: TCP, port: 5432}]
+
+  - it: the migration policy is egress only
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-migration-to-db}
+    asserts:
+      - equal: {path: spec.policyTypes, value: [Egress]}
+      - equal: {path: spec.podSelector.matchLabels, value: {app.kubernetes.io/component: migration}}
+
+  - it: the Gateway namespace reaches the frontend on the frontend port
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-frontend}
+    asserts:
+      - equal: {path: spec.podSelector.matchLabels, value: {app.kubernetes.io/component: frontend}}
+      - equal: {path: spec.policyTypes, value: [Ingress]}
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateway-system}}
+              ports: [{protocol: TCP, port: 3000}]
+
+  - it: WAF off - the backend admits the frontend, the Gateway namespace and monitoring on the backend port
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - equal: {path: spec.podSelector.matchLabels, value: {app.kubernetes.io/component: backend}}
+      - equal: {path: spec.policyTypes, value: [Ingress]}
+      - equal:
+          path: spec.ingress
+          value:
+            - from: [{podSelector: {matchLabels: {app.kubernetes.io/component: frontend}}}]
+              ports: [{protocol: TCP, port: 8000}]
+            - from:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateway-system}}
+              ports: [{protocol: TCP, port: 8000}]
+            - from:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+              ports: [{protocol: TCP, port: 8000}]
+
+  - it: WAF on - no edge peer reaches the backend; only the frontend, the WAF and monitoring do
+    set: {waf: {enabled: true}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from: [{podSelector: {matchLabels: {app.kubernetes.io/component: frontend}}}]
+              ports: [{protocol: TCP, port: 8000}]
+            - from: [{podSelector: {matchLabels: {app.kubernetes.io/component: waf}}}]
+              ports: [{protocol: TCP, port: 8000}]
+            - from:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+              ports: [{protocol: TCP, port: 8000}]
+      - notContains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateway-system}}
+            ports: [{protocol: TCP, port: 8000}]
+
+  - it: WAF on - the edge reaches the WAF on the WAF port, and the WAF reaches the backend and DNS
+    set: {waf: {enabled: true}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
+    asserts:
+      - equal: {path: spec.podSelector.matchLabels, value: {app.kubernetes.io/component: waf}}
+      - equal: {path: spec.policyTypes, value: [Ingress, Egress]}
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateway-system}}
+              ports: [{protocol: TCP, port: 8080}]
+      - equal:
+          path: spec.egress
+          value:
+            - to: [{podSelector: {matchLabels: {app.kubernetes.io/component: backend}}}]
+              ports: [{protocol: TCP, port: 8000}]
+            - to:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+                  podSelector: {matchLabels: {k8s-app: kube-dns}}
+              ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+
+  - it: each parentRefs namespace is a peer once; a parentRef without a namespace means the release namespace
+    set:
+      edge:
+        gateway:
+          parentRefs:
+            - {name: a, namespace: infra}
+            - {name: b, namespace: infra, sectionName: https}
+            - {name: c}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-frontend}
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: infra}}
+            - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: app}}
+
+  - it: GKE adds the Google load balancer ranges as peers
+    set: {edge: {gateway: {gke: {enabled: true}}}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-frontend}
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateway-system}}
+            - ipBlock: {cidr: 35.191.0.0/16}
+            - ipBlock: {cidr: 130.211.0.0/22}
+
+  - it: GKE with the WAF on - the load balancer ranges reach the WAF, never the backend
+    set: {waf: {enabled: true}, edge: {gateway: {gke: {enabled: true}}}}
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateway-system}}
+            - ipBlock: {cidr: 35.191.0.0/16}
+            - ipBlock: {cidr: 130.211.0.0/22}
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
+      - equal:
+          path: spec.ingress[1]
+          value:
+            from: [{podSelector: {matchLabels: {app.kubernetes.io/component: waf}}}]
+            ports: [{protocol: TCP, port: 8000}]
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+      - lengthEqual: {path: spec.ingress, count: 3}
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+
+  - it: extraPeers are appended to the edge peers
+    set:
+      edge:
+        extraPeers:
+          - ipBlock: {cidr: 10.129.0.0/23}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-frontend}
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateway-system}}
+            - ipBlock: {cidr: 10.129.0.0/23}
+
+  - it: no edge peer renders no edge rule (never an empty from, which would admit everyone)
+    set: {edge: {gateway: {parentRefs: []}}}
+    asserts:
+      - notExists: {path: spec.ingress}
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-frontend}
+      - lengthEqual: {path: spec.ingress, count: 2}
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+
+  - it: an empty monitoring selector renders no scrape rule
+    set: {networkPolicy: {monitoringNamespaceSelector: null}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - lengthEqual: {path: spec.ingress, count: 2}
+
+  - it: the policy ports come from the port helpers
+    set:
+      config: {BACKEND_PORT: "9000", FRONTEND_PORT: "4000"}
+      waf: {enabled: true, service: {port: 9090}}
+    asserts:
+      - equal: {path: 'spec.ingress[0].ports', value: [{protocol: TCP, port: 4000}]}
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-frontend}
+      - equal: {path: 'spec.ingress[0].ports', value: [{protocol: TCP, port: 9000}]}
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+      - equal: {path: 'spec.ingress[0].ports', value: [{protocol: TCP, port: 9090}]}
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
+      - equal: {path: 'spec.egress[0].ports', value: [{protocol: TCP, port: 9000}]}
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
+      - equal: {path: 'spec.egress[0].ports', value: [{protocol: TCP, port: 9000}]}
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-frontend-to-backend}
+
+  - it: DNS egress goes to kube-dns only, on every egress policy
+    set: {waf: {enabled: true}}
+    asserts:
+      - equal: &dns
+          path: 'spec.egress[1]'
+          value:
+            to:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+                podSelector: {matchLabels: {k8s-app: kube-dns}}
+            ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-backend-to-db}
+      - equal: *dns
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-migration-to-db}
+      - equal: *dns
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-frontend-to-backend}
+      - equal: *dns
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
+
+  - it: the DNS selectors and the NodeLocal DNSCache ipBlocks come from values
+    set:
+      networkPolicy:
+        dns:
+          namespaceSelector: {kubernetes.io/metadata.name: dns}
+          podSelector: {k8s-app: coredns}
+          ipBlocks: [169.254.20.10/32]
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-frontend-to-backend}
+    asserts:
+      - equal:
+          path: spec.egress[1]
+          value:
+            to:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: dns}}
+                podSelector: {matchLabels: {k8s-app: coredns}}
+              - ipBlock: {cidr: 169.254.20.10/32}
+            ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+
+  - it: golden render, WAF off
+    asserts:
+      - matchSnapshot: {}
+  - it: golden render, WAF on
+    set: {waf: {enabled: true}}
+    asserts:
+      - matchSnapshot: {}
