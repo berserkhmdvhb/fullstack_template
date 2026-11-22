@@ -63,8 +63,7 @@ spec:
         app.kubernetes.io/component: waf
     spec:
       serviceAccountName: {{ include "chart.serviceAccountName" . }}
-      imagePullSecrets:
-{{- include "chart.imagePullSecrets" . | nindent 6 }}
+      {{- include "chart.imagePullSecrets" . | indent 6 }}
       # The restricted Pod Security profile (the app namespace enforces it): the image's own user
       # (65532, distroless nonroot; Dockerfile.waf), RuntimeDefault seccomp, no privilege escalation,
       # no capabilities, a read-only root filesystem. Envoy listens on unprivileged ports.

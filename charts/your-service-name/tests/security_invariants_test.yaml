@@ -170,6 +170,13 @@ tests:
     asserts:
       - equal: {path: spec.template.spec.imagePullSecrets, value: [{name: registry-credentials}]}
 
+  - it: global.imagePullSecrets reaches the WAF Pod too, once
+    template: waf-proxy.yaml
+    set: {waf: {enabled: true}, global: {imagePullSecrets: [registry-credentials]}}
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - equal: {path: spec.template.spec.imagePullSecrets, value: [{name: registry-credentials}]}
+
   - it: no pull secret renders by default
     templates: [backend-deployment.yaml, frontend-deployment.yaml, migration-job.yaml]
     asserts:
