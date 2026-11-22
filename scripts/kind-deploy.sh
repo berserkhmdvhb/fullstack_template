@@ -252,8 +252,8 @@ ok "port-forward (health 200)"
 if kc -n "$NS" exec "deployment/$fullname-backend" "${as_deployer[@]}" -- true > "$WORK/exec.log" 2>&1; then
   die "the deployer could exec into a Pod"
 fi
-grep -q Forbidden "$WORK/exec.log" || die "exec failed, but not as Forbidden: $(cat "$WORK/exec.log")"
-ok "exec refused (Forbidden)"
+grep -qi forbidden "$WORK/exec.log" || die "exec failed, but not as Forbidden: $(cat "$WORK/exec.log")"
+ok "exec refused (forbidden)"
 # Secrets: readable only in the namespaces the bootstrap bound the deployer in, refused everywhere else.
 bound="$(kc get rolebindings -A -o json | jq -r '.items[] | select(.metadata.name == "bootstrap-deployer") | .metadata.namespace')"
 for ns in $(kc get namespaces -o jsonpath='{.items[*].metadata.name}'); do
@@ -267,10 +267,10 @@ ok "secrets get/list: yes only in $(paste -sd' ' <<<"$bound"); no in every other
 if kc get secrets --all-namespaces "${as_deployer[@]}" > "$WORK/secrets.log" 2>&1; then
   die "the deployer could list secrets cluster-wide"
 fi
-grep -q Forbidden "$WORK/secrets.log" || die "the cluster-wide list failed, but not as Forbidden"
+grep -qi forbidden "$WORK/secrets.log" || die "the cluster-wide list failed, but not as Forbidden"
 for ns in kube-system default; do
   if kc -n "$ns" get secrets "${as_deployer[@]}" > "$WORK/secrets.log" 2>&1; then die "the deployer read secrets in $ns"; fi
-  grep -q Forbidden "$WORK/secrets.log" || die "reading secrets in $ns failed, but not as Forbidden"
+  grep -qi forbidden "$WORK/secrets.log" || die "reading secrets in $ns failed, but not as Forbidden"
 done
 ok "secrets refused cluster-wide, in kube-system and in default"
 step "done: $RELEASE in $NS on $CLUSTER (KUBECONFIG=$KUBECONFIG)"
