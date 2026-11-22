@@ -236,7 +236,11 @@ example `--values values.secret.yaml --set images.backend.digest=sha256:…`. Wi
 2. annotates `helm.sh/resource-policy=keep` on every Namespace, PersistentVolumeClaim and Secret
    the deployed revision holds and the current chart no longer renders, so no upgrade deletes it:
    an older chart's logging namespace (`monitoring.logging=true`), with whatever is in it, is one.
-   Its summary lists them as "kept, now unmanaged: decide by hand": no release owns them any more.
+   Each also gets the marker `migrate-to-bootstrap/kept-by=<namespace>/<release>`, and is read back
+   from the cluster: no upgrade runs unless every one carries both. The set is computed with the
+   pinned yq (another version is refused), and any failure while computing it stops the run. The
+   summary, on a re-run too, lists the marked objects as "kept, now unmanaged: decide by hand": no
+   release owns them any more.
    The chart's own objects of the removed tiers in them (the Fluentd DaemonSet, its ConfigMap,
    ServiceAccount, Role and RoleBinding) are deleted by the upgrade, as the chart dropped them. The
    script deletes nothing itself;
@@ -266,7 +270,7 @@ ResourceQuota and a LimitRange, no namespace or volume is replaced, the database
 the deployer's next upgrade passes.
 `scripts/k8s-env.sh apply` (`make k8s-apply`, `make deploy`), which runs as an admin in the current
 context, runs this script (with `--context` set to that context, its own `--values` and `--set`, and
-`--yes`) when the release's stored manifest holds a Namespace, Role or RoleBinding (a dry run prints
+`--yes`) when the release's deployed revision holds a Namespace, Role or RoleBinding (a dry run prints
 the command it would run).
 
 ---

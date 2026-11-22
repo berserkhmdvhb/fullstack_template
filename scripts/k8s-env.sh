@@ -228,12 +228,19 @@ cmd_apply() {
     log_info "dry run: this migration would run if the release holds Namespace objects (or the app's Role or RoleBinding), before the others"
     log_step "${migrate[*]}"
   else
-    local manifest="" rc=0
-    manifest="$(helm get manifest "${HELM_RELEASE}" -n "${NAMESPACE}" 2>&1)" || rc=$?
+    # The deployed revision, as the script reads it: a later failed revision may lack the objects.
+    local history="" manifest="" rev="" rc=0
+    history="$(helm history "${HELM_RELEASE}" -n "${NAMESPACE}" -o json 2>&1)" || rc=$?
     if [ "${rc}" -ne 0 ]; then
-      grep -q "release: not found" <<<"${manifest}" \
+      grep -q "release: not found" <<<"${history}" \
+        || die "could not read release ${HELM_RELEASE} in ${NAMESPACE}: ${history}"
+    else
+      rev="$(yq -p json '[.[] | select(.status == "deployed")] | reverse | .[0].revision // ""' <<<"${history}")" \
+        || die "could not read the history of release ${HELM_RELEASE}"
+    fi
+    if [ -n "${rev}" ]; then
+      manifest="$(helm get manifest "${HELM_RELEASE}" -n "${NAMESPACE}" --revision "${rev}" 2>&1)" \
         || die "could not read release ${HELM_RELEASE} in ${NAMESPACE}: ${manifest}"
-      manifest=""
     fi
     if grep -Eqx 'kind: (Namespace|Role|RoleBinding)' <<<"${manifest}"; then
       log_warn "release ${HELM_RELEASE} still owns its Namespace, Role or RoleBinding objects: moving it onto the bootstrap first"

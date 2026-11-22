@@ -12,8 +12,9 @@ setup() {
   SCRIPT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)/scripts/migrate-to-bootstrap.sh"
   B="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$B"
-  export LOG="$BATS_TEST_TMPDIR/calls.log" STATE="$BATS_TEST_TMPDIR/state"
+  export LOG="$BATS_TEST_TMPDIR/calls.log" STATE="$BATS_TEST_TMPDIR/state" ANNOT="$BATS_TEST_TMPDIR/annotations"
   : > "$LOG"
+  : > "$ANNOT"
   echo old > "$STATE"
   # The release's stored manifest before the switch, and the current chart's render.
   export STUB_OLD=$'kind: Namespace\nmetadata:\n  name: app-ns\n---\nkind: Role\nmetadata:\n  name: app-role\n  namespace: app-ns\n---\nkind: Deployment\nmetadata:\n  name: web'
@@ -44,6 +45,26 @@ case "$1 $2" in
   "config view") echo "https://127.0.0.1:6443" ;;
   "auth can-i") echo "${STUB_CAN:-yes}"; [[ "${STUB_CAN:-yes}" == yes ]] ;;
   "apply -f") cat > /dev/null ;;
+  "annotate "*) # annotate KIND NAME [-n NS] K=V... --overwrite: recorded as "kind ns name K=V..."
+    kind="$2" name="$3" ns=-; shift 3
+    [[ "${1-}" != -n ]] || { ns="$2"; shift 2; }
+    [[ -n "${STUB_ANNOTATE_NOOP-}" ]] || echo "$kind $ns $name ${*/--overwrite/}" >> "$ANNOT" ;;
+  "get "*)
+    kind="${2%s}" # namespaces or namespace: the record keeps the singular
+    if [[ "$*" == *custom-columns* ]]; then # NS NAME MARKER of every object of the kind
+      while read -r k ns name rest; do
+        [[ "$k" == "$kind" ]] || continue
+        marker="$(grep -o 'migrate-to-bootstrap/kept-by=[^ ]*' <<<"$rest" | cut -d= -f2)"
+        [[ "$ns" != - ]] || ns="$name"
+        echo "$ns $name ${marker:-<none>}"
+      done < "$ANNOT"
+    else # one object: its keep policy and marker
+      name="$3" ns=-; [[ "${4-}" != -n ]] || ns="$5"
+      rec="$(grep "^$kind $ns $name " "$ANNOT" | tail -n 1)"
+      policy="$(grep -o 'helm.sh/resource-policy=[^ ]*' <<<"$rec" | cut -d= -f2)"
+      marker="$(grep -o 'migrate-to-bootstrap/kept-by=[^ ]*' <<<"$rec" | cut -d= -f2)"
+      echo "$policy|$marker"
+    fi ;;
 esac
 STUB
   chmod +x "$B"/*
@@ -196,7 +217,9 @@ STUB
   [[ "$output" == *"helm upgrade svc "*"namespaces.create=true"* ]]
   [[ "$output" == *"k8s-bootstrap.sh production --release svc --namespace svc-production | kubectl --context kind-x apply -f -"* ]]
   [[ "$output" == *"helm upgrade svc "*"namespaces.create=false"* ]]
-  run ! grep -q -e "^helm upgrade" -e "annotate" -e "apply -f" "$LOG"
+  # Only read-only calls: an allowlist, so any other call fails it.
+  run ! grep -Ev -e '^helm (status|history|get manifest|template) ' -e '^kubectl config (get-contexts|view) ' \
+    -e '^kubectl --context kind-x (config view|auth can-i|get|version) ' "$LOG"
 }
 
 @test "a release that still holds them after the switch fails the run" {
@@ -219,7 +242,7 @@ orphans() {
   first="$(grep -n "^helm upgrade" "$LOG" | head -n 1 | cut -d: -f1)"
   for obj in "namespace app-ns-logging" "secret shipper -n app-ns-logging" \
     "persistentvolumeclaim old-data -n your-service-name-dev"; do
-    at="$(grep -n "^kubectl --context kind-x annotate $obj helm.sh/resource-policy=keep --overwrite$" "$LOG" | cut -d: -f1)"
+    at="$(grep -n "^kubectl --context kind-x annotate $obj helm.sh/resource-policy=keep migrate-to-bootstrap/kept-by=your-service-name-dev/your-service-name --overwrite$" "$LOG" | cut -d: -f1)"
     [ -n "$at" ]
     (( at < first ))
   done
@@ -233,7 +256,7 @@ orphans() {
   run bash "$SCRIPT" dev --context kind-x "${V[@]}" --dry-run
   [ "$status" -eq 0 ]
   [[ "$output" == *"Namespace app-ns-logging"*"PersistentVolumeClaim your-service-name-dev/old-data"*"Secret app-ns-logging/shipper"* ]]
-  [[ "$output" != *"ConfigMap"* && "$output" != *"/kept"* ]]
+  [[ "$output" != *"ConfigMap"* && "$output" != *"Secret your-service-name-dev/kept"* ]]
   run ! grep -q "annotate" "$LOG"
 }
 
@@ -250,4 +273,70 @@ orphans() {
   [[ "$stderr" != *"sorted order"* ]]
   [[ "$output" == *"Secret your-service-name-dev/A-d"* && "$output" == *"Secret your-service-name-dev/a-b"* ]]
   [[ "$output" != *"/a_c"* && "$output" != *"/ab"* ]]
+}
+
+# A yq stub: the pinned version (from tools/pins.tsv) unless told otherwise, failing unless told not to.
+fake_yq() {
+  local pin
+  pin="$(awk -F'\t' '$1 == "yq" {print $2}' "$(dirname "$SCRIPT")/../tools/pins.tsv")"
+  # shellcheck disable=SC2016 # the stub expands $1 itself
+  printf '#!/usr/bin/env bash\n[[ "$1" != --version ]] || { echo "yq (https://github.com/mikefarah/yq/) version v%s"; exit 0; }\nexit 1\n' \
+    "${1:-$pin}" > "$B/yq"
+  chmod +x "$B/yq"
+}
+
+@test "a yq that fails while the kept objects are computed stops the run before any upgrade" {
+  orphans
+  fake_yq
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -ne 0 ]
+  run ! grep -q -e "^helm upgrade" -e "annotate" "$LOG"
+}
+
+@test "a yq that is not the pinned version is refused before the cluster is read" {
+  fake_yq 4.0.0
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"yq"*"4.0.0"*"pinned"* ]]
+  run ! grep -q "^helm" "$LOG"
+}
+
+@test "an annotate that exits 0 but leaves no annotation stops the run before any upgrade" {
+  orphans
+  STUB_ANNOTATE_NOOP=1 run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not marked keep"* ]]
+  run ! grep -q "^helm upgrade" "$LOG"
+}
+
+@test "every kept object is read back from the cluster before the first upgrade" {
+  orphans
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 0 ]
+  first="$(grep -n "^helm upgrade" "$LOG" | head -n 1 | cut -d: -f1)"
+  for obj in "namespace app-ns-logging" "secret shipper -n app-ns-logging" \
+    "persistentvolumeclaim old-data -n your-service-name-dev"; do
+    at="$(grep -n "^kubectl --context kind-x get $obj -o jsonpath=" "$LOG" | cut -d: -f1)"
+    [ -n "$at" ]
+    (( at < first ))
+  done
+}
+
+@test "a re-run after a stop at step 1 lists the objects the first run kept, from their marker" {
+  # Step 1 ran: the deployed revision no longer holds the logging namespace, which is marked.
+  echo "namespace - app-ns-logging helm.sh/resource-policy=keep migrate-to-bootstrap/kept-by=your-service-name-dev/your-service-name" >> "$ANNOT"
+  echo "namespace - other-ns helm.sh/resource-policy=keep migrate-to-bootstrap/kept-by=elsewhere/other" >> "$ANNOT"
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"kept, now unmanaged: decide by hand"*"Namespace app-ns-logging"* ]]
+  [[ "$output" != *"other-ns"* ]]
+  run ! grep -q "annotate" "$LOG"
+}
+
+@test "a release already migrated still lists what an earlier run kept" {
+  echo switched > "$STATE"
+  echo "secret app-ns-logging shipper helm.sh/resource-policy=keep migrate-to-bootstrap/kept-by=your-service-name-dev/your-service-name" >> "$ANNOT"
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"nothing to do"*"kept, now unmanaged"*"Secret app-ns-logging/shipper"* ]]
 }

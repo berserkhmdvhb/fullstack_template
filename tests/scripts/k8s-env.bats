@@ -25,11 +25,19 @@ if [[ "$1" == status ]]; then
   [[ -n "${STUB_MANIFEST-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
   echo '{"version": 1, "info": {"status": "deployed"}}'
 fi
+if [[ "$1" == history ]]; then
+  [[ -z "${STUB_GET_FAIL-}" ]] || { echo "Error: Kubernetes cluster unreachable" >&2; exit 1; }
+  [[ -n "${STUB_MANIFEST-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
+  one='[{"revision": 1, "status": "deployed"}]'
+  echo "${STUB_HISTORY:-$one}"
+fi
 if [[ "$1 $2" == "get manifest" ]]; then
   [[ -z "${STUB_GET_FAIL-}" ]] || { echo "Error: Kubernetes cluster unreachable" >&2; exit 1; }
   [[ -n "${STUB_MANIFEST-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
-  # After the migration's switch upgrade the release holds no Namespace.
+  # After the migration's switch upgrade the release holds no Namespace; with STUB_DEPLOYED_REV only
+  # that revision does.
   if [[ -e "$STATE" ]]; then echo "kind: Deployment"; exit 0; fi
+  if [[ -n "${STUB_DEPLOYED_REV-}" && "$*" != *"--revision $STUB_DEPLOYED_REV"* ]]; then echo "kind: Deployment"; exit 0; fi
   printf '%s\n' "$STUB_MANIFEST"
   # A large release: far more than one pipe buffer (64 KiB) after the Namespace.
   [[ -z "${STUB_BIG-}" ]] || yes "# a long stored manifest line, written after the Namespace" | head -n 20000
@@ -181,4 +189,21 @@ STUB
   [[ "$output" == *"k8s-bootstrap.sh dev --release svc"*"| kubectl apply -f -"* ]]
   run grep -q "get manifest" "$LOG"
   [ "$status" -ne 0 ]
+}
+
+@test "the gate reads the deployed revision, not a later failed one" {
+  # Revision 3 failed and lacks the Namespace; revision 2, the deployed one, still holds it.
+  STUB_HISTORY='[{"revision": 2, "status": "deployed"}, {"revision": 3, "status": "failed"}]' STUB_DEPLOYED_REV=2 \
+    STUB_MANIFEST=$'---\nkind: Namespace' run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  grep -q "^helm get manifest svc -n svc-dev --revision 2$" "$LOG"
+  [[ "$output" == *"still owns its Namespace"* ]]
+  [[ "$output" == *"migrate-to-bootstrap.sh dev --context stub-ctx --release svc"* ]]
+}
+
+@test "a release that was never deployed gets only the normal upgrade" {
+  STUB_HISTORY='[{"revision": 1, "status": "failed"}]' STUB_MANIFEST="kind: Namespace" \
+    run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  [ "$status" -eq 0 ]
+  run ! grep -q "get manifest" "$LOG"
+  [ "$(grep -c "^helm upgrade" "$LOG")" -eq 1 ]
 }

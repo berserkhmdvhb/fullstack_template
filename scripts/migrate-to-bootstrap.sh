@@ -9,8 +9,11 @@
 # the chart checkout the deploy uses and the values its deploy passes:
 #   0. every Namespace, PersistentVolumeClaim and Secret the release's deployed revision holds and
 #      the current chart no longer renders (an older chart's logging namespace, for one) is
-#      annotated helm.sh/resource-policy=keep on the live object, so no upgrade deletes it; it is
-#      listed at the end as kept and no longer managed, for a person to decide on;
+#      annotated helm.sh/resource-policy=keep and migrate-to-bootstrap/kept-by=<namespace>/<release>
+#      on the live object, then read back: no upgrade runs unless each carries both. Every stage
+#      of that computation is checked, so a failure stops the run rather than empty the set. The
+#      objects that carry the marker are listed at the end (on a re-run too) as kept and no longer
+#      managed, for a person to decide on;
 #   1. one upgrade that still renders the namespaces and the app's RBAC (namespaces.create=true,
 #      rbac.create=true): they gain helm.sh/resource-policy: keep;
 #   2. the bootstrap (scripts/k8s-bootstrap.sh <env> | kubectl apply -f -), applied over them;
@@ -36,9 +39,10 @@
 #   --timeout        each upgrade's --wait (default 10m)
 #   --dry-run        check everything and print the steps and the objects it would keep; change nothing
 #   --yes            no confirmation (needed without a terminal)
-# Needs helm, kubectl, jq and yq, and cluster-admin rights in that context.
+# Needs helm, kubectl, jq and the pinned yq (tools/pins.tsv), and cluster-admin rights in that context.
 # ===========================================================================
 set -Eeuo pipefail
+shopt -s inherit_errexit
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHART="$ROOT/charts/your-service-name"
@@ -86,6 +90,11 @@ done
   die "pass the values the deploy passes (--values, --set), or --env-values-only if values.$ENV_NAME.yaml is all of them" 2
 
 for tool in helm kubectl jq yq; do command -v "$tool" >/dev/null 2>&1 || die "$tool is required"; done
+# The keep set below is computed with yq: only the pinned one (tools/pins.tsv), whose output it knows.
+yq_pin="$(awk -F'\t' '$1 == "yq" {print $2}' "$ROOT/tools/pins.tsv")"
+yq_version="$(yq --version 2>&1)" || die "yq --version failed: $yq_version"
+[[ -n "$yq_pin" && "$yq_version" == *" version v$yq_pin" ]] ||
+  die "yq is '$yq_version', not the pinned $yq_pin (tools/pins.tsv): run scripts/tools.sh install yq"
 kc() { kubectl --context "$context" "$@"; }
 hc() { helm "$@" --kube-context "$context"; }
 grep -qxF -- "$context" <<<"$(kubectl config get-contexts -o name 2>/dev/null || true)" ||
@@ -113,19 +122,41 @@ deployed() { # the release's status must be deployed; prints its revision
   fi
   echo "$rev"
 }
-manifest() { local rev; rev="$(deployed)"; hc get manifest "$release" -n "$namespace" --revision "$rev"; }
 holds() { grep -Eqx 'kind: (Namespace|Role|RoleBinding)' <<<"$1"; }
-objects() { # Namespace, PersistentVolumeClaim and Secret objects of a manifest: kind namespace name
+MARKER=migrate-to-bootstrap/kept-by
+mark="$namespace/$release"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+objects() { # manifest file, out file: its Namespace, PersistentVolumeClaim and Secret objects, sorted
   yq -N 'select(.kind == "Namespace" or .kind == "PersistentVolumeClaim" or .kind == "Secret")
     | select(.metadata.name != null)
     | .kind + " " + (.metadata.namespace // "'"$namespace"'") + " " + .metadata.name
-    | sub("^Namespace [^ ]+ ", "Namespace - ")' <<<"$1" | LC_ALL=C sort -u
+    | sub("^Namespace [^ ]+ ", "Namespace - ")' "$1" > "$2.unsorted" || die "yq could not read $(basename "$1")"
+  LC_ALL=C sort -u "$2.unsorted" > "$2" || die "could not sort the objects of $(basename "$1")"
+}
+marked() { # what an earlier or this run kept for this release, from the marker on the live objects
+  local kind kinds=(Namespace:namespaces PersistentVolumeClaim:persistentvolumeclaims Secret:secrets)
+  : > "$work/marked"
+  for kind in "${kinds[@]}"; do
+    local -a all=(-A); [[ "${kind%%:*}" != Namespace ]] || all=()
+    kc get "${kind#*:}" "${all[@]}" --no-headers \
+      -o "custom-columns=NS:.metadata.namespace,N:.metadata.name,M:.metadata.annotations.migrate-to-bootstrap/kept-by" \
+      > "$work/list" || die "could not list ${kind#*:} in $where"
+    awk -v k="${kind%%:*}" -v m="$mark" '$3 == m { print k " " (k == "Namespace" ? $2 : $1 "/" $2) }' \
+      "$work/list" >> "$work/marked" || die "could not read the ${kind#*:} list"
+  done
+  if [[ -s "$work/marked" ]]; then
+    echo "migrate-to-bootstrap: kept, now unmanaged: decide by hand (delete or keep each; no release owns it):"
+    sed 's/^/    /' "$work/marked"
+  fi
 }
 
-deployed > /dev/null
-stored="$(manifest)"
+# The deployed revision, read once its status is checked (every read below is at that revision).
+rev="$(deployed)"
+stored="$(hc get manifest "$release" -n "$namespace" --revision "$rev")"
 if ! holds "$stored"; then
   echo "migrate-to-bootstrap: $release in $namespace ($where) holds no Namespace, Role or RoleBinding: nothing to do"
+  marked
   exit 0
 fi
 # The steps create namespaces, quotas and RBAC: a cluster admin's rights, checked before any change.
@@ -135,9 +166,15 @@ for check in "create namespaces" "create resourcequotas -n $namespace" "create r
   [[ "$(kc auth can-i $check 2>/dev/null || true)" == yes ]] ||
     die "this identity cannot '$check' in $where: run it as a cluster admin"
 done
-# What the release holds and the first upgrade's render does not, Helm deletes in that upgrade.
-render="$(helm template "$release" "$CHART" -n "$namespace" "${values[@]}" --set namespaces.create=true --set rbac.create=true)"
-mapfile -t keep < <(LC_ALL=C comm -23 <(objects "$stored") <(objects "$render"))
+# What the release holds and the first upgrade's render does not, Helm deletes in that upgrade. Each
+# stage is a file with its own status check, so a failure stops the run rather than empty the set.
+# (The manifests stay in memory: they hold the release's Secrets.)
+printf '%s\n' "$stored" | objects /dev/stdin "$work/old"
+render="$(helm template "$release" "$CHART" -n "$namespace" "${values[@]}" --set namespaces.create=true --set rbac.create=true)" ||
+  die "the current chart does not render with these values"
+printf '%s\n' "$render" | objects /dev/stdin "$work/new"
+LC_ALL=C comm -23 "$work/old" "$work/new" > "$work/keep" || die "could not compare the release's objects with the chart's"
+mapfile -t keep < "$work/keep"
 show() { # kind namespace/name, or kind name for a Namespace
   local obj k n name
   for obj in "${keep[@]}"; do
@@ -147,8 +184,8 @@ show() { # kind namespace/name, or kind name for a Namespace
 }
 
 echo "migrate-to-bootstrap: $release in $namespace, in $where"
-echo "  0. keep (annotate helm.sh/resource-policy=keep) what the current chart no longer renders:"
-[[ "${#keep[@]}" -gt 0 ]] && show || echo "    nothing"
+echo "  0. keep (annotate helm.sh/resource-policy=keep and $MARKER=$mark) what the current chart no longer renders:"
+if [[ "${#keep[@]}" -gt 0 ]]; then show; else echo "    nothing"; fi
 echo "  1. ${upgrade[*]} --set namespaces.create=true --set rbac.create=true"
 echo "  2. ${boot[*]#"$ROOT/"} | kubectl --context $context apply -f -"
 echo "  3. ${upgrade[*]} --set namespaces.create=false --set rbac.create=false"
@@ -165,8 +202,16 @@ for obj in "${keep[@]}"; do
   read -r k n name <<<"$obj"
   ns_arg=(); [[ "$n" == - ]] || ns_arg=(-n "$n")
   kind_lc="$(tr '[:upper:]' '[:lower:]' <<<"$k")"
-  out="$(kc annotate "$kind_lc" "$name" "${ns_arg[@]}" helm.sh/resource-policy=keep --overwrite 2>&1)" ||
-    { grep -q NotFound <<<"$out" || die "could not annotate $k $name: $out"; echo "  $k $name is already gone"; }
+  if ! out="$(kc annotate "$kind_lc" "$name" "${ns_arg[@]}" helm.sh/resource-policy=keep "$MARKER=$mark" --overwrite 2>&1)"; then
+    grep -q NotFound <<<"$out" || die "could not annotate $k $name: $out"
+    echo "  $k $name is already gone"
+    continue
+  fi
+  # Read it back: no upgrade runs unless the live object carries both annotations.
+  got="$(kc get "$kind_lc" "$name" "${ns_arg[@]}" \
+    -o 'jsonpath={.metadata.annotations.helm\.sh/resource-policy}|{.metadata.annotations.migrate-to-bootstrap/kept-by}')" ||
+    die "could not read back $k $name"
+  [[ "$got" == "keep|$mark" ]] || die "$k $name is not marked keep after the annotate (read back '$got'): stopping before any upgrade"
 done
 echo "==> 1. keep: an upgrade that still renders them, so they gain helm.sh/resource-policy: keep"
 "${upgrade[@]}" --set namespaces.create=true --set rbac.create=true
@@ -174,10 +219,8 @@ echo "==> 2. the bootstrap"
 "${boot[@]}" | kc apply -f -
 echo "==> 3. switch: an upgrade with both off; keep leaves them in place"
 "${upgrade[@]}" --set namespaces.create=false --set rbac.create=false
-after="$(manifest)"
+rev="$(deployed)"
+after="$(hc get manifest "$release" -n "$namespace" --revision "$rev")"
 ! holds "$after" || die "the release $release still holds a Namespace, Role or RoleBinding"
 echo "migrate-to-bootstrap: migrated: $release in $namespace ($where); the deployer's upgrades touch none of them"
-if [[ "${#keep[@]}" -gt 0 ]]; then
-  echo "migrate-to-bootstrap: kept, now unmanaged: decide by hand (delete or keep each; no release owns it):"
-  show
-fi
+marked
