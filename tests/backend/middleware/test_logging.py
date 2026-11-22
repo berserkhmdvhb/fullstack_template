@@ -96,37 +96,24 @@ class TestLoggingEnabled:
 
 
 class TestSkipPaths:
-    """Test middleware skips health check endpoints."""
+    """Test middleware skips the paths it is given."""
 
     @pytest.mark.asyncio
-    async def test_skips_healthz(
-        self,
-        middleware: RequestLoggingMiddleware,
-        mock_call_next: AsyncMock,
-    ) -> None:
-        """Should skip logging for /healthz."""
+    async def test_skips_a_listed_path(self, mock_call_next: AsyncMock) -> None:
+        """Should not log a path in skip_paths, and still call the next handler."""
+        middleware = RequestLoggingMiddleware(
+            MagicMock(), log_requests=True, skip_paths=frozenset({"/probe"})
+        )
         mock_request = MagicMock(spec=Request)
         mock_request.method = "GET"
-        mock_request.url.path = "/healthz"
+        mock_request.url.path = "/probe"
 
         with patch("your_service_name.backend.middleware.logging.logger") as mock_logger:
             response = await middleware.dispatch(mock_request, mock_call_next)
 
-            # Should not log
-            mock_logger.info.assert_not_called()
-
-            # Should still call next
-            mock_call_next.assert_called_once_with(mock_request)
-
-            assert response.status_code == EXPECTED_STATUS_CODE
-
-
-class TestSkipPathsSet:
-    """Test _SKIP_PATHS configuration."""
-
-    def test_skip_paths_contains_healthz(self) -> None:
-        """_SKIP_PATHS should contain /healthz."""
-        assert "/healthz" in RequestLoggingMiddleware._SKIP_PATHS
+        mock_logger.info.assert_not_called()
+        mock_call_next.assert_called_once_with(mock_request)
+        assert response.status_code == EXPECTED_STATUS_CODE
 
 
 class TestNothingSensitiveIsLogged:

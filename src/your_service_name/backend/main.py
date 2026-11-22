@@ -253,7 +253,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_security_middleware(app)
 
     # Optional request logging (controlled by the LOG_REQUESTS setting).
-    app.add_middleware(RequestLoggingMiddleware, log_requests=settings.LOG_REQUESTS)
+    app.add_middleware(
+        RequestLoggingMiddleware,
+        log_requests=settings.LOG_REQUESTS,
+        skip_paths=exempt_paths(settings.API_VERSION),
+    )
 
     # Body-size cap, then host check: both answer with a problem body, so they sit INSIDE the
     # correlation middleware (the 400/413 carry the request id) and outside everything else

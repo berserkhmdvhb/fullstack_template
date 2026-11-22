@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     import httpx
     from fastapi import FastAPI
 
-HEALTH_PATH = "/api/v1/health"
+HEALTH_PATH = "/api/v1/nosuch"  # any logged path: the probes are skipped by the request log
 REQUEST_ID_HEADER = "X-Request-Id"
 
 
@@ -85,7 +85,7 @@ async def test_request_id_reaches_downstream_logs(
     """A request carrying ``X-Request-Id`` produces log records with that id — through the stack."""
     request_id = "integration-req-123"
     response = await async_client.get(HEALTH_PATH, headers={REQUEST_ID_HEADER: request_id})
-    assert response.is_success
+    assert response.status_code == 404  # noqa: PLR2004 - a logged, unrouted path
 
     # The request-logging middleware logged within the request context, carrying the header id.
     assert request_id in _request_ids(captured.records)
