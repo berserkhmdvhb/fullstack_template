@@ -154,7 +154,7 @@ projectName = "your_actual_service_name"
 
 ### 3. Docker Image Labels
 
-Edit `Dockerfile.backend`, and `Dockerfile.frontend`:
+Edit `Dockerfile.backend` and `Dockerfile.frontend`:
 
 ```dockerfile
 LABEL org.opencontainers.image.title="Your Actual Service Name"

@@ -292,8 +292,8 @@ docker compose down
 | Service | Port | Health Check |
 |---------|------|-------------|
 | **postgres** | 5432 (internal) | `pg_isready` |
-| **backend** | `${BACKEND_PORT}` | `/api/${API_VERSION}/health` |
-| **frontend** | `${FRONTEND_PORT}` | `GET /` |
+| **backend** | `${BACKEND_PORT}` | `/api/${API_VERSION}/healthz` |
+| **frontend** | `${FRONTEND_PORT}` | `/api/healthz` |
 
 ### Access
 

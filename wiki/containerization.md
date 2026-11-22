@@ -98,7 +98,7 @@ absence of `RUN`.
 - **OCI metadata labels** — version, revision, branch, build date, vendor, and `source` (the repository URL, from the `SOURCE_URL` build argument; GHCR links the package to it). Both images carry them, and the build workflow fills each one: the commit SHA, the branch or tag, the commit time (UTC, RFC 3339) and `${{ github.server_url }}/${{ github.repository }}`
 - **Non-root user** — runs as `appuser` (UID 10001, with a passwd and group entry and a home directory)
 - **Tini init** — proper PID 1 for signal handling
-- **Health check** — a stdlib Python probe (`python -m your_service_name.backend.healthcheck`) of `/healthz`, with a 4 s timeout; it reads `HEALTHCHECK_SCHEME`, `BACKEND_PORT` and `API_VERSION`, and treats a redirect or a TLS failure as unhealthy
+- **Health check** — a stdlib Python probe (`python -m your_service_name.backend.healthcheck`) of `/api/${API_VERSION}/healthz` (process only, no database check), every 10 s with a 5 s timeout; it reads `HEALTHCHECK_SCHEME`, `BACKEND_PORT` and `API_VERSION`, and treats a redirect or a TLS failure as unhealthy
 - **Launcher** — `python -m your_service_name.backend.serve` starts Uvicorn in-process (no shell, no curl); see [Environment Variables](./environment-variables.md)
 - **Migrations** — run by the chart's Job (and compose's `migrate` service) with `python -m your_service_name.backend.db.run_migrations`; the image ships no shell script and no shell
 
@@ -136,8 +136,8 @@ CMD ["server.js"]   # the image's ENTRYPOINT is /nodejs/bin/node
 - **Multi-stage build** — builder stage installs deps and builds; runtime is minimal
 - **Standalone output** — Next.js `output: 'standalone'` for minimal production bundle
 - **Non-root user** — numeric UID 10001 (distroless has no `appuser`)
-- **Health check** — fetches the frontend root `/` with the bundled Node (no shell or curl)
-- **Static assets** — the Next.js server serves `/_next/static` (hashed, immutable, one-year cache) and the `public/` files itself; there is no separate static image. A CDN in front caches them at the edge. The cache and security headers per path come from [`frontend/static-paths.ts`](../frontend/static-paths.ts) and `frontend/next.config.ts`.
+- **Health check** — fetches `/api/healthz` with the bundled Node (no shell or curl), every 10 s with a 5 s timeout
+- **Static assets** — the Next.js server serves `/_next/static` and the `public/` files itself; there is no separate static image. The cache policy is in [Frontend Deployment](./frontend-deployment.md#static-assets).
 - **Deployment id** — the builder stage sets `NEXT_DEPLOYMENT_ID` from the `VERSION` and `VCS_REF` build arguments (`frontend/scripts/deployment-id.mjs`), so a client caught mid-rollout reloads instead of loading a chunk that is gone
 
 ---
@@ -216,7 +216,7 @@ The `plan` job of `release.yml` generates the tag from the Git ref (see [Version
 | **Git tag** (e.g., `v1.2.3`) | `1.2.3-prod-abc1234`, `latest` |
 | **Push to `main`** | `0.0.0-main-abc1234` (baseline from the `VERSION` file) |
 
-A pull request never pushes an image. The tags name the multi-architecture index. The tag is the same for both images; each image has its own repository (`ghcr.io/<owner>/<repo>/backend`, and `/frontend`).
+A pull request never pushes an image. The tags name the multi-architecture index. The tag is the same for both images; each image has its own repository (`ghcr.io/<owner>/<repo>/backend` and `/frontend`).
 
 ---
 
@@ -226,8 +226,8 @@ Each Dockerfile includes a built-in health check:
 
 | Service | Endpoint | Interval | Timeout |
 |---------|----------|----------|---------|
-| **Backend** | `/api/${API_VERSION}/health` | 15s | 5s |
-| **Frontend** | `/` | 15s | 5s |
+| **Backend** | `/api/${API_VERSION}/healthz` | 10s | 5s |
+| **Frontend** | `/api/healthz` | 10s | 5s |
 
 ---
 

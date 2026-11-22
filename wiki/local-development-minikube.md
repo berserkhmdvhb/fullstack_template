@@ -1,7 +1,7 @@
 # Local Deployment (Minikube / kind)
 
-Complete guide to running the two-image stack (**backend** / **frontend**
-+ PostgreSQL) on a local cluster. **Minikube and kind are the two
+Complete guide to running the two-image stack (**backend** / **frontend**)
+and PostgreSQL on a local cluster. **Minikube and kind are the two
 first-class local clusters** here (any Kubernetes works too) — and **every step
 has three interchangeable ways to do it**:
 

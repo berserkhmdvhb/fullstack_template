@@ -147,7 +147,7 @@ docker compose build --no-cache
 docker compose up -d
 ```
 
-This brings up **three services** (postgres, backend, frontend) with health-gated startup.
+This brings up **three long-running services** (postgres, backend, frontend) plus a one-shot `migrate` job, with health-gated startup.
 
 ---
 

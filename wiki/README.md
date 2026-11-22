@@ -55,7 +55,7 @@ flowchart TB
 | **Backend** | Python, FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2 | 3.12+ |
 | **Frontend** | Next.js 16, React 19, TypeScript 6.0, Tailwind CSS 4 | Node 26+ |
 | **Edge/Gateway** | Ingress controller (Kubernetes) | — |
-| **Static** | The Next.js server (immutable `/_next/static`; a CDN caches it at the edge) | — |
+| **Static** | The Next.js server ([cache policy](./frontend-deployment.md#static-assets)) | — |
 | **Database** | PostgreSQL 16 (asyncpg) / SQLite fallback | — |
 | **Orchestration** | Kubernetes, Helm (per-env `values.<env>.yaml`) | 1.28+ |
 | **CI/CD** | GitHub Actions, buildx, Playwright | — |
@@ -70,7 +70,7 @@ flowchart TB
 ```
 .
 ├── .github/                    # GitHub Actions workflows, composite actions, helper scripts
-├── docker-compose.yml          # Local dev stack (3 services)
+├── docker-compose.yml          # Local dev stack (3 long-running services plus a one-shot `migrate` job)
 ├── Dockerfile.backend          # Backend container (FastAPI + Uvicorn)
 ├── Dockerfile.frontend         # Frontend container (Next.js)
 ├── Makefile                    # Development shortcuts

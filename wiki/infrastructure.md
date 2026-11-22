@@ -67,18 +67,7 @@ The Ingress is the edge. It sends `/api`, `/docs` and `/openapi.json` to the bac
 
 ### Security Headers
 
-Applied via `nginx.ingress.kubernetes.io/configuration-snippet` annotation:
-
-```yaml
-metadata:
-  annotations:
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_set_headers "X-Content-Type-Options: nosniff";
-      more_set_headers "X-Frame-Options: DENY";
-      more_set_headers "Referrer-Policy: no-referrer";
-      more_set_headers "Strict-Transport-Security: max-age=15552000; includeSubDomains; preload";
-      more_set_headers "Content-Security-Policy: default-src 'self'; ...";
-```
+The Ingress adds no response headers. The backend's security middleware and the frontend's `next.config.ts` and `proxy.ts` set them; see [Security](./security.md#http-security-headers).
 
 ### Rate Limiting
 
@@ -106,7 +95,7 @@ spec:
 
 ## Static assets
 
-The frontend server serves its own static assets: `/_next/static` is hashed and immutable with a one-year cache, and `public/` files carry the cache policy set in `frontend/next.config.ts`. [`frontend/static-paths.ts`](../frontend/static-paths.ts) is the one list of static paths. A CDN in front (Cloudflare or any other) caches the hashed assets at the edge, which is where the load-time gain comes from. Details: [Frontend Deployment](./frontend-deployment.md#static-assets).
+The frontend server serves its own static assets, and a CDN in front caches them at the edge. [`frontend/static-paths.ts`](../frontend/static-paths.ts) is the one list of static paths. The cache policy: [Frontend Deployment](./frontend-deployment.md#static-assets).
 
 ---
 
@@ -140,17 +129,19 @@ The `infra/runtime/entrypoint.sh` script is retained **only for local developmen
 
 ## Docker Compose (Local Dev)
 
-The `docker-compose.yml` orchestrates the full stack for local development with three services:
+The `docker-compose.yml` orchestrates the full stack for local development with three long-running services and a one-shot `migrate` job:
 
 ```mermaid
 flowchart TB
     subgraph Compose["docker-compose.yml"]
         PG["postgres<br/>image: postgres:16-alpine<br/>health: pg_isready"]
-        BE["backend<br/>Dockerfile.backend<br/>depends: postgres healthy<br/>health: /api/v1/health"]
-        FE["frontend<br/>Dockerfile.frontend<br/>depends: backend healthy<br/>health: GET /"]
+        MG["migrate<br/>Dockerfile.backend<br/>one-shot, depends: postgres healthy"]
+        BE["backend<br/>Dockerfile.backend<br/>depends: migrate completed<br/>health: /api/v1/healthz"]
+        FE["frontend<br/>Dockerfile.frontend<br/>depends: backend healthy<br/>health: /api/healthz"]
     end
 
-    PG -->|"healthy"| BE
+    PG -->|"healthy"| MG
+    MG -->|"completed"| BE
     BE -->|"healthy"| FE
 ```
 
@@ -158,7 +149,8 @@ flowchart TB
 
 | Service | Depends On | Condition |
 |---------|-----------|-----------|
-| backend | postgres | `service_healthy` |
+| migrate | postgres | `service_healthy` |
+| backend | migrate | `service_completed_successfully` |
 | frontend | backend | `service_healthy` |
 
 ### Local Access
@@ -185,22 +177,22 @@ Access services directly on their ports:
 
 | Probe | Backend | Frontend |
 |-------|---------|----------|
-| **startupProbe** | `/api/v1/health` (30×5s, failureThreshold: 30) | `/api/healthz` (20×5s, failureThreshold: 20) |
-| **readinessProbe** | `/api/v1/health` (10s interval, 3s timeout) | `/api/healthz` (10s interval, 3s timeout) |
-| **livenessProbe** | `/api/v1/healthz` (15s interval, 3s timeout) | `/api/healthz` (15s interval, 3s timeout) |
+| **startupProbe** | `/api/v1/healthz` (30×5s, failureThreshold: 30) | `/api/healthz` (20×5s, failureThreshold: 20) |
+| **readinessProbe** | `/api/v1/health` (10s interval, 5s timeout) | `/api/healthz` (10s interval, 5s timeout) |
+| **livenessProbe** | `/api/v1/healthz` (15s interval, 5s timeout) | `/api/healthz` (15s interval, 5s timeout) |
 
 ### Docker Compose Health Checks
 
 | Service | Endpoint | Method | Success |
 |---------|----------|--------|---------|
 | **postgres** | `pg_isready` | CMD-SHELL | Exit 0 |
-| **backend** | `/api/${API_VERSION}/health` | HTTP GET | 200 |
+| **backend** | `/api/${API_VERSION}/healthz` | HTTP GET | 200 |
 | **frontend** | `/api/healthz` | HTTP GET | 200 |
 
 ### Health Endpoint Behavior
 
-- **`/health`** — Returns `{"ok": true}` when database is initialized, `{"ok": false}` otherwise
-- **`/healthz`** — Always returns `ok` (simple connectivity check)
+- **`/health`** — Readiness: 200 when the database is reachable and the schema is current, 503 otherwise (see [Database](./database.md))
+- **`/healthz`** — Process only: no database or schema check
 
 ---
 

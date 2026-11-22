@@ -8,8 +8,8 @@
 **Tag:** `v3.0.0`
 **Date:** YYYY-MM-DD *(set to the day you push the tag)*
 **Channel:** main (production)
-**Image tag:** `3.0.0-prod-<short-sha>` — the same tag for both images
-  (`your-service-name-backend`, `your-service-name-frontend`)
+**Image tag:** `3.0.0-prod-<short-sha>` — the same tag for all three images
+  (`your-service-name-backend`, `your-service-name-frontend`, `your-service-name-nginx`)
 
 ---
 
@@ -45,7 +45,7 @@
 - SBOM (Syft), vulnerability scan (Grype, `fail-on: high`, `only-fixed: true`), license scan (Grant), VEX
 
 ### Kubernetes
-- Pod Security Standard version pinned to `v1.30`; `topologySpreadConstraints` + podAntiAffinity
+- Pod Security Standard version pinned to `v1.30`; nginx `topologySpreadConstraints` + podAntiAffinity
 - Production render fails loud when the managed DB is used with an empty `egressCIDR`
 - Fluentd container-log host path configurable per CRI
 - Removed the broken `podman-compose.yml`

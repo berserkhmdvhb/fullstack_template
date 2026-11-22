@@ -107,7 +107,7 @@ findings, still advisory unless you flip the release path to blocking.
 
 The WAF is an in-cluster **Coraza** proxy (Go, CNCF) running as an Envoy wasm
 plugin with the **OWASP Core Rule Set** (`templates/waf-proxy.yaml`). It fronts the
-**API surface** (`/api`, `/docs`, `/openapi.json`); the UI / static tiers bypass it.
+**API surface** (`/api`, `/docs`, `/openapi.json`); the frontend bypasses it.
 It is **off by default** — enable it and confirm it protects without breaking legit
 traffic:
 

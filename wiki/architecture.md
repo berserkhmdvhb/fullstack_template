@@ -18,7 +18,7 @@ High-level overview of the service template architecture, component roles, and d
 
 ## Overview
 
-The service template follows a **gateway pattern** with services deployed to Kubernetes behind an Ingress. Two images run: the backend and the frontend. The Next.js server serves its own pages and `/_next/static` assets, which are hashed and immutable with a one-year cache; a CDN in front caches them at the edge (see [frontend-deployment.md](frontend-deployment.md)):
+The service template follows a **gateway pattern** with services deployed to Kubernetes behind an Ingress. Two images run: the backend and the frontend. The Next.js server serves its own pages and static assets; the cache policy is in [frontend-deployment.md](frontend-deployment.md#static-assets):
 
 ```mermaid
 flowchart TB
@@ -138,7 +138,7 @@ flowchart LR
 | **Schemas** | Pydantic v2 | Request/response validation, serialization |
 | **Database** | PostgreSQL 16 | Persistent storage, ACID transactions |
 | **Migrations** | Alembic | Schema evolution, versioned migrations |
-| **Static** | The Next.js server | Serves `/_next/static` (immutable) and `public/` files; a CDN caches them at the edge |
+| **Static** | The Next.js server | Serves `/_next/static` and `public/` files; see [Frontend Deployment](./frontend-deployment.md#static-assets) |
 | **Orchestration** | Kubernetes | Pod scheduling, scaling, health probes, rolling updates |
 
 ---
@@ -189,9 +189,9 @@ flowchart TB
 
 | Probe | Backend | Frontend |
 |-------|---------|----------|
-| **startupProbe** | `/api/v1/health` (30×5s) | `/` (20×5s) |
-| **readinessProbe** | `/api/v1/health` (10s interval) | `/` (10s interval) |
-| **livenessProbe** | `/api/v1/healthz` (15s interval) | `/` (15s interval) |
+| **startupProbe** | `/api/v1/healthz` (30×5s) | `/api/healthz` (20×5s) |
+| **readinessProbe** | `/api/v1/health` (10s interval) | `/api/healthz` (10s interval) |
+| **livenessProbe** | `/api/v1/healthz` (15s interval) | `/api/healthz` (15s interval) |
 
 ---
 

@@ -188,13 +188,7 @@ const nextConfig: NextConfig = {
 
 ## Static Assets
 
-The Next.js server serves its own static assets. Which paths count as static, and the exemptions, are defined once in [`frontend/static-paths.ts`](../frontend/static-paths.ts); the cache table for `public/` files is in [`frontend/next.config.ts`](../frontend/next.config.ts).
-
-| Asset | Cache-Control |
-|-------|---------------|
-| `/_next/static/*` (content-hashed) | `public, max-age=31536000, immutable` (Next.js sets it) |
-| `/logo.png`, `/favicon.ico` | `public, max-age=604800` |
-| `/robots.txt`, `/sitemap.xml`, `/health.txt` | `no-cache` |
+The Next.js server serves its own static assets. Which paths count as static, and the exemptions, are defined once in [`frontend/static-paths.ts`](../frontend/static-paths.ts); the `Cache-Control` of each `public/` file is set in the table at the top of [`frontend/next.config.ts`](../frontend/next.config.ts). `/_next/static/*` is content-hashed, and Next.js serves it as `immutable` with a one-year cache.
 
 Static responses carry the same security headers as pages, with `Content-Security-Policy: default-src 'none'` instead of the per-request page policy.
 

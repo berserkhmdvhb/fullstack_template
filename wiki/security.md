@@ -73,12 +73,13 @@ flowchart TB
 
 ### Frontend (Next.js)
 
-Security headers are applied in production via `next.config.ts`:
+Security headers are applied in production via `next.config.ts` (the Content-Security-Policy comes from `proxy.ts`):
 
 | Header | Value | Purpose |
 |--------|-------|---------|
 | `Content-Security-Policy` | `default-src 'self'; img-src 'self' blob: data:; ...` | Restrict resource loading |
 | `X-Content-Type-Options` | `nosniff` | Prevent MIME-type sniffing |
+| `X-Frame-Options` | `DENY` | Not framable anywhere |
 | `Referrer-Policy` | `no-referrer` | Don't send referrer header |
 | `Permissions-Policy` | `geolocation=(), microphone=(), camera=()` | Disable browser features |
 | `Cross-Origin-Opener-Policy` | `same-origin` | Isolate the browsing context from cross-origin windows |
@@ -95,19 +96,9 @@ Expose the app through an edge or a gateway that does not proxy through the fron
 port directly. The live header test lists the header as a known Next exposure and
 allows it only on proxied paths of the frontend port.
 
-### Ingress-Level Headers
+### Edge headers
 
-Additional headers are applied via the Ingress controller's annotations:
-
-```yaml
-metadata:
-  annotations:
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_set_headers "X-Content-Type-Options: nosniff";
-      more_set_headers "X-Frame-Options: DENY";
-      more_set_headers "Referrer-Policy: no-referrer";
-      more_set_headers "Strict-Transport-Security: max-age=15552000; includeSubDomains; preload";
-```
+The Ingress adds no response headers: the chart sets no `configuration-snippet`. Every header on a response comes from the app that sent it: the backend's security middleware (`backend/middleware/security.py`) and the frontend's `next.config.ts` and `proxy.ts`. The backend sends `Strict-Transport-Security` over https only (see [HSTS](#hsts)).
 
 ### CSP Details
 
@@ -664,7 +655,7 @@ operational steps in
   (`/api`, `/docs`, `/openapi.json`) and filtering requests live. It is rendered by
   the Helm chart (`charts/your-service-name/templates/waf-proxy.yaml`) and is
   **off by default** (`waf.enabled: false`) — no side effect until you enable it.
-  The UI / static tiers bypass it (they are not injection targets).
+  The frontend bypasses it (it is not an injection target).
 
 | | DAST (ZAP) | WAF (Coraza) |
 |---|---|---|
