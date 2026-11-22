@@ -8,9 +8,13 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import get_args
 
 import pytest
 import yaml
+
+from tests.supply_chain.test_chart_image_digests import _images
+from your_service_name.backend.settings import PRODUCTION_ENVS, AuthMode
 
 ROOT = Path(__file__).resolve().parents[2]
 CHART = ROOT / "charts" / "your-service-name"
@@ -88,18 +92,71 @@ def test_production_without_an_auth_mode_is_refused(helm: str, tmp_path: Path) -
 
 
 PRODUCTION_IMAGES = ("backend", "frontend", "waf", "clientImage", "cloudSqlProxy")
-IMAGE_USE = re.compile(r'include "chart\.image" \(dict "image" \.Values\.([\w.]+)\)')
+# Every image mapping in values.yaml, found by the same walker that checks the third-party pins.
+VALUES_IMAGES = {
+    path: value
+    for path, value in _images(yaml.safe_load((CHART / "values.yaml").read_text(encoding="utf-8")))
+    if isinstance(value, dict)
+}
+# Renders that run every image of values.yaml between them; each image gets its own repository so
+# a rendered reference names exactly one values path.
+RENAMED = {"postgresql.image": "pg-server", "postgresql.clientImage": "pg-client"}
+DISTINCT = tuple(
+    a for path, repo in RENAMED.items() for a in ("--set", f"{path}.repository={repo}")
+)
+EVERY_IMAGE_RENDERS = (
+    ("--set", "waf.enabled=true", "--set", "postgresql.backup.enabled=true", *DISTINCT),
+    (
+        *("--set", "postgresql.enabled=false", "--set", "config.DB_SSLMODE=disable"),
+        *("--set", "cloudSqlProxy.enabled=true"),
+        *("--set", "cloudSqlProxy.egressCIDRs={199.36.153.8/30}", *DISTINCT),
+    ),
+)
 
 
-def test_the_digest_rule_lists_every_image_the_templates_render() -> None:
-    """validate-values.yaml names each image it requires a digest for; a new image template that
-    is not in that list would deploy by tag in production."""
-    used = {
-        m for f in (CHART / "templates").glob("*.yaml") for m in IMAGE_USE.findall(f.read_text())
+def _rendered_image_paths(helm: str) -> set[str]:
+    """The values path of every container image the chart renders, from the rendered output."""
+    found: set[str] = set()
+    for args in EVERY_IMAGE_RENDERS:
+        result = _template(helm, "--set", "secrets.dbPassword=x", *args)
+        assert result.returncode == 0, result.stderr
+        refs = re.findall(r"^\s*(?:- )?image: \"?([^\"\s]+)", result.stdout, re.MULTILINE)
+        for ref in refs:
+            paths = [
+                path
+                for path, image in VALUES_IMAGES.items()
+                if re.fullmatch(
+                    rf"{re.escape(RENAMED.get(path, str(image['repository'])))}[:@].+", ref
+                )
+            ]
+            assert len(paths) == 1, (ref, paths)
+            found.add(paths[0])
+    return found
+
+
+def test_the_values_walker_finds_every_image_including_the_proxy() -> None:
+    """The proxy renders through a helper variable ($p.image), so no template regex sees it."""
+    assert set(VALUES_IMAGES) == {
+        "images.backend",
+        "images.frontend",
+        "images.waf",
+        "postgresql.image",
+        "postgresql.clientImage",
+        "cloudSqlProxy.image",
     }
-    assert used >= {"images.backend", "images.frontend", "images.waf", "postgresql.clientImage"}
+
+
+def test_every_rendered_image_is_a_values_image_and_every_values_image_renders(
+    helm: str,
+) -> None:
+    assert _rendered_image_paths(helm) == set(VALUES_IMAGES)
+
+
+def test_the_digest_rule_lists_every_values_image() -> None:
+    """validate-values.yaml names each image it requires a digest for; an image missing from that
+    list would deploy by tag in production."""
     rules = (CHART / "templates" / "validate-values.yaml").read_text(encoding="utf-8")
-    for path in sorted(used):
+    for path in sorted(VALUES_IMAGES):
         assert f'"{path}" .Values.{path}' in rules, path
 
 
@@ -126,3 +183,24 @@ def test_every_container_of_a_production_render_runs_by_digest(helm: str) -> Non
 @pytest.mark.parametrize("values", ["values.dev.yaml", "values.qa.yaml", "values.local.yaml"])
 def test_other_environments_render(helm: str, values: str) -> None:
     assert _template(helm, "-f", str(CHART / values)).returncode == 0
+
+
+def _template_list(name: str) -> set[str]:
+    """A `list "a" "b"` the production rules in validate-values.yaml compare with."""
+    rules = (CHART / "templates" / "validate-values.yaml").read_text(encoding="utf-8")
+    match = re.search(rf"\${name} := list ((?:\"[^\"]+\" ?)+)", rules)
+    assert match, name
+    return set(re.findall(r'"([^"]+)"', match[1]))
+
+
+def test_the_chart_accepts_exactly_the_backends_auth_modes() -> None:
+    assert _template_list("authModes") == set(get_args(AuthMode))
+
+
+def test_the_chart_reads_production_from_the_backends_env_names() -> None:
+    rules = (CHART / "templates" / "validate-values.yaml").read_text(encoding="utf-8")
+    match = re.search(
+        r'\(trim \(toString \.Values\.config\.ENV\)\)\) \(list ((?:"[^"]+" ?)+)\)', rules
+    )
+    assert match
+    assert set(re.findall(r'"([^"]+)"', match[1])) == set(PRODUCTION_ENVS)

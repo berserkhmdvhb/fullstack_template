@@ -21,13 +21,15 @@
   A production release that does not layer values.production.yaml keeps the dev default ENV
   and would run with those checks silently off, so refuse to render it.
 */ -}}
-{{- if and (eq (toString .Values.environment) "production") (not (has (lower (toString .Values.config.ENV)) (list "production" "prod"))) }}
+{{- /* The backend's PRODUCTION_ENVS, compared as it compares them: trimmed and lower-cased. */}}
+{{- if and (eq (toString .Values.environment) "production") (not (has (lower (trim (toString .Values.config.ENV))) (list "production" "prod"))) }}
 {{- fail (printf "%s: environment is production but config.ENV is %q. Layer values.production.yaml (-f) or set config.ENV=production, otherwise the backend's production checks stay off." (include "chart.fullname" .) (toString .Values.config.ENV)) }}
 {{- end }}
 {{- /*
   The images this release renders, by values path: the backend (the API and the migration Job), the
   frontend, the database client (the migration's wait-for-db and the backups), and each optional
-  image while its feature is on. backend.extraInitContainers are the adopter's own and not listed.
+  image while its feature is on. backend.extraInitContainers hold a full image reference each, so
+  the rules and the guard below check them on their own (<repository>[:<tag>]@sha256:<64 hex>).
   The production rules and the placeholder guard below both read it.
 */ -}}
 {{- $images := dict "images.backend" .Values.images.backend "images.frontend" .Values.images.frontend "postgresql.clientImage" .Values.postgresql.clientImage }}
@@ -38,7 +40,7 @@
   Production rules. Here rather than in values.schema.json because they depend on what renders (the
   WAF, the proxy, the HPA), and because Helm checks the schema before any template: a schema rule
   would hide the config.ENV message above. The digest's format is the schema's (any environment).
-  - every image the release renders runs by digest;
+  - every image the release renders runs by digest, backend.extraInitContainers included;
   - a managed database: no in-cluster PostgreSQL, and externalDatabase or the Cloud SQL proxy;
   - an auth mode: AUTH_MODE none (also the default when unset) only with ALLOW_ANONYMOUS true, the
     backend's own production rule (the truthy spellings are the ones the backend parses);
@@ -51,12 +53,25 @@
 {{- fail (printf "%s: environment is production but %s.digest is empty. Production runs every image it renders by digest (sha256:<64 hex>); the deploy (scripts/ci/deploy-env.sh) sets the release's digests." (include "chart.fullname" $) $path) }}
 {{- end }}
 {{- end }}
+{{- range $i, $c := .Values.backend.extraInitContainers }}
+{{- $ref := toString (default "" $c.image) }}
+{{- if not (regexMatch "@sha256:[0-9a-f]{64}$" $ref) }}
+{{- fail (printf "%s: environment is production but backend.extraInitContainers[%d].image (%q) has no digest. Production runs every image by digest: pin it as <repository>:<tag>@sha256:<64 hex>." (include "chart.fullname" $) $i $ref) }}
+{{- end }}
+{{- end }}
 {{- if .Values.postgresql.enabled }}
 {{- fail (printf "%s: environment is production but postgresql.enabled is true. Production uses a managed database: set postgresql.enabled=false with externalDatabase or cloudSqlProxy." (include "chart.fullname" .)) }}
 {{- else if not (or .Values.externalDatabase.enabled .Values.cloudSqlProxy.enabled) }}
 {{- fail (printf "%s: environment is production and needs a managed database: set externalDatabase.enabled or cloudSqlProxy.enabled (postgresql.enabled stays false)." (include "chart.fullname" .)) }}
 {{- end }}
-{{- $authMode := toString (default "none" (get .Values.config "AUTH_MODE")) }}
+{{- /* AUTH_MODE as the backend reads it: trimmed, lower-cased, empty is none; its allowed modes
+     are the backend's AuthMode (a test keeps the two lists equal). ALLOW_ANONYMOUS is a bool the
+     backend parses case-insensitively and without trimming. */}}
+{{- $authModes := list "none" "gateway" "bearer" "oidc" "cloudflare-access" }}
+{{- $authMode := default "none" (lower (trim (toString (get .Values.config "AUTH_MODE")))) }}
+{{- if not (has $authMode $authModes) }}
+{{- fail (printf "%s: environment is production but config.AUTH_MODE is %q, which is not one of %s; the backend refuses it." (include "chart.fullname" .) $authMode (join ", " $authModes)) }}
+{{- end }}
 {{- $anonymous := has (lower (toString (get .Values.config "ALLOW_ANONYMOUS"))) (list "1" "on" "t" "true" "y" "yes") }}
 {{- if and (eq $authMode "none") (not $anonymous) }}
 {{- fail (printf "%s: environment is production but config.AUTH_MODE is \"none\" (unset means none), which serves every endpoint anonymously and the backend refuses it. Set config.AUTH_MODE (oidc or cloudflare-access; wiki/security.md), or set config.ALLOW_ANONYMOUS to \"true\" to accept that explicitly." (include "chart.fullname" .)) }}
@@ -103,34 +118,32 @@
 {{- end }}
 {{- /*
   Deploy-time placeholder guard (guards.rejectPlaceholders; the deploy script sets it). Every CI
-  render leaves it off, so the template's own placeholders keep rendering there.
+  render leaves it off, so the template's own placeholders keep rendering there. It collects every
+  placeholder it finds and fails once, naming each, so one failed deploy shows the whole list.
 */ -}}
 {{- if .Values.guards.rejectPlaceholders }}
+{{- $found := list }}
 {{- if eq .Values.edge.mode "gateway" }}
 {{- range .Values.edge.gateway.parentRefs }}
 {{- if eq .name "your-gateway" }}
-{{- fail (printf "%s: edge.gateway.parentRefs names the placeholder Gateway \"your-gateway\". Set it to the Gateway on your cluster (values.<env>.yaml) before a deploy." (include "chart.fullname" $)) }}
+{{- $found = append $found "edge.gateway.parentRefs names the placeholder Gateway \"your-gateway\" (set the Gateway on your cluster)" }}
 {{- end }}
 {{- end }}
 {{- end }}
 {{- /* Chart Secret mode with the in-cluster database and no password renders a Secret key that does not exist. */}}
 {{- if and .Values.postgresql.enabled (not .Values.secrets.existingSecret) (not .Values.secrets.externalSecret.enabled) (not .Values.secrets.dbPassword) (not .Values.postgresql.existingSecret) }}
-{{- fail (printf "%s: secrets.dbPassword is empty with the in-cluster PostgreSQL and the chart Secret, so the database would have no password. Supply it out-of-band (values.secret.yaml), or take the app Secret from secrets.existingSecret or the ExternalSecret and name the database's password Secret in postgresql.existingSecret." (include "chart.fullname" $)) }}
+{{- $found = append $found "secrets.dbPassword is empty with the in-cluster PostgreSQL and the chart Secret, so the database would have no password (supply it out-of-band, values.secret.yaml, or take the app Secret from secrets.existingSecret or the ExternalSecret and name the database's password Secret in postgresql.existingSecret)" }}
 {{- end }}
-{{- if .Values.secrets.externalSecret.enabled }}
-{{- if eq .Values.secrets.externalSecret.secretStoreRef.name "your-secret-store" }}
-{{- fail (printf "%s: secrets.externalSecret.secretStoreRef.name is the placeholder \"your-secret-store\". Set it to your cluster's secret store (values.<env>.yaml) before a deploy." (include "chart.fullname" $)) }}
+{{- if and .Values.secrets.externalSecret.enabled (eq .Values.secrets.externalSecret.secretStoreRef.name "your-secret-store") }}
+{{- $found = append $found "secrets.externalSecret.secretStoreRef.name is the placeholder \"your-secret-store\" (set your cluster's secret store)" }}
 {{- end }}
-{{- end }}
-{{- if .Values.cloudSqlProxy.enabled }}
-{{- if eq .Values.cloudSqlProxy.instanceConnectionName "your-project:your-region:your-instance" }}
-{{- fail (printf "%s: cloudSqlProxy.instanceConnectionName is the placeholder \"your-project:your-region:your-instance\". Set it to project:region:instance (values.<env>.yaml) before a deploy." (include "chart.fullname" $)) }}
-{{- end }}
+{{- if and .Values.cloudSqlProxy.enabled (eq .Values.cloudSqlProxy.instanceConnectionName "your-project:your-region:your-instance") }}
+{{- $found = append $found "cloudSqlProxy.instanceConnectionName is the placeholder \"your-project:your-region:your-instance\" (set project:region:instance)" }}
 {{- end }}
 {{- range $role, $host := .Values.edge.hosts }}
-{{- $name := trimSuffix "." $host }}{{- /* one trailing dot: the absolute (FQDN) form */}}
+{{- $name := lower (trimSuffix "." $host) }}{{- /* one trailing dot: the absolute (FQDN) form; DNS names ignore case */}}
 {{- if or (eq $name "your-domain.example") (hasSuffix ".your-domain.example" $name) }}
-{{- fail (printf "%s: edge.hosts.%s is %q, which still holds the placeholder domain your-domain.example. Set your real hostnames (infra/adapt/adopt.sh stamps them) before a deploy." (include "chart.fullname" $) $role $host) }}
+{{- $found = append $found (printf "edge.hosts.%s is %q, which still holds the placeholder domain your-domain.example (set your real hostnames; infra/adapt/adopt.sh stamps them)" $role $host) }}
 {{- end }}
 {{- end }}
 {{- /* The placeholder digest (values.production.yaml) on any image that renders. */}}
@@ -139,15 +152,21 @@
 {{- range $path := keys $images | sortAlpha }}
 {{- if eq (toString (get $images $path).digest) $zero }}{{- $held = append $held (printf "%s.digest" $path) }}{{- end }}
 {{- end }}
+{{- range $i, $c := .Values.backend.extraInitContainers }}
+{{- if hasSuffix (printf "@%s" $zero) (toString (default "" $c.image)) }}{{- $held = append $held (printf "backend.extraInitContainers[%d].image" $i) }}{{- end }}
+{{- end }}
 {{- if $held }}
-{{- fail (printf "%s: %s still %s the placeholder digest %s. The deploy sets each image's release digest; a hand-run upgrade passes them (--set images.<name>.digest=sha256:<64 hex>)." (include "chart.fullname" .) (join ", " $held) (ternary "holds" "hold" (eq (len $held) 1)) $zero) }}
+{{- $found = append $found (printf "%s still %s the placeholder digest %s (the deploy sets each image's release digest; a hand-run upgrade passes --set images.<name>.digest=sha256:<64 hex>)" (join ", " $held) (ternary "holds" "hold" (eq (len $held) 1)) $zero) }}
 {{- end }}
 {{- /* The placeholder OIDC issuer and audience (values.production.yaml). */}}
 {{- $authHeld := list }}
-{{- if regexMatch "^[a-zA-Z][a-zA-Z0-9+.-]*://([^/?#@]*\\.)?your-domain\\.example\\.?(:[0-9]+)?([/?#].*)?$" (toString (get .Values.config "OIDC_ISSUER")) }}{{- $authHeld = append $authHeld "config.OIDC_ISSUER" }}{{- end }}
+{{- if regexMatch "(?i)^[a-z][a-z0-9+.-]*://([^/?#@]*\\.)?your-domain\\.example\\.?(:[0-9]+)?([/?#].*)?$" (trim (toString (get .Values.config "OIDC_ISSUER"))) }}{{- $authHeld = append $authHeld "config.OIDC_ISSUER" }}{{- end }}
 {{- if regexMatch "(^|,)\\s*your-oidc-audience\\s*(,|$)" (toString (get .Values.config "OIDC_AUDIENCE")) }}{{- $authHeld = append $authHeld "config.OIDC_AUDIENCE" }}{{- end }}
 {{- if $authHeld }}
-{{- fail (printf "%s: %s still hold placeholders (an issuer on your-domain.example, the audience your-oidc-audience). Set your OIDC provider's issuer and the API's audience (values.<env>.yaml) before a deploy." (include "chart.fullname" .) (join ", " $authHeld)) }}
+{{- $found = append $found (printf "%s still %s (an issuer on your-domain.example, the audience your-oidc-audience; set your OIDC provider's issuer and the API's audience)" (join ", " $authHeld) (ternary "holds a placeholder" "hold placeholders" (eq (len $authHeld) 1))) }}
+{{- end }}
+{{- if $found }}
+{{- fail (printf "%s: guards.rejectPlaceholders found %d %s to replace before a deploy: %s. Set them in values.<env>.yaml." (include "chart.fullname" .) (len $found) (ternary "placeholder" "placeholders" (eq (len $found) 1)) (join "; " $found)) }}
 {{- end }}
 {{- end }}
 {{- /*
@@ -179,7 +198,7 @@
 {{- if .Values.postgresql.enabled }}
 {{- fail (printf "%s: cloudSqlProxy.enabled needs postgresql.enabled=false: the proxy replaces the database host with 127.0.0.1, so the in-cluster PostgreSQL would be unused. Use the managed database." (include "chart.fullname" .)) }}
 {{- end }}
-{{- if has (toString (get .Values.config "DB_SSLMODE")) (list "verify-ca" "verify-full") }}
+{{- if has (lower (trim (toString (get .Values.config "DB_SSLMODE")))) (list "verify-ca" "verify-full") }}
 {{- fail (printf "%s: config.DB_SSLMODE is %q with cloudSqlProxy.enabled; set it to \"disable\". The proxy encrypts to Cloud SQL, and the hop to 127.0.0.1 is local, so TLS verification fails against it." (include "chart.fullname" .) (toString (get .Values.config "DB_SSLMODE"))) }}
 {{- end }}
 {{- end }}

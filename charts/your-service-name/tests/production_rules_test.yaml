@@ -51,6 +51,38 @@ tests:
       - failedTemplate:
           errorPattern: 'cloudSqlProxy\.image\.digest is empty'
 
+  - it: an extra init container's image without a digest is refused
+    set: {backend: {extraInitContainers: [{name: own-sidecar, image: "busybox:1.36"}]}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'environment is production but backend\.extraInitContainers\[0\]\.image \("busybox:1\.36"\) has no digest'
+
+  - it: an extra init container without an image is refused
+    set: {backend: {extraInitContainers: [{name: own-sidecar}]}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'backend\.extraInitContainers\[0\]\.image \(""\) has no digest'
+
+  - it: an extra init container pinned by digest is accepted
+    set: {backend: {extraInitContainers: [{name: own-sidecar, image: "busybox:1.36@sha256:1111111111111111111111111111111111111111111111111111111111111111"}]}}
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: with the guard, an extra init container on the placeholder digest is refused
+    set:
+      guards: {rejectPlaceholders: true}
+      backend: {extraInitContainers: [{name: own-sidecar, image: "busybox@sha256:0000000000000000000000000000000000000000000000000000000000000000"}]}
+      images:
+        backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+        frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+      config: {OIDC_ISSUER: "https://idp.svc.test", OIDC_AUDIENCE: "api://svc"}
+      edge:
+        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'found 1 placeholder to replace before a deploy: backend\.extraInitContainers\[0\]\.image still holds the placeholder digest'
+
   - it: a digest in another algorithm is refused by the schema
     set: {images: {backend: {digest: "sha512:0000000000000000000000000000000000000000000000000000000000000000"}}}
     asserts:
@@ -115,6 +147,55 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'config\.AUTH_MODE is "none"'
+
+  - it: AUTH_MODE NONE is none, as the backend reads it (trimmed, lower-cased), and refused
+    set: {config: {AUTH_MODE: NONE}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'config\.AUTH_MODE is "none"'
+
+  - it: AUTH_MODE " none " is none, and refused
+    set: {config: {AUTH_MODE: " none "}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'config\.AUTH_MODE is "none"'
+
+  - it: AUTH_MODE None is none, and refused
+    set: {config: {AUTH_MODE: None}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'config\.AUTH_MODE is "none"'
+
+  - it: a blank AUTH_MODE is none, and refused
+    set: {config: {AUTH_MODE: "   "}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'config\.AUTH_MODE is "none"'
+
+  - it: a valid auth mode in mixed case and with spaces is accepted, as the backend accepts it
+    set: {config: {AUTH_MODE: " OIDC "}}
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: an auth mode the backend does not know is refused
+    set: {config: {AUTH_MODE: magic}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'config\.AUTH_MODE is "magic", which is not one of none, gateway, bearer, oidc, cloudflare-access'
+
+  - it: ENV is read as the backend reads it (trimmed, lower-cased), so " Production " is production
+    set: {config: {ENV: " Production "}}
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: the Cloud SQL proxy refuses a verifying DB_SSLMODE in any case and spacing, as the backend reads it
+    set:
+      externalDatabase: {enabled: false}
+      config: {DB_SSLMODE: " VERIFY-FULL "}
+      cloudSqlProxy: {enabled: true, egressCIDRs: [199.36.153.8/30]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'config\.DB_SSLMODE is " VERIFY-FULL " with cloudSqlProxy\.enabled'
 
   - it: another auth mode is accepted
     set: {config: {AUTH_MODE: cloudflare-access}}
@@ -238,3 +319,44 @@ tests:
     set: {waf: {enabled: true}}
     asserts:
       - notFailedTemplate: {}
+
+  - it: with the guard, every placeholder is named in one refusal (production values as committed, the proxy and the ExternalSecret on)
+    set:
+      guards: {rejectPlaceholders: true}
+      externalDatabase: {enabled: false}
+      config: {DB_SSLMODE: disable}
+      cloudSqlProxy: {enabled: true, egressCIDRs: [199.36.153.8/30]}
+      secrets: {existingSecret: "", externalSecret: {enabled: true}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'guards\.rejectPlaceholders found 8 placeholders to replace before a deploy:'
+      - failedTemplate:
+          errorPattern: 'edge\.gateway\.parentRefs names the placeholder Gateway "your-gateway"'
+      - failedTemplate:
+          errorPattern: 'secrets\.externalSecret\.secretStoreRef\.name is the placeholder "your-secret-store"'
+      - failedTemplate:
+          errorPattern: 'cloudSqlProxy\.instanceConnectionName is the placeholder "your-project:your-region:your-instance"'
+      - failedTemplate:
+          errorPattern: 'edge\.hosts\.api is "api\.your-domain\.example"'
+      - failedTemplate:
+          errorPattern: 'edge\.hosts\.app is "app\.your-domain\.example"'
+      - failedTemplate:
+          errorPattern: 'edge\.hosts\.root is "your-service-name\.your-domain\.example"'
+      - failedTemplate:
+          errorPattern: 'images\.backend\.digest, images\.frontend\.digest still hold the placeholder digest'
+      - failedTemplate:
+          errorPattern: 'config\.OIDC_ISSUER, config\.OIDC_AUDIENCE still hold placeholders'
+
+  - it: with the guard, a placeholder issuer in upper case is still refused
+    set:
+      guards: {rejectPlaceholders: true}
+      images:
+        backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+        frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+      config: {OIDC_ISSUER: "https://IDP.Your-Domain.Example", OIDC_AUDIENCE: "api://svc"}
+      edge:
+        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'found 1 placeholder to replace before a deploy: config\.OIDC_ISSUER still holds a placeholder'

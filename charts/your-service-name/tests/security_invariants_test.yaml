@@ -200,6 +200,32 @@ tests:
       - failedTemplate:
           errorPattern: 'externalDatabase\.egressCIDR is empty'
 
+  - it: the schema accepts qa
+    template: validate-values.yaml
+    set: {environment: qa}
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: the schema accepts dev
+    template: validate-values.yaml
+    values: [../values.local.yaml]
+    set: {environment: dev}
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: the schema accepts local
+    template: validate-values.yaml
+    values: [../values.local.yaml]
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: the schema accepts production (with the production values)
+    template: validate-values.yaml
+    values: [../values.production.yaml]
+    set: {secrets: {dbPassword: ""}}
+    asserts:
+      - notFailedTemplate: {}
+
   - it: the schema accepts only the four environments
     template: validate-values.yaml
     set: {environment: staging}

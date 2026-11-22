@@ -62,18 +62,21 @@ flowchart TB
 `edge.hosts` value still contains `your-domain.example`, or, in gateway mode, an
 `edge.gateway.parentRefs` entry still names `your-gateway`, or an image the release renders still
 has the placeholder digest (`sha256:` and 64 zeros), or `config.OIDC_ISSUER` is on
-`your-domain.example` or `config.OIDC_AUDIENCE` is `your-oidc-audience`. Each message names the
-field. CI renders and the admin bootstrap leave the guard off, so the template's own values keep
+`your-domain.example` or `config.OIDC_AUDIENCE` is `your-oidc-audience` (or the Cloud SQL
+instance or the ExternalSecret store is still the placeholder). It collects every placeholder it
+finds and fails once, naming each field, so one refused render lists them all. CI renders and the admin bootstrap leave the guard off, so the template's own values keep
 rendering; so does the deploy's first render, which only finds the images that run, before the
 release digests are set. Pass the same `--set` to a `helm upgrade` you run by hand.
 
 **Production rules.** With `environment: production` the render fails unless:
 - every image the release renders has a digest (the backend and the migration Job, the frontend,
-  the database client; the WAF and the Cloud SQL proxy while they are on);
+  the database client; the WAF and the Cloud SQL proxy while they are on). Your own
+  `backend.extraInitContainers` too: each `image` must be `<repository>[:<tag>]@sha256:<64 hex>`;
 - the database is managed: `postgresql.enabled` is false, and `externalDatabase.enabled` or
   `cloudSqlProxy.enabled` is true;
-- `config.AUTH_MODE` is not `none` (unset means `none`), unless `config.ALLOW_ANONYMOUS` is `"true"`:
-  the backend's own production rule, checked before the Pods start;
+- `config.AUTH_MODE` is one of the backend's modes and not `none` (unset or blank means `none`),
+  unless `config.ALLOW_ANONYMOUS` is `"true"`: the backend's own production rule, read as the backend
+  reads it (trimmed, case-insensitive), checked before the Pods start;
 - the backend and the frontend run at least 2 Pods: `hpa.<name>.minReplicas` while the HPA is on,
   else `replicas.<name>`;
 - each PodDisruptionBudget keeps a Pod (`pdb.<name>.minAvailable` 1 or more).
@@ -93,7 +96,7 @@ placeholder. The deploy sets the image digests itself, so in the file:
   its Secret.
 
 A hand-run `helm upgrade` also passes `--set images.<name>.digest=sha256:<64 hex>` for each image.
-The guard names every field it refuses.
+The guard lists every field it refuses, in one message.
 
 ### Validating every render (kubeconform)
 
