@@ -39,7 +39,7 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
 # - tini's dpkg record and licence, so an SBOM scan lists it the way it lists distroless's own packages;
 # - passwd and group with the app user (UID/GID 10001) added to the base's entries;
 # - the home directory and the two directories the app writes.
-RUN mkdir -p /out/dpkg-status.d /out/etc /out/home/appuser /out/app/logs /out/app/data \
+RUN mkdir -p /out/dpkg-status.d /out/etc /out/home/appuser /out/app/data \
     && dpkg-query -s tini > /out/dpkg-status.d/tini
 COPY --from=runtime-base /etc/passwd /etc/group /out/etc/
 RUN echo 'appuser:x:10001:10001::/home/appuser:/sbin/nologin' >> /out/etc/passwd \
@@ -109,9 +109,8 @@ COPY --from=py-builder /app/.venv /app/.venv
 # runtime for migrations. No shell script ships: the launcher and the probe are Python modules.
 COPY --chmod=644 alembic.ini /app/alembic.ini
 
-# /app stays root-owned; only the dirs the app writes (logs, and data for the default SQLite database)
-# belong to the app user.
-COPY --from=py-builder --chown=10001:10001 /out/app/logs /app/logs
+# /app stays root-owned; only the dir the app writes (data, for the default SQLite database)
+# belongs to the app user. Logs go to stdout, so there is no log directory.
 COPY --from=py-builder --chown=10001:10001 /out/app/data /app/data
 
 # Healthcheck: a Python probe (no curl, no shell); it uses HTTPS when HEALTHCHECK_SCHEME=https

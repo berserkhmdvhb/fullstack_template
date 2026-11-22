@@ -289,7 +289,10 @@ class Settings(BaseSettings):
     )
     LOG_REQUESTS: bool = Field(
         default=False,
-        description="Log every HTTP request (method, path, status, duration).",
+        description=(
+            "Log every HTTP request (method, path, status, duration, client IP; never a query "
+            "string, header, cookie or body). Off here for local runs; the Helm chart turns it on."
+        ),
     )
     API_VERSION: str = Field(
         default=DEFAULT_API_VERSION,

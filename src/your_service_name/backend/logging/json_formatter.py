@@ -1,6 +1,6 @@
 """Structured (JSON) log formatting for production.
 
-In production logs are shipped to a central system (Fluentd → Elasticsearch/…) where they must be
+In production logs go to stdout and the platform ships them to a central system, where they must be
 machine-parseable, so each record is emitted as a single-line JSON object. In development the plain
 ``key=value``-friendly text format is kept for readability (see ``main._configure_logging``).
 

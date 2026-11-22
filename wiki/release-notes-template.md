@@ -47,7 +47,6 @@
 ### Kubernetes
 - Pod Security Standard version pinned to `v1.30`; nginx `topologySpreadConstraints` + podAntiAffinity
 - Production render fails loud when the managed DB is used with an empty `egressCIDR`
-- Fluentd container-log host path configurable per CRI
 - Removed the broken `podman-compose.yml`
 - **Before upgrading:** review `charts/your-service-name/values.<env>.yaml` — `values.schema.json` now rejects unknown keys and bad values at `helm lint` / `helm template` time
 

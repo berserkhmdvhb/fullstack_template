@@ -9,6 +9,7 @@ Kubernetes resources, the edge, Docker Compose for local development, and the en
 - [Overview](#overview)
 - [Kubernetes Resources](#kubernetes-resources)
 - [Edge](#edge)
+- [Collecting logs](#collecting-logs)
 - [Static assets](#static-assets)
 - [Entrypoint System](#entrypoint-system)
 - [Docker Compose (Local Dev)](#docker-compose-local-dev)
@@ -190,6 +191,21 @@ frontend Pod range too: same-origin `/api/v1` calls on the app host reach the ba
 frontend's proxy, which forwards `X-Forwarded-For` unchanged (it appends nothing), so trusting it
 keeps each client's own address. The rules and what each proxy
 must do: [Security, Client IP](./security.md#client-ip).
+
+---
+
+## Collecting logs
+
+Every container writes its logs to stdout and stderr, and nothing else: no log file, no log
+directory, no log volume. The backend's request line (`LOG_REQUESTS`, on in the chart) holds
+the method, path, status, duration and the resolved client IP, and never a query string, header,
+cookie or body.
+
+Collecting them off the node is the platform's job. Use the platform's own agent (on GKE, the
+built-in Cloud Logging, enabled with `--logging=SYSTEM,WORKLOAD`) or a collector the platform team
+installs for the whole cluster, in its own namespace. The chart ships none, because a node-level
+collector runs as root, mounts a `hostPath` to read the node's log files and needs capabilities, and
+that breaks the `restricted` Pod Security profile the app namespace enforces.
 
 ---
 

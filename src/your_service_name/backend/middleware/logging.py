@@ -34,6 +34,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     - Logs at INFO level with format: ``METHOD /path STATUS 0.123s client=IP``, where the IP is the
       one resolved by ``ClientIpMiddleware`` (the TCP peer unless it is a trusted proxy).
     - Skips logging for health-check endpoints to reduce noise.
+    - The line holds only those five fields (the request id rides on the log record, added by the
+      formatter). It never logs the query string, a header, a cookie or a body, so it is safe to
+      leave on in a cluster; tests pin that.
     """
 
     _SKIP_PATHS: frozenset[str] = frozenset({"/healthz"})

@@ -127,8 +127,6 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            - name: logs
-              mountPath: /app/logs
             {{- include "chart.dbCaVolumeMount" . | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
@@ -140,9 +138,6 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 128Mi
-        - name: logs
-          emptyDir:
-            sizeLimit: 256Mi
         {{- include "chart.dbCaVolume" . | nindent 8 }}
       terminationGracePeriodSeconds: 60
       topologySpreadConstraints:

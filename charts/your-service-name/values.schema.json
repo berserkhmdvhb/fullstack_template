@@ -27,8 +27,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "dbSuffix": { "type": "string" },
-        "loggingSuffix": { "type": "string" }
+        "dbSuffix": { "type": "string" }
       }
     },
 
@@ -437,9 +436,7 @@
         "scrapeAnnotations": { "type": "boolean" },
         "serviceMonitor":  { "type": "boolean" },
         "prometheusRule":  { "type": "boolean" },
-        "logging":         { "type": "boolean" },
-        "prometheusRelease": { "type": "string" },
-        "fluentd":         { "$ref": "#/definitions/fluentd" }
+        "prometheusRelease": { "type": "string" }
       }
     }
   },
@@ -488,18 +485,6 @@
       "additionalProperties": false,
       "properties": {
         "minAvailable": { "type": "integer", "minimum": 0 }
-      }
-    },
-
-    "fluentd": {
-      "description": "Fluentd log shipper (see templates/logging-daemonset.yaml). containerLogHostPath is the node hostPath holding container stdout/stderr; it depends on the container runtime (CRI).",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "containerLogHostPath": {
-          "type": "string",
-          "description": "Node hostPath with container logs. /var/log/pods (CRI standard: containerd, CRI-O; kubelet also symlinks /var/log/containers/*.log into it) or /var/lib/docker/containers (legacy Docker shim)."
-        }
       }
     }
   }

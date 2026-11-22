@@ -61,7 +61,7 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 | `ENV` | str | `dev` | Deployment environment. `production` (or `prod`) turns on the production checks below; any other value leaves them off. | — |
 | `LOG_LEVEL` | str | `INFO` | Root log level (name or number); an unknown value falls back to INFO. | — |
 | `LOG_FORMAT` | str | (empty) | `json` emits structured JSON logs; they are also on when ENV is production. | — |
-| `LOG_REQUESTS` | bool | `false` | Log every HTTP request (method, path, status, duration). | — |
+| `LOG_REQUESTS` | bool | `false` | Log every HTTP request (method, path, status, duration, client IP; never a query string, header, cookie or body). Off here for local runs; the Helm chart turns it on. | — |
 | `API_VERSION` | str | `v1` | Active API version; must be one of the supported versions. | — |
 | `API_TITLE` | str | `Backend Title` | OpenAPI document title. | — |
 | `API_DESCRIPTION` | str | `Minimal FastAPI backend` | OpenAPI document description. | — |
@@ -197,9 +197,8 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 
 ## Logging
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LOG_DIR` | `./logs` | Directory for log files |
+Logs go to stdout only; there is no log file or directory setting. `LOG_REQUESTS` is in the
+table above.
 
 ---
 

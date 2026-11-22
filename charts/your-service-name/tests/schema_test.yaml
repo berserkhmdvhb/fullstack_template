@@ -51,6 +51,10 @@ tests:
     set: {edge: {gateway: {gke: {logging: {sampleRate: 1000001}}}}}
     asserts:
       - failedTemplate: {}
+  - it: rejects the removed log-collector values
+    set: {monitoring: {logging: true}}
+    asserts:
+      - failedTemplate: {}
   - it: rejects an edge peer that is not an object
     set: {edge: {extraPeers: [10.0.0.0/8]}}
     asserts:

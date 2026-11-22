@@ -158,8 +158,6 @@ resolve_ca_bundle() {
   echo "[entrypoint] Using custom CA bundle: $p"
 }
 
-ensure_log_dir() { local d="${LOG_DIR:-./logs}"; mkdir -p "$d" || true; chmod 750 "$d" 2>/dev/null || true; }
-
 # Autodetect standalone server path (search multiple locations). Only the modes that start the
 # frontend need it: a backend-only run must not depend on a frontend build existing.
 if [[ "${FRONTEND_IMPL}" == "react" && ( "${SERVICE_MODE}" == "frontend" || "${SERVICE_MODE}" == "all" ) ]]; then
@@ -251,7 +249,6 @@ echo "[entrypoint] Backend : http://127.0.0.1:${BACKEND_PORT} (ENTRY=${BACKEND_E
 echo "[entrypoint] Frontend: http://127.0.0.1:${FRONTEND_PORT} (impl=${FRONTEND_IMPL})"
 
 resolve_ca_bundle
-ensure_log_dir
 
 # ---- Tool checks --------------------------------------------------------------
 case "${SERVICE_MODE}" in

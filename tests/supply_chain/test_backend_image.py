@@ -63,7 +63,7 @@ def test_there_is_no_pip_at_all_which_is_stronger_than_a_pinned_pip() -> None:
 
 def test_code_and_config_copies_are_root_owned_and_only_the_writable_dirs_are_chowned() -> None:
     owned = [ln for ln in _runtime() if ln.startswith("COPY") and "--chown" in ln]
-    assert sorted(ln.split()[-1] for ln in owned) == ["/app/data", "/app/logs", "/home/appuser"]
+    assert sorted(ln.split()[-1] for ln in owned) == ["/app/data", "/home/appuser"]
     for ln in owned:
         assert "--chown=10001:10001" in ln.split(), ln
     assert not [ln for ln in _runtime() if ln.startswith("RUN") or "chown " in ln]
@@ -199,3 +199,7 @@ def test_the_builder_installs_no_libpq_headers() -> None:
 def test_the_source_label_comes_from_a_build_argument() -> None:
     assert re.search(r"^ARG SOURCE_URL=\S+$", DOCKERFILE, re.MULTILINE)
     assert 'org.opencontainers.image.source="${SOURCE_URL}"' in _stage_text("runtime")
+
+
+def test_no_log_directory_is_created_logs_go_to_stdout() -> None:
+    assert "/logs" not in DOCKERFILE

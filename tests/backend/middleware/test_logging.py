@@ -127,3 +127,35 @@ class TestSkipPathsSet:
     def test_skip_paths_contains_healthz(self) -> None:
         """_SKIP_PATHS should contain /healthz."""
         assert "/healthz" in RequestLoggingMiddleware._SKIP_PATHS
+
+
+class TestNothingSensitiveIsLogged:
+    """The request line holds method, path, status, duration and the resolved client only."""
+
+    @pytest.mark.asyncio
+    async def test_a_query_value_and_headers_never_reach_the_line(
+        self, middleware: RequestLoggingMiddleware, mock_call_next: AsyncMock
+    ) -> None:
+        secrets = ("zq-query-tok", "zq-bearer-tok", "zq-cookie-tok", "zq-ident-tok", "zq-fwd-tok")
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/test",
+            "query_string": b"token=" + secrets[0].encode(),
+            "client": ("203.0.113.5", 4242),
+            "headers": [
+                (b"authorization", b"Bearer " + secrets[1].encode()),
+                (b"cookie", b"sid=" + secrets[2].encode()),
+                (b"x-auth-request-user", secrets[3].encode()),
+                (b"x-forwarded-for", secrets[4].encode()),
+            ],
+        }
+        with patch("your_service_name.backend.middleware.logging.logger") as mock_logger:
+            await middleware.dispatch(Request(scope), mock_call_next)
+        args = mock_logger.info.call_args[0]
+        line = args[0] % args[1:]
+        assert line.startswith("GET /api/test 200 ")
+        assert line.endswith("client=203.0.113.5")
+        for secret in secrets:
+            assert secret not in line
+        assert "token" not in line

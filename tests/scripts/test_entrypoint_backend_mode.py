@@ -35,7 +35,6 @@ def test_backend_mode_starts_without_a_frontend_build(tmp_path: Path) -> None:
         "TEST_DATABASE_URL": f"sqlite+aiosqlite:///{tmp_path / 'e.db'}",
         "BACKEND_PORT": str(port),
         "BACKEND_HOST": "127.0.0.1",
-        "LOG_DIR": str(tmp_path / "logs"),
     }
     env.pop("SERVICE_MODE", None)
     proc = subprocess.Popen(
@@ -63,3 +62,4 @@ def test_backend_mode_starts_without_a_frontend_build(tmp_path: Path) -> None:
             os.killpg(proc.pid, signal.SIGTERM)
         out, _ = proc.communicate(timeout=20)
     assert status == 200, out  # noqa: PLR2004 - migrated, so ready
+    assert not (tmp_path / "logs").exists()  # stdout only: no log directory is created

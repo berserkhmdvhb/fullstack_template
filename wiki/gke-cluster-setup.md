@@ -64,7 +64,7 @@ Each section starts with a tag (**Do now**, **Planned change**, or **Owned by lo
 - **No stored credentials.** Nothing long-lived can leak: GitHub proves who it is on every run, and the token expires within the hour.
 - **Least privilege.** The nodes and the pipeline each get their own identity, with only the rights they need.
 - **Private nodes.** Nothing on the internet can reach a node directly.
-- **A Standard cluster.** The template's chart includes a log collector that needs host access, and Autopilot rejects it. *This holds only until the logging DaemonSet is removed; then Autopilot becomes possible.*
+- **A Standard cluster.** This guide builds one. The chart no longer ships a log collector (the one thing that needed host access), so Autopilot is no longer ruled out by the chart; this guide has not been tried on it.
 
 ## 2. Before you start
 
@@ -259,8 +259,6 @@ gcloud projects get-iam-policy "$PROJECT_ID" --flatten='bindings[].members' \
 ## 8. Create the cluster
 
 > **Owned by lodestar-infra (L1.3).** You can do this by hand, or leave it to lodestar-infra. If you do it by hand, you'll need `tofu import` or a rebuild later. The cluster is the costliest thing to import; for dev, a rebuild is simpler.
-
-> **Planned change.** Not implemented yet: the Standard-cluster choice is revisited when the logging DaemonSet goes.
 
 ### 8.1 Check that your gcloud knows every flag
 

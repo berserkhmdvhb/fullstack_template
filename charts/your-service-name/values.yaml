@@ -27,11 +27,9 @@ global:
   imagePullSecrets: []
 
 namespaces:
-  # App namespace is .Release.Namespace; the db and logging namespaces are derived:
-  #   db namespace      = <.Release.Namespace>-<dbSuffix>     (e.g. your-service-name-dev-db)
-  #   logging namespace = <.Release.Namespace>-<loggingSuffix> (e.g. your-service-name-dev-logging)
+  # App namespace is .Release.Namespace; the db namespace is derived:
+  #   db namespace = <.Release.Namespace>-<dbSuffix> (e.g. your-service-name-dev-db)
   dbSuffix: db
-  loggingSuffix: logging
 
 serviceAccount:
   name: your-service-name
@@ -146,8 +144,9 @@ config:
   FRONTEND_REACT_SERVER: /app/frontend/.next/standalone/server.js
   DB_PORT: "5432"
   DB_NAME: service_template
-  LOG_DIR: /app/logs
-  LOG_REQUESTS: "false"
+  # Logs go to stdout only. The request line (method, path, status, duration, client IP) holds no
+  # query string, header, cookie or body, so it is on here; the app default stays off locally.
+  LOG_REQUESTS: "true"
   RATE_LIMIT_DEFAULT: 100/minute
   # RATE_LIMIT_STORAGE is deliberately not a config value: a Redis URL can hold a password, so it
   # comes from the app Secret (secrets.existingSecret holds a RATE_LIMIT_STORAGE key, read through
@@ -424,22 +423,12 @@ externalDatabase:
 
 # ---- Observability (pluggable; off by default) ---------------------------
 # Prometheus Operator CRDs are required for serviceMonitor / prometheusRule.
-# Logging forwards to an external sink (ES/Loki/CloudWatch) — see the daemonset.
+# The chart ships no log collector: logs go to stdout and the platform collects them.
 monitoring:
   # The prometheus.io/scrape annotations on the backend Service (annotation-based discovery).
   scrapeAnnotations: true
   serviceMonitor: false
   prometheusRule: false
-  logging: false
   # Must match the Prometheus Operator install's release label for the
   # ServiceMonitor/PrometheusRule to be discovered.
   prometheusRelease: prometheus
-  # Fluentd DaemonSet reads container stdout/stderr off the node (off by default).
-  # The node hostPath depends on the container runtime (CRI):
-  #   * containerd / CRI-O : /var/log/pods   (CRI standard; the kubelet also
-  #                          symlinks /var/log/containers/*.log into it, which the
-  #                          shipper's tail source reads)  <- default
-  #   * Docker (dockershim) : /var/lib/docker/containers
-  # Set containerLogHostPath to match your runtime so the shipper actually sees logs.
-  fluentd:
-    containerLogHostPath: /var/log/pods

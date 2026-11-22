@@ -77,7 +77,7 @@ COPY --from=py-builder /usr/bin/tini /usr/bin/tini      # and its dpkg record an
 COPY --from=py-builder /out/etc/passwd /out/etc/group /etc/
 COPY --from=py-builder /app/.venv /app/.venv   # root-owned: the app user cannot rewrite its code
 COPY --chmod=644 alembic.ini /app/alembic.ini
-COPY --from=py-builder --chown=10001:10001 /out/app/logs /app/logs   # and /app/data, the only writable dirs
+COPY --from=py-builder --chown=10001:10001 /out/app/data /app/data   # the only writable dir; logs go to stdout
 ENV PATH="/app/.venv/bin:$PATH"
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \

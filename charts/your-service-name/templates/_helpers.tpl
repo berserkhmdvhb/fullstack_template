@@ -59,13 +59,6 @@ matchLabels:
 {{- printf "%s-%s" .Release.Namespace .Values.namespaces.dbSuffix -}}
 {{- end -}}
 
-{{/* logging namespace = <app-namespace>-<suffix>. Derived so it tracks the release.
-     The Fluentd DaemonSet (C-M2) needs root + hostPath + DAC_READ_SEARCH, which the
-     app namespace's "restricted" PSS forbids — so it runs here under "baseline". */}}
-{{- define "chart.loggingNamespace" -}}
-{{- printf "%s-%s" .Release.Namespace .Values.namespaces.loggingSuffix -}}
-{{- end -}}
-
 {{/* In-cluster DNS name of the internal Postgres Service (in the db namespace). */}}
 {{- define "chart.dbHost" -}}
 {{- printf "%s-postgresql.%s.svc.cluster.local" (include "chart.fullname" .) (include "chart.dbNamespace" .) -}}

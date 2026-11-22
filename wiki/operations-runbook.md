@@ -311,8 +311,9 @@ Structured JSON (production, or `LOG_FORMAT=json`):
 {"@timestamp": "2026-11-11T10:02:14.123456+00:00", "level": "INFO", "logger": "your_service_name.backend.api.echo", "message": "echo requested", "request_id": "req-abc", "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"}
 ```
 
-Request-logging is opt-in (`LOG_REQUESTS=true`) and emits one line per request (method, path,
-status, duration) carrying the same id.
+Request-logging is opt-in (`LOG_REQUESTS=true`; the Helm chart sets it, the app default stays off
+for local runs) and emits one line per request (method, path, status, duration, resolved client IP)
+carrying the same id. It never holds a query string, header, cookie or body.
 
 ### Tracing a request in practice
 
@@ -617,16 +618,10 @@ kubectl -n cert-manager logs -l app=cert-manager
 
 ### Log Rotation
 
-Logs are stored in emptyDir volumes and rotated automatically. To check log usage:
-
-```bash
-# Check pod disk usage
-kubectl -n your-service-name-<environment> exec <pod-name> -- df -h /app/logs
-
-# Clear old logs (if needed)
-kubectl -n your-service-name-<environment> exec <pod-name> -- \
-  find /app/logs -name "*.log" -mtime +7 -delete
-```
+There is nothing to rotate in the Pods: the backend and the frontend write logs to stdout only, and
+the container runtime and the node's log agent keep them (see
+[Infrastructure, Collecting logs](./infrastructure.md#collecting-logs)). Read them with
+`kubectl -n your-service-name-<environment> logs <pod-name>`.
 
 ---
 

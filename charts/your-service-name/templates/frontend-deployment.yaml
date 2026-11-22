@@ -111,8 +111,6 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            - name: logs
-              mountPath: /app/logs
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true   # writable paths are emptyDir below (C-L4)
@@ -123,9 +121,6 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 128Mi
-        - name: logs
-          emptyDir:
-            sizeLimit: 256Mi
       terminationGracePeriodSeconds: 30
       topologySpreadConstraints:
         - maxSkew: 1
