@@ -11,7 +11,7 @@ The platform runs on three providers. This page says what each one is for, the o
 >
 > - **Do now.** Stable. Do it by hand; nothing later replaces it.
 > - **Planned change** — what changes. The step is right today, but a later change replaces or extends it. Read the note before relying on it.
-> - **Owned by lodestar-infra (L1.x)** — if you do this by hand you'll need `tofu import` or a rebuild later. It's a choice: apply lodestar-infra yourself, or build by hand now and import afterwards.
+> - **Managed as code** — an infrastructure-as-code repository may create this; if you do it by hand you'll need an import (`tofu import`) or a rebuild later. It's a choice: let the code create it, or build by hand now and import afterwards.
 
 ## What each provider owns
 
@@ -32,7 +32,7 @@ The platform runs on three providers. This page says what each one is for, the o
 | 0 | Two-factor sign-in on all three accounts, and a budget alert on Google Cloud | GKE §4, Cloudflare §4, GitHub settings | 15 min |
 | 1 | The cluster and its keyless access, through to the laptop-side proof of the provider (the `check` run comes after the first push, step 5) | [GKE §1 to §13](./gke-cluster-setup.md) | 60 to 90 min |
 | 2 | The domain and the edge, through to the deploy-token check | [Cloudflare §1 to §11](./cloudflare-setup.md) | 45 to 75 min |
-| 3 | Optional, for the Kynosura repo only: off-site backups | [Cloudflare §12](./cloudflare-setup.md#12-optional-a-private-r2-bucket-for-off-site-backups) | 15 min |
+| 3 | Optional, for a site repository only: off-site backups | [Cloudflare §12](./cloudflare-setup.md#12-optional-a-private-r2-bucket-for-off-site-backups) | 15 min |
 | 4 | Set the values of the table below in GitHub. Variables, and the secrets only where the table says so. | GitHub settings | 5 min |
 | 5 | After the first push: a green `deploy-ops` `check` per environment | [GKE §13.3](./gke-cluster-setup.md#133-the-first-check-deploy-ops-check) | 10 min |
 
@@ -67,13 +67,13 @@ Google Cloud needs no secret at all: GitHub Actions logs in with a short-lived t
 
 `DEPLOY_MODE=kubeconfig` replaces the Google login for an environment, for a cluster that isn't GKE. In that environment, set the variable `DEPLOY_MODE` to `kubeconfig`, and the secret `KUBECONFIG_B64` to `base64 < kubeconfig | tr -d '\n'` (a kubeconfig whose user can only act in that environment's namespace). The `GCP_*` and `GKE_*` variables are then unused there. Run the `check` operation to prove it.
 
-### Used by the Kynosura repo, not by the template
+### Used by a site repository, not by the template
 
-The template's workflows don't read these. They belong to the Kynosura site repository's pipeline.
+The template's workflows don't read these. They belong to your site repository's pipeline.
 
 | Name | Kind | Scope | Purpose | Comes from |
 |---|---|---|---|---|
-| `CLOUDFLARE_ACCOUNT_ID` | variable | repository | the account the site deploy targets | [Cloudflare §10](./cloudflare-setup.md#10-static-hosting-for-kynosura-prove-the-deploy-token) |
+| `CLOUDFLARE_ACCOUNT_ID` | variable | repository | the account the site deploy targets | [Cloudflare §10](./cloudflare-setup.md#10-static-hosting-for-your-site-prove-the-deploy-token) |
 | `CLOUDFLARE_API_TOKEN` | **secret** | environment `production` | the scoped, expiring deploy token | [Cloudflare §7](./cloudflare-setup.md#7-api-tokens-scoped-expiring-and-tested) |
 | R2 access key ID and secret key | **secret** | environment `production` | optional off-site backups | [Cloudflare §12](./cloudflare-setup.md#12-optional-a-private-r2-bucket-for-off-site-backups) |
 | Tunnel token | **secret** | Kubernetes Secret `cloudflared/tunnel-token`, never in GitHub | the connector's login | [Cloudflare §8](./cloudflare-setup.md#8-cloudflare-tunnel-into-gke) |
@@ -128,4 +128,4 @@ Deploys stay off until the platform rollout. The work between now and then, in o
 5. **The image pull secret** in each app namespace, if your GHCR images are private ([GKE §13.4](./gke-cluster-setup.md#134-an-image-pull-secret-for-private-ghcr-images)).
 6. **The platform rollout:** set `DEPLOY_ENABLED=true`, deploy dev, then qa, then production; close the public cluster endpoint.
 
-Kynosura's site pipeline follows the template's.
+A site pipeline can follow the template's.

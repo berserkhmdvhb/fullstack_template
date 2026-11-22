@@ -2,7 +2,7 @@
 
 This guide builds the Google Kubernetes Engine (GKE) cluster that the template's GitHub pipeline deploys to. It's step 1 of [Platform Setup](./platform-setup.md). It also sets up the keyless link between GitHub Actions and Google Cloud.
 
-Each section starts with a tag (**Do now**, **Planned change**, or **Owned by lodestar-infra**); [How to read this guide](./platform-setup.md#how-to-read-this-guide) explains them. Work through it top to bottom. Every step ends with a **Check** that tells you what you should see. Don't go on to the next step until the check passes.
+Each section starts with a tag (**Do now**, **Planned change**, or **Managed as code**); [How to read this guide](./platform-setup.md#how-to-read-this-guide) explains them. Work through it top to bottom. Every step ends with a **Check** that tells you what you should see. Don't go on to the next step until the check passes.
 
 | | |
 |---|---|
@@ -91,7 +91,7 @@ If you installed the CLI some months ago, update it with `gcloud components upda
 | Decision | Default in this guide | Notes |
 |---|---|---|
 | Region and zone | `europe-west1` / `europe-west1-b` | Pick one close to you. Every resource below uses the same region. |
-| Cluster name | `apps-dev` | It hosts the template's dev environment, and later Kynosura. |
+| Cluster name | `apps-dev` | It hosts the template's dev environment, and later your other services. |
 | GitHub repository | `<you>/fullstack-template` | Created in [step 11](#11-the-github-repository). |
 | Repository visibility | **public** (recommended) | See [11.1](#111-public-or-private). It changes which GitHub security features you get for free. |
 | Spot nodes | off | Spot costs about 60 to 70 % less, but Google can reclaim a node at any time. That's fine for dev, but not for production. |
@@ -156,7 +156,7 @@ Also confirm the budget appears in the console list.
 
 ## 5. Enable the APIs
 
-> **Do now.** No lodestar-infra resource enables the APIs, so this stays a manual step.
+> **Do now.** Enabling the APIs stays a manual step: it comes before any infrastructure code can create resources.
 
 ```bash
 gcloud services enable \
@@ -177,7 +177,7 @@ gcloud services list --enabled --format='value(config.name)' | grep -E \
 
 ## 6. Network: a private VPC with Cloud NAT
 
-> **Owned by lodestar-infra (L1.2).** You can do this by hand, or leave it to lodestar-infra. If you do it by hand, you'll need `tofu import` or a rebuild later.
+> **Managed as code.** You can do this by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild.
 
 A dedicated network keeps the cluster isolated from anything else in the project. The nodes have no public IP addresses, so they need two things:
 - **Private Google Access,** to reach Google services such as Artifact Registry;
@@ -213,7 +213,7 @@ gcloud compute routers nats describe apps-nat --router=apps-router --region="$RE
 
 ## 7. A minimal identity for the nodes
 
-> **Owned by lodestar-infra (L1.2).** You can do this by hand, or leave it to lodestar-infra. If you do it by hand, you'll need `tofu import` or a rebuild later.
+> **Managed as code.** You can do this by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild.
 
 By default, GKE nodes use the Compute Engine default service account, which usually holds **Editor** on the whole project. Replace it with one that can only write logs and metrics and pull images.
 
@@ -258,7 +258,7 @@ gcloud projects get-iam-policy "$PROJECT_ID" --flatten='bindings[].members' \
 
 ## 8. Create the cluster
 
-> **Owned by lodestar-infra (L1.3).** You can do this by hand, or leave it to lodestar-infra. If you do it by hand, you'll need `tofu import` or a rebuild later. The cluster is the costliest thing to import; for dev, a rebuild is simpler.
+> **Managed as code.** You can do this by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild. The cluster is the costliest thing to import; for dev, a rebuild is simpler.
 
 ### 8.1 Check that your gcloud knows every flag
 
@@ -443,7 +443,7 @@ Google's references: [Gateway resources using Policies](https://cloud.google.com
 
 ## 10. The image registry
 
-> **Owned by lodestar-infra (L1.2).** You can do this by hand, or leave it to lodestar-infra. If you do it by hand, you'll need `tofu import` or a rebuild later. **Optional, and not wired up yet:** the template pushes to GHCR. No workflow reads `vars.IMAGE_REGISTRY`, and the provider condition of 12.2 admits no image-pushing workflow, so nothing can push to Artifact Registry today. Skip this section unless you plan ahead.
+> **Managed as code.** You can do this by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild. **Optional, and not wired up yet:** the template pushes to GHCR. No workflow reads `vars.IMAGE_REGISTRY`, and the provider condition of 12.2 admits no image-pushing workflow, so nothing can push to Artifact Registry today. Skip this section unless you plan ahead.
 
 The template's default registry is GHCR (`ghcr.io`), which needs no setup here. Create Artifact Registry only if you choose it instead. It then sits in the same project and region as the cluster.
 - **Pushing:** CI pushes with its keyless identity.
@@ -531,7 +531,7 @@ Sources: [Managing environments for deployment](https://docs.github.com/en/actio
 
 ## 12. Keyless access for GitHub Actions
 
-> **Do now** for 12.1. **Owned by lodestar-infra (L1.2)** for 12.2 and 12.3 (the pool, the provider and the deployers): you can do it by hand, or leave it to lodestar-infra. If you do it by hand, you'll need `tofu import` or a rebuild later. A single `gh-deployer` made by hand must be replaced, not imported, and a deleted pool's name stays reserved for 30 days.
+> **Do now** for 12.1. **Managed as code** for 12.2 and 12.3 (the pool, the provider and the deployers): you can do it by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild. A single `gh-deployer` made by hand must be replaced, not imported, and a deleted pool's name stays reserved for 30 days.
 
 GitHub signs a short-lived token for each workflow run. Google accepts it only if all three of these hold:
 - the repository owner's **numeric ID** matches, which survives renames and can't be reused by someone else;
@@ -872,4 +872,4 @@ These come with the GitHub pipeline work, not in this guide:
 - **The edge mode:** the template's default `edge.mode` is `gateway`; the platform values use `tunnel`.
 - **Infrastructure as code:** everything in this guide expressed in OpenTofu or Terraform, with state in a locked GCS bucket, so the cluster can be rebuilt from Git.
 - **Backups and recovery:** Backup for GKE, and Cloud SQL point-in-time recovery.
-- **Kynosura:** the course site packaged as a Helm chart and deployed to this same cluster.
+- **Other services:** each packaged as a Helm chart and deployed to this same cluster.

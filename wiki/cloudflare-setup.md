@@ -30,7 +30,7 @@ Every step ends with a **Check**. Don't move on until it passes.
 7. [API tokens: scoped, expiring and tested](#7-api-tokens-scoped-expiring-and-tested)
 8. [Cloudflare Tunnel into GKE](#8-cloudflare-tunnel-into-gke)
 9. [Keep previews private with Cloudflare Access](#9-keep-previews-private-with-cloudflare-access)
-10. [Static hosting for Kynosura: prove the deploy token](#10-static-hosting-for-kynosura-prove-the-deploy-token)
+10. [Static hosting for your site: prove the deploy token](#10-static-hosting-for-your-site-prove-the-deploy-token)
 11. [HSTS, once everything is HTTPS](#11-hsts-once-everything-is-https)
 12. [Optional: a private R2 bucket for off-site backups](#12-optional-a-private-r2-bucket-for-off-site-backups)
 13. [Final checklist and the values to hand over](#13-final-checklist-and-the-values-to-hand-over)
@@ -50,8 +50,8 @@ Every step ends with a **Check**. Don't move on until it passes.
     ▼
  Cloudflare edge  ─── DNS for <domain>, edge certificates, cache, DDoS protection
     │
-    ├── <domain>, www           → Kynosura static site (Workers static assets)       [at publish]
-    ├── preview.<domain>        → Kynosura previews, behind Cloudflare Access        [now]
+    ├── <domain>, www           → your static site (Workers static assets)       [at publish]
+    ├── preview.<domain>        → your site's previews, behind Cloudflare Access        [now]
     │
     └── app hostnames  ──────►  Cloudflare Tunnel ◄─── outbound only ─── cloudflared (2 Pods)
                                                                            in GKE "apps-dev"
@@ -95,12 +95,12 @@ Decide these now. The rest of the guide uses them.
 
 | Hostname | Serves | When |
 |---|---|---|
-| `<domain>`, `www.<domain>` | Kynosura's public site | at publish |
-| `preview.<domain>` | Kynosura previews, behind Access | now |
+| `<domain>`, `www.<domain>` | your public site | at publish |
+| `preview.<domain>` | your site's previews, behind Access | now |
 | `hello.<domain>` | a temporary test service for this guide | deleted at the end of section 9 |
 | `app-dev.<domain>`, `api-dev.<domain>` | the template app's dev environment, behind Access | when the pipeline deploys it |
 
-Buying the domain now just reserves the name. Pointing the apex at a live Kynosura site is the publish step.
+Buying the domain now just reserves the name. Pointing the apex at a live site is the publish step.
 
 ## 3. Set your variables once
 
@@ -110,7 +110,7 @@ Identifiers such as the account ID and zone ID aren't secrets. Keep them out of 
 
 ```bash
 cat > ~/cloudflare-setup.env <<'EOF'
-export DOMAIN="kynosura.example"     # your registered domain
+export DOMAIN="your-domain.example"     # your registered domain
 export CF_ACCOUNT_ID=""              # filled in section 5
 export CF_ZONE_ID=""                 # filled in section 5
 EOF
@@ -166,7 +166,7 @@ curl -s "https://rdap.org/domain/$DOMAIN" | python3 -c 'import json,sys; d=json.
 
 ## 6. Zone baseline: TLS, DNSSEC and anti-spoofing
 
-> **Owned by lodestar-infra (L2.1).** You can do this by hand, or leave it to lodestar-infra. If you do it by hand, you'll need `tofu import` or a rebuild later. HSTS (section 11) stays a staged, manual rollout.
+> **Managed as code.** You can do this by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild. HSTS (section 11) stays a staged, manual rollout.
 
 Make all of these settings in the zone.
 
@@ -219,7 +219,7 @@ The TLS settings are checked against a real hostname in section 8.5.
 
 ## 7. API tokens: scoped, expiring and tested
 
-> **Do now.** The tokens are made by hand for good. They are used by the Kynosura repo's site deploy; no template workflow reads a Cloudflare token.
+> **Do now.** The tokens are made by hand for good. They are used by your site repository's deploy; no template workflow reads a Cloudflare token.
 
 Cloudflare doesn't yet offer keyless login from GitHub Actions the way Google's Workload Identity Federation does, so CI needs tokens. Four rules keep them safe:
 1. **One token per job.** A token can do one thing, on one account or zone.
@@ -231,13 +231,13 @@ Cloudflare doesn't yet offer keyless login from GitHub Actions the way Google's 
 
 | Token | Owner | Permissions | Used by |
 |---|---|---|---|
-| `ci-kynosura-site` | account | Account: **Workers Scripts: Edit**, **Account Settings: Read**. Zone `<domain>`: **Workers Routes: Edit**, **DNS: Edit**, **Zone: Read** | Kynosura's site deploys (section 10 and its pipeline) |
+| `ci-site-deploy` | account | Account: **Workers Scripts: Edit**, **Account Settings: Read**. Zone `<domain>`: **Workers Routes: Edit**, **DNS: Edit**, **Zone: Read** | your site's deploys (section 10 and its pipeline) |
 | R2 backup credentials | account | **Object Read & Write** on the backup bucket only | the backup jobs (section 12) |
 | `tf-cloudflare` (later) | account | the zone's DNS, Zone Settings and SSL settings, the account's Tunnel and Access, and R2 | the infrastructure-as-code step ([section 16](#16-what-comes-next)) |
 
 The Tunnel token from section 8 isn't an API token. It's a connector secret that lives only in the cluster.
 
-### 7.2 Create `ci-kynosura-site`
+### 7.2 Create `ci-site-deploy`
 
 1. Go to **Manage Account → Account API Tokens → Create Token → Custom token**. Account-owned tokens keep working if your user changes.
 2. Add the permissions from 7.1. Under **Account Resources**, choose your account; under **Zone Resources**, choose **Specific zone → `<domain>`**.
@@ -258,7 +258,7 @@ Keep `CF_API_TOKEN` set for section 10, where the token is proved against the de
 
 ## 8. Cloudflare Tunnel into GKE
 
-> **Owned by lodestar-infra (L2.2).** You can do this by hand, or leave it to lodestar-infra. If you do it by hand, you'll need `tofu import` or a rebuild later. This covers 8.1 (the tunnel), 8.4 (routes and CNAMEs); a tunnel made in the dashboard has to be imported.
+> **Managed as code.** You can do this by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild. This covers 8.1 (the tunnel), 8.4 (routes and CNAMEs); a tunnel made in the dashboard has to be imported.
 
 > **Planned change.** Section 8.3's connector (the `cloudflared` namespace, Secret and Deployment) is not implemented yet. The chart's NetworkPolicy will let `edge.namespaceSelector` (default `cloudflared`) through, so the namespace label must match. 8.2 and 8.5 are **Do now**.
 
@@ -433,7 +433,7 @@ echo | openssl s_client -connect "$H:443" -servername "$H" 2>/dev/null | openssl
 
 ## 9. Keep previews private with Cloudflare Access
 
-> **Owned by lodestar-infra (L2.2).** You can do this by hand, or leave it to lodestar-infra. If you do it by hand, you'll need `tofu import` or a rebuild later. Access apps and policies are in code there.
+> **Managed as code.** You can do this by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild. Access apps and policies can be kept in code.
 
 > **Planned change.** The `cloudflare-access` auth mode needs your Zero Trust team domain and the application's AUD tag; note both.
 
@@ -464,11 +464,11 @@ kubectl delete namespace edge-test
 dig +short "hello.$DOMAIN"     # → nothing, once the record is gone
 ```
 
-## 10. Static hosting for Kynosura: prove the deploy token
+## 10. Static hosting for your site: prove the deploy token
 
 > **Do now.**
 
-Cloudflare's current recommendation for new static sites is **Workers with static assets**; Pages still works. Requests for static assets are free and unlimited. The real Kynosura deploy comes with its pipeline. This step only proves that the `ci-kynosura-site` token from section 7 can deploy, by publishing and then deleting a one-page site on your `workers.dev` subdomain.
+Cloudflare's current recommendation for new static sites is **Workers with static assets**; Pages still works. Requests for static assets are free and unlimited. The real deploy of your site comes with its pipeline. This step only proves that the `ci-site-deploy` token from section 7 can deploy, by publishing and then deleting a one-page site on your `workers.dev` subdomain.
 
 If you've never used Workers, open **Workers & Pages** once and choose your `workers.dev` subdomain.
 
@@ -481,7 +481,7 @@ work="$(mktemp -d)" && mkdir -p "$work/public"
 echo '<!doctype html><title>deploy check</title><p>ok</p>' > "$work/public/index.html"
 cat > "$work/wrangler.jsonc" <<EOF
 {
-  "name": "kynosura-deploy-check",
+  "name": "site-deploy-check",
   "compatibility_date": "$(date -u -d '-1 day' +%F 2>/dev/null || date -u -v-1d +%F)",
   "assets": { "directory": "./public" }
 }
@@ -491,11 +491,11 @@ EOF
 
 The `compatibility_date` is set to yesterday, in UTC. Wrangler rejects a date in the future.
 
-**Check:** wrangler prints a URL like `https://kynosura-deploy-check.<subdomain>.workers.dev`. Then:
+**Check:** wrangler prints a URL like `https://site-deploy-check.<subdomain>.workers.dev`. Then:
 
 ```bash
-curl -sS "https://kynosura-deploy-check.<subdomain>.workers.dev" | grep -o '<p>ok</p>'   # → <p>ok</p>
-( cd "$work" && npx --yes wrangler@4.127.1 delete --name kynosura-deploy-check --force )
+curl -sS "https://site-deploy-check.<subdomain>.workers.dev" | grep -o '<p>ok</p>'   # → <p>ok</p>
+( cd "$work" && npx --yes wrangler@4.127.1 delete --name site-deploy-check --force )
 rm -rf "$work"; unset CLOUDFLARE_API_TOKEN CF_API_TOKEN
 ```
 
@@ -505,15 +505,15 @@ If the deploy fails with `403` or `Authentication error`, the token lacks a perm
 
 ### Put the token where CI can use it
 
-> This is the **Kynosura repo's** setting, not the template's: no template workflow reads `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID` (see [Platform Setup](./platform-setup.md#used-by-the-kynosura-repo-not-by-the-template)).
+> This is your **site repository's** setting, not the template's: no template workflow reads `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID` (see [Platform Setup](./platform-setup.md#used-by-a-site-repository-not-by-the-template)).
 
-1. In the Kynosura repository on GitHub, create an environment named `production`. On a public repository this is free, with an approval gate. A private repository needs GitHub Pro or Team for environments, and Enterprise for required reviewers; see [GKE guide 11.1](./gke-cluster-setup.md#111-public-or-private).
+1. In your site repository on GitHub, create an environment named `production`. On a public repository this is free, with an approval gate. A private repository needs GitHub Pro or Team for environments, and Enterprise for required reviewers; see [GKE guide 11.1](./gke-cluster-setup.md#111-public-or-private).
 2. Add `CLOUDFLARE_API_TOKEN` as an **environment secret** of `production`.
 3. Add `CLOUDFLARE_ACCOUNT_ID` as a repository **variable**. It isn't a secret.
 
 ## 11. HSTS, once everything is HTTPS
 
-> **Owned by lodestar-infra (L2.1).** You can do this by hand, or leave it to lodestar-infra. If you do it by hand, you'll need `tofu import` or a rebuild later. HSTS stays staged by hand.
+> **Managed as code.** You can do this by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild. HSTS stays staged by hand.
 
 HSTS tells browsers never to use plain HTTP for your domain. It's powerful, and hard to undo once browsers have cached it, so raise it in stages.
 
@@ -531,7 +531,7 @@ curl -sS -I "https://preview.$DOMAIN" | grep -i '^strict-transport-security'
 
 ## 12. Optional: a private R2 bucket for off-site backups
 
-> **Owned by lodestar-infra (L2.3).** You can do this by hand, or leave it to lodestar-infra. If you do it by hand, you'll need `tofu import` or a rebuild later. Optional, and cut from the template's CI: only the Kynosura repo may use it.
+> **Managed as code.** You can do this by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild. Optional, and not used by the template's CI: only a site repository would use it.
 
 The template's chart backs Postgres up inside the cluster. A copy at a second provider protects you if the cluster, or the whole GCP project, is lost: the "3-2-1" rule. R2 charges nothing for egress, so restores cost nothing.
 
@@ -581,7 +581,7 @@ Store the two keys as `production` environment secrets in whichever repository r
 
 Then hand over these values. None of them is a secret:
 - the domain;
-- the account ID, which becomes the `CLOUDFLARE_ACCOUNT_ID` variable of the Kynosura repo;
+- the account ID, which becomes the `CLOUDFLARE_ACCOUNT_ID` variable of your site repository;
 - the tunnel name (`apps-dev`);
 - your Zero Trust team name;
 - the hostname plan from 2.2, if you changed it.
@@ -632,7 +632,7 @@ These come with the pipeline work:
   - **State:** in a versioned, locked Google Cloud Storage bucket, never on a laptop or in Git.
   - **Changes:** reviewed as a plan in a pull request before anyone applies them.
 - **App routes:** each environment's hostname becomes a tunnel route, defined in code. The template's NetworkPolicies allow ingress from the `cloudflared` namespace.
-- **Kynosura's site pipeline:**
+- **Your site's pipeline:**
   - build, run the link and accessibility checks, then deploy with the pinned Wrangler and the environment-scoped token;
   - previews on `preview.<domain>`, behind Access;
   - a read-only verification step afterwards, with cold-start retries, a JSON report, and a non-zero exit code on failure.
