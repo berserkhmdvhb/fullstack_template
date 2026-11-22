@@ -60,17 +60,16 @@ def test_the_migration_says_the_old_quota_is_recreated_by_the_bootstrap() -> Non
     assert "recreates them" in section
 
 
-def test_the_migration_upgrades_pass_the_current_charts_values_not_the_stored_ones() -> None:
-    """The stored values of an older release carry keys the current schema refuses (images.nginx,
-    ingress), so reusing them fails the first upgrade (seen on a kind cluster): pass the env's
-    values file and the deploy's values instead, in every upgrade of the migration."""
+def test_the_migration_is_one_script_that_passes_the_current_charts_values() -> None:
+    """One source: the doc calls scripts/migrate-to-bootstrap.sh and restates none of its upgrades.
+    The script's upgrades pass the env's values file and the deploy's values, never the stored ones:
+    an older release stored keys the current schema refuses (images.nginx, ingress)."""
     text = (ROOT / "wiki" / "infrastructure.md").read_text("utf-8")
     section = text[text.index("**An existing release from an older chart**") :]
     section = section[: section.index("\n---")]
-    commands = re.findall(r"^helm upgrade .*?(?<!\\)$", section, re.MULTILINE | re.DOTALL)
-    upgrades = [" ".join(u.split()) for u in commands]
-    assert len(upgrades) == 2, upgrades  # noqa: PLR2004 (keep, then the switch)
-    for upgrade in upgrades:
-        assert "reuse-values" not in upgrade, upgrade
-        assert '-f "charts/your-service-name/values.$ENV.yaml"' in upgrade, upgrade
-        assert '"${DEPLOY_VALUES[@]}"' in upgrade, upgrade
+    assert "scripts/migrate-to-bootstrap.sh" in section
+    assert not re.search(r"^helm upgrade", section, re.MULTILINE), "the doc restates the script"
+    script = (ROOT / "scripts" / "migrate-to-bootstrap.sh").read_text("utf-8")
+    code = "\n".join(ln for ln in script.splitlines() if not ln.lstrip().startswith("#"))
+    assert "reuse-values" not in code
+    assert 'values=(-f "$CHART/values.$ENV_NAME.yaml")' in code

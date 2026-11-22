@@ -9,13 +9,16 @@
 #
 #   1. Build the three images through the images job's build path (scripts/ci/build-image.sh), load
 #      them into fst and remove the local tags. No registry, no push.
-#   2. As cluster admin: the bootstrap for `local` (scripts/k8s-bootstrap.sh) in the release
-#      namespace and in a second one for ct, and the Gateway API CRDs from their pinned source.
+#   2. As cluster admin: the bootstrap for `local` (scripts/k8s-bootstrap.sh) in the namespace for
+#      ct, and the Gateway API CRDs from their pinned source.
 #   3. ct lint, then ct install (each ci/ values file, with values.local.yaml) in the ct namespace;
 #      ct's own helm calls carry the deployer's identity, which the run checks.
 #   4. The release: with --base REF, the chart of REF first (with its own values files, and only the
 #      overrides its values.yaml knows), a row written to the database, then the upgrade to this
-#      checkout's chart; else this checkout's chart. Then helm test, and a backup and its verification.
+#      checkout's chart; else this checkout's chart. A base that still renders its namespaces or the
+#      app's Role (scripts/ci/chart-predates-bootstrap.sh) is installed as cluster admin, its own
+#      model, and moved with scripts/migrate-to-bootstrap.sh before the deployer's upgrade; any other
+#      gets the release namespace's bootstrap first. Then helm test, and a backup and its verification.
 #   5. The WAF on (an upgrade), its Pod checked against the restricted profile, helm test again.
 #   6. The deploy-ops checks of the deployer identity.
 # Every install, upgrade, test and status runs as the bootstrap's deployer (helm --kube-as-user /
@@ -145,10 +148,11 @@ done < <(jq -r '.include[].id' <<<"$matrix")
 ok "images built and loaded: $(jq -r '[.include[].id] | join(", ")' <<<"$matrix") ($tag)"
 
 # ---- 2. The admin bootstrap -------------------------------------------------------------------
-step "the admin bootstrap ($ENV_NAME) for $NS and $CT_NS, and the Gateway API CRDs"
-for ns in "$NS" "$CT_NS"; do
-  scripts/k8s-bootstrap.sh "$ENV_NAME" --release "$RELEASE" --namespace "$ns" | kc apply -f -
-done
+step "the admin bootstrap ($ENV_NAME) for $CT_NS, and the Gateway API CRDs"
+# The release namespace's bootstrap comes with the release (step 4): a base chart from before the
+# bootstrap creates its namespaces itself, and the migration applies the bootstrap over them.
+bootstrap() { scripts/k8s-bootstrap.sh "$ENV_NAME" --release "$RELEASE" --namespace "$1" | kc apply -f -; }
+bootstrap "$CT_NS"
 # The pinned source and sha256 of charts/your-service-name/ci/crds/sources.tsv, from the crd-sources cache.
 crd_sha="$(awk -F'\t' '$1 == "gateway-api" {print $4}' "$CHART/ci/crds/sources.tsv")"
 crd="$ROOT/.tools/crd-sources/$crd_sha"
@@ -188,7 +192,7 @@ deploy() { # chart dir, extra helm args...
 }
 migrated() { # the migration Job of the current revision succeeded
   local rev job
-  rev="$(helm_as history "$RELEASE" -n "$NS" --max 1 -o json | jq -r '.[0].revision')"
+  rev="$(helm --kube-context "$CONTEXT" history "$RELEASE" -n "$NS" --max 1 -o json | jq -r '.[0].revision')"
   job="$(kc -n "$NS" get jobs -l app.kubernetes.io/component=migration -o json |
     jq -r --arg r "-r$rev" '.items[] | select(.metadata.name | endswith($r)) | select(.status.succeeded == 1) | .metadata.name')"
   [[ -n "$job" ]] || die "no succeeded migration Job for revision $rev"
@@ -208,7 +212,6 @@ uids() { # the namespaces and the database's volumes, by uid
 
 if [[ -n "$base" ]]; then
   commit="$(git rev-parse --verify --quiet "$base^{commit}")" || die "--base $base is not a commit here"
-  step "install the chart of the base commit $base, as the deployer"
   mkdir -p "$WORK/base"
   git archive "$commit" charts/your-service-name | tar -x -C "$WORK/base"
   base_chart="$WORK/base/charts/your-service-name"
@@ -222,12 +225,53 @@ if [[ -n "$base" ]]; then
     echo "kind-deploy: the base chart does not bind its backup PVC at install: installing it without backups"
     base_extra=(--set postgresql.backup.enabled=false)
   fi
-  deploy "$base_chart" "${base_extra[@]}"
+  # A base chart that still renders its namespaces or the app's Role (decided from its own render)
+  # predates the deployer model: it is installed as cluster admin, its own model, then migrated.
+  predates=false
+  if scripts/ci/chart-predates-bootstrap.sh "$base_chart" -f "$values"; then predates=true; fi
+  if [[ "$predates" == true ]]; then
+    # The images it names that this checkout does not build, from the base commit's own sources.
+    mkdir -p "$WORK/src"
+    git archive "$commit" | tar -x -C "$WORK/src"
+    base_matrix="$(GITHUB_REF_NAME=base GITHUB_REF_TYPE=branch GITHUB_SHA="$commit" GITHUB_REPOSITORY_OWNER=local \
+      GITHUB_REPOSITORY=local/local BUILD_ARM64=false "$python" .github/scripts/container_matrix.py --matrix \
+      --config "$WORK/src/.github/container-images.yml" --root "$WORK/src" | sed -n 1p)"
+    while read -r id; do
+      [[ " ${image_ids[*]} " != *" $id "* ]] || continue
+      yq -e ".images | has(\"$id\")" "$base_chart/values.yaml" >/dev/null 2>&1 || continue
+      entry="$(ID="$id" jq -c '.include[] | select(.id == env.ID)' <<<"$base_matrix")"
+      ref="kind-$CLUSTER/$id:$tag"
+      built+=("$ref")
+      (cd "$WORK/src" && GIT_DIR="$ROOT/.git" SOURCE_URL="${SOURCE_URL:-https://example.invalid/local/kind}" \
+        VCS_REF="$commit" VCS_BRANCH=base bash "$ROOT/scripts/ci/build-image.sh" "$entry" "$ref")
+      kind load docker-image --name "$CLUSTER" "$ref"
+      docker image rm "$ref" >/dev/null
+      base_extra+=(--set-string "images.$id.registry=" --set-string "images.$id.repository=kind-$CLUSTER/$id"
+        --set-string "images.$id.tag=$tag")
+      echo "kind-deploy: built the base commit's $id image (this checkout has none)"
+    done < <(jq -r '.include[].id' <<<"$base_matrix")
+    step "install the chart of the base commit $base as cluster admin (it predates the deployer model)"
+    mapfile -t base_args < <(kind_args "$base_chart" "$NS")
+    helm --kube-context "$CONTEXT" upgrade --install "$RELEASE" "$base_chart" -n "$NS" --create-namespace \
+      -f "$base_chart/values.local.yaml" -f "$values" "${base_args[@]}" "${base_extra[@]}" \
+      --wait --wait-for-jobs --timeout 10m
+  else
+    step "install the chart of the base commit $base, as the deployer"
+    bootstrap "$NS"
+    deploy "$base_chart" "${base_extra[@]}"
+  fi
   migrated
   marker="kind-$tag"
   psql_db "CREATE TABLE IF NOT EXISTS kind_upgrade_check (marker text); INSERT INTO kind_upgrade_check VALUES ('$marker')"
   uids > "$WORK/before"
   ok "row written; namespaces and volumes recorded: $(paste -sd' ' "$WORK/before")"
+  if [[ "$predates" == true ]]; then
+    step "move the release onto the bootstrap (scripts/migrate-to-bootstrap.sh, as cluster admin)"
+    mapfile -t head_args < <(kind_args "$CHART" "$NS")
+    scripts/migrate-to-bootstrap.sh "$ENV_NAME" --release "$RELEASE" --namespace "$NS" \
+      --values "$values" "${head_args[@]}" --yes
+    ok "migrated onto the bootstrap"
+  fi
   step "upgrade to this checkout's chart, as the deployer"
   deploy "$CHART"
   migrated
@@ -240,6 +284,7 @@ if [[ -n "$base" ]]; then
   ok "the database row survived the upgrade"
 else
   step "install this checkout's chart, as the deployer"
+  bootstrap "$NS"
   deploy "$CHART"
   migrated
 fi

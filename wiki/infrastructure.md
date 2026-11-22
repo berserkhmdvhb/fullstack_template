@@ -212,45 +212,47 @@ for the release to adopt it (the label `app.kubernetes.io/managed-by=Helm`, the 
 step, before the first deployer upgrade: the deployer has no rights on Namespaces or RBAC, so its
 upgrade would try to delete them and be refused, and an admin upgrade without this step would delete
 the namespaces with everything in them. As a cluster admin, with the chart checkout the deploy uses
-and the values its deploy passes:
+and the values its deploy passes, run `scripts/migrate-to-bootstrap.sh` once per environment:
 
 ```bash
-RELEASE=<release>; ENV=<env>; NS="$RELEASE-$ENV"
-# The values the deploy of this chart version passes after the env's values file: your secret values
-# (or secrets.existingSecret) and the images it deploys. Edit this line to yours, for example
-#   DEPLOY_VALUES=(-f values.secret.yaml --set images.backend.digest=sha256:...)
-DEPLOY_VALUES=(-f values.secret.yaml)
-# 1. One upgrade that still renders them: they gain helm.sh/resource-policy: keep.
-helm upgrade "$RELEASE" charts/your-service-name -n "$NS" -f "charts/your-service-name/values.$ENV.yaml" \
-  "${DEPLOY_VALUES[@]}" --history-max 5 --set namespaces.create=true --set rbac.create=true --wait
-# 2. The bootstrap: its namespaces, quota, deployer RBAC and the app's Role and RoleBinding,
-#    applied over the release's own objects of the same names.
-scripts/k8s-bootstrap.sh "$ENV" --release "$RELEASE" | kubectl apply -f -
-# 3. One upgrade with both off: the release stops recording them, and keep leaves them in place.
-helm upgrade "$RELEASE" charts/your-service-name -n "$NS" -f "charts/your-service-name/values.$ENV.yaml" \
-  "${DEPLOY_VALUES[@]}" --history-max 5 --set namespaces.create=false --set rbac.create=false --wait
-# 4. Check: prints nothing once the release no longer holds them.
-helm get manifest "$RELEASE" -n "$NS" | grep -Ex 'kind: (Namespace|Role|RoleBinding)'
+# Print the steps; contacts no cluster.
+scripts/migrate-to-bootstrap.sh dev --release your-service-name --dry-run
+# Migrate, with the deploy's own values (yours: the secret values and the image digests).
+scripts/migrate-to-bootstrap.sh dev --release your-service-name --values values.secret.yaml
 ```
 
-Step 1 deletes the old chart's ResourceQuota and LimitRange: the current chart no longer renders
-them, and they carry no keep annotation. Step 2 recreates them, as the bootstrap's own
+Pass the values the deploy of this chart version passes after the env's values file: your secret
+values (or `secrets.existingSecret`) and the images it deploys, for example
+`--values values.secret.yaml --set images.backend.digest=sha256:…`. The script:
+1. refuses unless the release exists and the identity can create namespaces, quotas and RBAC (a
+   cluster admin), and asks for the release name unless `--yes` is given; a release that holds no
+   Namespace, Role or RoleBinding is left alone, so a re-run, or a run stopped half-way, is safe;
+2. upgrades once with `namespaces.create=true` and `rbac.create=true`: those objects gain
+   `helm.sh/resource-policy: keep`;
+3. applies the bootstrap (`scripts/k8s-bootstrap.sh <env> | kubectl apply -f -`) over the release's
+   own objects of the same names;
+4. upgrades once with both off: the release stops recording them, and keep leaves them in place;
+5. fails unless the release then holds no Namespace, Role or RoleBinding.
+
+The first upgrade deletes the old chart's ResourceQuota and LimitRange: the current chart no longer
+renders them, and they carry no keep annotation. The bootstrap recreates them, as the bootstrap's own
 (`bootstrap-quota`, `bootstrap-limits`). Between the two the namespace has neither, for as long as
-step 1's rollout takes. That is acceptable: Pods already running are not affected, the chart sets
+the first upgrade's rollout takes. That is acceptable: Pods already running are not affected, the chart sets
 explicit requests and limits on its own containers, and only the admin deploys in that window.
 
-Pass the current chart's values, never the release's stored ones (`--reuse-values` or
+The upgrades pass the current chart's values, never the release's stored ones (`--reuse-values` or
 `--reset-then-reuse-values`): an older release stored the values files of its own chart, which hold
-keys the current schema refuses (`images.nginx`, `ingress`, `quota`, `limitRange`), so the first upgrade
-would fail. Step 1 is the first deploy of the current version, so it runs the images that version
-deploys. In step 2 `kubectl apply` warns that the Namespaces, the Role and the RoleBinding lack its
+keys the current schema refuses (`images.nginx`, `ingress`, `quota`, `limitRange`), so such an upgrade
+would fail. The first upgrade is the first deploy of the current version, so it runs the images that
+version deploys. The bootstrap's `kubectl apply` warns that the Namespaces, the Role and the RoleBinding lack its
 last-applied annotation (Helm made them): expected, and the objects are updated in place. From then on
-the deployer's upgrades touch none of these objects. A kind run followed these steps from a release of
-an older chart that owned both Namespaces, the app's Role and RoleBinding, a ResourceQuota and a
-LimitRange: no namespace or volume was replaced, the database kept its rows, and the deployer's next
-upgrade passed.
-`scripts/k8s-env.sh apply` (`make k8s-apply`, `make deploy`), which runs as an admin, does steps 1 to
-3 itself when the release's stored manifest holds a Namespace, Role or RoleBinding, and prints each
+the deployer's upgrades touch none of these objects. The kind job runs the script whenever a pull
+request's base chart still renders Namespaces or the app's Role ([Local cluster (kind)](#local-cluster-kind)):
+from a release of an older chart that owned both Namespaces, the app's Role and RoleBinding, a
+ResourceQuota and a LimitRange, no namespace or volume is replaced, the database keeps its rows, and
+the deployer's next upgrade passes.
+`scripts/k8s-env.sh apply` (`make k8s-apply`, `make deploy`), which runs as an admin, runs the same three
+steps itself when the release's stored manifest holds a Namespace, Role or RoleBinding, and prints each
 command (a dry run prints the upgrade it would run).
 
 ---
@@ -281,15 +283,21 @@ inherited `KUBECONFIG`):
    them into fst and removes the local tags. No registry and no push; the third-party images are
    pulled by their pinned digests.
 2. As cluster admin, applies the [bootstrap](#namespace-bootstrap-one-time-admin-step) for `local` in
-   the release namespace and in a second one for ct, and the Gateway API CRDs from their pinned source
-   and sha256 (`ci/crds/sources.tsv`, the `crd-sources` cache).
+   a namespace for ct (the release namespace's comes with the release, step 4), and the Gateway API
+   CRDs from their pinned source and sha256 (`ci/crds/sources.tsv`, the `crd-sources` cache).
 3. Runs `ct lint`, then `ct install` (every `ci/*-values.yaml` with `values.local.yaml`; settings in
    `.github/ct.yaml`) in the ct namespace.
 4. Installs the release. With `KIND_BASE` (CI passes the pull request's base commit), it installs that
    commit's chart first, writes a row to the database, records the namespaces and the database volume,
    then upgrades to the checkout's chart, and fails on a Forbidden error, a replaced namespace or
    volume, a lost row or a migration Job that did not succeed. The base install uses the checkout's
-   images: the chart is under test, not the app. Then `helm test`.
+   images: the chart is under test, not the app. A base chart that still renders its namespaces or
+   the app's Role (`scripts/ci/chart-predates-bootstrap.sh`, from the base's own render) predates the
+   deployer model: it is installed as cluster admin, as it was deployed then (an image it names that
+   the checkout does not build is built from the base commit), the row is written, and
+   `scripts/migrate-to-bootstrap.sh` moves it onto the bootstrap before the deployer's upgrade, with
+   the same checks. Any other base gets the release namespace's bootstrap first and is installed as
+   the deployer. Then `helm test`.
 5. Turns the WAF on (an upgrade) and checks its Pod: admitted by the namespace's restricted
    enforcement, uid 65532 in the Pod spec and in the running container's status, Ready with no restart.
    Then `helm test` again.
