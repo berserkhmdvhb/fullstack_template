@@ -91,3 +91,22 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'still holds the placeholder domain your-domain\.example'
+
+  - it: on - a placeholder host with a trailing dot is refused
+    set:
+      guards: {rejectPlaceholders: true}
+      edge:
+        hosts: {api: api.your-domain.example., app: app.notyour-domain.example.com, root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'edge\.hosts\.api is "api\.your-domain\.example\."'
+
+  - it: on - a real host with a trailing dot passes
+    set:
+      guards: {rejectPlaceholders: true}
+      edge:
+        hosts: {api: api.notyour-domain.example.com., app: app.svc.test., root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - notFailedTemplate: {}

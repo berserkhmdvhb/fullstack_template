@@ -426,7 +426,8 @@ versions you run.
   [NetworkPolicy](#networkpolicy) admits to the backend port, per mode: with the WAF off, the edge
   peers (the Gateway namespace, the controller's namespace, or `cloudflared`) and the frontend; with
   the WAF on, only the WAF, which the edge peers and the frontend reach; and, when a scrape target is
-  rendered, the monitoring Pods. The full matrix:
+  rendered, the collector Pods (`monitoringPodSelector`) in the `monitoringNamespaceSelector`
+  namespace, unless `monitoringNamespaceSelector` is null. The full matrix:
   [Infrastructure, NetworkPolicy per mode](./infrastructure.md#networkpolicy-per-mode).
 - **`CF-Connecting-IP` is safe only when `cloudflared` is the only way in.** If the ingress or the
   backend is reachable any other way, a client sends its own header and is believed.
@@ -596,7 +597,7 @@ spec:
 | Policy | Direction | Source | Destination | Purpose |
 |--------|-----------|--------|-------------|---------|
 | `allow-to-frontend` | Ingress | the edge peers of `edge.mode` | frontend pods on the frontend port | Edge → UI |
-| `allow-to-backend` | Ingress | WAF on: the WAF pods; WAF off: the frontend pods and the edge peers; always the monitoring namespace | backend pods on the backend port | Nothing reaches the backend around the WAF |
+| `allow-to-backend` | Ingress | WAF on: the WAF pods; WAF off: the frontend pods and the edge peers; plus, only when the chart renders a scrape target, the collector Pods (`monitoringPodSelector`) in the `monitoringNamespaceSelector` namespace, both required (`monitoringNamespaceSelector: null` removes the rule) | backend pods on the backend port | Nothing reaches the backend around the WAF |
 | `allow-waf` (WAF on) | Ingress + Egress | the frontend pods and the edge peers | WAF pods on `waf.service.port`; egress to the backend + DNS | Edge / frontend → WAF → backend |
 | `allow-backend-to-db` | Egress | backend pods | postgresql:5432 + DNS | Backend → database |
 | `allow-migration-to-db` | Egress | migration job | postgresql:5432 + DNS | Migration → database |
