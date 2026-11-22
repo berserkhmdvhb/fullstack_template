@@ -39,6 +39,7 @@ spec:
             # the pod is rejected on an enforcing cluster.
             seccompProfile:
               type: RuntimeDefault
+          {{- include "chart.backupAffinity" . | nindent 10 }}
           containers:
             - name: pg-backup-verify
               image: {{ include "chart.image" (dict "image" .Values.postgresql.clientImage) }}

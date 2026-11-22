@@ -360,3 +360,10 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: '^\s*- config\.OIDC_ISSUER still holds a placeholder'
+
+  # ---- no helm test objects in production ----
+  - it: tests.enabled is refused in production, naming the switch
+    set: {tests: {enabled: true}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'environment is production but tests\.enabled is true\. The helm test hooks .* set tests\.enabled=false'

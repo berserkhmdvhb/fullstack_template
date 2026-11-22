@@ -12,11 +12,11 @@ tests:
       tests: {enabled: false}
     asserts:
       - hasDocuments: {count: 0}
-  - it: renders two hook NetworkPolicies and the client Job, all test hooks removed after a pass
+  - it: renders two hook NetworkPolicies and the client Job, all removed after a pass or a failure
     asserts:
       - hasDocuments: {count: 3}
       - equal: {path: 'metadata.annotations["helm.sh/hook"]', value: test}
-      - equal: {path: 'metadata.annotations["helm.sh/hook-delete-policy"]', value: 'before-hook-creation,hook-succeeded'}
+      - equal: {path: 'metadata.annotations["helm.sh/hook-delete-policy"]', value: 'before-hook-creation,hook-succeeded,hook-failed'}
   - it: the NetworkPolicies exist before the Job runs
     documentSelector: {path: kind, value: NetworkPolicy, matchMany: true}
     asserts:
@@ -78,25 +78,27 @@ tests:
       - contains:
           path: spec.egress
           content:
-            to: [{podSelector: {matchLabels: {app.kubernetes.io/component: backend}}}]
+            to: [{podSelector: {matchLabels: {app.kubernetes.io/component: backend, app.kubernetes.io/instance: svc}}}]
             ports: [{protocol: TCP, port: 8000}, {protocol: TCP, port: 9102}]
       - contains:
           path: spec.egress
           content:
-            to: [{podSelector: {matchLabels: {app.kubernetes.io/component: frontend}}}]
+            to: [{podSelector: {matchLabels: {app.kubernetes.io/component: frontend, app.kubernetes.io/instance: svc}}}]
             ports: [{protocol: TCP, port: 3000}]
       - contains:
           path: spec.egress
           content:
-            to: [{podSelector: {matchLabels: {app.kubernetes.io/component: waf}}}]
+            to: [{podSelector: {matchLabels: {app.kubernetes.io/component: waf, app.kubernetes.io/instance: svc}}}]
             ports: [{protocol: TCP, port: 8080}]
   - it: the hook policy admits the test Pods to the API and frontend ports, never the metrics port
     documentSelector: {path: metadata.name, value: svc-your-service-name-test-ingress}
     asserts:
       - equal: {path: spec.policyTypes, value: [Ingress]}
       - equal:
-          path: spec.podSelector.matchExpressions
-          value: [{key: app.kubernetes.io/component, operator: In, values: [backend, frontend]}]
+          path: spec.podSelector
+          value:
+            matchExpressions: [{key: app.kubernetes.io/component, operator: In, values: [backend, frontend]}]
+            matchLabels: {app.kubernetes.io/instance: svc}
       - equal:
           path: spec.ingress
           value:
@@ -127,3 +129,9 @@ tests:
       monitoring: {scrapeAnnotations: false, serviceMonitor: false}
     asserts:
       - hasDocuments: {count: 3}
+  - it: a connection the metrics port accepts names the likely cause, a CNI that does not enforce NetworkPolicy
+    documentSelector: {path: metadata.name, value: svc-your-service-name-test}
+    asserts:
+      - matchRegex:
+          path: 'spec.template.spec.containers[0].command[3]'
+          pattern: 'does this cluster.s CNI enforce NetworkPolicy\? If not, use one that does, or set tests\.enabled=false'

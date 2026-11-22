@@ -74,6 +74,14 @@ spec:
           volumeMounts:
             - name: postgresql-data
               mountPath: /var/lib/postgresql/data
+            {{- if .Values.postgresql.backup.enabled }}
+            # The backup PVC's first consumer, from the install on: a WaitForFirstConsumer class binds
+            # it when this Pod schedules, so helm --wait never waits on a Pending PVC. Read-only:
+            # PostgreSQL never touches it; the backup jobs write it on this node (their podAffinity).
+            - name: backup
+              mountPath: /backup
+              readOnly: true
+            {{- end }}
           resources:
 {{- include "chart.resources" .Values.resources.postgresql | nindent 12 }}
           livenessProbe:
@@ -93,6 +101,12 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 6
+      {{- if .Values.postgresql.backup.enabled }}
+      volumes:
+        - name: backup
+          persistentVolumeClaim:
+            claimName: {{ include "chart.fullname" . }}-pg-backup-pvc
+      {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: postgresql-data
@@ -102,7 +116,9 @@ spec:
       spec:
         accessModes:
           - ReadWriteOnce
-        storageClassName: {{ .Values.postgresql.storage.className }}
+        {{- with .Values.postgresql.storage.className }}
+        storageClassName: {{ . }}
+        {{- end }}
         resources:
           requests:
             storage: {{ .Values.postgresql.storage.size | quote }}

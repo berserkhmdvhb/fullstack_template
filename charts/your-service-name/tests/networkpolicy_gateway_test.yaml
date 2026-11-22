@@ -32,7 +32,7 @@ tests:
     asserts:
       - hasDocuments: {count: 7}
 
-  - it: PostgreSQL admits only the backend and migration Pods (no edge peer)
+  - it: PostgreSQL admits only the backend and migration Pods and this release's backup jobs (no edge peer)
     template: db-network-policy.yaml
     asserts:
       - equal: {path: metadata.namespace, value: app-db}
@@ -46,6 +46,12 @@ tests:
             - from:
                 - namespaceSelector: {matchLabels: {tier: app-ns}}
                   podSelector: {matchLabels: {app.kubernetes.io/component: migration}}
+              ports: [{protocol: TCP, port: 5432}]
+            - from:
+                - podSelector:
+                    matchExpressions:
+                      - {key: app.kubernetes.io/component, operator: In, values: [backup, backup-verification]}
+                    matchLabels: {app.kubernetes.io/instance: svc}
               ports: [{protocol: TCP, port: 5432}]
 
   - it: the migration policy is egress only

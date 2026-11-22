@@ -1,0 +1,79 @@
+suite: the backup PVC binds at install on any binding mode, and the backup jobs reach the database
+release:
+  name: svc
+  namespace: app
+templates:
+  - postgresql-statefulset.yaml
+  - pg-backup-cronjob.yaml
+  - pg-backup-verify-cronjob.yaml
+  - db-network-policy.yaml
+tests:
+  - it: the PostgreSQL Pod mounts the backup PVC read-only, so the PVC has a consumer from the install on
+    template: postgresql-statefulset.yaml
+    asserts:
+      - contains:
+          path: 'spec.template.spec.containers[0].volumeMounts'
+          content: {name: backup, mountPath: /backup, readOnly: true}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: backup, persistentVolumeClaim: {claimName: svc-your-service-name-pg-backup-pvc}}
+  - it: without backups the PostgreSQL Pod mounts no backup volume
+    template: postgresql-statefulset.yaml
+    set:
+      postgresql: {backup: {enabled: false}}
+    asserts:
+      - notExists: {path: spec.template.spec.volumes}
+      - lengthEqual: {path: 'spec.template.spec.containers[0].volumeMounts', count: 1}
+  - it: the backup job is required to run on the PostgreSQL Pod's node (the volume is ReadWriteOnce)
+    template: pg-backup-cronjob.yaml
+    documentSelector: {path: kind, value: CronJob}
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.affinity.podAffinity.requiredDuringSchedulingIgnoredDuringExecution
+          value:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels: {app.kubernetes.io/component: postgresql, app.kubernetes.io/instance: svc}
+  - it: the verify job is required to run there too
+    template: pg-backup-verify-cronjob.yaml
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.affinity.podAffinity.requiredDuringSchedulingIgnoredDuringExecution
+          value:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels: {app.kubernetes.io/component: postgresql, app.kubernetes.io/instance: svc}
+  - it: an empty storage class leaves storageClassName out, so the cluster's default class is used
+    set:
+      postgresql: {storage: {className: ""}, backup: {storage: {className: ""}}}
+    asserts:
+      - notExists: {path: spec.storageClassName}
+        template: pg-backup-cronjob.yaml
+        documentSelector: {path: kind, value: PersistentVolumeClaim}
+      - notExists: {path: 'spec.volumeClaimTemplates[0].spec.storageClassName'}
+        template: postgresql-statefulset.yaml
+  - it: a named storage class is rendered as it is
+    asserts:
+      - equal: {path: spec.storageClassName, value: standard}
+        template: pg-backup-cronjob.yaml
+        documentSelector: {path: kind, value: PersistentVolumeClaim}
+      - equal: {path: 'spec.volumeClaimTemplates[0].spec.storageClassName', value: standard}
+        template: postgresql-statefulset.yaml
+  - it: the database admits the backup and verify jobs of its own namespace, on the database port
+    template: db-network-policy.yaml
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector:
+                  matchExpressions:
+                    - {key: app.kubernetes.io/component, operator: In, values: [backup, backup-verification]}
+                  matchLabels: {app.kubernetes.io/instance: svc}
+            ports: [{protocol: TCP, port: 5432}]
+  - it: without backups the database admits no backup job
+    template: db-network-policy.yaml
+    set:
+      postgresql: {backup: {enabled: false}}
+    asserts:
+      - lengthEqual: {path: spec.ingress, count: 2}

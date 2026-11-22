@@ -34,6 +34,19 @@ golden render, WAF off:
           ports:
             - port: 5432
               protocol: TCP
+        - from:
+            - podSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/component
+                    operator: In
+                    values:
+                      - backup
+                      - backup-verification
+                matchLabels:
+                  app.kubernetes.io/instance: svc
+          ports:
+            - port: 5432
+              protocol: TCP
       podSelector:
         matchLabels:
           app.kubernetes.io/component: postgresql
@@ -284,6 +297,19 @@ golden render, WAF on:
               podSelector:
                 matchLabels:
                   app.kubernetes.io/component: migration
+          ports:
+            - port: 5432
+              protocol: TCP
+        - from:
+            - podSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/component
+                    operator: In
+                    values:
+                      - backup
+                      - backup-verification
+                matchLabels:
+                  app.kubernetes.io/instance: svc
           ports:
             - port: 5432
               protocol: TCP

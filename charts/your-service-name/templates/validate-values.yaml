@@ -89,6 +89,9 @@
 {{- fail (printf "%s: environment is production but pdb.%s.minAvailable is %d, so a node drain may evict every %s Pod. Set it to 1 or more." (include "chart.fullname" $) $c (int (get $.Values.pdb $c).minAvailable) $c) }}
 {{- end }}
 {{- end }}
+{{- if .Values.tests.enabled }}
+{{- fail (printf "%s: environment is production but tests.enabled is true. The helm test hooks (templates/tests) open the namespace's default-deny to test Pods while they run and are for local and kind clusters only: set tests.enabled=false." (include "chart.fullname" .)) }}
+{{- end }}
 {{- end }}
 {{- /*
   The metrics port is its own container port in the backend Pod: it may not be the API port or, with

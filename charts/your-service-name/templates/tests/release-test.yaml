@@ -39,7 +39,9 @@
 {{- $collector = eq (toJson $nsSelector) (toJson (dict "kubernetes.io/metadata.name" .Release.Namespace)) }}
 {{- $peerLabels = $np.monitoringPodSelector | default (dict "app.kubernetes.io/name" (ternary "collector" "prometheus" $gmp)) }}
 {{- end }}
-{{- $hook := dict "helm.sh/hook" "test" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded" }}
+{{- /* Removed after a pass and after a failure, so no hook object (an open policy above all)
+       outlives a run; the client prints each check, so a failure's reason is in helm test's output. */}}
+{{- $hook := dict "helm.sh/hook" "test" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded,hook-failed" }}
 # ---- The test Pods' egress: the API (and metrics) ports, the frontend, the WAF, DNS ----
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -62,6 +64,7 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: backend
+              app.kubernetes.io/instance: {{ .Release.Name }}
       ports:
         - protocol: TCP
           port: {{ $backendPort }}
@@ -71,6 +74,7 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: frontend
+              app.kubernetes.io/instance: {{ .Release.Name }}
       ports:
         - protocol: TCP
           port: {{ $frontendPort }}
@@ -79,6 +83,7 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: waf
+              app.kubernetes.io/instance: {{ .Release.Name }}
       ports:
         - protocol: TCP
           port: {{ .Values.waf.service.port }}
@@ -101,6 +106,8 @@ spec:
       - key: app.kubernetes.io/component
         operator: In
         values: {{ toJson (concat (list "backend" "frontend") (ternary (list "waf") list .Values.waf.enabled)) }}
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
   policyTypes:
     - Ingress
   ingress:
@@ -201,7 +208,7 @@ spec:
                   host, port = target.rsplit(":", 1)
                   try:
                       socket.create_connection((host, int(port)), timeout=5).close()
-                      print("FAIL", f"{name}: {target} accepted a connection (want refused)", flush=True)
+                      print("FAIL", f"{name}: {target} accepted a connection (want refused): does this cluster's CNI enforce NetworkPolicy? If not, use one that does, or set tests.enabled=false", flush=True)
                       failed.append(name)
                   except OSError as e:
                       print("ok  ", f"{name}: {target} refused ({e})", flush=True)

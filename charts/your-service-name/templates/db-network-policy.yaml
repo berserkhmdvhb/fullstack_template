@@ -41,4 +41,18 @@ spec:
       ports:
         - protocol: TCP
           port: {{ include "chart.dbPort" . }}
+{{- if .Values.postgresql.backup.enabled }}
+    # The backup and verify jobs of this release, in this (the database) namespace.
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values: [backup, backup-verification]
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: {{ include "chart.dbPort" . }}
+{{- end }}
 {{- end }}

@@ -54,8 +54,6 @@ ALL_ON = (
     "postgresql.backup.enabled=true",
     "--set",
     "monitoring.scrapeAnnotations=true",
-    "--set",
-    "tests.enabled=true",
     # The secret sources are exclusive: the ExternalSecret replaces production's existingSecret, and
     # the in-cluster database (dev, qa, local) then takes its password from its own Secret.
     "--set",
@@ -83,11 +81,19 @@ PROXY_ON = (
     "--set",
     "cloudSqlProxy.autoIamAuthn=true",
 )
+# The helm test hooks: every option on plus tests.enabled, on every values file but production's,
+# whose render refuses tests.enabled.
+TESTS_ON = (*ALL_ON, "--set", "tests.enabled=true")
 RENDERS = (
     [(f, ()) for f in VALUES_FILES]
     + [(f, ALL_ON) for f in VALUES_FILES]
     + [(f, PROXY_ON) for f in VALUES_FILES]
+    + [(f, TESTS_ON) for f in VALUES_FILES if f != "values.production.yaml"]
 )
+RENDER_IDS = [
+    f"{v}{ {ALL_ON: '+all', PROXY_ON: '+proxy', TESTS_ON: '+tests'}.get(a, '') }"
+    for v, a in RENDERS
+]
 
 ALLOWED_VOLUMES = {
     "configMap",
@@ -227,7 +233,7 @@ def helm() -> str:
 @pytest.mark.parametrize(
     ("values", "args"),
     RENDERS,
-    ids=[f"{v}{'+all' if a == ALL_ON else '+proxy' if a else ''}" for v, a in RENDERS],
+    ids=RENDER_IDS,
 )
 def test_every_pod_template_meets_the_restricted_profile(
     helm: str, values: str, args: tuple[str, ...]
@@ -351,6 +357,7 @@ NOT_ALL_ON = {
     "cloudSqlProxy.enabled": "needs a managed database, so it fails with the in-cluster: PROXY_ON",
     "cloudSqlProxy.privateIp": "a proxy flag: PROXY_ON turns it on with the proxy",
     "cloudSqlProxy.autoIamAuthn": "a proxy flag: PROXY_ON turns it on with the proxy",
+    "tests.enabled": "production refuses it: TESTS_ON turns it on for every other values file",
 }
 
 

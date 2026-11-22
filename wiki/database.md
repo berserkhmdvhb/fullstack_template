@@ -562,7 +562,25 @@ Migrations run as a per-revision Job that is a plain release resource, not a Hel
 
 ### Database Backup CronJob
 
-Automated daily backups via CronJob:
+Automated daily backups via CronJob (`postgresql.backup.enabled`, on by default with the in-cluster
+database), and a weekly verify CronJob that restores the newest dump into a scratch database. How
+the chart keeps them deployable on any storage class:
+- **The backup PVC binds at install.** The PostgreSQL Pod mounts it read-only at `/backup`, so it has a
+  consumer from the first install: a `WaitForFirstConsumer` class (kind's `standard`, GKE's
+  `standard-rwo`, EKS's gp2 and gp3) binds it when PostgreSQL schedules, and `helm --wait` (the
+  deploy's) never waits on a `Pending` PVC. PostgreSQL never writes to it.
+- **The jobs run on the database's node.** The volume is ReadWriteOnce, so both CronJobs carry a
+  required `podAffinity` to the PostgreSQL Pod (`kubernetes.io/hostname`).
+- **The storage class:** `postgresql.backup.storage.className` (and `postgresql.storage.className`)
+  default to `standard`; `""` leaves `storageClassName` out, so the cluster's default class is used
+  (on a cluster with no class named `standard`). Both fields are immutable on an existing PVC.
+- **The NetworkPolicy** admits this release's backup and verify jobs to PostgreSQL, in its own
+  namespace.
+- The backup shares the database's node and, on a node-local class, its disk: copy dumps off the
+  cluster for a real off-site backup.
+
+The kind job runs one backup and its verification on every pull request
+([Infrastructure, Local cluster (kind)](./infrastructure.md#local-cluster-kind)). The core of the job:
 
 ```yaml
 # now in the Helm chart: charts/your-service-name/templates/pg-backup-cronjob.yaml

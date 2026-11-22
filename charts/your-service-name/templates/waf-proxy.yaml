@@ -27,6 +27,14 @@
        to its memory request; the rest is left to the Wasm VMs and the process. */}}
 {{- $wafMemory := include "chart.bytes" .Values.waf.resources.requests.memory }}
 {{- $maxHeap := div (mul (int64 $wafMemory) 8) 10 }}
+{{- /* Envoy's workers (waf.concurrency) each load a Wasm VM with the rules, and each needs CPU: at most
+       the WAF's CPU request in cores, rounded up, and at least 2 (the default) for a small request. */}}
+{{- $cpu := toString .Values.waf.resources.requests.cpu }}
+{{- $milli := ternary (atoi (trimSuffix "m" $cpu)) (int (mulf (float64 $cpu) 1000)) (hasSuffix "m" $cpu) }}
+{{- $maxWorkers := max 2 (div (add $milli 999) 1000) }}
+{{- if gt (int .Values.waf.concurrency) (int $maxWorkers) }}
+{{- fail (printf "%s: waf.concurrency (%d) is more than waf.resources.requests.cpu (%s) allows (%d): each Envoy worker loads its own Wasm VM with the rules. Raise the CPU request (and the memory with it) or lower waf.concurrency." (include "chart.fullname" .) (int .Values.waf.concurrency) $cpu (int $maxWorkers)) }}
+{{- end }}
 # -----------------------------------------------------------------------------
 # WAF proxy — Coraza (Envoy wasm + OWASP CRS), fronting the API surface.
 #

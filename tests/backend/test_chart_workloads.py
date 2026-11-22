@@ -15,6 +15,7 @@ import yaml
 from tests.backend.test_chart_pod_security import (
     ALL_ON,
     PROXY_ON,
+    RENDER_IDS,
     RENDERS,
     VALUES_FILES,
     pod_specs,
@@ -177,7 +178,7 @@ def _all_containers(pod: dict[str, Any]) -> list[dict[str, Any]]:
 @pytest.mark.parametrize(
     ("values", "args"),
     RENDERS,
-    ids=[f"{v}{'+all' if a == ALL_ON else '+proxy' if a else ''}" for v, a in RENDERS],
+    ids=RENDER_IDS,
 )
 def test_every_container_has_a_cpu_request_a_memory_limit_equal_to_its_request_and_no_cpu_limit(
     helm: str, values: str, args: tuple[str, ...]

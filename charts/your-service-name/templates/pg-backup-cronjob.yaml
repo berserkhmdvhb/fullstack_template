@@ -30,6 +30,7 @@ spec:
             # the pod is rejected on an enforcing cluster.
             seccompProfile:
               type: RuntimeDefault
+          {{- include "chart.backupAffinity" . | nindent 10 }}
           containers:
             - name: pg-backup
               image: {{ include "chart.image" (dict "image" .Values.postgresql.clientImage) }}
@@ -91,7 +92,9 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: {{ .Values.postgresql.backup.storage.className }}
+  {{- with .Values.postgresql.backup.storage.className }}
+  storageClassName: {{ . }}
+  {{- end }}
   resources:
     requests:
       storage: {{ .Values.postgresql.backup.storage.size | quote }}

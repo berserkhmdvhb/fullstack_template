@@ -55,6 +55,21 @@ matchLabels:
 {{- end -}}
 
 {{/* db namespace = <app-namespace>-<suffix>. Derived so it tracks the release. */}}
+{{/*
+   The backup and verify jobs run on the PostgreSQL Pod's node: the backup PVC is ReadWriteOnce, and
+   that Pod mounts it (read-only) from the install on. Emits at column 0 (use `| nindent`).
+*/}}
+{{- define "chart.backupAffinity" -}}
+affinity:
+  podAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: kubernetes.io/hostname
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/component: postgresql
+            app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
+
 {{- define "chart.dbNamespace" -}}
 {{- printf "%s-%s" .Release.Namespace .Values.namespaces.dbSuffix -}}
 {{- end -}}
