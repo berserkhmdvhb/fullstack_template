@@ -228,7 +228,7 @@ health_check() {                      # $1 ns  $2 key  $3 container  $4 probe
   fi
   for ((attempt = 1; attempt <= HEALTH_RETRIES; attempt++)); do
     pod="$(kubectl get pod -n "${ns}" -l "app.kubernetes.io/component=${key}" \
-            -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | head -n1)"
+            -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null | sed -n 1p)"
     [ -n "${pod}" ] || { sleep "${HEALTH_INTERVAL}"; continue; }
     if run_shell "kubectl exec -n '${ns}' '${pod}' -c '${container}' -- ${probe}"; then
       return 0

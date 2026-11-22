@@ -243,7 +243,7 @@ cmd_license() {
 
   # Enrich with the per-package totals from the full grant report, if present.
   local full
-  full="$(find "$d" -maxdepth 1 -type f -name '*.grant.json' | head -1)"
+  full="$(find "$d" -maxdepth 1 -type f -name '*.grant.json' -print -quit)"
   if [ -n "$full" ]; then
     jq -r '
       .run.targets[0].evaluation as $e
@@ -294,7 +294,7 @@ cmd_jq() {
       f="$OUT/$f"
     else
       local cand
-      cand="$(find "$OUT" -type f -name "$f" 2>/dev/null | head -1)"
+      cand="$(find "$OUT" -type f -name "$f" -print -quit 2>/dev/null)"
       [ -n "$cand" ] && f="$cand"
     fi
   fi

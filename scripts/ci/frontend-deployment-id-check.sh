@@ -24,7 +24,7 @@ trap cleanup EXIT
 docker build --file Dockerfile.frontend --tag "$tag" \
   --build-arg "VERSION=${version}" --build-arg "VCS_REF=${commit}" .
 docker run --detach --name "$name" --publish 127.0.0.1::3000 "$tag" > /dev/null
-port="$(docker port "$name" 3000/tcp | head -n 1 | sed 's/.*://')"
+port="$(docker port "$name" 3000/tcp | sed -n '1s/.*://p')"
 
 page=""
 for _ in $(seq 1 60); do

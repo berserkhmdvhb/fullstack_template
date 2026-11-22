@@ -22,7 +22,7 @@ if [[ -x "$root/.venv/bin/python" ]]; then python="$root/.venv/bin/python"; fi
 head_sha="$(git rev-parse HEAD)"
 matrix="$(GITHUB_REF_NAME=local GITHUB_REF_TYPE=branch GITHUB_SHA="$head_sha" \
   GITHUB_REPOSITORY_OWNER=local GITHUB_REPOSITORY=local/local \
-  "$python" .github/scripts/container_matrix.py --matrix --config "$IMAGE_CHECKS_MANIFEST" | head -n 1)"
+  "$python" .github/scripts/container_matrix.py --matrix --config "$IMAGE_CHECKS_MANIFEST" | sed -n 1p)"
 
 ids=("$@")
 if ((${#ids[@]} == 0)); then

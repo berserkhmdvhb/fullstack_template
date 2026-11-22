@@ -122,11 +122,13 @@ fi
 # SKIPPED — the *current* template state — rather than running an empty scan or
 # falsely reporting GREEN. Excludes node_modules + .git.
 has_k8s=0
-if find "$ROOT" -type f \( -name 'Chart.yaml' -o -name 'kustomization.yaml' -o -name 'kustomization.yml' \) \
-       -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | grep -q .; then
+# Each find stops at its first hit (-print -quit), so its test reads a captured value: a reader that
+# stops early on a pipe could kill a still-writing find with SIGPIPE under pipefail.
+if [[ -n "$(find "$ROOT" -type f \( -name 'Chart.yaml' -o -name 'kustomization.yaml' -o -name 'kustomization.yml' \) \
+       -not -path '*/node_modules/*' -not -path '*/.git/*' -print -quit 2>/dev/null)" ]]; then
   has_k8s=1
-elif find "$ROOT" -type f -not -path '*/node_modules/*' -not -path '*/.git/*' \
-       -exec grep -lE '^kind:' {} + 2>/dev/null | grep -q .; then
+elif [[ -n "$(find "$ROOT" -type f -not -path '*/node_modules/*' -not -path '*/.git/*' \
+       -exec grep -qE '^kind:' {} \; -print -quit 2>/dev/null)" ]]; then
   has_k8s=1
 fi
 if [[ "$has_k8s" -eq 0 ]]; then

@@ -112,7 +112,9 @@ json="${OUT_DIR}/report.json"
 # whether the box has an older version or the pinned one — never hard-crash on a
 # flag the installed binary doesn't know ("flag provided but not defined: -x-exclude"
 # on a laptop with a stale osv-scanner).
-if "$OSV_BIN" scan source --help 2>&1 | grep -q -- '--x-exclude'; then
+# Captured first: grep -q on a pipe could stop before the help is written (SIGPIPE under pipefail).
+osv_help="$("$OSV_BIN" scan source --help 2>&1 || true)"
+if grep -q -- '--x-exclude' <<<"$osv_help"; then
   exclude_flag=--x-exclude
 else
   exclude_flag=--experimental-exclude

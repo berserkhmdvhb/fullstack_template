@@ -950,7 +950,7 @@ _resolve_sbom() {
   local d="${SEC_OUTPUT_DIR%/}/sbom" f
   if [ -f "$d/backend.image.sbom.cdx.json" ]; then
     printf '%s' "$d/backend.image.sbom.cdx.json"
-  elif f="$(find "$d" -maxdepth 1 -type f -name '*.cdx.json' 2>/dev/null | head -n1)" \
+  elif f="$(find "$d" -maxdepth 1 -type f -name '*.cdx.json' -print -quit 2>/dev/null)" \
        && [ -n "$f" ]; then
     printf '%s' "$f"
   fi

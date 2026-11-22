@@ -116,7 +116,7 @@ health() {
   local comp="$1" port="$2" path="$3" pod log pf local_port="" ok=1 i
   pod="$("${K[@]}" get pods -l "app.kubernetes.io/component=${comp}" \
     -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.metadata.deletionTimestamp}{"\n"}{end}' \
-    | awk -F'|' '$1 != "" && $2 == "" {print $1; exit}')"
+    | awk -F'|' '$1 != "" && $2 == "" && !n++ {print $1}')"
   [[ -n "$pod" ]] || fail "no $comp pod to check"
   log="$(mktemp)"
   "${K[@]}" port-forward "pod/${pod}" ":${port}" >"$log" 2>&1 &
@@ -129,7 +129,7 @@ health() {
   # shellcheck disable=SC2064
   trap "kill $pf 2>/dev/null; rm -f '$log'; exit 143" TERM
   for ((i = 0; i < ${PF_WAIT_TRIES:-50}; i++)); do
-    local_port="$(sed -n 's/^Forwarding from 127\.0\.0\.1:\([0-9]*\) .*/\1/p' "$log" | head -n 1)"
+    local_port="$(sed -n '/^Forwarding from 127\.0\.0\.1:/{s/^Forwarding from 127\.0\.0\.1:\([0-9]*\) .*/\1/p;q;}' "$log")"
     [[ -z "$local_port" ]] || break
     kill -0 "$pf" 2>/dev/null || break
     sleep 0.2

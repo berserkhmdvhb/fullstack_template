@@ -343,7 +343,7 @@ check_backend_engine() {
   local logs
   logs="$(kubectl logs -n "${NAMESPACE}" deploy/your-service-name-backend --tail 60 2>&1 || true)"
   if [[ "${dburl}" == *"postgresql"* ]]; then
-    if printf '%s' "${logs}" | grep -qi "SQLiteImpl"; then
+    if grep -qi "SQLiteImpl" <<<"${logs}"; then
       record "backend on Postgres" WARN "DATABASE_URL is postgresql but a SQLiteImpl fallback appeared in logs"
     else
       record "backend on Postgres" PASS "DATABASE_URL is postgresql+asyncpg, no SQLite fallback"
@@ -428,7 +428,7 @@ cmd_deploy() {
   local s;  for s  in "${SET_ARGS[@]}"; do args+=("--set" "${s}"); done
   # Coexistence window: `local` renders no edge object so its host/path can't collide
   # with the still-live Kustomize `local` deploy. Drop this after Stage C (k8s/ gone).
-  if [ "${ENV_NAME}" = "local" ] && ! printf ' %s ' " ${SET_ARGS[*]} " | grep -q "edge.mode="; then
+  if [ "${ENV_NAME}" = "local" ] && ! grep -q "edge.mode=" <<<" ${SET_ARGS[*]} "; then
     args+=("--set" "edge.mode=tunnel")
   fi
   [ "${DRY_RUN}" = "true" ] && args+=("--dry-run")
