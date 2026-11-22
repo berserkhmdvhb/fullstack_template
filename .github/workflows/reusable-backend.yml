@@ -56,8 +56,9 @@ jobs:
         if: matrix.python-version == '3.14'
         run: echo 'Python 3.14 is an advisory leg, so a failure on it does not block the merge.' >> "$GITHUB_STEP_SUMMARY"
       # tests/backend/test_chart_production_guard.py renders the chart; it uses .tools/bin/helm (the pin).
-      - name: Install the pinned Helm
-        run: scripts/tools.sh install helm4
+      # scripts/k8s-bootstrap.sh (tests/backend/test_k8s_bootstrap.py) also reads its config with yq.
+      - name: Install the pinned Helm and yq
+        run: scripts/tools.sh install helm4 yq
       # The coverage floor (85 percent) is set in pyproject.toml, under [tool.coverage.report].
       - name: Unit tests with coverage
         run: make test-unit

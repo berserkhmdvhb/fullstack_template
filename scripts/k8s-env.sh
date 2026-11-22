@@ -53,6 +53,9 @@ ONLY=""
 TIMEOUT="${ROLLOUT_TIMEOUT:-240}"
 WAIT_TRIES="${WAIT_TRIES:-1}"          # rollout status already blocks; 1 pass
 NO_WAIT="false"
+# Helm keeps this many release revisions, as the deploy does (scripts/ci/deploy-env.sh); the bootstrap's
+# Secrets quota allows them.
+HELM_HISTORY_MAX=5
 DRY_RUN="${DRY_RUN:-false}"
 LIB_ASSUME_YES="${LIB_ASSUME_YES:-false}"
 
@@ -197,6 +200,25 @@ cmd_apply() {
   log_info "values   : ${VALUES_FILE#"$LIB_REPO_ROOT"/}"
   log_info "namespace: ${NAMESPACE}"
 
+  # helm upgrade --install is idempotent: the first install and every later deploy
+  # use the same command. The chart makes a new migration Job per release revision,
+  # so there is no migration Job to delete-recreate. Extra -f files (from --values)
+  # override values.<env>.yaml; --set KEY=VALUE (repeatable) overrides individual values.
+  local -a helm=(upgrade --install "${HELM_RELEASE}" "${LIB_CHART_DIR}" -f "${VALUES_FILE}" --history-max "${HELM_HISTORY_MAX}")
+  local vf s
+  for vf in "${EXTRA_VALUES[@]}"; do helm+=(-f "${vf}"); done
+  for s in "${SET_ARGS[@]}"; do helm+=(--set "${s}"); done
+  helm+=(-n "${NAMESPACE}")
+
+  # A release from an older chart owns its Namespace objects (and the app's Role). Switching to the
+  # bootstrap would make Helm delete them, and everything in the namespaces. So upgrade it once with
+  # both still rendered: they gain helm.sh/resource-policy: keep, and Helm leaves them in place.
+  if [ "${DRY_RUN}" != "true" ] \
+      && helm get manifest "${HELM_RELEASE}" -n "${NAMESPACE}" 2>/dev/null | grep -qx 'kind: Namespace'; then
+    log_warn "release ${HELM_RELEASE} still owns its Namespace objects: one upgrade with namespaces.create=true and rbac.create=true first, so they are kept when the chart stops rendering them"
+    run helm "${helm[@]}" --set namespaces.create=true --set rbac.create=true
+  fi
+
   # The chart creates no namespace (namespaces.create=false). The namespaces, with the
   # restricted Pod Security labels, the quota, the LimitRange and the deployer RBAC, come
   # from the admin bootstrap: render it and apply it first (idempotent; needs admin rights).
@@ -207,16 +229,6 @@ cmd_apply() {
   else
     "${boot[@]}" | kubectl apply -f -
   fi
-
-  # helm upgrade --install is idempotent: the first install and every later deploy
-  # use the same command. The chart makes a new migration Job per release revision,
-  # so there is no migration Job to delete-recreate. Extra -f files (from --values)
-  # override values.<env>.yaml; --set KEY=VALUE (repeatable) overrides individual values.
-  local -a helm=(upgrade --install "${HELM_RELEASE}" "${LIB_CHART_DIR}" -f "${VALUES_FILE}")
-  local vf s
-  for vf in "${EXTRA_VALUES[@]}"; do helm+=(-f "${vf}"); done
-  for s in "${SET_ARGS[@]}"; do helm+=(--set "${s}"); done
-  helm+=(-n "${NAMESPACE}")
 
   log_step "helm ${helm[*]}"
   run helm "${helm[@]}"

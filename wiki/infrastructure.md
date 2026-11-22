@@ -71,9 +71,9 @@ The base resource set maps 1:1 into the chart. Per-env differences live in
 
 ## Namespace bootstrap (one-time admin step)
 
-The chart creates no namespace (`namespaces.create: false`, the default) and carries no quota. A cluster
-admin creates them once per environment, before the first deploy, so the deployer needs no
-cluster-scoped rights at all.
+The chart creates no namespace (`namespaces.create: false`, the default), no RBAC (`rbac.create:
+false`) and no quota. A cluster admin creates them once per environment, before the first deploy, so
+the deployer needs no cluster-scoped rights and no RBAC rights at all.
 
 **What it creates** ([`infra/k8s/bootstrap/`](../infra/k8s/bootstrap/), rendered by
 [`scripts/k8s-bootstrap.sh`](../scripts/k8s-bootstrap.sh)):
@@ -84,7 +84,9 @@ cluster-scoped rights at all.
   The `tier` label (`app-ns`, `db`) is what the chart's NetworkPolicies select on;
 - the app namespace's ResourceQuota and LimitRange. They set no CPU limit (CPU limits throttle);
   memory is capped. Raise the quota together with the chart's HPA `maxReplicas`;
-- in each namespace, the Role and RoleBinding `bootstrap-deployer` for the deploy identity.
+- in each namespace, the Role and RoleBinding `bootstrap-deployer` for the deploy identity;
+- the app's own Role and RoleBinding (its ServiceAccount reads ConfigMaps), rendered from the chart's
+  `templates/rbac.yaml` with `helm template --show-only`, so their rules have one source.
 
 **Render and apply it,** per environment (`dev`, `qa`, `production`, or `local` for a local cluster):
 
@@ -115,27 +117,36 @@ logs and port-forward, which the deploy's wait, verify and smoke steps use. It c
 Pod: the verify step asks each Pod's health route over a port-forward. A test derives the kind list
 from the chart, so a kind added to the chart fails it until the Role covers the kind.
 
-**The quota and Helm's history:** the deploy keeps 5 release revisions (`helm upgrade --history-max`,
-`HELM_HISTORY_MAX` in `scripts/ci/deploy-env.sh`), each a Secret. The Secrets quota covers them, the
-one written during an upgrade, the chart's own Secrets and headroom; a test recomputes it, so raise the
-two together.
+**The quota and Helm's history:** every upgrade keeps 5 release revisions (`--history-max`,
+`HELM_HISTORY_MAX` in `scripts/ci/deploy-env.sh` and `scripts/k8s-env.sh`), each a Secret. The Secrets
+quota covers them, the one written during an upgrade, the chart's own Secrets and headroom; a test
+recomputes it for every environment, so raise the two together.
 
-**A `fullnameOverride`:** when the release sets the chart's `fullnameOverride`, set `fullname` to the
-same value in the bootstrap's `values.<env>.yaml`, so the deployer may change the chart's own Role and
-RoleBinding (`<fullname>-role`, `<fullname>-binding`). Unset, it is derived as the chart derives it.
+**A `fullnameOverride` or `nameOverride`:** they name the app's Role and RoleBinding
+(`<fullname>-role`, `<fullname>-binding`). The bootstrap renders them with the chart's
+`values.<env>.yaml`, so an override set there is used as it is; one set elsewhere goes in the
+bootstrap's `values.<env>.yaml` as `fullname` or `nameOverride`. Unset, the chart derives the name.
 
 **What it may never do:** use a wildcard, `escalate`, `bind` or `impersonate`; touch namespaces,
-ResourceQuotas or LimitRanges; or change its own Role and RoleBinding. The chart has its own Role
-(its ServiceAccount reads ConfigMaps), so the deployer may create Roles and RoleBindings, but may change
-or delete only the chart's, by name, and the chart never uses the name `bootstrap-deployer`. Kubernetes
-refuses any Role or binding that grants more than the deployer already holds. That is why the quota,
-the LimitRange and this RBAC live in the bootstrap: a compromised deploy can't lift its own limits or
-widen its own rights.
+ResourceQuotas or LimitRanges; or create, change or delete any Role or RoleBinding. So it can't widen
+its own rights, and it can't copy them to another identity by binding its Role to it. That is why the
+quota, the LimitRange and all RBAC live in the bootstrap: a compromised deploy can't lift its own
+limits or hand its rights on. (Its write access to Secrets and ServiceAccounts in its own namespaces
+remains, as Helm needs it.)
 
-**An existing release that created its namespaces:** upgrade once with `namespaces.create=true` (the
-chart's Namespaces now carry `helm.sh/resource-policy: keep`), then apply the bootstrap and upgrade
-with the default. Without that first step, Helm deletes the namespaces it no longer renders, and
-everything in them.
+**The single-tenant path, without the bootstrap:** a cluster admin installs the chart with
+`--set namespaces.create=true --set rbac.create=true`, so the release itself renders both namespaces
+and the app's RBAC (there is then no quota, no LimitRange and no deployer Role). Helm keeps its release
+record in the release namespace, so that namespace must exist first, with Helm's ownership metadata
+for the release to adopt it (the label `app.kubernetes.io/managed-by=Helm`, the annotations
+`meta.helm.sh/release-name` and `meta.helm.sh/release-namespace`).
+
+**An existing release that created its namespaces:** upgrade once with `namespaces.create=true` and
+`rbac.create=true` (the chart's Namespaces, Role and RoleBinding now carry
+`helm.sh/resource-policy: keep`), then apply the bootstrap and upgrade with the defaults. Without that
+first step, Helm deletes the namespaces it no longer renders, and everything in them.
+`scripts/k8s-env.sh apply` (`make k8s-apply`, `make deploy`) sees such a release (its stored manifest
+holds a Namespace) and runs that upgrade first, saying so.
 
 ---
 

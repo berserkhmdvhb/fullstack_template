@@ -211,7 +211,8 @@ make rebuild-and-roll HELM_ENV=local   # build + verify + roll + health (needs a
 ## Step 5: Deploy the stack
 
 The stack is deployed with the **Helm chart** (`charts/your-service-name`), not
-`kubectl apply`. The chart creates **both** namespaces (app + `…-db`), renders
+`kubectl apply`. The [admin bootstrap](./infrastructure.md#namespace-bootstrap-one-time-admin-step) creates **both** namespaces (app + `…-db`;
+`k8s-env.sh apply` applies it first). The chart renders
 the app Secret and the `…-db-credentials` Secret from `values.local.yaml` + your
 `values.secret.yaml`, and runs the DB migration as a per-revision Job (not a Helm hook; see
 [Database operations](./database.md#the-migration-job)) — so you create nothing by hand.

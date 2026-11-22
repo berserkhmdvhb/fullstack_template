@@ -641,7 +641,7 @@ done
 
 **Don't create a key for any of these service accounts, ever.** If a tutorial tells you to download a JSON key, it's describing the old way.
 
-**Deploy rights are Kubernetes RBAC, delivered by the namespace bootstrap.** The bootstrap creates, in each of the environment's namespaces, the `Role` and `RoleBinding` `bootstrap-deployer` for the deployer's service account email (the Kubernetes user name). The Role holds Helm's verbs on exactly the kinds the chart renders there (Helm's release Secrets included), read access to Pods and ReplicaSets, `get` on `pods/log`, and `create` on `pods/portforward` (the verify check and the smoke test); never `pods/exec`, namespaces, quotas or its own RBAC. The full list and why: [Infrastructure: namespace bootstrap](./infrastructure.md#namespace-bootstrap-one-time-admin-step).
+**Deploy rights are Kubernetes RBAC, delivered by the namespace bootstrap.** The bootstrap creates, in each of the environment's namespaces, the `Role` and `RoleBinding` `bootstrap-deployer` for the deployer's service account email (the Kubernetes user name). The Role holds Helm's verbs on exactly the kinds the chart renders there (Helm's release Secrets included), read access to Pods and ReplicaSets, `get` on `pods/log`, and `create` on `pods/portforward` (the verify check and the smoke test); never `pods/exec`, namespaces, quotas or any Role or RoleBinding (the bootstrap applies the app's own). The full list and why: [Infrastructure: namespace bootstrap](./infrastructure.md#namespace-bootstrap-one-time-admin-step).
 
 Don't write these by hand: render them (13.2).
 

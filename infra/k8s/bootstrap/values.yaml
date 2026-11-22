@@ -2,12 +2,11 @@
 
 # The Helm release name of the app (SERVICE_NAME in CI). The app namespace is <release>-<environment>.
 release: your-service-name
-# The app chart's name. With the release it gives the chart's fullname, and so the names of its own
-# Role and RoleBinding (<fullname>-role, <fullname>-binding), the only ones the deployer may change.
-chartName: your-service-name
-# The app chart's fullname. Set it to the chart's fullnameOverride when the release uses one; ""
-# derives it as the chart does: <release> when it contains chartName, else <release>-<chartName>.
+# The app chart's fullnameOverride and nameOverride, when the release sets them (they name the app's
+# Role and RoleBinding, which this bootstrap renders from the chart). "" lets the chart derive the
+# name as it always does; an override in the chart's values.<env>.yaml is read too.
 fullname: ""
+nameOverride: ""
 environment: dev
 # "" => <release>-<environment>. The database namespace is <namespace>-<dbSuffix>, as the chart derives it.
 namespace: ""

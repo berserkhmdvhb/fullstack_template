@@ -8,12 +8,19 @@
    password), so it is removed here. If you enable an in-namespace controller that
    genuinely needs to read Secrets (e.g. External Secrets Operator), give it its
    own narrowly-scoped Role instead of broad access on this SA.
+
+   Rendered only with rbac.create=true. By default the admin bootstrap (scripts/k8s-bootstrap.sh)
+   renders this template with --show-only and applies it, so the deployer holds no RBAC rights.
+   resource-policy keep: switching rbac.create off later must not make Helm delete them.
 */}}
+{{- if .Values.rbac.create }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ include "chart.fullname" . }}-role
   namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
 {{- include "chart.labels" . | nindent 4 }}
 rules:
@@ -26,6 +33,8 @@ kind: RoleBinding
 metadata:
   name: {{ include "chart.fullname" . }}-binding
   namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
 {{- include "chart.labels" . | nindent 4 }}
 roleRef:
@@ -36,3 +45,4 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "chart.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+{{- end }}

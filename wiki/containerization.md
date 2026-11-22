@@ -302,7 +302,7 @@ exists, a build-time signature is assurance the runtime never checks. The harden
 ### Deploying to Kubernetes
 
 After building and pushing the images, deploy with the Helm chart. Namespaces are per-env
-(`your-service-name-<env>` app + `<app-ns>-db` db); the chart creates them.
+(`your-service-name-<env>` app + `<app-ns>-db` db); the [admin bootstrap](./infrastructure.md#namespace-bootstrap-one-time-admin-step) creates them.
 
 ```bash
 # Deploy + verify the whole stack for the target environment (one command).

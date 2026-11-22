@@ -34,12 +34,19 @@ def test_no_doc_has_a_placeholder_create_job_line() -> None:
 
 
 def test_no_doc_lets_the_app_chart_create_its_namespace() -> None:
-    """The namespaces come from the admin bootstrap (scripts/k8s-bootstrap.sh), never from helm."""
+    """The namespaces come from the admin bootstrap (scripts/k8s-bootstrap.sh), never from helm.
+
+    Only tracked docs are read (git ls-files), so nothing outside the public tree is checked.
+    """
     offenders = []
     for p in _docs():
-        if p.relative_to(ROOT).parts[:2] == ("wiki", "plans"):
-            continue
         commands = p.read_text("utf-8").replace("\\\n", " ").splitlines()
         if [c for c in commands if "charts/your-service-name" in c and "--create-namespace" in c]:
             offenders.append(str(p.relative_to(ROOT)))
+    assert offenders == []
+
+
+def test_no_doc_says_the_chart_creates_the_namespaces() -> None:
+    pattern = re.compile(r"[Tt]he chart creates (them|both|\*\*both\*\*)")
+    offenders = [str(p.relative_to(ROOT)) for p in _docs() if pattern.search(p.read_text("utf-8"))]
     assert offenders == []

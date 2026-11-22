@@ -6,13 +6,12 @@
      Secrets. tests/backend/test_k8s_bootstrap.py derives that set from the chart, so a kind added
      to the chart fails the test until it is added here.
    - Never: a wildcard, escalate, bind or impersonate; namespaces, resourcequotas or limitranges;
-     or this Role and RoleBinding. The deployer may create Roles and RoleBindings (the chart has its
-     own), but may change or delete only the chart's, by name. Kubernetes refuses a Role or binding
-     that grants more than the deployer holds, so it can't widen its own rights.
+     or any Role or RoleBinding. The app's own Role and RoleBinding come from this bootstrap too
+     (scripts/k8s-bootstrap.sh renders the chart's templates/rbac.yaml), so the deployer can neither
+     change its own rights nor copy them to another identity.
 */}}
 {{- $helm := list "get" "list" "watch" "create" "update" "patch" "delete" }}
 {{- $read := list "get" "list" "watch" }}
-{{- $fullname := include "bootstrap.chartFullname" . }}
 {{- range (include "bootstrap.namespaces" . | fromJsonArray) }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -52,18 +51,6 @@ rules:
   - apiGroups: [monitoring.coreos.com]
     resources: [servicemonitors, prometheusrules]
     verbs: {{ toJson $helm }}
-  # The chart's own Role and RoleBinding (its ServiceAccount reads ConfigMaps).
-  - apiGroups: [rbac.authorization.k8s.io]
-    resources: [roles, rolebindings]
-    verbs: [get, list, watch, create]
-  - apiGroups: [rbac.authorization.k8s.io]
-    resources: [roles]
-    resourceNames: [{{ printf "%s-role" $fullname }}]
-    verbs: [update, patch, delete]
-  - apiGroups: [rbac.authorization.k8s.io]
-    resources: [rolebindings]
-    resourceNames: [{{ printf "%s-binding" $fullname }}]
-    verbs: [update, patch, delete]
   # The deploy's checks, one line each:
   # helm --wait reads a Deployment's Pods; deploy-verify.sh lists them.
   - apiGroups: [""]

@@ -47,8 +47,8 @@ This runbook covers day-to-day operational tasks for running the service on Kube
 ### Standard Deployment
 
 > **Deployed with the Helm chart** (`charts/your-service-name/`), not `kubectl apply -k`. Namespaces
-> are per-env: app `your-service-name-<environment>`, db `<app-ns>-db` (production keeps the bare
-> `your-service-name`). The chart creates both; you no longer pre-create them.
+> are per-env: app `your-service-name-<environment>`, db `<app-ns>-db`. The
+> [admin bootstrap](./infrastructure.md#namespace-bootstrap-one-time-admin-step) creates both, once per environment; the chart creates none.
 
 ```bash
 # 1. Verify the image is in the registry (or, for local/minikube, built into the node daemon).

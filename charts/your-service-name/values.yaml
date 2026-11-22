@@ -37,6 +37,12 @@ namespaces:
   # then needs no cluster-scoped rights. true renders the two Namespace objects from this chart.
   create: false
 
+# The app's Role and RoleBinding (its ServiceAccount reads ConfigMaps; templates/rbac.yaml). false
+# (the default): the admin bootstrap renders them from this same template, so the deployer needs no
+# RBAC rights. true renders them in the release, with namespaces.create (the single-tenant path).
+rbac:
+  create: false
+
 serviceAccount:
   name: your-service-name
   automountServiceAccountToken: false

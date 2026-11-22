@@ -17,6 +17,10 @@ setup() {
 #!/usr/bin/env bash
 echo "helm $*" >> "$LOG"
 [[ "$1" != template ]] || echo "kind: Namespace # rendered"
+if [[ "$1 $2" == "get manifest" ]]; then
+  [[ -n "${STUB_MANIFEST-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
+  printf '%s\n' "$STUB_MANIFEST"
+fi
 STUB
   cat > "$B/kubectl" <<'STUB'
 #!/usr/bin/env bash
@@ -64,4 +68,33 @@ STUB
   [[ "$output" == *"k8s-bootstrap.sh dev --release your-service-name --namespace your-service-name-dev | kubectl apply -f -"* ]]
   [[ "$output" == *"helm upgrade --install"* ]]
   run ! grep -q "apply\|upgrade" "$LOG"
+}
+
+@test "a release that still owns its Namespaces is first upgraded once to keep them" {
+  STUB_MANIFEST=$'---\nkind: Namespace\nmetadata:\n  name: svc-qa\n---\nkind: Role' run bash "$SCRIPT" apply --env qa --release svc --no-wait
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"still owns its Namespace objects"* ]]
+  once="$(grep -n "^helm upgrade .*--set namespaces.create=true --set rbac.create=true" "$LOG" | cut -d: -f1)"
+  applied="$(grep -n "^kubectl apply -f -$" "$LOG" | cut -d: -f1)"
+  last="$(grep -n "^helm upgrade" "$LOG" | tail -n 1 | cut -d: -f1)"
+  [ -n "$once" ]
+  [ "$(grep -c "^helm upgrade" "$LOG")" -eq 2 ]
+  (( once < applied && applied < last ))
+  run grep -q "namespaces.create" <<<"$(sed -n "${last}p" "$LOG")"
+  [ "$status" -ne 0 ]
+}
+
+@test "a new or already switched release gets only the normal upgrade" {
+  for manifest in "" $'---\nkind: Deployment'; do
+    : > "$LOG"
+    STUB_MANIFEST="$manifest" run bash "$SCRIPT" apply --env dev --release svc --no-wait
+    [ "$status" -eq 0 ]
+    [ "$(grep -c "^helm upgrade" "$LOG")" -eq 1 ]
+  done
+}
+
+@test "every upgrade keeps 5 revisions of Helm history, as the deploy does" {
+  STUB_MANIFEST="kind: Namespace" run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  [ "$status" -eq 0 ]
+  [ "$(grep "^helm upgrade" "$LOG" | grep -c -- "--history-max 5")" -eq 2 ]
 }

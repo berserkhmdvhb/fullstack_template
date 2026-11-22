@@ -187,7 +187,8 @@ kind load docker-image your-service-name-frontend:local --name your-service-name
 ### Deploy to Local Cluster
 
 > Deployed with the Helm chart (`charts/your-service-name/`). Namespaces are per-env
-> (`your-service-name-local` app + `your-service-name-local-db` db); the chart creates them. For
+> (`your-service-name-local` app + `your-service-name-local-db` db); the
+> [admin bootstrap](./infrastructure.md#namespace-bootstrap-one-time-admin-step) creates them (`k8s-env.sh apply` applies it). For
 > `local`, images are read from the node daemon (bare `:local` tags) and secrets come from
 > `values.local.yaml` — nothing is created by hand.
 
