@@ -83,3 +83,12 @@ STUB
   [ "$status" -eq 2 ]
   [[ "$output" == *"helm is required"* ]]
 }
+
+@test "--chart-set and --chart-set-string reach the chart render, after the --chart-values files" {
+  printf 'x: 1\n' > "$BATS_TEST_TMPDIR/c.yaml"
+  run bash "$SCRIPT" qa --chart-set a=b --chart-values "$BATS_TEST_TMPDIR/c.yaml" --chart-set-string c=d
+  [ "$status" -eq 0 ]
+  app="$(awk '/^== helm$/ {n++} n == 2' "$LOG" | tr '\n' ' ')"
+  [[ "$app" == *"-f $BATS_TEST_TMPDIR/c.yaml "*"--set a=b --set-string c=d"* ]]
+  run ! bash "$SCRIPT" qa --chart-set nokey
+}

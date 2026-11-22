@@ -20,12 +20,15 @@
 #
 # Usage: k8s-bootstrap.sh <dev|qa|production|local> [--release NAME] [--namespace NS] [--db|--no-db]
 #                         [--values FILE]... [--chart-values FILE]...
+#                         [--chart-set K=V]... [--chart-set-string K=V]...
 #   --release NAME   the Helm release name (SERVICE_NAME; default your-service-name)
 #   --namespace NS   the app namespace (default <release>-<env>)
 #   --db / --no-db   create the database namespace or not (default: the env config)
 #   --values FILE    an extra bootstrap config file, layered last (repeatable)
 #   --chart-values FILE  an extra chart values file the deploy layers over values.<env>.yaml
 #                    (repeatable); read for the chart's monitoring.flavour and the app's names
+#   --chart-set K=V, --chart-set-string K=V  a --set / --set-string the deploy passes to the chart,
+#                    rendered after the chart values files, as helm applies them (repeatable)
 # Needs helm and yq (scripts/tools.sh install helm4 yq), used only to render and read the config.
 # ===========================================================================
 set -Eeuo pipefail
@@ -47,7 +50,7 @@ case "$1" in
 esac
 
 args=() files=("$DIR/values.yaml" "$DIR/values.${ENV_NAME}.yaml") release="" namespace=""
-chart_files=("$CHART/values.yaml" "$CHART/values.${ENV_NAME}.yaml")
+chart_files=("$CHART/values.yaml" "$CHART/values.${ENV_NAME}.yaml") chart_sets=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --release|--namespace)
@@ -58,6 +61,9 @@ while [[ $# -gt 0 ]]; do
     --chart-values)
       [[ $# -ge 2 && -f "$2" ]] || die "--chart-values needs an existing file"
       chart_files+=("$2"); shift 2 ;;
+    --chart-set|--chart-set-string)
+      [[ $# -ge 2 && "$2" == *=* ]] || die "$1 needs KEY=VALUE"
+      chart_sets+=("--${1#--chart-}" "$2"); shift 2 ;;
     --db) args+=(--set database.inCluster=true); shift ;;
     --no-db) args+=(--set database.inCluster=false); shift ;;
     --values)
@@ -84,6 +90,7 @@ for key in fullname:fullnameOverride nameOverride:nameOverride serviceAccountNam
   value="$(conf "${key%%:*}")"
   [[ -z "$value" ]] || { label "${key%%:*}" "$value"; chart_args+=(--set-string "${key##*:}=$value"); }
 done
+chart_args+=("${chart_sets[@]}")
 
 # Render both before printing either, so a failure prints nothing.
 boot="$(helm template bootstrap "$DIR" -f "$DIR/values.${ENV_NAME}.yaml" "${args[@]}" \

@@ -742,15 +742,10 @@ boot_cluster_rules() {
   [ -z "$(cat "$LOG")" ]
 }
 
-@test "--set and --set-string of a key other than images.* are refused before anything runs" {
-  for args in "--set fullnameOverride=x" "--set-string rbac.create=false" "--set images.backend.digest=sha256:abc,fullnameOverride=x"; do
-    # shellcheck disable=SC2086 # the words are the option and its value
-    run bash "$SCRIPT" dev --context kind-x "${V[@]}" $args --yes
-    [ "$status" -eq 2 ]
-    [[ "$output" == *"--values file"* ]]
-    [ -z "$(cat "$LOG")" ]
-  done
-  [[ "$output" == *"fullnameOverride"* ]]
+@test "--set and --set-string reach the bootstrap render as --chart-set and --chart-set-string" {
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --set fullnameOverride=x --set-string rbac.x=y --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--chart-set fullnameOverride=x --chart-set-string rbac.x=y | kubectl"* ]]
 }
 
 @test "--set images.* is still accepted and reaches the upgrade" {
