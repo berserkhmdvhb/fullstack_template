@@ -271,15 +271,35 @@ imagePullSecrets:
     secretKeyRef:
       name: {{ include "chart.secretName" $ }}
       key: {{ $key }}
+      {{- /* With IAM authentication the proxy supplies the password, so the key may be absent. */}}
+      {{- if and (eq $key "DB_PASSWORD") $.Values.cloudSqlProxy.enabled $.Values.cloudSqlProxy.autoIamAuthn }}
+      optional: true
+      {{- end }}
 {{- end }}
 {{- end -}}
 
 {{/*
-   The other settings the migration runner reads (db/run_migrations.py, db/connect.py): TLS mode and
-   the two timeouts, each only when config sets it (the runner has defaults).
+   Name and key of the Secret holding the in-cluster Postgres password (postgresql.existingSecret,
+   else the chart's db-credentials). Emits two lines at column 0 (use `| nindent`). One place for
+   the StatefulSet and both backup CronJobs.
+*/}}
+{{- define "chart.pgPasswordRef" -}}
+{{- if .Values.postgresql.existingSecret -}}
+name: {{ .Values.postgresql.existingSecret }}
+key: {{ .Values.postgresql.existingSecretKey }}
+{{- else -}}
+name: {{ include "chart.fullname" . }}-db-credentials
+key: password
+{{- end -}}
+{{- end -}}
+
+{{/*
+   The other settings the migration runner reads (db/run_migrations.py, db/connect.py): ENV (the
+   runner keeps the production database checks), TLS mode and the two timeouts, each only when
+   config sets it (the runner has defaults).
 */}}
 {{- define "chart.dbOptionalEnv" -}}
-{{- range $key := list "DB_SSLMODE" "DB_CONNECT_TIMEOUT_SECONDS" "DB_MIGRATION_LOCK_TIMEOUT_MS" }}
+{{- range $key := list "ENV" "DB_SSLMODE" "DB_CONNECT_TIMEOUT_SECONDS" "DB_MIGRATION_LOCK_TIMEOUT_MS" }}
 {{- if hasKey $.Values.config $key }}
 - name: {{ $key }}
   value: {{ get $.Values.config $key | quote }}
@@ -301,6 +321,10 @@ imagePullSecrets:
   args:
     - --structured-logs
     - {{ printf "--port=%v" .Values.config.DB_PORT }}
+    - --health-check
+    - {{ printf "--http-port=%v" $p.healthPort }}
+    # The kubelet probes the Pod IP; the proxy answers on loopback only unless told otherwise.
+    - --http-address=0.0.0.0
     {{- if $p.privateIp }}
     - --private-ip
     {{- end }}
@@ -308,6 +332,13 @@ imagePullSecrets:
     - --auto-iam-authn
     {{- end }}
     - {{ $p.instanceConnectionName | quote }}
+  startupProbe:
+    httpGet:
+      path: /startup
+      port: {{ $p.healthPort }}
+    periodSeconds: 2
+    timeoutSeconds: 2
+    failureThreshold: 30
   securityContext:
     runAsNonRoot: true
     runAsUser: {{ $p.runAsUser }}
@@ -319,6 +350,24 @@ imagePullSecrets:
       type: RuntimeDefault
   resources:
 {{- toYaml $p.resources | nindent 4 }}
+{{- end -}}
+
+{{/*
+   Egress rules for the Auth Proxy's token fetch from the GKE metadata server
+   (cloudSqlProxy.metadataEgress): one rule per entry, at the egress list's indent (4); each
+   NetworkPolicy that carries the proxy's 3307/443 rule includes it.
+*/}}
+{{- define "chart.cloudSqlProxyMetadataEgress" -}}
+{{- range .Values.cloudSqlProxy.metadataEgress }}
+    - to:
+        - ipBlock:
+            cidr: {{ .cidr | quote }}
+      ports:
+{{- range .ports }}
+        - protocol: TCP
+          port: {{ . }}
+{{- end }}
+{{- end }}
 {{- end -}}
 
 {{/* Backend DB connection assembled from ConfigMap (host/port/name) + app Secret (user/pass). */}}

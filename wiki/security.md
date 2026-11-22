@@ -788,6 +788,12 @@ secrets:
       STATS_PASS: <remote-key-for-the-stats-password>
 ```
 
+With the in-cluster PostgreSQL (dev, qa, local) the database password cannot come from `secrets.dbPassword`
+(empty in these two modes), so set `postgresql.existingSecret` (and `existingSecretKey`, default `password`) to a
+Secret in the database namespace that holds it; the render fails without it. It feeds the StatefulSet and the
+backup jobs, and the chart then renders no password of its own. A managed database needs none of this.
+`guards.rejectPlaceholders` refuses the placeholder store name `your-secret-store`.
+
 The store is the platform's, not the chart's: the operator, a `ClusterSecretStore` for GCP Secret Manager and its
 Workload Identity binding (a Google service account with the Secret Accessor role on those secrets, bound to the
 operator's Kubernetes service account) are installed once per cluster. The app chart ships none of them. The

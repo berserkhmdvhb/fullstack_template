@@ -197,6 +197,7 @@ spec:
           port: 3307
         - protocol: TCP
           port: 443
+{{- include "chart.cloudSqlProxyMetadataEgress" . }}
 {{- end }}
 {{- include "chart.dnsEgress" . | nindent 4 }}
 {{- /* backend.networkPolicy.extraEgress: an OTLP collector (4318), a Redis (6379), ... */}}
@@ -250,8 +251,13 @@ spec:
           port: 3307
         - protocol: TCP
           port: 443
+{{- include "chart.cloudSqlProxyMetadataEgress" . }}
 {{- end }}
 {{- include "chart.dnsEgress" . | nindent 4 }}
+{{- /* networkPolicy.migrationExtraEgress: anything else the Job must reach. */}}
+{{- with .Values.networkPolicy.migrationExtraEgress }}
+{{ toYaml . | indent 4 }}
+{{- end }}
 ---
 # ---- 6. Allow Frontend -> Backend API (the WAF when it is on) + DNS ----
 apiVersion: networking.k8s.io/v1

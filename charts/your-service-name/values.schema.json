@@ -205,6 +205,20 @@
         "autoIamAuthn":           { "type": "boolean" },
         "runAsUser":              { "type": "integer", "minimum": 1 },
         "egressCIDRs":            { "type": "array", "items": { "type": "string" } },
+        "healthPort":             { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "metadataEgress": {
+          "description": "GKE metadata server peers the proxy may reach, each a CIDR and its TCP ports.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["cidr", "ports"],
+            "properties": {
+              "cidr":  { "type": "string", "minLength": 1 },
+              "ports": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 65535 } }
+            }
+          }
+        },
         "resources":              { "$ref": "#/definitions/resources" }
       }
     },
@@ -335,6 +349,11 @@
           "description": "matchLabels of the scraping Pods; empty means app.kubernetes.io/name: prometheus.",
           "$ref": "#/definitions/labels"
         },
+        "migrationExtraEgress": {
+          "description": "NetworkPolicy egress rules appended to the migration Job's egress policy.",
+          "type": "array",
+          "items": { "type": "object" }
+        },
         "backendExtraIngressPeers": {
           "description": "NetworkPolicy peers (from entries) also admitted to the backend port, with the WAF on or off; for example the auth proxy in AUTH_MODE=gateway. Empty adds no rule.",
           "type": "array",
@@ -390,6 +409,8 @@
         "enabled":     { "type": "boolean" },
         "image":       { "type": "string" },
         "clientImage": { "type": "string" },
+        "existingSecret":    { "description": "Secret in the database namespace holding the server's password.", "type": "string" },
+        "existingSecretKey": { "type": "string", "minLength": 1 },
         "storage": {
           "type": "object",
           "additionalProperties": false,

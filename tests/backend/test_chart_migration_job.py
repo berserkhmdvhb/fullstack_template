@@ -208,13 +208,17 @@ def test_no_init_containers_by_default_on_the_backend() -> None:
 
 PROXY_ON = (
     "--set",
+    "postgresql.enabled=false",
+    "--set",
+    "config.DB_SSLMODE=disable",
+    "--set",
     "cloudSqlProxy.enabled=true",
     "--set",
     "cloudSqlProxy.instanceConnectionName=proj:region:inst",
     "--set",
     "cloudSqlProxy.egressCIDRs[0]=199.36.153.8/30",
 )
-DB_FROM_CONFIG = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_SSLMODE")
+DB_FROM_CONFIG = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_SSLMODE", "ENV")
 
 
 def _job_env(pod: dict[str, Any], container: str) -> dict[str, Any]:
@@ -244,7 +248,7 @@ def test_each_database_value_in_the_job_equals_the_configmaps(
             if name in found:
                 assert found[name]["value"] == config[name], (container, name)
     migrate = _job_env(pod, "migrate")
-    assert {"DB_HOST", "DB_PORT", "DB_NAME"} <= set(migrate)
+    assert {"DB_HOST", "DB_PORT", "DB_NAME", "ENV"} <= set(migrate)
     assert (("DB_SSLMODE" in migrate) == ("DB_SSLMODE" in config)) is True
 
 
@@ -253,6 +257,7 @@ def test_the_job_env_names_are_settings_the_runner_reads() -> None:
     pod = _job("production")["spec"]["template"]["spec"]
     reads = {
         "DATABASE_URL",
+        "ENV",  # the runner keeps the production database checks
         "DB_USER",  # expanded into DATABASE_URL
         "DB_PASSWORD",
         "DB_HOST",

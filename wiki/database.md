@@ -230,12 +230,15 @@ Every other intent of a hook design holds: the app never migrates at startup, th
 `helm upgrade`, and a tool that applies rendered manifests would find the previous Job's immutable spec in its way.
 
 **The Job's database settings.** The Job never reads the app ConfigMap. Its init and migrate containers get an
-explicit env list: `DB_HOST`, `DB_PORT`, `DB_NAME` and, when `config` sets them, `DB_SSLMODE`,
+explicit env list: `DB_HOST`, `DB_PORT`, `DB_NAME` and, when `config` sets them, `ENV`, `DB_SSLMODE`,
 `DB_CONNECT_TIMEOUT_SECONDS` and `DB_MIGRATION_LOCK_TIMEOUT_MS`, rendered from the same values and helpers as
 the ConfigMap (so they cannot drift), plus `DB_SSLROOTCERT` when `database.tls.caSecret` is set, and `DB_USER`
 and `DB_PASSWORD` from the app Secret, whichever of the three [secret sources](./security.md#secret-sources)
-holds it. These are the settings the runner reads (`db/run_migrations.py`, `db/connect.py`); `ENV` is not
-among them, so the production-only checks of the backend's settings run in the app, not in the Job.
+holds it. These are the settings the runner reads (`db/run_migrations.py`, `db/connect.py`). The Job does not get
+the app's other settings, so the runner (`Settings.for_migration`) loads `Settings` with `ENV` set to development and,
+when the real `ENV` is production, runs only the database checks (`Settings.database_problems`): SQLite and a missing
+URL are refused, and so are `DB_SSLMODE` `disable` or `require` to a remote host, **before any connection**. A
+loopback host with `disable` (the Auth Proxy) passes, as in the app.
 
 ### Expand/contract policy
 
@@ -335,9 +338,28 @@ NetworkPolicy is IP-based, so `cloudSqlProxy.egressCIDRs` is required: the backe
 ranges on 3307 (the instance) and 443 (Google APIs). With a private-IP instance list its range; for Google APIs
 over Private Google Access add `199.36.153.8/30` (`private.googleapis.com`) or the VIP range your VPC uses.
 `externalDatabase.egressCIDR` is not required with the proxy. The Pod's service account needs the Cloud SQL
-Client role through Workload Identity. With IAM database authentication set `autoIamAuthn`, grant the Cloud SQL
-Instance User role, and use the database user `<service-account>@<project>.iam` with no password. Your own
-sidecars still go in `backend.extraInitContainers`, ahead of the proxy.
+Client role through Workload Identity.
+
+- **Metadata server egress.** The proxy gets its token from the GKE metadata server, which the default-deny
+  egress also blocks. `cloudSqlProxy.metadataEgress` (a list of `{cidr, ports}`) allows it on the backend and
+  the Job. By default it holds both GKE forms: `169.254.169.252/32` on 987 and 988 (Workload Identity on GKE 1.21
+  and later with the standard dataplane) and `169.254.169.254/32` on 80 (GKE Dataplane V2). Trim it to your
+  dataplane; an empty list renders no rule. `networkPolicy.migrationExtraEgress` appends any other egress rule
+  to the Job, as `backend.networkPolicy.extraEgress` does for the backend.
+- **Render checks.** The proxy needs `postgresql.enabled=false` (the host is `127.0.0.1`, the in-cluster
+  database would be unused) and `config.DB_SSLMODE` unset or `disable`: the proxy encrypts to Cloud SQL, the hop
+  to loopback is local, and a verifying mode fails against the plaintext listener (production's `verify-full`
+  must be overridden). The backend's production check accepts `disable` because its `DATABASE_URL` names a
+  loopback host (`_is_loopback_database`); the Job's runner applies the same check.
+- **Startup.** The sidecar runs with `--health-check`, `--http-port` (`cloudSqlProxy.healthPort`) and
+  `--http-address=0.0.0.0` (the kubelet probes the Pod IP) and has a startup probe on `/startup`, so the main
+  container starts after the proxy is up.
+- **IAM authentication.** Set `autoIamAuthn`, grant the Cloud SQL Instance User role, and use the database
+  user `<service-account>@<project>.iam`. The proxy supplies the password, so `DB_PASSWORD` may be missing from
+  the app Secret (the Job reads it as an optional key; drop it from `secrets.externalSecret.remoteKeys`). An absent
+  key leaves the literal `$(DB_PASSWORD)` in the URL, which the proxy ignores.
+- Your own sidecars still go in `backend.extraInitContainers`, ahead of the proxy. `guards.rejectPlaceholders`
+  refuses the placeholder instance connection name.
 
 **Cloud SQL over Private Service Connect.** No proxy: the instance gets a PSC endpoint, a private IP in your
 VPC. Set `externalDatabase.host` to that endpoint's address or DNS name, `externalDatabase.egressCIDR` to the

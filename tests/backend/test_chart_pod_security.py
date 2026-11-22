@@ -54,11 +54,22 @@ ALL_ON = (
     "postgresql.backup.enabled=true",
     "--set",
     "monitoring.scrapeAnnotations=true",
-    # The secret sources are exclusive: the ExternalSecret replaces production's existingSecret.
+    # The secret sources are exclusive: the ExternalSecret replaces production's existingSecret, and
+    # the in-cluster database (dev, qa, local) then takes its password from its own Secret.
     "--set",
     "secrets.externalSecret.enabled=true",
     "--set",
     "secrets.existingSecret=",
+    "--set",
+    "postgresql.existingSecret=pg-credentials",
+)
+# The Cloud SQL Auth Proxy needs a managed database and a loopback host with TLS off, so it is
+# its own set: layered on every values file, with the in-cluster database off.
+PROXY_ON = (
+    "--set",
+    "postgresql.enabled=false",
+    "--set",
+    "config.DB_SSLMODE=disable",
     "--set",
     "cloudSqlProxy.enabled=true",
     "--set",
@@ -70,7 +81,11 @@ ALL_ON = (
     "--set",
     "cloudSqlProxy.autoIamAuthn=true",
 )
-RENDERS = [(f, ()) for f in VALUES_FILES] + [(f, ALL_ON) for f in VALUES_FILES]
+RENDERS = (
+    [(f, ()) for f in VALUES_FILES]
+    + [(f, ALL_ON) for f in VALUES_FILES]
+    + [(f, PROXY_ON) for f in VALUES_FILES]
+)
 
 ALLOWED_VOLUMES = {
     "configMap",
@@ -208,7 +223,9 @@ def helm() -> str:
 
 
 @pytest.mark.parametrize(
-    ("values", "args"), RENDERS, ids=[f"{v}{'+all' if a else ''}" for v, a in RENDERS]
+    ("values", "args"),
+    RENDERS,
+    ids=[f"{v}{'+all' if a == ALL_ON else '+proxy' if a else ''}" for v, a in RENDERS],
 )
 def test_every_pod_template_meets_the_restricted_profile(
     helm: str, values: str, args: tuple[str, ...]
@@ -328,6 +345,9 @@ NOT_ALL_ON = {
     "serviceAccount.automountServiceAccountToken": "a Pod field, not a kind; true only weakens",
     "postgresql.enabled": "a database path, not an option: the values files render both",
     "externalDatabase.enabled": "a database path, not an option: the values files render both",
+    "cloudSqlProxy.enabled": "needs a managed database, so it fails with the in-cluster: PROXY_ON",
+    "cloudSqlProxy.privateIp": "a proxy flag: PROXY_ON turns it on with the proxy",
+    "cloudSqlProxy.autoIamAuthn": "a proxy flag: PROXY_ON turns it on with the proxy",
 }
 
 

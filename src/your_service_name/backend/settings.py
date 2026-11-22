@@ -260,6 +260,15 @@ def normalize_api_version(value: object) -> object:
     return version
 
 
+class _EnvName(BaseSettings):
+    """Only ENV, read the way ``Settings`` reads it (the environment, then ``.env``)."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="ignore"
+    )
+    ENV: str = "dev"
+
+
 class Settings(BaseSettings):
     """Every environment variable the backend reads, validated once at startup."""
 
@@ -644,6 +653,24 @@ class Settings(BaseSettings):
         "`verify-full`; unset uses the system trust store.",
     )
 
+    @classmethod
+    def for_migration(cls) -> Settings:
+        """Settings for the migration Job: the production database checks, and no other.
+
+        The Job gets ``ENV`` and the database settings only, so the full production check set
+        (auth, hosts, ...) cannot pass there. ``ENV`` is overridden for the load, and when the real
+        ``ENV`` is production the database checks (`database_problems`) run alone, before any
+        connection.
+        """
+        settings = cls(ENV="development")
+        if _EnvName().ENV.strip().lower() in PRODUCTION_ENVS:
+            problems = settings.database_problems()
+            if problems:
+                lines = "\n".join(f"  - {p}" for p in problems)
+                msg = f"invalid configuration:\n{lines}"
+                raise ValueError(msg)
+        return settings
+
     @property
     def is_production(self) -> bool:
         """True when ``ENV`` is ``production`` (or ``prod``), case-insensitive."""
@@ -930,8 +957,8 @@ class Settings(BaseSettings):
             problems.append(f"{source_name} {why}")
         return problems
 
-    def _database_problems(self) -> list[str]:
-        """The database checks that apply only when ENV is production."""
+    def database_problems(self) -> list[str]:
+        """The database checks for ENV production; the migration runner runs these alone."""
         problems: list[str] = []
 
         url = self.DATABASE_URL.get_secret_value() if self.DATABASE_URL is not None else ""
@@ -992,7 +1019,7 @@ class Settings(BaseSettings):
         """The checks that apply only when ENV is production."""
         problems: list[str] = []
 
-        problems += self._database_problems()
+        problems += self.database_problems()
 
         problems += self._tracing_problems()
 

@@ -51,6 +51,16 @@
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if .Values.secrets.externalSecret.enabled }}
+{{- if eq .Values.secrets.externalSecret.secretStoreRef.name "your-secret-store" }}
+{{- fail (printf "%s: secrets.externalSecret.secretStoreRef.name is the placeholder \"your-secret-store\". Set it to your cluster's secret store (values.<env>.yaml) before a deploy." (include "chart.fullname" $)) }}
+{{- end }}
+{{- end }}
+{{- if .Values.cloudSqlProxy.enabled }}
+{{- if eq .Values.cloudSqlProxy.instanceConnectionName "your-project:your-region:your-instance" }}
+{{- fail (printf "%s: cloudSqlProxy.instanceConnectionName is the placeholder \"your-project:your-region:your-instance\". Set it to project:region:instance (values.<env>.yaml) before a deploy." (include "chart.fullname" $)) }}
+{{- end }}
+{{- end }}
 {{- range $role, $host := .Values.edge.hosts }}
 {{- $name := trimSuffix "." $host }}{{- /* one trailing dot: the absolute (FQDN) form */}}
 {{- if or (eq $name "your-domain.example") (hasSuffix ".your-domain.example" $name) }}
@@ -69,6 +79,27 @@
 {{- if .Values.secrets.externalSecret.enabled }}{{ $sources = append $sources "secrets.externalSecret.enabled" }}{{ end }}
 {{- if gt (len $sources) 1 }}
 {{- fail (printf "%s: more than one secret source is set (%s); choose exactly one: the chart's own Secret from values, secrets.existingSecret, or secrets.externalSecret.enabled." (include "chart.fullname" .) (join ", " $sources)) }}
+{{- end }}
+{{- /*
+  The in-cluster Postgres takes its password from secrets.dbPassword, which is empty when the app
+  Secret comes from secrets.existingSecret or the ExternalSecret: it then needs its own Secret.
+*/ -}}
+{{- if and .Values.postgresql.enabled (or .Values.secrets.existingSecret .Values.secrets.externalSecret.enabled) (not .Values.postgresql.existingSecret) }}
+{{- fail (printf "%s: postgresql.existingSecret is required when postgresql.enabled is true and the app Secret comes from secrets.existingSecret or the ExternalSecret: secrets.dbPassword is empty then, so the in-cluster database has no password. Name a Secret in the database namespace holding it (key postgresql.existingSecretKey), or use a managed database (postgresql.enabled=false)." (include "chart.fullname" .)) }}
+{{- end }}
+{{- /*
+  The Cloud SQL Auth Proxy replaces the database host with loopback and encrypts to Cloud SQL
+  itself: the in-cluster Postgres would sit unused, and a verifying DB_SSLMODE would fail against
+  the proxy's plaintext loopback listener (the backend's production check accepts disable for a
+  loopback host).
+*/ -}}
+{{- if .Values.cloudSqlProxy.enabled }}
+{{- if .Values.postgresql.enabled }}
+{{- fail (printf "%s: cloudSqlProxy.enabled needs postgresql.enabled=false: the proxy replaces the database host with 127.0.0.1, so the in-cluster PostgreSQL would be unused. Use the managed database." (include "chart.fullname" .)) }}
+{{- end }}
+{{- if has (toString (get .Values.config "DB_SSLMODE")) (list "verify-ca" "verify-full") }}
+{{- fail (printf "%s: config.DB_SSLMODE is %q with cloudSqlProxy.enabled; set it to \"disable\". The proxy encrypts to Cloud SQL, and the hop to 127.0.0.1 is local, so TLS verification fails against it." (include "chart.fullname" .) (toString (get .Values.config "DB_SSLMODE"))) }}
+{{- end }}
 {{- end }}
 {{- /*
   The Cloud SQL Auth Proxy needs the instance to dial and the CIDRs its egress may reach (the
