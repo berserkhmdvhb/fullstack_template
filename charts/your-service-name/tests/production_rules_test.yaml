@@ -81,7 +81,7 @@ tests:
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
-          errorPattern: 'found 1 placeholder to replace before a deploy: backend\.extraInitContainers\[0\]\.image still holds the placeholder digest'
+          errorPattern: '^\s*- backend\.extraInitContainers\[0\]\.image still holds the placeholder digest'
 
   - it: a digest in another algorithm is refused by the schema
     set: {images: {backend: {digest: "sha512:0000000000000000000000000000000000000000000000000000000000000000"}}}
@@ -273,7 +273,7 @@ tests:
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
-          errorPattern: '(: |, )images\.waf\.digest still holds the placeholder digest'
+          errorPattern: '\s- images\.waf\.digest still holds the placeholder digest'
 
   - it: with the guard, a placeholder third-party digest is refused too
     set:
@@ -320,6 +320,8 @@ tests:
     asserts:
       - notFailedTemplate: {}
 
+  # The header line and its count are asserted by tests/backend/test_chart_production_guard.py: this
+  # plugin's error matcher drops the first line of a multi-line message.
   - it: with the guard, every placeholder is named in one refusal (production values as committed, the proxy and the ExternalSecret on)
     set:
       guards: {rejectPlaceholders: true}
@@ -328,8 +330,6 @@ tests:
       cloudSqlProxy: {enabled: true, egressCIDRs: [199.36.153.8/30]}
       secrets: {existingSecret: "", externalSecret: {enabled: true}}
     asserts:
-      - failedTemplate:
-          errorPattern: 'guards\.rejectPlaceholders found 8 placeholders to replace before a deploy:'
       - failedTemplate:
           errorPattern: 'edge\.gateway\.parentRefs names the placeholder Gateway "your-gateway"'
       - failedTemplate:
@@ -359,4 +359,4 @@ tests:
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
-          errorPattern: 'found 1 placeholder to replace before a deploy: config\.OIDC_ISSUER still holds a placeholder'
+          errorPattern: '^\s*- config\.OIDC_ISSUER still holds a placeholder'

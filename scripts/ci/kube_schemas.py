@@ -155,9 +155,7 @@ def _sha256(data: bytes) -> str:
 def cached(sha: str) -> bytes:
     path = CACHE / sha
     if not path.is_file():
-        die(
-            f"{path} is missing: run `scripts/tools.sh install crd-sources` (or `make tools`) first"
-        )
+        die(f"{path} is missing: run `scripts/tools.sh install crd-sources` first")
     data = path.read_bytes()
     if _sha256(data) != sha:
         die(f"{path}: checksum mismatch; delete it and fetch again")

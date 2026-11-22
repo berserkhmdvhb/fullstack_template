@@ -166,7 +166,8 @@
 {{- $found = append $found (printf "%s still %s (an issuer on your-domain.example, the audience your-oidc-audience; set your OIDC provider's issuer and the API's audience)" (join ", " $authHeld) (ternary "holds a placeholder" "hold placeholders" (eq (len $authHeld) 1))) }}
 {{- end }}
 {{- if $found }}
-{{- fail (printf "%s: guards.rejectPlaceholders found %d %s to replace before a deploy: %s. Set them in values.<env>.yaml." (include "chart.fullname" .) (len $found) (ternary "placeholder" "placeholders" (eq (len $found) 1)) (join "; " $found)) }}
+{{- /* One item per line: an item may contain its own punctuation, so the lines are the count. */}}
+{{- fail (printf "%s: guards.rejectPlaceholders found %d %s to replace before a deploy:\n  - %s\nSet them in values.<env>.yaml." (include "chart.fullname" .) (len $found) (ternary "placeholder" "placeholders" (eq (len $found) 1)) (join "\n  - " $found)) }}
 {{- end }}
 {{- end }}
 {{- /*

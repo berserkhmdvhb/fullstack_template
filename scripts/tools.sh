@@ -128,16 +128,33 @@ install_uv() { # pkg
   done
 }
 
+keep_download() { # verified-file kept-path
+  mkdir -p "${2%/*}"
+  cp "$1" "$2.part" && mv "$2.part" "$2"
+}
+
 install_pin() { # uses NAME VER URL SHA
-  local dest file
+  local dest file kept
   case "$URL" in
     uv:python)
       run env UV_PYTHON_BIN_DIR="$TOOLS_DIR/bin" uv python install "$VER"; return ;;
     uv:*) install_uv "${URL#uv:}"; return ;;
   esac
   dest="$TOOLS_DIR/opt/$NAME-$VER"
+  kept="$TOOLS_DIR/downloads/$NAME-$VER-${URL##*/}"
   if [[ -d "$dest" && "$DRY_RUN" != "true" ]]; then
     echo "$NAME $VER already installed"
+    # Installed before its download was kept: fetch and verify that download now, against the same pin.
+    if [[ " $KEEP_DOWNLOAD " == *" $NAME "* && ! -f "$kept" ]]; then
+      echo "==> $NAME $VER: keeping the verified download ($URL)"
+      TMP="$(mktemp -d)"
+      file="$TMP/${URL##*/}"
+      curl -fsSL --proto "${TOOLS_PROTO:-=https}" --proto-redir =https -o "$file" "$URL"
+      verify "$file" "$SHA"
+      keep_download "$file" "$kept"
+      rm -rf "$TMP"
+      TMP=""
+    fi
   else
     echo "==> $NAME $VER ($URL)"
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -147,10 +164,7 @@ install_pin() { # uses NAME VER URL SHA
       file="$TMP/${URL##*/}"
       curl -fsSL --proto "${TOOLS_PROTO:-=https}" --proto-redir =https -o "$file" "$URL"
       verify "$file" "$SHA"
-      if [[ " $KEEP_DOWNLOAD " == *" $NAME "* ]]; then
-        mkdir -p "$TOOLS_DIR/downloads"
-        cp "$file" "$TOOLS_DIR/downloads/.part" && mv "$TOOLS_DIR/downloads/.part" "$TOOLS_DIR/downloads/$NAME-$VER-${URL##*/}"
-      fi
+      [[ " $KEEP_DOWNLOAD " != *" $NAME "* ]] || keep_download "$file" "$kept"
       PART="$dest.part"
       rm -rf "$PART"
       mkdir -p "$PART"

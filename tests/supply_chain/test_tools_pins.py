@@ -360,9 +360,7 @@ def test_real_node_tarball_still_installs_and_npm_works(tmp_path: Path) -> None:
     in .tools/downloads), installs again against the pinned sha256 and its npm runs. Offline."""
     _name, version, _plat, url, sha = next(r for r in rows() if r[0] == "node" and r[2] == PLATFORM)
     kept = ROOT / ".tools" / "downloads" / f"node-{version}-{url.rsplit('/', 1)[1]}"
-    assert kept.is_file(), (
-        f"{kept} is missing: run `scripts/tools.sh install node` (or `make tools`)"
-    )
+    assert kept.is_file(), f"{kept} is missing: run `scripts/tools.sh install node`"
     pins = tmp_path / "pins.tsv"
     pins.write_text(f"node\t{version}\t{PLATFORM}\tfile://{kept}\t{sha}\n")
     tools = tmp_path / ".tools"
@@ -385,6 +383,43 @@ def test_the_ci_unit_job_installs_node_before_the_tests() -> None:
     install = next(i for i, r in enumerate(runs) if "scripts/tools.sh install" in r)
     assert "node" in runs[install].split("scripts/tools.sh install", 1)[1].split()
     assert install < next(i for i, r in enumerate(runs) if "make test-unit" in r)
+
+
+def test_an_installed_node_without_its_kept_download_gets_it_from_the_advised_command(
+    tmp_path: Path,
+) -> None:
+    """node installed before downloads were kept: `install node` (the test's advice) fetches and
+    verifies the download, leaves the install as it is, and refuses a mismatch."""
+    payload = b"the pinned node tarball"
+    art = tmp_path / "node-v9.9.9-linux-x64.tar.xz"
+    art.write_bytes(payload)
+    tools = tmp_path / ".tools"
+    bin_dir = tools / "opt" / "node-9.9.9" / "node-v9.9.9-linux-x64" / "bin"
+    bin_dir.mkdir(parents=True)
+    for exe in ("node", "npm", "npx"):
+        (bin_dir / exe).write_text("#!/bin/sh\n")
+    pins = tmp_path / "pins.tsv"
+    env = {**os.environ, "PINS": str(pins), "TOOLS_DIR": str(tools), "TOOLS_PROTO": "=file"}
+    kept = tools / "downloads" / "node-9.9.9-node-v9.9.9-linux-x64.tar.xz"
+
+    pins.write_text(f"node\t9.9.9\t{PLATFORM}\tfile://{art}\t{'0' * 64}\n")
+    bad = run(["install", "node"], env)
+    assert bad.returncode != 0
+    assert "checksum mismatch" in bad.stderr
+    assert not kept.exists()
+
+    pins.write_text(
+        f"node\t9.9.9\t{PLATFORM}\tfile://{art}\t{hashlib.sha256(payload).hexdigest()}\n"
+    )
+    good = run(["install", "node"], env)
+    assert good.returncode == 0, good.stderr
+    assert kept.read_bytes() == payload
+    assert (bin_dir / "node").read_text() == "#!/bin/sh\n"  # the install itself is untouched
+    assert run(["install", "node"], env).returncode == 0  # and a second run needs nothing
+
+
+def test_the_node_test_advises_the_command_that_fixes_it() -> None:
+    assert 'run `scripts/tools.sh install node`"' in Path(__file__).read_text(encoding="utf-8")
 
 
 def test_tools_sh_keeps_the_verified_node_download(tmp_path: Path) -> None:

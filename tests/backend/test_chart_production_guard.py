@@ -204,3 +204,28 @@ def test_the_chart_reads_production_from_the_backends_env_names() -> None:
     )
     assert match
     assert set(re.findall(r'"([^"]+)"', match[1])) == set(PRODUCTION_ENVS)
+
+
+def test_one_guard_refusal_lists_one_placeholder_per_line_and_the_count_matches(
+    helm: str,
+) -> None:
+    """The committed production values with the proxy and the ExternalSecret on, under the deploy
+    guard: one refusal whose header count equals the item lines below it."""
+    result = _template(
+        helm,
+        *("-f", str(CHART / "values.production.yaml"), "--set", "guards.rejectPlaceholders=true"),
+        *("--set", "externalDatabase.enabled=false", "--set", "config.DB_SSLMODE=disable"),
+        *("--set", "cloudSqlProxy.enabled=true"),
+        *("--set", "cloudSqlProxy.egressCIDRs={199.36.153.8/30}"),
+        *("--set", "secrets.existingSecret=", "--set", "secrets.externalSecret.enabled=true"),
+    )
+    assert result.returncode != 0
+    header = re.search(
+        r"guards\.rejectPlaceholders found (\d+) placeholders? to replace", result.stderr
+    )
+    assert header, result.stderr
+    tail = result.stderr[header.end() :]
+    block = tail[: tail.index("\nSet them in values.<env>.yaml.")]
+    items = [ln for ln in block.splitlines() if ln.startswith("  - ")]
+    assert len(items) == int(header[1]) == 8, block  # noqa: PLR2004 (the committed placeholders)
+    assert all(ln.startswith("  - ") for ln in block.splitlines()[1:]), block
