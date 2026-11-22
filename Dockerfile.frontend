@@ -25,9 +25,9 @@ FROM gcr.io/distroless/nodejs26-debian13@sha256:80631bd2f0e7ef192138a7409013b47d
 FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS debian-fixes
 # glibc: CVE-2026-19499 and CVE-2026-5435 (High), fixed in 2.41-12+deb13u5.
 ARG DEBIAN_FIXES="libc6=2.41-12+deb13u5"
-COPY --from=runtime-base /var/lib/dpkg/status.d/ /base-status.d/
+COPY --from=runtime-base / /base-root/
 COPY scripts/docker/debian-fixes.sh /usr/local/bin/debian-fixes
-RUN debian-fixes /base-status.d /out
+RUN debian-fixes /base-root /out
 
 #################################
 # STAGE 1: Build

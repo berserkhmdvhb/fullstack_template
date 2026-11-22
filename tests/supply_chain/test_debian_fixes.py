@@ -4,9 +4,10 @@ A distroless base is rebuilt from Debian some days after Debian publishes a fix,
 blocking vulnerability gate fails on every image built from it. Each Dockerfile of a distroless
 image in .github/container-images.yml has the same three parts: the runtime base declared once by
 digest (`runtime-base`), a `debian-fixes` stage on the Debian image the backend builds on, which
-runs scripts/docker/debian-fixes.sh on the base's dpkg records and the `DEBIAN_FIXES` list, and a
-runtime stage that starts from the base and copies the fixes over it before anything else. The
-script's own behaviour is tests/scripts/debian-fixes.bats.
+runs scripts/docker/debian-fixes.sh on a copy of the base's filesystem and the `DEBIAN_FIXES` list,
+and a runtime stage that starts from the base and copies the fixes over it before anything else.
+The script's own behaviour is tests/scripts/debian-fixes.bats, and
+tests/supply_chain/test_dockerignore.py keeps the script in every build context.
 """
 
 from __future__ import annotations
@@ -72,19 +73,22 @@ def test_every_distroless_image_is_covered() -> None:
 def test_the_runtime_base_is_declared_once_by_digest_and_the_runtime_starts_from_it(
     name: str,
 ) -> None:
-    stages = _stages(_dockerfile(name))
-    assert re.search(DIGEST + "$", stages["runtime-base"][0])
+    text = _dockerfile(name)
+    stages = _stages(text)
+    base = stages["runtime-base"][0]
+    assert re.search(DIGEST + "$", base)
+    assert len(re.findall(rf"^FROM {re.escape(base)} ", text, re.MULTILINE)) == 1, "declared once"
     assert stages["runtime"][0] == "runtime-base"
     assert list(stages)[-1] == "runtime"
 
 
 @pytest.mark.parametrize("name", DISTROLESS)
-def test_the_fixes_stage_runs_the_script_on_the_bases_dpkg_records(name: str) -> None:
+def test_the_fixes_stage_runs_the_script_on_a_copy_of_the_base(name: str) -> None:
     image, body = _stages(_dockerfile(name))["debian-fixes"]
     assert image == _backend_debian(), "the Debian image the backend builds on, one digest to move"
-    assert "COPY --from=runtime-base /var/lib/dpkg/status.d/ /base-status.d/\n" in body
+    assert "COPY --from=runtime-base / /base-root/\n" in body
     assert "COPY scripts/docker/debian-fixes.sh /usr/local/bin/debian-fixes\n" in body
-    assert _instructions(body)[-1] == "RUN debian-fixes /base-status.d /out"
+    assert _instructions(body)[-1] == "RUN debian-fixes /base-root /out"
 
 
 @pytest.mark.parametrize("name", DISTROLESS)
@@ -103,10 +107,8 @@ def test_each_fix_is_a_package_and_a_version_listed_once(name: str) -> None:
     assert len(packages) == len(set(packages))
 
 
-def test_the_script_ships_in_the_build_context_and_never_in_an_image() -> None:
-    ignored = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
-    assert not any(
-        p.strip() in {"scripts", "scripts/", "scripts/docker", "scripts/docker/"} for p in ignored
-    )
-    for name in DISTROLESS:
-        assert "debian-fixes.sh" not in _stages(_dockerfile(name))["runtime"][1]
+@pytest.mark.parametrize("name", DISTROLESS)
+def test_the_script_and_the_base_copy_never_reach_the_runtime_image(name: str) -> None:
+    body = _stages(_dockerfile(name))["runtime"][1]
+    assert "debian-fixes.sh" not in body
+    assert "base-root" not in body

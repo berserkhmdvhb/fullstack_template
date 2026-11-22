@@ -68,9 +68,9 @@ FROM gcr.io/distroless/python3-debian13@sha256:<digest> AS runtime-base   # decl
 
 FROM debian:13-slim@sha256:<digest> AS debian-fixes   # Debian fixes the base has not shipped yet
 ARG DEBIAN_FIXES="..."
-COPY --from=runtime-base /var/lib/dpkg/status.d/ /base-status.d/
+COPY --from=runtime-base / /base-root/
 COPY scripts/docker/debian-fixes.sh /usr/local/bin/debian-fixes
-RUN debian-fixes /base-status.d /out
+RUN debian-fixes /base-root /out
 
 FROM debian:13-slim@sha256:<digest> AS py-builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON=/usr/bin/python3.13 \
@@ -219,25 +219,33 @@ stage copies that stage's output over the base before anything else:
 FROM debian:13-slim@sha256:<digest> AS debian-fixes
 # glibc: CVE-... (High), fixed in 2.41-12+deb13u5.
 ARG DEBIAN_FIXES="libc6=2.41-12+deb13u5"
-COPY --from=runtime-base /var/lib/dpkg/status.d/ /base-status.d/
+COPY --from=runtime-base / /base-root/
 COPY scripts/docker/debian-fixes.sh /usr/local/bin/debian-fixes
-RUN debian-fixes /base-status.d /out
+RUN debian-fixes /base-root /out
 # ...
 FROM runtime-base AS runtime
 COPY --from=debian-fixes /out/ /
 ```
 
-`scripts/docker/debian-fixes.sh` reads the base's own dpkg records (distroless keeps one file per package in
-`/var/lib/dpkg/status.d/`). For each `<package>=<version>` it:
+`scripts/docker/debian-fixes.sh` works on a copy of the base's filesystem and its dpkg records (distroless
+keeps one file per package in `/var/lib/dpkg/status.d/`). For each `<package>=<version>` (separated by spaces
+or newlines) it:
 
-- requires that the base ships the package, for the stage's architecture, at an older version;
+- requires that the base ships the package, for the stage's architecture, at an older version (the record
+  must name the package and hold one `Version` and one `Architecture`);
 - downloads exactly that version with apt, which checks it against the archive's signed indices;
 - unpacks it, and replaces the package's record and md5sums, so an SBOM lists the fixed version;
-- checks the unpacked files against those md5sums, and refuses a fixed package that no longer ships a file
-  the base has (copying over the base cannot remove a file).
+- checks that the copy over the base changes nothing but the package's own files, and refuses it otherwise:
+  a path under a directory that is a symlink in the base (`/lib` is a link to `usr/lib`), a path of another
+  type than the base's, a directory with another mode or owner, a conffile whose contents differ from the
+  base's (the base may have changed it, and this cannot merge it), a file the base's record lists that the
+  fixed package no longer ships (copying over the base cannot remove it), or unpacked files that fail their
+  md5sums. A path the base does not have is added and logged.
 
 The image then holds the same files its base will have once its publisher rebuilds it. An empty list (the
-usual state) fetches nothing and copies nothing.
+usual state) fetches nothing and copies nothing. The fixed files sit in a layer above the base's, so the
+replaced versions stay in the base layer, unreachable at runtime: an SBOM of the image (what CI scans) lists
+only the fixed version, while a scanner that reports layer by layer may still list the old one.
 
 - **Adding a fix.** When the gate fails on a package of the base (the Grype report names the package, its
   installed version and the fixed version), first check whether the base has been rebuilt: Renovate proposes
@@ -251,10 +259,12 @@ usual state) fetches nothing and copies nothing.
   DEBIAN_FIXES`). When Renovate moves a base digest past a fix, the image build of its pull request fails
   with that message: delete the entry in the same pull request. A fix never outlives the base's own update,
   and never downgrades it.
-- **The archive serves only the current version.** Debian's archive keeps the newest version of each package
-  of a release; once a later point release supersedes a listed version, the build can no longer download it
-  and fails. By then the base has normally caught up and the entry is gone; if not, move the entry to the
-  newer version.
+- **The archive serves only each suite's current version.** Each suite of a release (`trixie`,
+  `trixie-updates`, `trixie-security`) serves one version of a package, until a newer one replaces it there
+  (snapshot.debian.org keeps every version, but the build uses the archive the Debian image names). Once a
+  later point release or security update supersedes a listed version, the build cannot download it and fails
+  (`the Debian archive does not serve libc6=...`). By then the base has normally caught up and the entry is
+  gone; if not, set the entry to the candidate `apt-cache policy <package>` shows in the Debian image.
 
 ---
 

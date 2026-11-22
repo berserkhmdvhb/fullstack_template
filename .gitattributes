@@ -1,0 +1,5 @@
+# Shell scripts keep LF line endings on every checkout: a Windows checkout with core.autocrlf=true would
+# otherwise give them CRLF, and a script the image builds copy in (scripts/docker/debian-fixes.sh) or a
+# hook or CI step runs would fail on `bash\r`.
+*.sh text eol=lf
+*.bats text eol=lf

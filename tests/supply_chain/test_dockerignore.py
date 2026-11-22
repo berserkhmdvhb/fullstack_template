@@ -15,7 +15,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent.parent
 IGNORE = REPO / ".dockerignore"
-DOCKERFILES = ("Dockerfile.backend", "Dockerfile.frontend")
+DOCKERFILES = ("Dockerfile.backend", "Dockerfile.frontend", "Dockerfile.waf")
 
 # Patterns every image build must have (a missing one lets a host file into the build context).
 REQUIRED = {
@@ -101,7 +101,7 @@ def excluded(path: str, patterns: list[str]) -> bool:
 
 
 def copy_sources(dockerfile: str) -> list[str]:
-    """Every build-context COPY/ADD source (``--from=`` copies are not from the context)."""
+    """Every build-context COPY/ADD source (``--from=`` copies and URL downloads are not)."""
     sources: list[str] = []
     for line in (REPO / dockerfile).read_text(encoding="utf-8").splitlines():
         words = line.split()
@@ -110,7 +110,7 @@ def copy_sources(dockerfile: str) -> list[str]:
         args = [w for w in words[1:] if not w.startswith("--")]
         if any(w.startswith("--from=") for w in words[1:]):
             continue
-        sources += args[:-1]
+        sources += [a for a in args[:-1] if not re.match(r"https?://", a)]
     return sources
 
 
@@ -136,6 +136,11 @@ def test_nothing_a_dockerfile_copies_is_excluded(dockerfile: str) -> None:
     for source in sources:
         assert (REPO / source).exists(), f"{dockerfile} copies {source}, which does not exist"
         assert not excluded(source, _patterns()), f"{dockerfile} copies {source}, which is excluded"
+
+
+def test_every_dockerfile_in_the_manifest_is_checked() -> None:
+    manifest = (REPO / ".github/container-images.yml").read_text(encoding="utf-8")
+    assert set(re.findall(r"^\s+dockerfile: (\S+)$", manifest, re.MULTILINE)) == set(DOCKERFILES)
 
 
 def test_the_frontend_build_inputs_survive() -> None:
