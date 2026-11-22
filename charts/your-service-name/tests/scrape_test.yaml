@@ -17,7 +17,7 @@ tests:
             from:
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
                 podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
-            ports: [{protocol: TCP, port: 8000}]
+            ports: [{protocol: TCP, port: 9102}]
         template: network-policy.yaml
         documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
 
@@ -50,7 +50,7 @@ tests:
             from:
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
                 podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
-            ports: [{protocol: TCP, port: 8000}]
+            ports: [{protocol: TCP, port: 9102}]
 
   - it: overrides replace both defaults (a managed collector's namespace and labels)
     set:
@@ -66,4 +66,4 @@ tests:
             from:
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gmp-system}}
                 podSelector: {matchLabels: {app: managed-prometheus-collector}}
-            ports: [{protocol: TCP, port: 8000}]
+            ports: [{protocol: TCP, port: 9102}]

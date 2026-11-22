@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from your_service_name.backend.main import create_app
 from your_service_name.backend.openapi import build_openapi_schema, dump, main
 
@@ -68,7 +70,8 @@ def test_main_dump_writes_to_the_requested_output(tmp_path: Path) -> None:
     assert json.loads(out.read_text(encoding="utf-8")) == schema
 
 
-def test_the_metrics_endpoint_is_not_part_of_the_api_contract() -> None:
-    """/metrics is the operational Prometheus scrape endpoint: it is served, and not documented."""
+def test_the_api_app_serves_no_metrics() -> None:
+    """The metrics are on their own port (backend/serve.py): the API app has no /metrics route."""
     assert "/metrics" not in build_openapi_schema()["paths"]
-    assert any(getattr(r, "path", "") == "/metrics" for r in create_app().routes)
+    assert not any(getattr(r, "path", "") == "/metrics" for r in create_app().routes)
+    assert TestClient(create_app()).get("/metrics").status_code == 404  # noqa: PLR2004

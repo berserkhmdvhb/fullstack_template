@@ -4,7 +4,7 @@ Integration tests for rate-limit enforcement on the running app.
 
 Verifies that the rate-limit middleware actually throttles requests (the earlier
 template configured a limiter that was never enforced, so the limit was a no-op)
-and that liveness/readiness/metrics paths stay exempt.
+and that liveness/readiness paths stay exempt.
 
 Marked with ``@pytest.mark.integration`` — runs the full ``create_app`` stack.
 """
@@ -23,7 +23,6 @@ from your_service_name.backend.main import create_app
 API_BASE: str = "/api/v1"
 ECHO_PATH: str = f"{API_BASE}/echo"
 HEALTH_PATH: str = f"{API_BASE}/health"
-METRICS_PATH: str = "/metrics"
 
 
 @pytest.fixture
@@ -65,8 +64,6 @@ async def test_probes_exempt_from_rate_limit(client: httpx.AsyncClient) -> None:
         await client.post(ECHO_PATH, json={"text": "hi"})
     ).status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
-    # Nested /api/v1/health and the top-level /metrics are exempt.
+    # The nested /api/v1/health is exempt; the metrics are not on the API app at all.
     health = await client.get(HEALTH_PATH)
     assert health.status_code == status.HTTP_200_OK
-    metrics = await client.get(METRICS_PATH)
-    assert metrics.status_code == status.HTTP_200_OK

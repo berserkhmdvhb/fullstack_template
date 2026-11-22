@@ -525,6 +525,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "flavour": { "type": "string", "enum": ["prometheus-operator", "gmp"] },
         "scrapeAnnotations": { "type": "boolean" },
         "serviceMonitor":  { "type": "boolean" },
         "prometheusRule":  { "type": "boolean" },

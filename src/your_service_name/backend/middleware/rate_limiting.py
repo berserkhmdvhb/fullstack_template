@@ -3,7 +3,7 @@
 Rate limiting middleware.
 
 Provides a configurable, per-IP default rate limit applied to every route, with
-liveness/readiness/metrics paths exempt (exact paths, see ``backend/paths.py``).
+liveness/readiness paths exempt (exact paths, see ``backend/paths.py``).
 
 Why this is not slowapi: slowapi's middleware decides which limits apply by
 resolving the target route *handler* from the top-level Starlette route table.
@@ -97,7 +97,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     slowapi's ``BaseHTTPMiddleware`` subclass could not be used here because its
     enforcement resolves limits by route handler, which does not work with the
     nested API router (see the module docstring). This middleware keys on client
-    IP and exempts the configured health/metrics paths.
+    IP and exempts the configured health paths.
     """
 
     def __init__(
@@ -142,7 +142,7 @@ def register_rate_limiting(app: FastAPI, settings: Settings) -> None:
     fixed-window, per-IP limiter on the configured storage (``RATE_LIMIT_STORAGE``, see
     ``backend/rate_limiter.py``), and mounts the enforcing middleware so the limit actually
     applies to routes. Liveness/readiness probes
-    (``/health``, ``/healthz``) and ``/metrics`` are exempt.
+    (``/health``, ``/healthz``) are exempt.
 
     Parameters
     ----------

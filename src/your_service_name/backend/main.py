@@ -65,7 +65,6 @@ from your_service_name.backend.middleware.request_limits import (
 from your_service_name.backend.middleware.security import register_security_middleware
 from your_service_name.backend.paths import (
     API_PREFIX,
-    METRICS_PATH,
     csp_report_path,
     exempt_paths,
 )
@@ -295,11 +294,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.include_router(csp_report.router, prefix=f"{API_PREFIX}/{settings.API_VERSION}")
 
     # --- Prometheus metrics instrumentation ------------------------------------
-    # Exposes /metrics endpoint for Prometheus scraping
-    # An operational scrape endpoint (Prometheus text format), not part of the API contract:
-    # kept out of the OpenAPI document, so the document, the contract tests and the oasdiff gate
-    # cover the API only.
-    Instrumentator().instrument(app).expose(app, endpoint=METRICS_PATH, include_in_schema=False)
+    # Records into the default registry only. The API app has no /metrics route: the launcher
+    # (serve.py) serves the registry on its own port (METRICS_PORT), which the network policy
+    # admits a scraper to, and the API port never exposes it.
+    Instrumentator().instrument(app)
 
     # --- Opt-in tracing --------------------------------------------------------
     # The instrumentation wraps the whole middleware stack, so it is outermost whatever the order.

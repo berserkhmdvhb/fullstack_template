@@ -31,6 +31,8 @@ NON_DEFAULT_PORTS = (
     "--set-string",
     "config.BACKEND_PORT=9100",
     "--set-string",
+    "config.METRICS_PORT=9105",
+    "--set-string",
     "config.FRONTEND_PORT=9200",
     "--set-string",
     "config.DB_PORT=5433",
@@ -62,7 +64,7 @@ def test_no_default_port_literal_survives_a_port_override(
 ) -> None:
     """With every port moved, a default literal left in the render is a hard-coded port."""
     text = _text(helm, values, *NON_DEFAULT_PORTS, *extra)
-    found = sorted(set(re.findall(r"(?<![\w.-])(8000|3000|8080|8090|5432)(?![\w.-])", text)))
+    found = sorted(set(re.findall(r"(?<![\w.-])(8000|9102|3000|8080|8090|5432)(?![\w.-])", text)))
     assert found == []
 
 
@@ -73,7 +75,7 @@ def test_every_port_follows_the_overrides(helm: str) -> None:
     def ports(name: str) -> list[int]:
         return [p["containerPort"] for c in pods[name][0]["containers"] for p in c.get("ports", [])]
 
-    assert ports(BACKEND) == [9100]
+    assert ports(BACKEND) == [9100, 9105]
     assert ports(FRONTEND) == [9200]
     assert ports("Deployment/svc-your-service-name-waf") == [9300, 9310]
     assert ports("StatefulSet/svc-your-service-name-postgresql") == [5433]
@@ -111,7 +113,8 @@ def test_the_probe_ports_follow_the_port_override(helm: str) -> None:
     for name in (BACKEND, FRONTEND):
         c = pod_specs(docs)[name][0]["containers"][0]
         assert {c[k]["httpGet"]["port"] for k in ("startupProbe", "readinessProbe")} == {"http"}
-        assert [p["name"] for p in c["ports"]] == ["http"]
+        names = ["http", "metrics"] if name == BACKEND else ["http"]
+        assert [p["name"] for p in c["ports"]] == names
 
 
 # ---- Rolling updates ----------------------------------------------------------------------------

@@ -7,8 +7,8 @@ because they sit just inside the correlation middleware (see ``main.create_app``
   a body without a length (chunked) streams past it. ``MAX_REQUEST_BODY_BYTES`` defaults to the
   chart's ingress ``proxy-body-size``, so the edge and the service agree.
 - :class:`TrustedHostMiddleware`: 400 unless the ``Host`` header matches ``ALLOWED_HOSTS``. Probe
-  and metrics paths are exempt (the rate limiter's exact paths): Kubernetes probes and Prometheus
-  send the Pod IP as ``Host``. Starlette's own middleware answers in plain text, hence this one.
+  paths are exempt (the rate limiter's exact paths): Kubernetes probes send the Pod IP as ``Host``.
+  Starlette's own middleware answers in plain text, hence this one.
 """
 
 from __future__ import annotations

@@ -6,6 +6,8 @@ from __future__ import annotations
 import os
 import re
 
+import pytest
+
 from tests.backend.test_chart_pod_security import pod_specs, render
 from tests.backend.test_chart_production_guard import CHART, find_helm, require_helm
 from your_service_name.backend import paths
@@ -29,10 +31,11 @@ def test_the_chart_probe_paths_are_exempt() -> None:
     assert set(probes) <= paths.exempt_paths(DEFAULT_API_VERSION)
 
 
-def test_the_chart_metrics_path_is_exempt() -> None:
-    scraped = _paths("servicemonitor.yaml")
-    assert scraped == ["/metrics"]
-    assert set(scraped) <= paths.exempt_paths(DEFAULT_API_VERSION)
+@pytest.mark.parametrize("template", ["servicemonitor.yaml", "podmonitoring.yaml"])
+def test_the_chart_scrapes_the_metrics_server_not_an_api_route(template: str) -> None:
+    """/metrics is served by the launcher's metrics server (its own port), so it is not exempt."""
+    assert _paths(template) == ["/metrics"]
+    assert "/metrics" not in paths.exempt_paths(DEFAULT_API_VERSION)
 
 
 def test_only_exact_paths_are_exempt() -> None:

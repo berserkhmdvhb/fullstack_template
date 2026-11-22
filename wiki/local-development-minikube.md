@@ -552,8 +552,8 @@ make k8s-delete HELM_ENV=local
 
 ## Optional: Enable monitoring
 
-The chart ships a ServiceMonitor that auto-discovers backend metrics once the
-Prometheus stack is present. **Manual** (no `make`/script wraps the Prometheus
+The chart ships a ServiceMonitor that auto-discovers backend metrics (the backend
+Service's `metrics` port) once the Prometheus stack is present. **Manual** (no `make`/script wraps the Prometheus
 install).
 
 ```bash

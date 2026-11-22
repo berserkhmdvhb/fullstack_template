@@ -222,10 +222,8 @@ class TestFailureMetric:
         )
         assert (self._count("error"), self._count("timeout")) == before
 
-    async def test_it_is_on_the_metrics_endpoint(self) -> None:
-        from your_service_name.backend.main import create_app  # noqa: PLC0415
+    async def test_it_is_in_the_registry_the_metrics_server_serves(self) -> None:
+        from prometheus_client import generate_latest  # noqa: PLC0415
 
         await RateLimiter(_Raising(), prefix=PREFIX, timeout=1).hit(parse("1/minute"), "d", "c")
-        app = create_app(Settings())
-        response = await _get(app, "/metrics")
-        assert "rate_limit_storage_failures_total" in response.text
+        assert "rate_limit_storage_failures_total" in generate_latest().decode()

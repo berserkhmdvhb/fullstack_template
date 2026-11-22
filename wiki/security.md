@@ -316,7 +316,7 @@ request and logs a warning (the exception type only) at most once a minute: an o
 limiter must not take the API down. While Redis is unreachable a request can wait up to the timeout
 (0.2 s by default: well above a same-cluster round trip, short enough to bound the added latency).
 An edge limit, if you set one, still applies. Every such request increments the Prometheus counter
-`rate_limit_storage_failures_total{reason="error"|"timeout"}` (on `/metrics`; a timeout also
+`rate_limit_storage_failures_total{reason="error"|"timeout"}` (on the metrics port, `METRICS_PORT`; a timeout also
 covers an overloaded event loop), so alert on it: while it grows the limit is not applying.
 
 > **Why not slowapi**: slowapi resolves the target route *handler* from the
@@ -389,9 +389,9 @@ request id.
 
 - The body limit default is the backend's own 10 MiB `MAX_REQUEST_BODY_BYTES`; the chart sets no edge
   limit, so this is the one place it lives.
-- The probe and metrics paths (`/api/<version>/health`, `/api/<version>/healthz`, `/metrics`; exact
-  paths, the rate limiter's exempt list) skip the host check, because Kubernetes probes and
-  Prometheus send the Pod IP as `Host`.
+- The probe paths (`/api/<version>/health`, `/api/<version>/healthz`; exact paths, the rate
+  limiter's exempt list) skip the host check, because Kubernetes probes send the Pod IP as `Host`.
+  The metrics are not on the API app at all: they have their own port.
 - An entry is a host only: one with a port is refused at startup (the request's port is ignored), and
   a `Host` header that is not a valid hostname, IPv4 address or bracketed IPv6 (plus an optional
   numeric port) is a `400`.
@@ -478,7 +478,8 @@ versions you run.
   peers (the Gateway namespace, the controller's namespace, or `cloudflared`) and the frontend; with
   the WAF on, only the WAF, which the edge peers and the frontend reach; and, when a scrape target is
   rendered, the collector Pods (`monitoringPodSelector`) in the `monitoringNamespaceSelector`
-  namespace, unless `monitoringNamespaceSelector` is null. The full matrix:
+  namespace, on the metrics port only (never the API port), unless `monitoringNamespaceSelector` is
+  null. The full matrix:
   [Infrastructure, NetworkPolicy per mode](./infrastructure.md#networkpolicy-per-mode).
 - **`CF-Connecting-IP` is safe only when `cloudflared` is the only way in.** If the ingress or the
   backend is reachable any other way, a client sends its own header and is believed.
@@ -651,7 +652,7 @@ spec:
 | Policy | Direction | Source | Destination | Purpose |
 |--------|-----------|--------|-------------|---------|
 | `allow-to-frontend` | Ingress | the edge peers of `edge.mode` | frontend pods on the frontend port | Edge → UI |
-| `allow-to-backend` | Ingress | WAF on: the WAF pods; WAF off: the frontend pods and the edge peers; plus, only when the chart renders a scrape target, the collector Pods (`monitoringPodSelector`) in the `monitoringNamespaceSelector` namespace, both required (`monitoringNamespaceSelector: null` removes the rule) | backend pods on the backend port | Nothing reaches the backend around the WAF |
+| `allow-to-backend` | Ingress | WAF on: the WAF pods; WAF off: the frontend pods and the edge peers; plus, only when the chart renders a scrape target, the collector Pods (`monitoringPodSelector`) in the `monitoringNamespaceSelector` namespace, both required (`monitoringNamespaceSelector: null` removes the rule); the defaults follow `monitoring.flavour` | backend pods, the backend port for the peers above and `config.METRICS_PORT` alone for the collector | Nothing reaches the backend around the WAF |
 | `allow-waf` (WAF on) | Ingress + Egress | the frontend pods and the edge peers | WAF pods on `waf.service.port` (never `waf.health.port`: only the kubelet probes it); egress to the upstream (the backend Pods, or `waf.upstreamPeers`, on the upstream port) + DNS | Edge / frontend → WAF → backend (or auth proxy) |
 | `allow-backend-to-db` | Egress | backend pods | postgresql:5432 + DNS | Backend → database |
 | `allow-migration-to-db` | Egress | migration job | postgresql:5432 + DNS | Migration → database |

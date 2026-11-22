@@ -66,7 +66,7 @@ tests:
                 - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateway-system}}
               ports: [{protocol: TCP, port: 3000}]
 
-  - it: WAF off - the backend admits the frontend, the Gateway namespace and monitoring on the backend port
+  - it: WAF off - the backend admits the frontend, the Gateway namespace, and monitoring on the metrics port only
     documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
     asserts:
       - equal: {path: spec.podSelector.matchLabels, value: {app.kubernetes.io/component: backend}}
@@ -82,7 +82,7 @@ tests:
             - from:
                 - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
                   podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
-              ports: [{protocol: TCP, port: 8000}]
+              ports: [{protocol: TCP, port: 9102}]
 
   - it: WAF on - no edge peer (and not the frontend) reaches the backend; only the WAF and monitoring do
     set: {waf: {enabled: true}}
@@ -96,7 +96,7 @@ tests:
             - from:
                 - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
                   podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
-              ports: [{protocol: TCP, port: 8000}]
+              ports: [{protocol: TCP, port: 9102}]
       - notContains:
           path: spec.ingress
           content:

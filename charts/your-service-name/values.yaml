@@ -198,6 +198,11 @@ config:
   BACKEND_ENTRY: your_service_name.backend.main:app
   BACKEND_HOST: "0.0.0.0"
   BACKEND_PORT: "8000"
+  # The Prometheus metrics server's own port (the launcher starts it; the API port serves no
+  # /metrics). It is the backend Pod's `metrics` container port and the Service's `metrics` port,
+  # and the one port the scrape NetworkPolicy opens. Keep it clear of every other container port
+  # in the Pod (the API port, the Cloud SQL proxy's cloudSqlProxy.healthPort).
+  METRICS_PORT: "9102"
   # Served by Uvicorn (one process per pod); Kubernetes scales PODS (HPA), not
   # processes. BACKEND_GRACEFUL_TIMEOUT is how long Uvicorn drains in-flight
   # requests + lifespan shutdown after SIGTERM before force-exiting.
@@ -398,13 +403,20 @@ networkPolicy:
     namespaceSelector: {}
     podSelector: {}
     ipBlocks: []
-  # Who may scrape the backend's /metrics: Pods matching monitoringPodSelector in the namespace
-  # matching monitoringNamespaceSelector, on the metrics port (today the API port). The rule renders
-  # only when the chart renders a scrape target (monitoring.scrapeAnnotations or
-  # monitoring.serviceMonitor). Empty means the default, a set one replaces it:
-  # {kubernetes.io/metadata.name: monitoring} and {app.kubernetes.io/name: prometheus}.
-  # monitoringNamespaceSelector: null disables the rule. A managed collector (for example GKE's
-  # managed Prometheus) runs in another namespace with other labels: set both.
+  # Who may scrape the backend's metrics: Pods matching monitoringPodSelector in the namespace
+  # matching monitoringNamespaceSelector, on config.METRICS_PORT only (never the API port). The
+  # rule renders only when the chart renders a scrape target (monitoring.scrapeAnnotations or
+  # monitoring.serviceMonitor). Empty means the default of monitoring.flavour, a set one replaces
+  # it (set both):
+  #   prometheus-operator: {kubernetes.io/metadata.name: monitoring} and
+  #                        {app.kubernetes.io/name: prometheus}
+  #   gmp:                 {kubernetes.io/metadata.name: gmp-system} and
+  #                        {app.kubernetes.io/name: collector}
+  # On GKE Autopilot the managed collector's namespace is gke-gmp-system. If the collector reaches
+  # the Pod from a node address (host networking: Google's docs do not say), the selectors never
+  # match it. The adopter then adds the node range as an ipBlock in backendExtraIngressPeers,
+  # which admits that peer to the backend (API) port, not the metrics port.
+  # monitoringNamespaceSelector: null disables the rule.
   monitoringNamespaceSelector: {}
   monitoringPodSelector: {}
   # Extra NetworkPolicy peers (a list of `from` entries: podSelector, namespaceSelector, ipBlock)
@@ -567,6 +579,11 @@ externalDatabase:
 # Prometheus Operator CRDs are required for serviceMonitor / prometheusRule.
 # The chart ships no log collector: logs go to stdout and the platform collects them.
 monitoring:
+  # prometheus-operator: a ServiceMonitor and a PrometheusRule (the Prometheus Operator CRDs).
+  # gmp: a PodMonitoring and a Rules object (Google Managed Prometheus). `serviceMonitor` and
+  # `prometheusRule` switch on the monitor and the rules of the chosen flavour; the rule groups are
+  # the same for both. The flavour also sets the default scrape peers (networkPolicy).
+  flavour: prometheus-operator
   # The prometheus.io/scrape annotations on the backend Service (annotation-based discovery).
   scrapeAnnotations: true
   serviceMonitor: false

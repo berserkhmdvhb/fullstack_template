@@ -86,7 +86,7 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 | `OTEL_SERVICE_NAME` | str | `your_service_name` | Tracing: the `service.name` resource attribute. | — |
 | `TRACING_SAMPLE_RATIO` | float | `1.0` | Tracing: the share of new traces recorded (0 to 1). A caller's sampled `traceparent` is always honoured, whatever this says. | — |
 | `MAX_REQUEST_BODY_BYTES` | int | `10485760` | Largest accepted request body in bytes; more is a 413. The default is 10 MiB; the chart sets no edge limit, so this is the one place the limit lives. | — |
-| `ALLOWED_HOSTS` | comma-separated list | `*` | Comma-separated `Host` values the service answers (`*.example.com` matches subdomains, `*` anything; an entry never carries a port). Anything else is a 400; the probe and metrics paths are exempt. The chart sets it from the edge hosts and the backend Service names. | Must be set and must not contain `*`. |
+| `ALLOWED_HOSTS` | comma-separated list | `*` | Comma-separated `Host` values the service answers (`*.example.com` matches subdomains, `*` anything; an entry never carries a port). Anything else is a 400; the probe paths are exempt. The chart sets it from the edge hosts and the backend Service names. | Must be set and must not contain `*`. |
 | `TRUSTED_PROXY_CIDRS` | comma-separated list | (empty) | Comma-separated IPv4/IPv6 CIDRs of the proxies (the gateway and, in the Tunnel edge mode, cloudflared) whose forwarding headers are trusted. Empty trusts nothing: the TCP peer is the client. An invalid entry stops startup, and so does one with host bits set (`10.1.2.3/8`; write `10.0.0.0/8`). | — |
 | `TRUST_CF_CONNECTING_IP` | bool | `false` | Trust `CF-Connecting-IP` from a peer in TRUSTED_PROXY_CIDRS. Set it only in the Cloudflare Tunnel edge mode: Cloudflare sends the header on traffic from its edge, so trust it only when cloudflared is the only way in. | Refused when TRUSTED_PROXY_CIDRS is empty. |
 | `AUTH_MODE` | one of `none`, `gateway`, `bearer`, `oidc`, `cloudflare-access` | `none` | `oidc` (JWT from an OpenID Connect provider, checked against its JWKS) and `cloudflare-access` (the Cloudflare Access application token) are the production modes. `gateway` (trusted identity header) and `bearer` (HMAC-signed JWT, shared secret) are reference modes; `none` is anonymous. | `none` is refused unless ALLOW_ANONYMOUS=true. |
@@ -144,6 +144,7 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 | `BACKEND_BIND` | — | Override bind address (set to `0.0.0.0` in containers) |
 | `BACKEND_KEEPALIVE_TIMEOUT` | `75` | Launcher-level (`python -m your_service_name.backend.serve`; the app itself never reads it): seconds Uvicorn keeps an idle connection open. Keep it longer than the gateway's upstream idle timeout (`waf.upstreamIdleTimeoutSeconds`, 60 in the chart), or the gateway can reuse a connection just closed and return a 502. The same holds for ingress-nginx's `upstream-keepalive-timeout` (default 60 s): never raise it past this value. |
 | `BACKEND_GRACEFUL_TIMEOUT` | `30` | Launcher-level: seconds Uvicorn drains in-flight requests after SIGTERM before it exits. |
+| `METRICS_PORT` | `9102` | Launcher-level (`python -m your_service_name.backend.serve`): the port of the Prometheus metrics server, bound on `BACKEND_BIND`. The API app serves no `/metrics`; a scraper must target this port. Must differ from `BACKEND_PORT` and from every other container port in the Pod (the chart's Cloud SQL proxy uses `9090`). Only the launcher starts it: the dev launchers (`run_backend.sh`, `infra/runtime/entrypoint.sh`) run bare Uvicorn and serve no metrics. |
 | `CUDA_VISIBLE_DEVICES` | _(empty)_ | GPU visibility (leave empty if not using GPU) |
 
 ---
@@ -234,6 +235,7 @@ These variables are managed via Kubernetes ConfigMap and Secret resources:
 | `API_VERSION` | API version | `values.<env>.yaml` |
 | `BACKEND_HOST` | Backend bind host | chart `values.yaml` |
 | `BACKEND_PORT` | Backend bind port | chart `values.yaml` |
+| `METRICS_PORT` | Metrics server port (the scrape target) | chart `values.yaml` |
 | `FRONTEND_HOST` | Frontend bind host | chart `values.yaml` |
 | `FRONTEND_PORT` | Frontend bind port | chart `values.yaml` |
 | `NEXT_PUBLIC_API_URL` | Frontend API URL | `values.<env>.yaml` |

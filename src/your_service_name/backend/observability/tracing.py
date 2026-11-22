@@ -5,8 +5,7 @@ Opt-in OpenTelemetry tracing over OTLP/HTTP (``TRACING_ENABLED``, default off).
 What it does
 ------------
 - Server spans for the API (the FastAPI/ASGI instrumentation) and database spans (the SQLAlchemy
-  instrumentation, on the app engine only). The probes and ``/metrics`` (``backend/paths.py``) are
-  never traced.
+  instrumentation, on the app engine only). The probes (``backend/paths.py``) are never traced.
 - No request or response header and no body is captured, and the query string is removed from the
   span's URL attributes (it can carry tokens). A database span has the statement text with its
   placeholders, never a parameter value, and no SQL comment is added.

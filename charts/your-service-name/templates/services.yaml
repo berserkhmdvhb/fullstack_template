@@ -9,7 +9,7 @@ metadata:
   {{- if .Values.monitoring.scrapeAnnotations }}
   annotations:
     prometheus.io/scrape: "true"
-    prometheus.io/port: {{ include "chart.backendPort" . | quote }}
+    prometheus.io/port: {{ include "chart.metricsPort" . | quote }}
     prometheus.io/path: "/metrics"
   {{- end }}
 spec:
@@ -18,6 +18,10 @@ spec:
     - name: http
       port: {{ include "chart.backendPort" . }}
       targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: {{ include "chart.metricsPort" . }}
+      targetPort: metrics
       protocol: TCP
   selector:
 {{- include "chart.selectorLabels" . | nindent 4 }}

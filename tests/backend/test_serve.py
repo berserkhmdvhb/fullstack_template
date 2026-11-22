@@ -14,6 +14,14 @@ from your_service_name.utils.versioning_api import SUPPORTED_VERSIONS
 ENTRY = "your_service_name.backend.main:app"
 
 
+@pytest.fixture(autouse=True)
+def metrics_server(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, str]]:
+    """No test binds a real port: the metrics server start is recorded as (port, address)."""
+    started: list[tuple[int, str]] = []
+    monkeypatch.setattr(serve, "start_http_server", lambda port, addr: started.append((port, addr)))
+    return started
+
+
 def test_the_defaults_are_the_safe_baseline() -> None:
     assert serve.build_options({}) == {
         "app": ENTRY,
@@ -139,3 +147,55 @@ def test_the_banner_reads_the_api_version_from_dot_env_like_the_app(
     monkeypatch.chdir(tmp_path)
     assert serve.main() == 0
     assert "/api/v7/health" in capsys.readouterr().out
+
+
+# ---- The metrics port ----------------------------------------------------------------------------
+
+
+def test_the_metrics_port_defaults_to_its_own_port_and_is_configurable() -> None:
+    assert serve.metrics_port({}) == 9102  # noqa: PLR2004
+    assert serve.metrics_port({"METRICS_PORT": ""}) == 9102  # noqa: PLR2004
+    assert serve.metrics_port({"METRICS_PORT": "9500"}) == 9500  # noqa: PLR2004
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "soon", "1.5", " 5", "05"])
+def test_a_bad_metrics_port_is_refused_by_name(value: str) -> None:
+    with pytest.raises(ValueError, match="METRICS_PORT"):
+        serve.metrics_port({"METRICS_PORT": value})
+
+
+def test_main_starts_the_metrics_server_once_before_the_app(
+    monkeypatch: pytest.MonkeyPatch, metrics_server: list[tuple[int, str]]
+) -> None:
+    order: list[str] = []
+    monkeypatch.setattr("uvicorn.run", lambda **_: order.append("uvicorn"))
+    monkeypatch.setattr(
+        serve, "start_http_server", lambda port, addr: order.append(f"metrics:{port}:{addr}")
+    )
+    monkeypatch.setenv("METRICS_PORT", "9500")
+    monkeypatch.setenv("BACKEND_BIND", "127.0.0.1")
+    assert serve.main() == 0
+    assert order == ["metrics:9500:127.0.0.1", "uvicorn"]
+    assert metrics_server == []
+
+
+def test_the_metrics_port_is_not_the_api_port() -> None:
+    assert serve.metrics_port({}) != serve.build_options({})["port"]
+    with pytest.raises(ValueError, match="METRICS_PORT"):
+        serve.metrics_port({"METRICS_PORT": "8000"})
+    with pytest.raises(ValueError, match="METRICS_PORT"):
+        serve.metrics_port({"METRICS_PORT": "9500", "BACKEND_PORT": "9500"})
+
+
+def test_a_bad_metrics_port_exits_non_zero_without_starting(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    metrics_server: list[tuple[int, str]],
+) -> None:
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr("uvicorn.run", lambda **kw: calls.append(kw))
+    monkeypatch.setenv("METRICS_PORT", "soon")
+    assert serve.main() == 1
+    assert "METRICS_PORT" in capsys.readouterr().err
+    assert not calls
+    assert not metrics_server

@@ -36,7 +36,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     - Controlled by the ``log_requests`` argument (the `LOG_REQUESTS` setting, default: false).
     - Logs at INFO level with format: ``METHOD /path STATUS 0.123s client=IP``, where the IP is the
       one resolved by ``ClientIpMiddleware`` (the TCP peer unless it is a trusted proxy).
-    - Skips the exact paths in ``skip_paths`` (the probes and metrics, from ``paths.exempt_paths``).
+    - Skips the exact paths in ``skip_paths`` (the probes, from ``paths.exempt_paths``).
     - Control characters in the path are escaped (``\\x0a``), so a decoded ``%0A`` cannot forge a
       second line in the text format.
     - It never logs the query string, a header, a cookie or a body, so it is safe to leave on in a
@@ -73,7 +73,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         if not self._log_requests:
             return await call_next(request)  # type: ignore[no-any-return]
 
-        # Skip the probes and the metrics scrape: they would be most of the log.
+        # Skip the probes: they would be most of the log.
         if request.url.path in self._skip_paths:
             return await call_next(request)  # type: ignore[no-any-return]
 

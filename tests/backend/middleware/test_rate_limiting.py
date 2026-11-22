@@ -62,11 +62,11 @@ class TestParseLimit:
 
 
 class TestExemptPaths:
-    """``exempt_paths`` lists exact paths: the versioned probes and the metrics endpoint."""
+    """``exempt_paths`` lists exact paths: the versioned probes (the metrics have their own port)"""
 
-    def test_lists_the_probes_and_metrics_for_the_version(self) -> None:
-        """The probe paths follow the API version; metrics is unversioned."""
-        assert paths.exempt_paths("v7") == {"/api/v7/health", "/api/v7/healthz", "/metrics"}
+    def test_lists_the_probes_for_the_version(self) -> None:
+        """The probe paths follow the API version; there is no /metrics route to exempt."""
+        assert paths.exempt_paths("v7") == {"/api/v7/health", "/api/v7/healthz"}
 
     def test_a_path_ending_like_a_probe_is_not_exempt(self) -> None:
         """No suffix matching: a route that happens to end in /health is limited."""

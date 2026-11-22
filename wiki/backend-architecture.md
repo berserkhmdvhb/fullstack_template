@@ -303,8 +303,10 @@ Middleware wraps all requests in this order, outermost first (`create_app` in `m
 The two refusals sit just inside the correlation middleware so their problem bodies carry the request
 id, and outside everything else so a refused request costs nothing more.
 
-The Prometheus instrumentator (`/metrics`) is added last, so it wraps the whole stack from outside. It
-only records metrics and does not read the client address.
+The Prometheus instrumentator is added last, so it wraps the whole stack from outside. It only records
+metrics and does not read the client address. The API app has no `/metrics` route: the launcher
+(`serve.py`) serves the metrics on their own port, `METRICS_PORT` (see
+[Metrics port and monitoring flavours](infrastructure.md#metrics-port-and-monitoring-flavours)).
 
 | Middleware | File | Purpose |
 |-----------|------|---------|
@@ -315,13 +317,13 @@ only records metrics and does not read the client address.
 | Security | `middleware/security.py` | Security headers |
 | Rate Limiting | `middleware/rate_limiting.py`, `rate_limiter.py` | Per-IP request throttling (async `limits`, memory or Redis storage, fail open: see [Rate Limiting](security.md#rate-limiting)) |
 | CORS | `main.py` | CORS configuration from the `CORS_*` settings |
-| Prometheus | `main.py` | Metrics exposition at `/metrics` for ServiceMonitor |
+| Prometheus | `main.py` (records), `serve.py` (serves on `METRICS_PORT`) | Metrics for the ServiceMonitor or PodMonitoring |
 
 -----------|------|---------|
 | Rate Limiting | `middleware/rate_limiting.py` | Per-IP request throttling (enforced in-middleware via `limits`) |
 | Security | `middleware/security.py` | CORS configuration, security headers |
 | Logging | `middleware/logging.py` | Request/response logging (opt-in via `LOG_REQUESTS`) |
-| Prometheus | `main.py` | Metrics exposition at `/metrics` for ServiceMonitor |
+| Prometheus | `main.py` (records), `serve.py` (serves on `METRICS_PORT`) | Metrics for the ServiceMonitor or PodMonitoring |
 
 ---
 
@@ -340,9 +342,9 @@ Opt-in OpenTelemetry tracing over OTLP/HTTP (`observability/tracing.py`). Off by
 | `TRACING_SAMPLE_RATIO` | `1.0` | Share of new traces recorded (0 to 1) |
 
 - **What is traced.** One server span per request (the FastAPI/ASGI instrumentation) and one client
-  span per database statement (the SQLAlchemy instrumentation, on the app engine). The probes and
-  `/metrics` (`paths.exempt_paths`, the one list; matched as exact paths, so a route that merely ends
-  in `/metrics` is traced) are never traced, and a database call outside a traced request (a
+  span per database statement (the SQLAlchemy instrumentation, on the app engine). The probes
+  (`paths.exempt_paths`, the one list; matched as exact paths, so a route that merely ends
+  in `/health` is traced) are never traced, and a database call outside a traced request (a
   probe's `SELECT 1`) starts no trace. Only a server span may start a trace: a future background
   worker's own root span would be dropped, so give it a sampler that admits that span kind (edit
   `_server_roots_only` in `observability/tracing.py`).

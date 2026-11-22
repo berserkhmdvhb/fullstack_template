@@ -1,0 +1,134 @@
+suite: the monitoring flavour and the dedicated metrics port
+release:
+  name: svc
+  namespace: app
+templates:
+  - servicemonitor.yaml
+  - prometheusrule.yaml
+  - podmonitoring.yaml
+  - gmp-rules.yaml
+  - services.yaml
+  - backend-deployment.yaml
+  - configmap.yaml
+  - network-policy.yaml
+tests:
+  - it: nothing monitor-shaped renders by default
+    asserts:
+      - hasDocuments: {count: 0}
+        template: servicemonitor.yaml
+      - hasDocuments: {count: 0}
+        template: prometheusrule.yaml
+      - hasDocuments: {count: 0}
+        template: podmonitoring.yaml
+      - hasDocuments: {count: 0}
+        template: gmp-rules.yaml
+
+  - it: prometheus-operator renders the ServiceMonitor and the PrometheusRule, and no GMP object
+    set: {monitoring: {serviceMonitor: true, prometheusRule: true}}
+    asserts:
+      - isKind: {of: ServiceMonitor}
+        template: servicemonitor.yaml
+      - equal: {path: 'spec.endpoints[0].port', value: metrics}
+        template: servicemonitor.yaml
+      - equal: {path: 'spec.endpoints[0].path', value: /metrics}
+        template: servicemonitor.yaml
+      - isKind: {of: PrometheusRule}
+        template: prometheusrule.yaml
+      - hasDocuments: {count: 0}
+        template: podmonitoring.yaml
+      - hasDocuments: {count: 0}
+        template: gmp-rules.yaml
+
+  - it: gmp renders the PodMonitoring and the Rules, and no operator object
+    set: {monitoring: {flavour: gmp, serviceMonitor: true, prometheusRule: true}}
+    asserts:
+      - hasDocuments: {count: 0}
+        template: servicemonitor.yaml
+      - hasDocuments: {count: 0}
+        template: prometheusrule.yaml
+      - isKind: {of: PodMonitoring}
+        template: podmonitoring.yaml
+      - equal: {path: apiVersion, value: monitoring.googleapis.com/v1}
+        template: podmonitoring.yaml
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: your-service-name
+            app.kubernetes.io/instance: svc
+            app.kubernetes.io/component: backend
+        template: podmonitoring.yaml
+      - equal: {path: 'spec.endpoints[0].port', value: metrics}
+        template: podmonitoring.yaml
+      - equal: {path: 'spec.endpoints[0].path', value: /metrics}
+        template: podmonitoring.yaml
+      - equal: {path: 'spec.endpoints[0].interval', value: 30s}
+        template: podmonitoring.yaml
+      - isKind: {of: Rules}
+        template: gmp-rules.yaml
+      - equal: {path: apiVersion, value: monitoring.googleapis.com/v1}
+        template: gmp-rules.yaml
+
+  - it: the flavour is an enum
+    set: {monitoring: {flavour: datadog}}
+    asserts:
+      - failedTemplate: {errorPattern: one of}
+        template: servicemonitor.yaml
+
+  - it: the backend Service names the metrics port, and the annotations point at it
+    asserts:
+      - contains:
+          path: spec.ports
+          content: {name: metrics, port: 9102, targetPort: metrics, protocol: TCP}
+        template: services.yaml
+        documentIndex: 0
+      - equal: {path: 'metadata.annotations["prometheus.io/port"]', value: "9102"}
+        template: services.yaml
+        documentIndex: 0
+
+  - it: the backend Pod declares the metrics port and the ConfigMap value moves it
+    set: {config: {METRICS_PORT: "9500"}}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content: {name: metrics, containerPort: 9500, protocol: TCP}
+        template: backend-deployment.yaml
+
+  - it: the scrape rule admits the collector to the metrics port only, never the API port
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - lengthEqual: {path: 'spec.ingress[2].ports', count: 1}
+      - equal: {path: 'spec.ingress[2].ports[0].port', value: 9102}
+      - notContains:
+          path: spec.ingress[2].ports
+          content: {protocol: TCP, port: 8000}
+
+  - it: gmp defaults the peers to the gmp-system collector
+    set: {monitoring: {flavour: gmp}}
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - equal:
+          path: 'spec.ingress[2]'
+          value:
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gmp-system}}
+                podSelector: {matchLabels: {app.kubernetes.io/name: collector}}
+            ports: [{protocol: TCP, port: 9102}]
+
+  - it: explicit selectors replace the flavour defaults
+    set:
+      monitoring: {flavour: gmp}
+      networkPolicy:
+        monitoringNamespaceSelector: {kubernetes.io/metadata.name: gke-gmp-system}
+        monitoringPodSelector: {app.kubernetes.io/name: collector, extra: "yes"}
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - equal:
+          path: 'spec.ingress[2]'
+          value:
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gke-gmp-system}}
+                podSelector: {matchLabels: {app.kubernetes.io/name: collector, extra: "yes"}}
+            ports: [{protocol: TCP, port: 9102}]

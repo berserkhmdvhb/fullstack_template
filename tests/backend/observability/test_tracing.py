@@ -117,10 +117,8 @@ class TestServerSpans:
         assert len(servers) == 1
         assert servers[0].resource.attributes["service.name"] == "your_service_name"
 
-    @pytest.mark.parametrize("path", ["/api/v1/health", "/api/v1/healthz", "/metrics"])
-    async def test_probes_and_metrics_are_not_traced(
-        self, exporter: InMemorySpanExporter, path: str
-    ) -> None:
+    @pytest.mark.parametrize("path", ["/api/v1/health", "/api/v1/healthz"])
+    async def test_probes_are_not_traced(self, exporter: InMemorySpanExporter, path: str) -> None:
         app = create_app(_settings())
         await _run(app, "GET", path)
         assert _spans(exporter, app) == []

@@ -81,7 +81,7 @@ golden render, WAF off:
                 matchLabels:
                   app.kubernetes.io/name: prometheus
           ports:
-            - port: 8000
+            - port: 9102
               protocol: TCP
       podSelector:
         matchLabels:
@@ -287,7 +287,7 @@ golden render, WAF on:
                 matchLabels:
                   app.kubernetes.io/name: prometheus
           ports:
-            - port: 8000
+            - port: 9102
               protocol: TCP
       podSelector:
         matchLabels:

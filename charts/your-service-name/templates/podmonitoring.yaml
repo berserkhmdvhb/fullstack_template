@@ -1,0 +1,23 @@
+{{/*
+   PodMonitoring: Google Managed Prometheus scrape discovery for the backend metrics port
+   (monitoring.flavour gmp). Pluggable (off by default; monitoring.serviceMonitor turns on the
+   monitor of either flavour). It scrapes only its own namespace and selects the backend Pods.
+*/}}
+{{- if and .Values.monitoring.serviceMonitor (eq .Values.monitoring.flavour "gmp") }}
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: {{ include "chart.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+{{- include "chart.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: backend
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+{{- end }}

@@ -7,6 +7,9 @@ container: Kubernetes scales Pods, not processes, and Uvicorn handles SIGTERM it
 Configuration (environment; defaults are the safe baseline):
 - ``BACKEND_ENTRY``: ASGI import string (``your_service_name.backend.main:app``).
 - ``BACKEND_BIND`` / ``BACKEND_PORT``: listen address (``0.0.0.0`` / ``8000``).
+- ``METRICS_PORT``: the port of the Prometheus metrics server (``9102``), bound on ``BACKEND_BIND``.
+  The API app serves no ``/metrics``: the scrape reaches this port only, so the network policy can
+  admit a collector to it without admitting it to the API.
 - ``BACKEND_GRACEFUL_TIMEOUT``: seconds to drain in-flight requests after SIGTERM (``30``).
 - ``BACKEND_KEEPALIVE_TIMEOUT``: seconds an idle connection stays open (``75``). Keep it above the
   gateway's upstream idle timeout (``waf.upstreamIdleTimeoutSeconds`` in the chart), or the proxy
@@ -33,6 +36,7 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 import uvicorn
+from prometheus_client import start_http_server
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -46,6 +50,15 @@ def _positive_int(environ: Mapping[str, str], name: str, default: int) -> int:
         msg = f"{name} must be a positive integer (got '{raw}')"
         raise ValueError(msg)
     return int(raw)
+
+
+def metrics_port(environ: Mapping[str, str]) -> int:
+    """The metrics server's port; ``ValueError`` when it is invalid or the API's own port."""
+    port = _positive_int(environ, "METRICS_PORT", 9102)
+    if port == _positive_int(environ, "BACKEND_PORT", 8000):
+        msg = f"METRICS_PORT must differ from BACKEND_PORT (both {port})"
+        raise ValueError(msg)
+    return port
 
 
 def build_options(environ: Mapping[str, str]) -> dict[str, Any]:
@@ -85,12 +98,16 @@ def main() -> int:
     """Validate the environment, print the banner, serve. Non-zero on a bad value."""
     try:
         options = build_options(os.environ)
+        metrics = metrics_port(os.environ)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)  # noqa: T201
         return 1
     from your_service_name.backend.settings import ApiVersionSetting  # noqa: PLC0415 - after validation
 
     print(_banner(options, ApiVersionSetting().API_VERSION), flush=True)  # noqa: T201
+    # The default registry: the app's instrumentation registers there when Uvicorn imports it, in
+    # this same process (one process, no workers, no reload). Started once, before the app.
+    start_http_server(metrics, addr=options["host"])
     uvicorn.run(**options)
     return 0
 

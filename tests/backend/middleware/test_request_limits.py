@@ -196,8 +196,8 @@ def test_a_wildcard_pattern_accepts_a_subdomain() -> None:
     assert res.status_code == 404  # noqa: PLR2004
 
 
-@pytest.mark.parametrize("path", ["/api/v1/health", "/api/v1/healthz", "/metrics"])
-def test_probe_and_metrics_paths_accept_any_host(path: str) -> None:
+@pytest.mark.parametrize("path", ["/api/v1/health", "/api/v1/healthz"])
+def test_probe_paths_accept_any_host(path: str) -> None:
     with TestClient(_app(ALLOWED_HOSTS="api.example.com")) as client:
         res = client.get(path, headers={"Host": "10.42.0.17:8000"})
     assert res.status_code != 400  # noqa: PLR2004

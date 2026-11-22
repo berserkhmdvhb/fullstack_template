@@ -94,18 +94,21 @@ spec:
         - protocol: TCP
           port: {{ $backendPort }}
 {{- end }}
-{{- /* The metrics scrape: only with a scrape target; a null namespace selector disables it. */}}
+{{- /* The metrics scrape: only with a scrape target; a null namespace selector disables it. The
+       defaults follow monitoring.flavour; explicit selectors replace them. The metrics port only:
+       the collector is never admitted to the API port. */}}
+{{- $gmp := eq .Values.monitoring.flavour "gmp" }}
 {{- if and (or .Values.monitoring.scrapeAnnotations .Values.monitoring.serviceMonitor) (not (kindIs "invalid" $np.monitoringNamespaceSelector)) }}
     - from:
         - namespaceSelector:
             matchLabels:
-{{- toYaml ($np.monitoringNamespaceSelector | default (dict "kubernetes.io/metadata.name" "monitoring")) | nindent 14 }}
+{{- toYaml ($np.monitoringNamespaceSelector | default (dict "kubernetes.io/metadata.name" (ternary "gmp-system" "monitoring" $gmp))) | nindent 14 }}
           podSelector:
             matchLabels:
-{{- toYaml ($np.monitoringPodSelector | default (dict "app.kubernetes.io/name" "prometheus")) | nindent 14 }}
+{{- toYaml ($np.monitoringPodSelector | default (dict "app.kubernetes.io/name" (ternary "collector" "prometheus" $gmp))) | nindent 14 }}
       ports:
         - protocol: TCP
-          port: {{ $backendPort }}
+          port: {{ include "chart.metricsPort" . }}
 {{- end }}
 ---
 {{- if .Values.waf.enabled }}

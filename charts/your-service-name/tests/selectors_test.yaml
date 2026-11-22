@@ -35,7 +35,7 @@ tests:
             from:
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
                 podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
-            ports: [{protocol: TCP, port: 8000}]
+            ports: [{protocol: TCP, port: 9102}]
   - it: a monitoring override with a different key renders only that key
     set: {networkPolicy: {monitoringNamespaceSelector: {team: obs}}}
     documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
@@ -46,11 +46,11 @@ tests:
             from:
               - namespaceSelector: {matchLabels: {team: obs}}
                 podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
-            ports: [{protocol: TCP, port: 8000}]
+            ports: [{protocol: TCP, port: 9102}]
       - notContains:
           path: spec.ingress
           content:
             from:
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
                 podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
-            ports: [{protocol: TCP, port: 8000}]
+            ports: [{protocol: TCP, port: 9102}]

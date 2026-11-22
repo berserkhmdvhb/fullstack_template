@@ -95,6 +95,9 @@ spec:
             - name: http
               containerPort: {{ include "chart.backendPort" . }}
               protocol: TCP
+            - name: metrics
+              containerPort: {{ include "chart.metricsPort" . }}
+              protocol: TCP
           resources:
 {{- include "chart.resources" .Values.resources.backend | nindent 12 }}
           # Startup and liveness are process-only (/healthz): the migration Job can outlast the startup

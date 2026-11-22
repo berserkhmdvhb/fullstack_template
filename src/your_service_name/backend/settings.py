@@ -454,7 +454,7 @@ class Settings(BaseSettings):
         default_factory=lambda: ["*"],
         description="Comma-separated `Host` values the service answers (`*.example.com` matches "
         "subdomains, `*` anything; an entry never carries a port). Anything else is a 400; the "
-        "probe and metrics paths are exempt. The chart sets it from the edge hosts and the "
+        "probe paths are exempt. The chart sets it from the edge hosts and the "
         "backend Service names.",
         json_schema_extra={"production": "Must be set and must not contain `*`."},
     )

@@ -183,7 +183,7 @@ flowchart TB
 | **ServiceAccount** | Minimal RBAC for the application |
 | **Job** | Database migration runner |
 | **CronJob** | PostgreSQL backup (daily at 2 AM) |
-| **ServiceMonitor** | Prometheus metrics scraping |
+| **ServiceMonitor** or **PodMonitoring** | Prometheus or Google Managed Prometheus scraping, per `monitoring.flavour` |
 
 ### Health Probes
 

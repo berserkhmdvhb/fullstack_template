@@ -58,7 +58,7 @@ def _client() -> TestClient:
     return TestClient(create_app(Settings(LOG_REQUESTS=True)))
 
 
-def test_probes_and_metrics_write_no_request_line(lines: _Lines) -> None:
+def test_probes_write_no_request_line(lines: _Lines) -> None:
     client = _client()
     for path in sorted(paths.exempt_paths(Settings().API_VERSION)):
         client.get(path)

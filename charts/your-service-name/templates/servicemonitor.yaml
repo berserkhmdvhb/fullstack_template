@@ -1,9 +1,9 @@
 {{/*
-   ServiceMonitor — Prometheus Operator scrape discovery for the backend /metrics.
-   Pluggable (off by default); requires the Prometheus Operator CRDs. The selector
-   matches the backend Service by its stable identity labels.
+   ServiceMonitor: Prometheus Operator scrape discovery for the backend metrics port
+   (monitoring.flavour prometheus-operator). Pluggable (off by default); requires the Prometheus
+   Operator CRDs. The selector matches the backend Service by its stable identity labels.
 */}}
-{{- if .Values.monitoring.serviceMonitor }}
+{{- if and .Values.monitoring.serviceMonitor (eq .Values.monitoring.flavour "prometheus-operator") }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -18,7 +18,7 @@ spec:
 {{- include "chart.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: backend
   endpoints:
-    - port: http
+    - port: metrics
       path: /metrics
       interval: 30s
       relabelings:

@@ -290,7 +290,7 @@ give the Gateway a namespace or list its Pods in `extraPeers` with a `podSelecto
 | Edge peers, frontend | WAF, `waf.service.port` | `waf.enabled: true`; then nothing but the WAF reaches the backend |
 | WAF | backend, backend port (or `waf.upstreamPeers` on the upstream port) | `waf.enabled: true`; `waf.upstream` points the WAF at an auth proxy |
 | `networkPolicy.backendExtraIngressPeers` (NetworkPolicy peers, for example the auth proxy) | backend, backend port | when set, with the WAF on or off; empty adds no rule. These peers reach the backend around the WAF |
-| `monitoringPodSelector` Pods in the `monitoringNamespaceSelector` namespace (`networkPolicy`) | backend, the metrics port (today the API port) | only with a scrape target (`monitoring.scrapeAnnotations`, on by default, or `monitoring.serviceMonitor`); empty selectors mean `app.kubernetes.io/name: prometheus` in the `monitoring` namespace; `monitoringNamespaceSelector: null` removes the rule |
+| `monitoringPodSelector` Pods in the `monitoringNamespaceSelector` namespace (`networkPolicy`) | backend, `config.METRICS_PORT` only (never the API port) | only with a scrape target (`monitoring.scrapeAnnotations`, on by default, or `monitoring.serviceMonitor`); empty selectors follow `monitoring.flavour`: `app.kubernetes.io/name: prometheus` in `monitoring` (prometheus-operator), `app.kubernetes.io/name: collector` in `gmp-system` (gmp); `monitoringNamespaceSelector: null` removes the rule |
 | backend, migration Job | PostgreSQL :5432 (or `externalDatabase.egressCIDR`) | always |
 | every egress policy | kube-dns :53 (`networkPolicy.dns`; empty: `k8s-app: kube-dns` in `kube-system`; plus optional `ipBlocks` such as NodeLocal DNSCache) | always |
 
@@ -299,6 +299,39 @@ proxy and server-side calls pass the WAF. A set selector replaces its default; i
 with it. A managed collector (for example GKE's managed Prometheus) runs in another namespace with
 other labels: set both monitoring selectors to match it. Nothing else reaches PostgreSQL or the migration Job. Other backend egress (a collector, a Redis) goes
 in `backend.networkPolicy.extraEgress`.
+
+### Metrics port and monitoring flavours
+
+The backend serves its Prometheus metrics on their own port, `config.METRICS_PORT` (`9102`), from the
+launcher (`python -m your_service_name.backend.serve`). The API app has no `/metrics` route, so the
+API port never exposes metrics. The port is the backend container's `metrics` port and the backend
+Service's `metrics` port, and the scrape NetworkPolicy admits the collector to that port only. Pick a
+value that no other container port in the Pod uses (the API port, the Cloud SQL proxy's
+`cloudSqlProxy.healthPort`); a test checks every Pod's ports are unique with every option on. The
+metric names and labels are unchanged. The frontend exposes no metrics. The dev launchers
+(`run_backend.sh`, `infra/runtime/entrypoint.sh`) run bare Uvicorn and serve no metrics.
+
+`monitoring.flavour` picks the scrape and rule objects (`monitoring.serviceMonitor` and
+`monitoring.prometheusRule` still switch them on; both are off by default):
+
+| `monitoring.flavour` | Monitor | Rules | Default scrape peers (namespace and Pod label) |
+|---|---|---|---|
+| `prometheus-operator` (default) | `ServiceMonitor` | `PrometheusRule` | `monitoring` and `app.kubernetes.io/name: prometheus` |
+| `gmp` | `PodMonitoring` (`monitoring.googleapis.com/v1`) | `Rules` (`monitoring.googleapis.com/v1`) | `gmp-system` and `app.kubernetes.io/name: collector` |
+
+The rule groups are defined once (`chart.alertGroups`) and both flavours embed them. The rules use
+`kube_*` and `container_*` series, so the backend you query needs kube-state-metrics and cAdvisor
+(managed collection includes cAdvisor; kube-state-metrics is yours to install on GMP). A
+`PodMonitoring` scrapes only its own namespace.
+
+- **GKE Autopilot** runs the managed collector in `gke-gmp-system`: set
+  `networkPolicy.monitoringNamespaceSelector` to `{kubernetes.io/metadata.name: gke-gmp-system}`
+  (explicit selectors replace the defaults; set both).
+- **Host networking.** Google's documentation does not say whether the collector uses host
+  networking. If it reaches the Pod from a node address, the selectors never match and the scrape is
+  refused: add the node range as an `ipBlock` peer in `networkPolicy.backendExtraIngressPeers`.
+  That peer is admitted to the backend (API) port, not the metrics port, so confirm what reaches
+  the Pod first (`networkPolicy.monitoringNamespaceSelector: null` removes the scrape rule).
 
 ### GKE Gateway policies
 
