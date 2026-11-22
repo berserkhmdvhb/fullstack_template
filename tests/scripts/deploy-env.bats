@@ -70,6 +70,7 @@ STUB
   run bash "$SCRIPT"
   [ "$status" -eq 0 ]
   grep -q "helm upgrade --install svc charts/x" "$LOG"
+  grep "helm upgrade --install svc charts/x" "$LOG" | grep -q -- "--set guards.rejectPlaceholders=true"
   grep -q -- "--rollback-on-failure --wait --wait-for-jobs --timeout 5m" "$LOG"
   grep -q -- "-n svc-dev" "$LOG"
   grep -q "^verify COMPONENTS=backend frontend" "$LOG"

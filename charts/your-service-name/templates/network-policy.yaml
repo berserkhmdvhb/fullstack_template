@@ -44,8 +44,8 @@ spec:
           port: {{ include "chart.frontendPort" . }}
 {{- end }}
 ---
-# ---- 3. Allow -> backend: the frontend's server-side calls, the edge (or, with the WAF on, only
-#         the WAF: no edge peer reaches the backend around it), and the metrics scrape ----
+# ---- 3. Allow -> backend: the frontend's server-side calls and the edge, or, with the WAF on,
+#         only the WAF (nothing reaches the backend around it); plus the metrics scrape ----
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -60,13 +60,6 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/component: frontend
-      ports:
-        - protocol: TCP
-          port: {{ $backendPort }}
 {{- if .Values.waf.enabled }}
     - from:
         - podSelector:
@@ -75,25 +68,32 @@ spec:
       ports:
         - protocol: TCP
           port: {{ $backendPort }}
-{{- else if $peers }}
+{{- else }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: frontend
+      ports:
+        - protocol: TCP
+          port: {{ $backendPort }}
+{{- if $peers }}
     - from:
 {{- toYaml $peers | nindent 8 }}
       ports:
         - protocol: TCP
           port: {{ $backendPort }}
 {{- end }}
-{{- with .Values.networkPolicy.monitoringNamespaceSelector }}
+{{- end }}
     - from:
         - namespaceSelector:
             matchLabels:
-{{- toYaml . | nindent 14 }}
+{{- toYaml (.Values.networkPolicy.monitoringNamespaceSelector | default (dict "kubernetes.io/metadata.name" "monitoring")) | nindent 14 }}
       ports:
         - protocol: TCP
           port: {{ $backendPort }}
-{{- end }}
 ---
 {{- if .Values.waf.enabled }}
-# ---- 3b. Allow the edge -> WAF, and WAF -> backend + DNS ----
+# ---- 3b. Allow the frontend and the edge -> WAF, and WAF -> backend + DNS ----
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -108,8 +108,15 @@ spec:
   policyTypes:
     - Ingress
     - Egress
-{{- if $peers }}
   ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: frontend
+      ports:
+        - protocol: TCP
+          port: {{ .Values.waf.service.port }}
+{{- if $peers }}
     - from:
 {{- toYaml $peers | nindent 8 }}
       ports:
@@ -204,7 +211,7 @@ spec:
 {{- end }}
 {{- include "chart.dnsEgress" . | nindent 4 }}
 ---
-# ---- 6. Allow Frontend -> Backend API + DNS ----
+# ---- 6. Allow Frontend -> Backend API (the WAF when it is on) + DNS ----
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -222,8 +229,8 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/component: backend
+              app.kubernetes.io/component: {{ ternary "waf" "backend" .Values.waf.enabled }}
       ports:
         - protocol: TCP
-          port: {{ $backendPort }}
+          port: {{ include "chart.apiBackendPort" . }}
 {{- include "chart.dnsEgress" . | nindent 4 }}

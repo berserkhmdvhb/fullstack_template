@@ -1,0 +1,47 @@
+suite: the deploy-time placeholder guard (guards.rejectPlaceholders)
+release:
+  name: svc
+  namespace: app
+templates:
+  - validate-values.yaml
+tests:
+  - it: off by default - the placeholders render
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: on - the placeholder Gateway is refused in gateway mode
+    set:
+      guards: {rejectPlaceholders: true}
+      edge:
+        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'edge\.gateway\.parentRefs names the placeholder Gateway "your-gateway"'
+
+  - it: on - a placeholder host is refused
+    set:
+      guards: {rejectPlaceholders: true}
+      edge:
+        hosts: {api: api.svc.test, app: app.your-domain.example, root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'edge\.hosts\.app is "app\.your-domain\.example", which still holds the placeholder domain your-domain\.example'
+
+  - it: on - real values render
+    set:
+      guards: {rejectPlaceholders: true}
+      edge:
+        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: on - the placeholder Gateway does not matter outside gateway mode
+    set:
+      guards: {rejectPlaceholders: true}
+      edge:
+        mode: tunnel
+        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+    asserts:
+      - notFailedTemplate: {}

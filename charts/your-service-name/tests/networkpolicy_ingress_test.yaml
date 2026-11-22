@@ -39,11 +39,11 @@ tests:
     set: {waf: {enabled: true}}
     asserts:
       - equal:
-          path: spec.ingress
+          path: 'spec.ingress[1]'
           value:
-            - from:
-                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: edge-controller}}
-              ports: [{protocol: TCP, port: 8080}]
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: edge-controller}}
+            ports: [{protocol: TCP, port: 8080}]
         documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
       - notContains:
           path: spec.ingress

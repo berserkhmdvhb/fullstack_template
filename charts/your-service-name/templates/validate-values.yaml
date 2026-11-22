@@ -37,3 +37,21 @@
 {{- fail (printf "%s: config.%s must not be set: it can hold a credential. Put %s in the app Secret (secrets.existingSecret) instead." (include "chart.fullname" $) $name $name) }}
 {{- end }}
 {{- end }}
+{{- /*
+  Deploy-time placeholder guard (guards.rejectPlaceholders; the deploy script sets it). Every CI
+  render leaves it off, so the template's own placeholders keep rendering there.
+*/ -}}
+{{- if .Values.guards.rejectPlaceholders }}
+{{- if eq .Values.edge.mode "gateway" }}
+{{- range .Values.edge.gateway.parentRefs }}
+{{- if eq .name "your-gateway" }}
+{{- fail (printf "%s: edge.gateway.parentRefs names the placeholder Gateway \"your-gateway\". Set it to the Gateway on your cluster (values.<env>.yaml) before a deploy." (include "chart.fullname" $)) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $role, $host := .Values.edge.hosts }}
+{{- if contains "your-domain.example" $host }}
+{{- fail (printf "%s: edge.hosts.%s is %q, which still holds the placeholder domain your-domain.example. Set your real hostnames (infra/adapt/adopt.sh stamps them) before a deploy." (include "chart.fullname" $) $role $host) }}
+{{- end }}
+{{- end }}
+{{- end }}

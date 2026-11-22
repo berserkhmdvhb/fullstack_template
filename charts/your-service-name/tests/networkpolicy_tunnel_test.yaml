@@ -33,11 +33,11 @@ tests:
     set: {waf: {enabled: true}}
     asserts:
       - equal:
-          path: spec.ingress
+          path: 'spec.ingress[1]'
           value:
-            - from:
-                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudflared}}
-              ports: [{protocol: TCP, port: 8080}]
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: cloudflared}}
+            ports: [{protocol: TCP, port: 8080}]
         documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
       - notContains:
           path: spec.ingress
@@ -47,7 +47,7 @@ tests:
             ports: [{protocol: TCP, port: 8000}]
         documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
       - equal:
-          path: spec.ingress[1].from
+          path: spec.ingress[0].from
           value: [{podSelector: {matchLabels: {app.kubernetes.io/component: waf}}}]
         documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
 

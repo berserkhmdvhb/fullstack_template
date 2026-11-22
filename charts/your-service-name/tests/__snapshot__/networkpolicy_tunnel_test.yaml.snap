@@ -272,13 +272,6 @@ golden render, WAF on:
         - from:
             - podSelector:
                 matchLabels:
-                  app.kubernetes.io/component: frontend
-          ports:
-            - port: 8000
-              protocol: TCP
-        - from:
-            - podSelector:
-                matchLabels:
                   app.kubernetes.io/component: waf
           ports:
             - port: 8000
@@ -330,6 +323,13 @@ golden render, WAF on:
                 matchLabels:
                   k8s-app: kube-dns
       ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: frontend
+          ports:
+            - port: 8080
+              protocol: TCP
         - from:
             - namespaceSelector:
                 matchLabels:
@@ -443,12 +443,12 @@ golden render, WAF on:
     spec:
       egress:
         - ports:
-            - port: 8000
+            - port: 8080
               protocol: TCP
           to:
             - podSelector:
                 matchLabels:
-                  app.kubernetes.io/component: backend
+                  app.kubernetes.io/component: waf
         - ports:
             - port: 53
               protocol: UDP

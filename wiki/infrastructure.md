@@ -54,6 +54,12 @@ flowchart TB
 > chart's `templates/`; the pre-Helm `k8s/` Kustomize tree was **removed in Phase 2 Stage C** (recoverable
 > from git history, last touched `f72fdd1`) and is no longer part of the deploy flow.
 
+**The deploy refuses placeholders.** The deploy script (`scripts/ci/deploy-env.sh`) runs
+`helm upgrade` with `--set guards.rejectPlaceholders=true`, so the render fails while an
+`edge.hosts` value still contains `your-domain.example`, or, in gateway mode, an
+`edge.gateway.parentRefs` entry still names `your-gateway`. CI renders leave the guard off, so the
+template's own values keep rendering. Pass the same `--set` to a `helm upgrade` you run by hand.
+
 ### Chart templates (`charts/your-service-name/templates/`)
 
 The base resource set maps 1:1 into the chart. Per-env differences live in
@@ -111,14 +117,16 @@ Every mode adds `edge.extraPeers`, for example a regional load balancer's proxy-
 |--------|-------------|------|
 | Edge peers | frontend, frontend port | always |
 | Edge peers | backend, backend port | `waf.enabled: false` |
-| Edge peers | WAF, `waf.service.port` | `waf.enabled: true`; then no edge peer reaches the backend |
+| frontend | backend, backend port | `waf.enabled: false` (server-side calls, `BACKEND_URL`) |
+| Edge peers, frontend | WAF, `waf.service.port` | `waf.enabled: true`; then nothing but the WAF reaches the backend |
 | WAF | backend, backend port | `waf.enabled: true` |
-| frontend | backend, backend port | always (server-side calls) |
-| `networkPolicy.monitoringNamespaceSelector` | backend, backend port (`/metrics`) | when set (default: the `monitoring` namespace) |
+| `networkPolicy.monitoringNamespaceSelector` | backend, backend port (`/metrics`) | always (empty: the `monitoring` namespace) |
 | backend, migration Job | PostgreSQL :5432 (or `externalDatabase.egressCIDR`) | always |
-| every egress policy | kube-dns :53 (`networkPolicy.dns`, plus optional `ipBlocks` such as NodeLocal DNSCache) | always |
+| every egress policy | kube-dns :53 (`networkPolicy.dns`; empty: `k8s-app: kube-dns` in `kube-system`; plus optional `ipBlocks` such as NodeLocal DNSCache) | always |
 
-Nothing else reaches PostgreSQL or the migration Job. Other backend egress (a collector, a Redis) goes
+With the WAF on, the frontend's `BACKEND_URL` is the WAF Service too, so the same-origin `/api/v1`
+proxy and server-side calls pass the WAF. A set selector replaces its default; it is not merged
+with it. Nothing else reaches PostgreSQL or the migration Job. Other backend egress (a collector, a Redis) goes
 in `backend.networkPolicy.extraEgress`.
 
 ### GKE Gateway policies

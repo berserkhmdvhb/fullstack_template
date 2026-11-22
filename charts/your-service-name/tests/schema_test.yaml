@@ -39,8 +39,8 @@ tests:
         routes: [{path: "/a b", match: PathPrefix, service: backend}]
     asserts:
       - failedTemplate: {}
-  - it: rejects an empty DNS namespace selector (it would match every namespace)
-    set: {networkPolicy: {dns: {namespaceSelector: {kubernetes.io/metadata.name: null}}}}
+  - it: rejects a DNS selector value that is not a string
+    set: {networkPolicy: {dns: {namespaceSelector: {team: [a]}}}}
     asserts:
       - failedTemplate: {}
   - it: rejects an unknown GKE policy key (no invented provider field)
@@ -53,5 +53,9 @@ tests:
       - failedTemplate: {}
   - it: rejects an edge peer that is not an object
     set: {edge: {extraPeers: [10.0.0.0/8]}}
+    asserts:
+      - failedTemplate: {}
+  - it: rejects a non-boolean placeholder guard
+    set: {guards: {rejectPlaceholders: "yes"}}
     asserts:
       - failedTemplate: {}

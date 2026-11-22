@@ -590,11 +590,11 @@ spec:
 | Policy | Direction | Source | Destination | Purpose |
 |--------|-----------|--------|-------------|---------|
 | `allow-to-frontend` | Ingress | the edge peers of `edge.mode` | frontend pods on the frontend port | Edge → UI |
-| `allow-to-backend` | Ingress | frontend pods; the WAF pods (WAF on) or the edge peers (WAF off); the monitoring namespace | backend pods on the backend port | No edge peer reaches the backend around the WAF |
-| `allow-waf` (WAF on) | Ingress + Egress | the edge peers | WAF pods on `waf.service.port`; egress to the backend + DNS | Edge → WAF → backend |
+| `allow-to-backend` | Ingress | WAF on: the WAF pods; WAF off: the frontend pods and the edge peers; always the monitoring namespace | backend pods on the backend port | Nothing reaches the backend around the WAF |
+| `allow-waf` (WAF on) | Ingress + Egress | the frontend pods and the edge peers | WAF pods on `waf.service.port`; egress to the backend + DNS | Edge / frontend → WAF → backend |
 | `allow-backend-to-db` | Egress | backend pods | postgresql:5432 + DNS | Backend → database |
 | `allow-migration-to-db` | Egress | migration job | postgresql:5432 + DNS | Migration → database |
-| `allow-frontend-to-backend` | Egress | frontend pods | backend port + DNS | Server-side calls |
+| `allow-frontend-to-backend` | Egress | frontend pods | the backend port (the WAF port when it is on) + DNS | Server-side calls (`BACKEND_URL`) |
 
 DNS egress goes to kube-dns only (`networkPolicy.dns`). The edge peers per mode and the full flow
 matrix: [Infrastructure, NetworkPolicy per mode](./infrastructure.md#networkpolicy-per-mode).

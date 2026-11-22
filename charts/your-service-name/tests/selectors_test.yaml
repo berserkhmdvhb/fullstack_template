@@ -1,0 +1,50 @@
+suite: selector overrides replace the defaults (no merge with them)
+release:
+  name: svc
+  namespace: app
+templates:
+  - network-policy.yaml
+tests:
+  - it: empty selectors mean kube-dns in kube-system
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-frontend-to-backend}
+    asserts:
+      - equal:
+          path: 'spec.egress[1].to'
+          value:
+            - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+              podSelector: {matchLabels: {k8s-app: kube-dns}}
+  - it: a DNS override with different keys renders only those keys
+    set:
+      networkPolicy:
+        dns:
+          namespaceSelector: {team: dns}
+          podSelector: {app: coredns}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-frontend-to-backend}
+    asserts:
+      - equal:
+          path: 'spec.egress[1].to'
+          value:
+            - namespaceSelector: {matchLabels: {team: dns}}
+              podSelector: {matchLabels: {app: coredns}}
+  - it: an empty monitoring selector means the monitoring namespace
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}}]
+            ports: [{protocol: TCP, port: 8000}]
+  - it: a monitoring override with a different key renders only that key
+    set: {networkPolicy: {monitoringNamespaceSelector: {team: obs}}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from: [{namespaceSelector: {matchLabels: {team: obs}}}]
+            ports: [{protocol: TCP, port: 8000}]
+      - notContains:
+          path: spec.ingress
+          content:
+            from: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}}]
+            ports: [{protocol: TCP, port: 8000}]

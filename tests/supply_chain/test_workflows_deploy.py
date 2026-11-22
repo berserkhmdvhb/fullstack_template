@@ -268,7 +268,8 @@ def test_the_script_deploys_by_digest_and_rolls_back_to_the_recorded_revision() 
     assert "^sha256:[0-9a-f]{64}$" in SCRIPT
     assert "--rollback-on-failure" in SCRIPT
     assert "--wait" in SCRIPT
-    assert "--set" not in SCRIPT
+    # The one --set is the placeholder guard; every other value comes from a values file.
+    assert SCRIPT.count("--set") == 1
     assert 'select(.status == "deployed")' in SCRIPT
     assert 'helm rollback "$SERVICE_NAME" "$recorded"' in SCRIPT
     assert "helm rollback" in SCRIPT
@@ -280,6 +281,15 @@ def test_the_script_deploys_by_digest_and_rolls_back_to_the_recorded_revision() 
     )
     assert "no earlier deployed revision" in SCRIPT
     assert 'case "$DEPLOY_ENV" in dev|qa|production' in SCRIPT
+
+
+def test_the_deploy_refuses_placeholder_values() -> None:
+    """Only the real deploy turns the chart's placeholder guard on; CI renders leave it off."""
+    upgrade = SCRIPT[SCRIPT.index('helm upgrade --install "$SERVICE_NAME"') :]
+    upgrade = upgrade[: upgrade.index("|| helm_rc=$?")]
+    assert "--set guards.rejectPlaceholders=true" in upgrade
+    chart_ci = (WORKFLOWS / "reusable-chart.yml").read_text(encoding="utf-8")
+    assert "rejectPlaceholders" not in chart_ci
 
 
 def test_no_port_or_api_path_is_hard_coded() -> None:

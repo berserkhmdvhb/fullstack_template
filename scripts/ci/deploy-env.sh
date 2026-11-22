@@ -71,9 +71,11 @@ fi
 
 # 3. deploy. The migration Job carries helm.sh/resource-policy keep, so Helm's own rollback leaves
 # a failed Job (and its Pods) in place: print its status and logs before failing.
+# guards.rejectPlaceholders: a real deploy refuses the chart's placeholder hosts and Gateway.
 helm_rc=0
 helm upgrade --install "$SERVICE_NAME" "$CHART_DIR" \
   -f "$CHART_DIR/values.${DEPLOY_ENV}.yaml" -f "$VALUES" \
+  --set guards.rejectPlaceholders=true \
   --namespace "$NAMESPACE" \
   --rollback-on-failure --wait --wait-for-jobs --timeout "$HELM_TIMEOUT" || helm_rc=$?
 if (( helm_rc != 0 )); then

@@ -9,7 +9,7 @@
 {{- if and (eq .Values.edge.mode "gateway") .Values.edge.gateway.gke.enabled }}
 {{- $gke := .Values.edge.gateway.gke }}
 {{- $fullname := include "chart.fullname" . }}
-{{- $backendPort := ternary .Values.waf.service.port (include "chart.backendPort" .) .Values.waf.enabled }}
+{{- $backendPort := include "chart.apiBackendPort" . }}
 {{- $targets := list
       (dict "name" (include "chart.apiBackendService" .) "port" $backendPort "path" (include "chart.backendReadyPath" .))
       (dict "name" (printf "%s-frontend" $fullname) "port" (include "chart.frontendPort" .) "path" (include "chart.frontendReadyPath" .)) }}

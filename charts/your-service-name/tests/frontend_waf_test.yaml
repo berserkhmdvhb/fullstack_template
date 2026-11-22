@@ -1,0 +1,74 @@
+suite: the frontend's backend calls go through the WAF when it is on
+release:
+  name: svc
+  namespace: app
+templates:
+  - configmap.yaml
+  - network-policy.yaml
+tests:
+  - it: WAF off - BACKEND_URL is the backend Service and port
+    template: configmap.yaml
+    asserts:
+      - equal: {path: data.BACKEND_URL, value: 'http://svc-your-service-name-backend:8000'}
+  - it: WAF on - BACKEND_URL is the WAF Service and port, and the backend accepts its Host
+    template: configmap.yaml
+    set: {waf: {enabled: true}}
+    asserts:
+      - equal: {path: data.BACKEND_URL, value: 'http://svc-your-service-name-waf:8080'}
+      - matchRegex: {path: data.ALLOWED_HOSTS, pattern: '(^|,)svc-your-service-name-waf(,|$)'}
+      - matchRegex: {path: data.ALLOWED_HOSTS, pattern: '(^|,)svc-your-service-name-waf\.app\.svc\.cluster\.local(,|$)'}
+  - it: WAF off - the WAF Service is not an allowed Host
+    template: configmap.yaml
+    asserts:
+      - notMatchRegex: {path: data.ALLOWED_HOSTS, pattern: '-waf'}
+  - it: the port follows the values
+    template: configmap.yaml
+    set: {waf: {enabled: true, service: {port: 9090}}}
+    asserts:
+      - equal: {path: data.BACKEND_URL, value: 'http://svc-your-service-name-waf:9090'}
+
+  - it: WAF off - the frontend's egress goes to the backend
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-frontend-to-backend}
+    asserts:
+      - equal:
+          path: 'spec.egress[0]'
+          value:
+            to: [{podSelector: {matchLabels: {app.kubernetes.io/component: backend}}}]
+            ports: [{protocol: TCP, port: 8000}]
+  - it: WAF on - the frontend's egress goes to the WAF, never the backend
+    template: network-policy.yaml
+    set: {waf: {enabled: true}}
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-frontend-to-backend}
+    asserts:
+      - equal:
+          path: 'spec.egress[0]'
+          value:
+            to: [{podSelector: {matchLabels: {app.kubernetes.io/component: waf}}}]
+            ports: [{protocol: TCP, port: 8080}]
+      - lengthEqual: {path: spec.egress, count: 2}
+  - it: WAF on - the WAF admits the frontend, and the backend admits the WAF, not the frontend
+    template: network-policy.yaml
+    set: {waf: {enabled: true}}
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from: [{podSelector: {matchLabels: {app.kubernetes.io/component: frontend}}}]
+            ports: [{protocol: TCP, port: 8080}]
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
+      - notContains:
+          path: spec.ingress
+          content:
+            from: [{podSelector: {matchLabels: {app.kubernetes.io/component: frontend}}}]
+            ports: [{protocol: TCP, port: 8000}]
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+  - it: WAF off - the backend admits the frontend
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from: [{podSelector: {matchLabels: {app.kubernetes.io/component: frontend}}}]
+            ports: [{protocol: TCP, port: 8000}]

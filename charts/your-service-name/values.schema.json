@@ -259,6 +259,15 @@
       }
     },
 
+    "guards": {
+      "description": "Deploy-time guards; the deploy script turns them on.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rejectPlaceholders": { "type": "boolean" }
+      }
+    },
+
     "networkPolicy": {
       "type": "object",
       "additionalProperties": false,
@@ -268,13 +277,13 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "namespaceSelector": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string" } },
+            "namespaceSelector": { "$ref": "#/definitions/labels" },
             "podSelector":       { "$ref": "#/definitions/labels" },
             "ipBlocks":          { "type": "array", "items": { "type": "string", "minLength": 1 } }
           }
         },
         "monitoringNamespaceSelector": {
-          "description": "matchLabels of the namespace allowed to scrape the backend's /metrics; omit for no scrape rule.",
+          "description": "matchLabels of the namespace allowed to scrape the backend's /metrics; empty means the monitoring namespace.",
           "$ref": "#/definitions/labels"
         }
       }

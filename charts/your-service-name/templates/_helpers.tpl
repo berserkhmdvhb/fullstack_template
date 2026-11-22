@@ -108,6 +108,16 @@ matchLabels:
 {{- end -}}
 {{- end -}}
 
+{{/* The port of chart.apiBackendService: the WAF's when waf.enabled, else the backend's. */}}
+{{- define "chart.apiBackendPort" -}}
+{{- if .Values.waf.enabled }}{{ .Values.waf.service.port }}{{ else }}{{ include "chart.backendPort" . }}{{ end -}}
+{{- end -}}
+
+{{/* The URL the frontend server calls the API at (BACKEND_URL): through the WAF when it is on. */}}
+{{- define "chart.backendURL" -}}
+{{- printf "http://%s:%s" (include "chart.apiBackendService" .) (include "chart.apiBackendPort" .) -}}
+{{- end -}}
+
 {{/* The backend and frontend Service ports: one source (config.*_PORT) for the Services and the edge. */}}
 {{- define "chart.backendPort" -}}{{ .Values.config.BACKEND_PORT }}{{- end -}}
 {{- define "chart.frontendPort" -}}{{ .Values.config.FRONTEND_PORT }}{{- end -}}
@@ -150,7 +160,8 @@ matchLabels:
 {{- end -}}
 
 {{/*
-   The one DNS egress rule: kube-dns (networkPolicy.dns selectors) plus optional resolver ipBlocks.
+   The one DNS egress rule: kube-dns (networkPolicy.dns selectors; an empty one means kube-dns in
+   kube-system, a set one replaces that) plus optional resolver ipBlocks.
    Emits a list item at column 0; every egress policy includes it with `| nindent 4`.
 */}}
 {{- define "chart.dnsEgress" -}}
@@ -158,10 +169,10 @@ matchLabels:
 - to:
     - namespaceSelector:
         matchLabels:
-{{- toYaml $dns.namespaceSelector | nindent 10 }}
+{{- toYaml ($dns.namespaceSelector | default (dict "kubernetes.io/metadata.name" "kube-system")) | nindent 10 }}
       podSelector:
         matchLabels:
-{{- toYaml ($dns.podSelector | default dict) | nindent 10 }}
+{{- toYaml ($dns.podSelector | default (dict "k8s-app" "kube-dns")) | nindent 10 }}
 {{- range $dns.ipBlocks }}
     - ipBlock:
         cidr: {{ . | quote }}
@@ -195,7 +206,7 @@ matchLabels:
 {{- $port := include "chart.frontendPort" $ctx -}}
 {{- if eq .service "backend" -}}
 {{- $name = include "chart.apiBackendService" $ctx -}}
-{{- $port = ternary $ctx.Values.waf.service.port (include "chart.backendPort" $ctx) $ctx.Values.waf.enabled -}}
+{{- $port = include "chart.apiBackendPort" $ctx -}}
 {{- end -}}
 {{- $out = append $out (dict "path" .path "match" .match "name" $name "port" (int $port)) -}}
 {{- end -}}
@@ -244,7 +255,11 @@ imagePullSecrets:
 {{- define "chart.allowedHosts" -}}
 {{- $svc := printf "%s-backend" (include "chart.fullname" .) -}}
 {{- $ns := .Release.Namespace -}}
-{{- $hosts := list .Values.edge.hosts.api .Values.edge.hosts.app .Values.edge.hosts.root $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns) -}}
+{{- $hosts := list .Values.edge.hosts.api .Values.edge.hosts.app .Values.edge.hosts.root -}}
+{{- /* With the WAF on the frontend reaches the backend through it, and Envoy passes the Host on. */ -}}
+{{- range $s := ternary (list $svc (printf "%s-waf" (include "chart.fullname" .))) (list $svc) .Values.waf.enabled -}}
+{{- $hosts = concat $hosts (list $s (printf "%s.%s" $s $ns) (printf "%s.%s.svc" $s $ns) (printf "%s.%s.svc.cluster.local" $s $ns)) -}}
+{{- end -}}
 {{- if .Values.backend.extraAllowedHosts -}}
 {{- $hosts = concat $hosts (list (trim .Values.backend.extraAllowedHosts)) -}}
 {{- end -}}

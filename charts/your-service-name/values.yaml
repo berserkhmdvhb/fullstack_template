@@ -14,6 +14,13 @@
 # only — see templates/_helpers.tpl), which is what makes env switches idempotent.
 environment: dev
 
+# Deploy-time guards. rejectPlaceholders refuses to render while edge.hosts still holds the
+# your-domain.example placeholder, or (gateway mode) edge.gateway.parentRefs still names
+# your-gateway. Off here so every CI render passes; the deploy script (scripts/ci/deploy-env.sh)
+# turns it on, and a hand-run `helm upgrade` should pass --set guards.rejectPlaceholders=true too.
+guards:
+  rejectPlaceholders: false
+
 global:
   # Optional registry secret, e.g. [registry-credentials]. Empty => no pull secret
   # (correct for local, where images resolve off the node daemon with a bare tag).
@@ -243,16 +250,18 @@ edge:
 # ---- NetworkPolicy -------------------------------------------------------------
 # The app namespace is default-deny; templates/network-policy.yaml allows each flow on both ends.
 networkPolicy:
-  # DNS egress goes to kube-dns only (every egress policy uses it). ipBlocks adds resolver IPs,
-  # for example NodeLocal DNSCache: [169.254.20.10/32]. Helm merges maps, so an override keeps
-  # these default labels unless it sets the same key or sets a default key to null.
+  # DNS egress goes to kube-dns only (every egress policy uses it). An empty selector means the
+  # default, and a set one replaces it. Defaults: namespaceSelector
+  # {kubernetes.io/metadata.name: kube-system}, podSelector {k8s-app: kube-dns}. ipBlocks adds
+  # resolver IPs, for example NodeLocal DNSCache: [169.254.20.10/32].
   dns:
-    namespaceSelector: {kubernetes.io/metadata.name: kube-system}
-    podSelector: {k8s-app: kube-dns}
+    namespaceSelector: {}
+    podSelector: {}
     ipBlocks: []
   # The namespace allowed to scrape the backend's /metrics (the Service's prometheus.io
-  # annotations and the optional ServiceMonitor), on the backend port. null => no scrape rule.
-  monitoringNamespaceSelector: {kubernetes.io/metadata.name: monitoring}
+  # annotations and the optional ServiceMonitor), on the backend port. Empty means
+  # {kubernetes.io/metadata.name: monitoring}; a set one replaces it.
+  monitoringNamespaceSelector: {}
 
 # ---- Web Application Firewall (WAF) --------------------------------------
 # In-cluster Coraza WAF (Go, CNCF) running as an Envoy wasm plugin with the OWASP
