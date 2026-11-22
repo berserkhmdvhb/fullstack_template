@@ -19,6 +19,7 @@ same conventions so they compose into a predictable workflow.
 | [`e2e.sh`](#e2esh) | Deploy + verify the whole stack end-to-end (the "did it actually come up?" gate) |
 | [`k8s-env.sh`](#k8s-envsh) | Apply / delete / status / wait for a whole Helm environment (release) |
 | [`k8s-bootstrap.sh`](#k8s-bootstrapsh) | Render the one-time admin bootstrap of an environment (namespaces, quota, deployer RBAC) |
+| [`migrate-to-bootstrap.sh`](#migrate-to-bootstrapsh) | Move a release made by an older chart (its own namespaces and RBAC) onto the bootstrap, once, as cluster admin |
 | [`kind-up.sh`, `kind-deploy.sh`](#kind-upsh-and-kind-deploysh) | The local kind cluster `fst`, and the kind job's deploy-and-test sequence |
 | [`port-forward.sh`](#port-forwardsh) | Self-cleaning port-forwards to every service |
 | [`logs.sh`](#logssh) | Aggregate (or live-tail) logs across services |
@@ -153,6 +154,18 @@ creates and how to set the deployer is in
 ./scripts/k8s-bootstrap.sh production --release my-service   # print only
 ```
 
+### `migrate-to-bootstrap.sh`
+The **one-time move** of a release whose older chart rendered its namespaces and the app's Role and
+RoleBinding onto the bootstrap, run by a cluster admin with the deploy's values: it keeps what the
+current chart no longer renders, upgrades once keeping the namespaces and RBAC, applies the bootstrap,
+upgrades once with them off, and checks the result. `k8s-env.sh apply` runs it when needed. What it
+checks and refuses:
+[`wiki/infrastructure.md`](../wiki/infrastructure.md#namespace-bootstrap-one-time-admin-step).
+
+```bash
+./scripts/migrate-to-bootstrap.sh qa --context my-cluster --values values.secret.yaml --dry-run
+```
+
 ### `kind-up.sh` and `kind-deploy.sh`
 `kind-up.sh` creates, reuses or (`--delete`) deletes the local kind cluster **`fst`**, always with
 `--name fst` and the kubeconfig `.local/kind/kubeconfig`, on a node image pinned in
@@ -163,7 +176,7 @@ context but `kind-fst`. What each step checks:
 [`wiki/infrastructure.md`](../wiki/infrastructure.md#local-cluster-kind).
 
 ```bash
-make kind-up && make kind-deploy KIND_BASE=origin/main && make kind-down
+make kind-up && make kind-deploy KIND_BASE=origin/main && make kind-down   # KIND_BASE: no ~ or ^
 ```
 
 ### `e2e.sh`

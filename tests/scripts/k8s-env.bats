@@ -2,7 +2,8 @@
 # -----------------------------------------------------------------------------
 # k8s-env.bats — `scripts/k8s-env.sh apply` against stub kubectl and helm. The chart creates no
 # namespace (namespaces.create=false), so apply first applies the admin bootstrap, then installs.
-# No cluster is contacted.
+# A release of an older chart is first moved with scripts/migrate-to-bootstrap.sh (the real script,
+# against the same stubs). No cluster is contacted.
 # -----------------------------------------------------------------------------
 
 bats_require_minimum_version 1.5.0
@@ -11,15 +12,24 @@ setup() {
   SCRIPT="$(dirname "$BATS_TEST_DIRNAME")/../scripts/k8s-env.sh"
   B="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$B"
-  export LOG="$BATS_TEST_TMPDIR/calls.log"
+  export LOG="$BATS_TEST_TMPDIR/calls.log" STATE="$BATS_TEST_TMPDIR/switched"
   : > "$LOG"
   cat > "$B/helm" <<'STUB'
 #!/usr/bin/env bash
 echo "helm $*" >> "$LOG"
-[[ "$1" != template ]] || echo "kind: Namespace # rendered"
+# The bootstrap's render; the release's render (for the migration) is the stored manifest itself.
+[[ "$1 $2" != "template bootstrap" ]] || echo "kind: Namespace # rendered"
+[[ "$1" != template || "$2" == bootstrap ]] || printf '%s\n' "${STUB_MANIFEST-}"
+[[ "$1 $2" != "upgrade svc" || "$*" != *"namespaces.create=false"* ]] || touch "$STATE"
+if [[ "$1" == status ]]; then
+  [[ -n "${STUB_MANIFEST-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
+  echo '{"version": 1, "info": {"status": "deployed"}}'
+fi
 if [[ "$1 $2" == "get manifest" ]]; then
   [[ -z "${STUB_GET_FAIL-}" ]] || { echo "Error: Kubernetes cluster unreachable" >&2; exit 1; }
   [[ -n "${STUB_MANIFEST-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
+  # After the migration's switch upgrade the release holds no Namespace.
+  if [[ -e "$STATE" ]]; then echo "kind: Deployment"; exit 0; fi
   printf '%s\n' "$STUB_MANIFEST"
   # A large release: far more than one pipe buffer (64 KiB) after the Namespace.
   [[ -z "${STUB_BIG-}" ]] || yes "# a long stored manifest line, written after the Namespace" | head -n 20000
@@ -28,7 +38,14 @@ STUB
   cat > "$B/kubectl" <<'STUB'
 #!/usr/bin/env bash
 echo "kubectl $*" >> "$LOG"
-[[ "$*" != "apply -f -" ]] || sed 's/^/stdin: /' >> "$LOG"
+[[ "$*" != *"apply -f -" ]] || sed 's/^/stdin: /' >> "$LOG"
+[[ "$1" != --context ]] || shift 2
+case "$1 $2" in
+  "config get-contexts") echo stub-ctx ;;
+  "config current-context") echo stub-ctx ;;
+  "config view") echo "https://stub.invalid" ;;
+  "auth can-i") echo yes ;;
+esac
 STUB
   chmod +x "$B"/*
   export PATH="$B:$PATH" LIB_TS=0 NO_COLOR=1
@@ -73,18 +90,31 @@ STUB
   run ! grep -q "apply\|upgrade" "$LOG"
 }
 
-@test "a release that still owns its Namespaces is first upgraded once to keep them" {
+@test "a release that still owns its Namespaces is first moved with migrate-to-bootstrap.sh" {
   STUB_MANIFEST=$'---\nkind: Namespace\nmetadata:\n  name: svc-qa\n---\nkind: Role' run bash "$SCRIPT" apply --env qa --release svc --no-wait
   [ "$status" -eq 0 ]
   [[ "$output" == *"still owns its Namespace"* ]]
+  [[ "$output" == *"migrate-to-bootstrap.sh qa --context stub-ctx --release svc --namespace svc-qa --env-values-only --yes"* ]]
+  [[ "$output" == *"migrate-to-bootstrap: migrated: svc in svc-qa"* ]]
   once="$(grep -n "^helm upgrade .*--set namespaces.create=true --set rbac.create=true" "$LOG" | cut -d: -f1)"
-  applied="$(grep -n "^kubectl apply -f -$" "$LOG" | cut -d: -f1)"
+  switch="$(grep -n "^helm upgrade .*--set namespaces.create=false --set rbac.create=false" "$LOG" | cut -d: -f1)"
+  applied="$(grep -n "apply -f -$" "$LOG" | head -n 1 | cut -d: -f1)"
   last="$(grep -n "^helm upgrade" "$LOG" | tail -n 1 | cut -d: -f1)"
-  [ -n "$once" ]
-  [ "$(grep -c "^helm upgrade" "$LOG")" -eq 2 ]
-  (( once < applied && applied < last ))
+  [ -n "$once" ] && [ -n "$switch" ]
+  [ "$(grep -c "^helm upgrade" "$LOG")" -eq 3 ]
+  (( once < applied && applied < switch && switch < last ))
+  [[ "$(sed -n "${last}p" "$LOG")" == "helm upgrade --install svc "* ]]
   run grep -q "namespaces.create" <<<"$(sed -n "${last}p" "$LOG")"
   [ "$status" -ne 0 ]
+}
+
+@test "the deploy's own values reach the migration" {
+  printf 'x: 1\n' > "$BATS_TEST_TMPDIR/extra.yaml"
+  STUB_MANIFEST="kind: Namespace" run bash "$SCRIPT" apply --env dev --release svc --no-wait \
+    --values "$BATS_TEST_TMPDIR/extra.yaml" --set a=b
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"migrate-to-bootstrap.sh dev --context stub-ctx --release svc --namespace svc-dev --values $BATS_TEST_TMPDIR/extra.yaml --set a=b --yes"* ]]
+  grep -q "^helm upgrade svc .*-f $BATS_TEST_TMPDIR/extra.yaml --set a=b .*namespaces.create=true" "$LOG"
 }
 
 @test "a new or already switched release gets only the normal upgrade" {
@@ -99,7 +129,7 @@ STUB
 @test "every upgrade keeps 5 revisions of Helm history, as the deploy does" {
   STUB_MANIFEST="kind: Namespace" run bash "$SCRIPT" apply --env dev --release svc --no-wait
   [ "$status" -eq 0 ]
-  [ "$(grep "^helm upgrade" "$LOG" | grep -c -- "--history-max 5")" -eq 2 ]
+  [ "$(grep "^helm upgrade" "$LOG" | grep -c -- "--history-max 5")" -eq 3 ]
 }
 
 @test "a stored manifest larger than a pipe buffer still triggers the keep-upgrade" {
@@ -123,11 +153,11 @@ STUB
   [[ "$output" == *"helm $cmd"* ]]
 }
 
-@test "a dry run shows the keep-upgrade it would run, and runs nothing" {
+@test "a dry run shows the migration it would run, and runs nothing" {
   STUB_MANIFEST="kind: Namespace" run bash "$SCRIPT" apply --env dev --release svc --dry-run --no-wait
   [ "$status" -eq 0 ]
   [[ "$output" == *"would run"* ]]
-  [[ "$output" == *"⇢ helm upgrade --install svc"*"--set namespaces.create=true --set rbac.create=true"* ]]
+  [[ "$output" == *"migrate-to-bootstrap.sh dev --context stub-ctx --release svc --namespace svc-dev --env-values-only --yes"* ]]
   run grep -q "^helm upgrade" "$LOG"
   [ "$status" -ne 0 ]
 }
@@ -135,9 +165,10 @@ STUB
 @test "a release that still owns only the app Role or RoleBinding gets the keep-upgrade too" {
   for kind in Role RoleBinding; do
     : > "$LOG"
+    rm -f "$STATE"
     STUB_MANIFEST=$'---\nkind: Deployment\n---\nkind: '"$kind" run bash "$SCRIPT" apply --env dev --release svc --no-wait
     [ "$status" -eq 0 ]
-    [ "$(grep -c "^helm upgrade" "$LOG")" -eq 2 ]
+    [ "$(grep -c "^helm upgrade" "$LOG")" -eq 3 ]
     [[ "$output" == *"still owns"* ]]
   done
 }
@@ -146,7 +177,7 @@ STUB
   STUB_GET_FAIL=1 run bash "$SCRIPT" apply --env dev --release svc --dry-run --no-wait
   [ "$status" -eq 0 ]
   [[ "$output" == *"would run if the release holds Namespace objects"* ]]
-  [[ "$output" == *"⇢ helm upgrade --install svc"*"--set namespaces.create=true --set rbac.create=true"* ]]
+  [[ "$output" == *"migrate-to-bootstrap.sh dev --context stub-ctx --release svc"* ]]
   [[ "$output" == *"k8s-bootstrap.sh dev --release svc"*"| kubectl apply -f -"* ]]
   run grep -q "get manifest" "$LOG"
   [ "$status" -ne 0 ]

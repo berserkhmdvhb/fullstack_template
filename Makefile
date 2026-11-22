@@ -591,7 +591,8 @@ db-backup:
 
 # The local kind cluster fst (always --name fst, kubeconfig .local/kind/kubeconfig) and the kind job's
 # sequence, the one CI runs (wiki/infrastructure.md, Local cluster). KIND_NODE picks the pinned node
-# image (tools/kind-nodes.tsv); KIND_BASE=<ref> adds the upgrade test from that commit's chart.
+# image (tools/kind-nodes.tsv); KIND_BASE=<ref> adds the upgrade test from that commit's chart
+# (a commit id, branch or tag; no ~ or ^).
 KIND_NODE ?= floor
 KIND_BASE ?=
 

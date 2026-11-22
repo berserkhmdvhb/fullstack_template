@@ -215,24 +215,37 @@ the namespaces with everything in them. As a cluster admin, with the chart check
 and the values its deploy passes, run `scripts/migrate-to-bootstrap.sh` once per environment:
 
 ```bash
-# Print the steps; contacts no cluster.
-scripts/migrate-to-bootstrap.sh dev --release your-service-name --dry-run
+# Check everything and print the steps and what it would keep; changes nothing.
+scripts/migrate-to-bootstrap.sh dev --context <context> --release your-service-name --values values.secret.yaml --dry-run
 # Migrate, with the deploy's own values (yours: the secret values and the image digests).
-scripts/migrate-to-bootstrap.sh dev --release your-service-name --values values.secret.yaml
+scripts/migrate-to-bootstrap.sh dev --context <context> --release your-service-name --values values.secret.yaml
 ```
 
-Pass the values the deploy of this chart version passes after the env's values file: your secret
-values (or `secrets.existingSecret`) and the images it deploys, for example
-`--values values.secret.yaml --set images.backend.digest=sha256:…`. The script:
-1. refuses unless the release exists and the identity can create namespaces, quotas and RBAC (a
-   cluster admin), and asks for the release name unless `--yes` is given; a release that holds no
-   Namespace, Role or RoleBinding is left alone, so a re-run, or a run stopped half-way, is safe;
-2. upgrades once with `namespaces.create=true` and `rbac.create=true`: those objects gain
+`--context` is required: every helm and kubectl call gets it, and the confirmation and the dry run
+name it with its cluster's server. Pass the values the deploy of this chart version passes after the
+env's values file: your secret values (or `secrets.existingSecret`) and the images it deploys, for
+example `--values values.secret.yaml --set images.backend.digest=sha256:…`. Without any it refuses
+(an upgrade without the secret values would empty the app's Secrets), unless `--env-values-only` says
+`values.<env>.yaml` is all the deploy passes. The script:
+1. refuses unless the context is in the kubeconfig, the namespace is not another env's, the release
+   exists and is `deployed` (a `failed` or `pending-*` release: roll it back to its last good
+   revision first, as the message says), and the identity can create namespaces, quotas and RBAC (a
+   cluster admin); it asks for the release name unless `--yes` is given. It reads the release at its
+   deployed revision, and a release that holds no Namespace, Role or RoleBinding is left alone, so a
+   re-run is safe;
+2. annotates `helm.sh/resource-policy=keep` on every Namespace, PersistentVolumeClaim and Secret
+   the deployed revision holds and the current chart no longer renders, so no upgrade deletes it:
+   an older chart's logging namespace (`monitoring.logging=true`), with whatever is in it, is one.
+   Its summary lists them as "kept, now unmanaged: decide by hand": no release owns them any more.
+   The chart's own objects of the removed tiers in them (the Fluentd DaemonSet, its ConfigMap,
+   ServiceAccount, Role and RoleBinding) are deleted by the upgrade, as the chart dropped them. The
+   script deletes nothing itself;
+3. upgrades once with `namespaces.create=true` and `rbac.create=true`: those objects gain
    `helm.sh/resource-policy: keep`;
-3. applies the bootstrap (`scripts/k8s-bootstrap.sh <env> | kubectl apply -f -`) over the release's
+4. applies the bootstrap (`scripts/k8s-bootstrap.sh <env> | kubectl apply -f -`) over the release's
    own objects of the same names;
-4. upgrades once with both off: the release stops recording them, and keep leaves them in place;
-5. fails unless the release then holds no Namespace, Role or RoleBinding.
+5. upgrades once with both off: the release stops recording them, and keep leaves them in place;
+6. fails unless the release then holds no Namespace, Role or RoleBinding.
 
 The first upgrade deletes the old chart's ResourceQuota and LimitRange: the current chart no longer
 renders them, and they carry no keep annotation. The bootstrap recreates them, as the bootstrap's own
@@ -251,9 +264,10 @@ request's base chart still renders Namespaces or the app's Role ([Local cluster 
 from a release of an older chart that owned both Namespaces, the app's Role and RoleBinding, a
 ResourceQuota and a LimitRange, no namespace or volume is replaced, the database keeps its rows, and
 the deployer's next upgrade passes.
-`scripts/k8s-env.sh apply` (`make k8s-apply`, `make deploy`), which runs as an admin, runs the same three
-steps itself when the release's stored manifest holds a Namespace, Role or RoleBinding, and prints each
-command (a dry run prints the upgrade it would run).
+`scripts/k8s-env.sh apply` (`make k8s-apply`, `make deploy`), which runs as an admin in the current
+context, runs this script (with `--context` set to that context, its own `--values` and `--set`, and
+`--yes`) when the release's stored manifest holds a Namespace, Role or RoleBinding (a dry run prints
+the command it would run).
 
 ---
 
@@ -268,6 +282,7 @@ pinned tools (`make tools`: kind, ct, Helm, yq, both kubectl pins, the CRD sourc
 ```bash
 make kind-up                     # create fst (or reuse it) on the floor node image; KIND_NODE=newest for the other
 make kind-deploy                 # the full sequence below; KIND_BASE=<ref> adds the upgrade test from that commit
+                                 # (a commit id, branch or tag; no ~ or ^)
 make kind-down                   # delete fst and .local/kind
 ```
 
@@ -306,8 +321,9 @@ inherited `KUBECONFIG`):
    bootstrap bound it in, and are refused in every other namespace and cluster-wide.
 
 Every install, upgrade, `helm test` and `helm status` runs as the bootstrap's deployer
-(`helm --kube-as-user your-deployer-local --kube-as-group system:authenticated`), never as admin, so
-the run proves the deployer's Role is enough for `helm upgrade --install --wait`. The database
+(`helm --kube-as-user your-deployer-local --kube-as-group system:authenticated`), except a base
+chart's that predates the bootstrap: its install and its migration run as cluster admin, as such a
+release was deployed then, and every upgrade after them as the deployer. So the run proves the deployer's Role is enough for `helm upgrade --install --wait`. The database
 password is generated once into `.local/kind/values.yaml` and kept with the cluster. The base
 commit's chart is installed with its own `values.local.yaml`, and only those of this run's overrides
 (the built images, the scrape peers) that its `values.yaml` knows. After the first `helm test` the

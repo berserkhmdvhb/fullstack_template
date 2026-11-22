@@ -22,7 +22,8 @@
 #   5. The WAF on (an upgrade), its Pod checked against the restricted profile, helm test again.
 #   6. The deploy-ops checks of the deployer identity.
 # Every install, upgrade, test and status runs as the bootstrap's deployer (helm --kube-as-user /
-# --kube-as-group), never as admin. Secrets are generated once into .local/kind (gitignored).
+# --kube-as-group), except a base chart's that predates the bootstrap: that install and its move
+# onto the bootstrap run as cluster admin, as such a release was deployed then. Secrets are generated once into .local/kind (gitignored).
 #
 # Usage: kind-deploy.sh [--base REF]
 #   --base REF   install the chart at REF first, then upgrade to this checkout's (the upgrade test)
@@ -190,9 +191,11 @@ deploy() { # chart dir, extra helm args...
     2>&1 | tee "$WORK/helm.log"
   ! grep -qi forbidden "$WORK/helm.log" || die "the deployer was refused: $(grep -i forbidden "$WORK/helm.log")"
 }
-migrated() { # the migration Job of the current revision succeeded
+migrated() { # the migration Job of the current revision succeeded; --admin: read it as cluster admin
   local rev job
-  rev="$(helm --kube-context "$CONTEXT" history "$RELEASE" -n "$NS" --max 1 -o json | jq -r '.[0].revision')"
+  local -a h=(helm_as)
+  [[ "${1-}" != --admin ]] || h=(helm --kube-context "$CONTEXT")
+  rev="$("${h[@]}" history "$RELEASE" -n "$NS" --max 1 -o json | jq -r '.[0].revision')"
   job="$(kc -n "$NS" get jobs -l app.kubernetes.io/component=migration -o json |
     jq -r --arg r "-r$rev" '.items[] | select(.metadata.name | endswith($r)) | select(.status.succeeded == 1) | .metadata.name')"
   [[ -n "$job" ]] || die "no succeeded migration Job for revision $rev"
@@ -227,8 +230,13 @@ if [[ -n "$base" ]]; then
   fi
   # A base chart that still renders its namespaces or the app's Role (decided from its own render)
   # predates the deployer model: it is installed as cluster admin, its own model, then migrated.
-  predates=false
-  if scripts/ci/chart-predates-bootstrap.sh "$base_chart" -f "$values"; then predates=true; fi
+  predates=false rc=0
+  scripts/ci/chart-predates-bootstrap.sh "$base_chart" -f "$values" || rc=$?
+  case "$rc" in
+    0) predates=true ;;
+    1) ;;
+    *) die "the base chart at $base does not render (above)" ;;
+  esac
   if [[ "$predates" == true ]]; then
     # The images it names that this checkout does not build, from the base commit's own sources.
     mkdir -p "$WORK/src"
@@ -260,7 +268,7 @@ if [[ -n "$base" ]]; then
     bootstrap "$NS"
     deploy "$base_chart" "${base_extra[@]}"
   fi
-  migrated
+  if [[ "$predates" == true ]]; then migrated --admin; else migrated; fi
   marker="kind-$tag"
   psql_db "CREATE TABLE IF NOT EXISTS kind_upgrade_check (marker text); INSERT INTO kind_upgrade_check VALUES ('$marker')"
   uids > "$WORK/before"
@@ -268,7 +276,7 @@ if [[ -n "$base" ]]; then
   if [[ "$predates" == true ]]; then
     step "move the release onto the bootstrap (scripts/migrate-to-bootstrap.sh, as cluster admin)"
     mapfile -t head_args < <(kind_args "$CHART" "$NS")
-    scripts/migrate-to-bootstrap.sh "$ENV_NAME" --release "$RELEASE" --namespace "$NS" \
+    scripts/migrate-to-bootstrap.sh "$ENV_NAME" --context "$CONTEXT" --release "$RELEASE" --namespace "$NS" \
       --values "$values" "${head_args[@]}" --yes
     ok "migrated onto the bootstrap"
   fi

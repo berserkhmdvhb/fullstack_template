@@ -212,16 +212,21 @@ cmd_apply() {
 
   # A release from an older chart owns its Namespace objects and the app's Role and RoleBinding.
   # Switching to the bootstrap would make Helm delete them (the namespaces with everything in them),
-  # and a deployer could not. So upgrade it once with them still rendered: they gain
-  # helm.sh/resource-policy: keep, and the normal upgrade below drops them from the release record
-  # while leaving them in place. The manifest is captured first (a pipe into grep -q could die of
-  # SIGPIPE under pipefail and skip this); a failed lookup is an error, except "not found".
-  local -a keep=("${helm[@]}" --set namespaces.create=true --set rbac.create=true)
+  # and a deployer could not. scripts/migrate-to-bootstrap.sh moves it (the one source of that
+  # migration), with this deploy's values, in the current context. The manifest is captured first
+  # (a pipe into grep -q could die of SIGPIPE under pipefail and skip this); a failed lookup is an
+  # error, except "not found".
+  local ctx
+  ctx="$(kubectl config current-context 2>/dev/null || echo "<current-context>")"
+  local -a migrate=("${LIB_DIR}/migrate-to-bootstrap.sh" "${ENV_NAME}" --context "${ctx}" --release "${HELM_RELEASE}" --namespace "${NAMESPACE}")
+  for vf in "${EXTRA_VALUES[@]}"; do migrate+=(--values "${vf}"); done
+  for s in "${SET_ARGS[@]}"; do migrate+=(--set "${s}"); done
+  [ "${#migrate[@]}" -gt 9 ] || migrate+=(--env-values-only)
+  migrate+=(--yes)
   if [ "${DRY_RUN}" = "true" ]; then
-    # A dry run needs no cluster, so it doesn't look the release up: it shows the keep-upgrade too.
-    log_info "dry run: this upgrade would run if the release holds Namespace objects (or the app's Role or RoleBinding), before the others"
-    log_step "helm ${keep[*]}"
-    run helm "${keep[@]}"
+    # A dry run needs no cluster, so it doesn't look the release up: it shows the migration too.
+    log_info "dry run: this migration would run if the release holds Namespace objects (or the app's Role or RoleBinding), before the others"
+    log_step "${migrate[*]}"
   else
     local manifest="" rc=0
     manifest="$(helm get manifest "${HELM_RELEASE}" -n "${NAMESPACE}" 2>&1)" || rc=$?
@@ -231,9 +236,9 @@ cmd_apply() {
       manifest=""
     fi
     if grep -Eqx 'kind: (Namespace|Role|RoleBinding)' <<<"${manifest}"; then
-      log_warn "release ${HELM_RELEASE} still owns its Namespace, Role or RoleBinding objects: one upgrade with namespaces.create=true and rbac.create=true first, so they are kept when the chart stops rendering them"
-      log_step "helm ${keep[*]}"
-      run helm "${keep[@]}"
+      log_warn "release ${HELM_RELEASE} still owns its Namespace, Role or RoleBinding objects: moving it onto the bootstrap first"
+      log_step "${migrate[*]}"
+      "${migrate[@]}" || die "the migration onto the bootstrap failed (above); nothing else was changed after it"
     fi
   fi
 
