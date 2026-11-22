@@ -50,8 +50,8 @@ Every step ends with a **Check**. Don't move on until it passes.
     ▼
  Cloudflare edge  ─── DNS for <domain>, edge certificates, cache, DDoS protection
     │
-    ├── <domain>, www           → your static site (Workers static assets)       [at publish]
-    ├── preview.<domain>        → your site's previews, behind Cloudflare Access        [now]
+    ├── <domain>, www           → your static site (Workers static assets)        [at publish]
+    ├── preview.<domain>        → your site's previews, behind Cloudflare Access  [now]
     │
     └── app hostnames  ──────►  Cloudflare Tunnel ◄─── outbound only ─── cloudflared (2 Pods)
                                                                            in GKE "apps-dev"
@@ -110,7 +110,7 @@ Identifiers such as the account ID and zone ID aren't secrets. Keep them out of 
 
 ```bash
 cat > ~/cloudflare-setup.env <<'EOF'
-export DOMAIN="your-domain.example"     # your registered domain
+export DOMAIN="your-domain.example"  # your registered domain
 export CF_ACCOUNT_ID=""              # filled in section 5
 export CF_ZONE_ID=""                 # filled in section 5
 EOF

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -26,7 +27,7 @@ def tracked_text() -> list[tuple[str, str]]:
     )  # fmt: skip
     found = []
     for raw in filter(None, run.stdout.split(b"\0")):
-        rel = raw.decode()
+        rel = os.fsdecode(raw)
         path = ROOT / rel
         if rel == SELF or not path.is_file():
             continue
