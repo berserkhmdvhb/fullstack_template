@@ -229,18 +229,20 @@ example `--values values.secret.yaml --set images.backend.digest=sha256:…`. Wi
 `values.<env>.yaml` is all the deploy passes. The script:
 1. refuses unless the context is in the kubeconfig, the namespace is not another env's, the release
    exists and is `deployed` (a `failed` or `pending-*` release: roll it back to its last good
-   revision first, as the message says), and the identity can create namespaces, quotas and RBAC (a
+   revision first, as the message says; one never deployed has none, and the message says so), and the identity can create namespaces, quotas and RBAC (a
    cluster admin); it asks for the release name unless `--yes` is given. It reads the release at its
    deployed revision, and a release that holds no Namespace, Role or RoleBinding is left alone, so a
    re-run is safe;
 2. annotates `helm.sh/resource-policy=keep` on every Namespace, PersistentVolumeClaim and Secret
    the deployed revision holds and the current chart no longer renders, so no upgrade deletes it:
    an older chart's logging namespace (`monitoring.logging=true`), with whatever is in it, is one.
-   Each also gets the marker `migrate-to-bootstrap/kept-by=<namespace>/<release>`, and is read back
-   from the cluster: no upgrade runs unless every one carries both. The set is computed with the
-   pinned yq (another version is refused), and any failure while computing it stops the run. The
-   summary, on a re-run too, lists the marked objects as "kept, now unmanaged: decide by hand": no
-   release owns them any more.
+   Each also gets the labels `migrate-to-bootstrap/release=<release>` and
+   `migrate-to-bootstrap/namespace=<namespace>`, and is read back from the cluster: no upgrade runs
+   unless every one carries the annotation and both labels. The set is computed with the pinned yq
+   (another version is refused), its list of the stored objects must match a count of the manifest's
+   documents of those kinds, and any failure while computing it stops the run. The summary, on a
+   re-run too (for a cluster admin), lists the labelled objects as "kept, now unmanaged: decide by
+   hand": no release owns them any more.
    The chart's own objects of the removed tiers in them (the Fluentd DaemonSet, its ConfigMap,
    ServiceAccount, Role and RoleBinding) are deleted by the upgrade, as the chart dropped them. The
    script deletes nothing itself;
@@ -270,7 +272,8 @@ ResourceQuota and a LimitRange, no namespace or volume is replaced, the database
 the deployer's next upgrade passes.
 `scripts/k8s-env.sh apply` (`make k8s-apply`, `make deploy`), which runs as an admin in the current
 context, runs this script (with `--context` set to that context, its own `--values` and `--set`, and
-`--yes`) when the release's deployed revision holds a Namespace, Role or RoleBinding (a dry run prints
+`--yes`) when the release's deployed revision holds a Namespace, Role or RoleBinding, or, for a
+release never deployed, its last revision does (the script then refuses it with how to recover) (a dry run prints
 the command it would run).
 
 ---

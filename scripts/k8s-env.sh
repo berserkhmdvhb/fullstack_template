@@ -42,6 +42,8 @@ set -o errtrace
 
 # shellcheck source=/dev/null
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/_yq.sh"
 trap 'lib_err_trap "k8s-env" "${LINENO}" "${BASH_COMMAND}" "$?"' ERR
 
 # ---- Defaults ---------------------------------------------------------------
@@ -229,14 +231,19 @@ cmd_apply() {
     log_step "${migrate[*]}"
   else
     # The deployed revision, as the script reads it: a later failed revision may lack the objects.
+    # A release never deployed is read at its last revision: if that holds them, the script refuses
+    # it with how to recover (a normal upgrade would delete them: Helm diffs against that revision).
+    # The revision comes from yq: only the pinned one.
     local history="" manifest="" rev="" rc=0
     history="$(helm history "${HELM_RELEASE}" -n "${NAMESPACE}" -o json 2>&1)" || rc=$?
     if [ "${rc}" -ne 0 ]; then
       grep -q "release: not found" <<<"${history}" \
         || die "could not read release ${HELM_RELEASE} in ${NAMESPACE}: ${history}"
     else
-      rev="$(yq -p json '[.[] | select(.status == "deployed")] | reverse | .[0].revision // ""' <<<"${history}")" \
+      pinned_yq "${LIB_REPO_ROOT}" || die "the release gate needs the pinned yq"
+      rev="$(yq -p json '([.[] | select(.status == "deployed")] | reverse | .[0].revision) // (reverse | .[0].revision) // ""' <<<"${history}")" \
         || die "could not read the history of release ${HELM_RELEASE}"
+      [ -n "${rev}" ] || die "release ${HELM_RELEASE} in ${NAMESPACE} has a history but no revision: ${history}"
     fi
     if [ -n "${rev}" ]; then
       manifest="$(helm get manifest "${HELM_RELEASE}" -n "${NAMESPACE}" --revision "${rev}" 2>&1)" \

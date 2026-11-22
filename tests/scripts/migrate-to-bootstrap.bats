@@ -27,7 +27,9 @@ case "$1 $2" in
     [[ -z "${STUB_NO_RELEASE-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
     [[ -z "${STUB_READ_FAIL-}" ]] || { echo "Error: Kubernetes cluster unreachable" >&2; exit 1; }
     printf '{"version": 3, "info": {"status": "%s"}}\n' "${STUB_STATUS:-deployed}" ;;
-  "history "*) echo '[{"revision": 2, "status": "deployed"}, {"revision": 3, "status": "failed"}]' ;;
+  "history "*)
+    if [[ -n "${STUB_NEVER-}" ]]; then echo '[{"revision": 1, "status": "failed"}]'
+    else echo '[{"revision": 2, "status": "deployed"}, {"revision": 3, "status": "failed"}]'; fi ;;
   "get manifest")
     if [[ "$(cat "$STATE")" == old || -n "${STUB_STAYS_OLD-}" ]]; then echo "$STUB_OLD"; else echo "kind: Deployment"; fi ;;
   "upgrade "*)
@@ -45,25 +47,27 @@ case "$1 $2" in
   "config view") echo "https://127.0.0.1:6443" ;;
   "auth can-i") echo "${STUB_CAN:-yes}"; [[ "${STUB_CAN:-yes}" == yes ]] ;;
   "apply -f") cat > /dev/null ;;
-  "annotate "*) # annotate KIND NAME [-n NS] K=V... --overwrite: recorded as "kind ns name K=V..."
-    kind="$2" name="$3" ns=-; shift 3
+  "annotate "*|"label "*) # VERB KIND NAME [-n NS] K=V... --overwrite: recorded as "kind ns name K=V..."
+    verb="$1" kind="$2" name="$3" ns=-; shift 3
     [[ "${1-}" != -n ]] || { ns="$2"; shift 2; }
-    [[ -n "${STUB_ANNOTATE_NOOP-}" ]] || echo "$kind $ns $name ${*/--overwrite/}" >> "$ANNOT" ;;
+    [[ -n "${STUB_ANNOTATE_NOOP-}" && "$verb" == annotate ]] || echo "$kind $ns $name ${*/--overwrite/}" >> "$ANNOT" ;;
   "get "*)
     kind="${2%s}" # namespaces or namespace: the record keeps the singular
-    if [[ "$*" == *custom-columns* ]]; then # NS NAME MARKER of every object of the kind
+    if [[ "$*" == *" -l "* ]]; then # NS NAME of every object of the kind with all the selector's labels
+      sel="$(sed 's/.* -l \([^ ]*\).*/\1/' <<<"$*")"
       while read -r k ns name rest; do
         [[ "$k" == "$kind" ]] || continue
-        marker="$(grep -o 'migrate-to-bootstrap/kept-by=[^ ]*' <<<"$rest" | cut -d= -f2)"
-        [[ "$ns" != - ]] || ns="$name"
-        echo "$ns $name ${marker:-<none>}"
-      done < "$ANNOT"
-    else # one object: its keep policy and marker
+        all="$(grep "^$k $ns $name " "$ANNOT" | cut -d' ' -f4- | tr '\n' ' ')"
+        ok=1; for kv in ${sel//,/ }; do [[ " $all " == *" $kv "* ]] || ok=0; done
+        [[ "$ok" == 1 ]] || continue
+        [[ "$ns" != - ]] || ns="<none>"
+        echo "$ns $name"
+      done < <(sort -u -k1,3 "$ANNOT")
+    else # one object: its keep policy and the two marker labels
       name="$3" ns=-; [[ "${4-}" != -n ]] || ns="$5"
-      rec="$(grep "^$kind $ns $name " "$ANNOT" | tail -n 1)"
-      policy="$(grep -o 'helm.sh/resource-policy=[^ ]*' <<<"$rec" | cut -d= -f2)"
-      marker="$(grep -o 'migrate-to-bootstrap/kept-by=[^ ]*' <<<"$rec" | cut -d= -f2)"
-      echo "$policy|$marker"
+      rec="$(grep "^$kind $ns $name " "$ANNOT" | tr '\n' ' ')"
+      val() { grep -o "$1=[^ ]*" <<<"$rec" | tail -n 1 | cut -d= -f2; }
+      echo "$(val helm.sh/resource-policy)|$(val migrate-to-bootstrap/release)|$(val migrate-to-bootstrap/namespace)"
     fi ;;
 esac
 STUB
@@ -242,7 +246,10 @@ orphans() {
   first="$(grep -n "^helm upgrade" "$LOG" | head -n 1 | cut -d: -f1)"
   for obj in "namespace app-ns-logging" "secret shipper -n app-ns-logging" \
     "persistentvolumeclaim old-data -n your-service-name-dev"; do
-    at="$(grep -n "^kubectl --context kind-x annotate $obj helm.sh/resource-policy=keep migrate-to-bootstrap/kept-by=your-service-name-dev/your-service-name --overwrite$" "$LOG" | cut -d: -f1)"
+    at="$(grep -n "^kubectl --context kind-x annotate $obj helm.sh/resource-policy=keep --overwrite$" "$LOG" | cut -d: -f1)"
+    [ -n "$at" ]
+    (( at < first ))
+    at="$(grep -n "^kubectl --context kind-x label $obj migrate-to-bootstrap/release=your-service-name migrate-to-bootstrap/namespace=your-service-name-dev --overwrite$" "$LOG" | cut -d: -f1)"
     [ -n "$at" ]
     (( at < first ))
   done
@@ -279,9 +286,12 @@ orphans() {
 fake_yq() {
   local pin
   pin="$(awk -F'\t' '$1 == "yq" {print $2}' "$(dirname "$SCRIPT")/../tools/pins.tsv")"
+  # STUB_YQ_MODE: fail (exit 1, the default), empty (print nothing, exit 0), or drop (the real yq's
+  # output without its last line).
+  local real; real="$(command -v yq)"
   # shellcheck disable=SC2016 # the stub expands $1 itself
-  printf '#!/usr/bin/env bash\n[[ "$1" != --version ]] || { echo "yq (https://github.com/mikefarah/yq/) version v%s"; exit 0; }\nexit 1\n' \
-    "${1:-$pin}" > "$B/yq"
+  printf '#!/usr/bin/env bash\n[[ "$1" != --version ]] || { echo "yq (https://github.com/mikefarah/yq/) version v%s"; exit 0; }\ncase "${STUB_YQ_MODE:-fail}" in\n  empty) exit 0 ;;\n  drop) "%s" "$@" | sed "\\$d" ;;\n  *) exit 1 ;;\nesac\n' \
+    "${1:-$pin}" "$real" > "$B/yq"
   chmod +x "$B/yq"
 }
 
@@ -324,8 +334,8 @@ fake_yq() {
 
 @test "a re-run after a stop at step 1 lists the objects the first run kept, from their marker" {
   # Step 1 ran: the deployed revision no longer holds the logging namespace, which is marked.
-  echo "namespace - app-ns-logging helm.sh/resource-policy=keep migrate-to-bootstrap/kept-by=your-service-name-dev/your-service-name" >> "$ANNOT"
-  echo "namespace - other-ns helm.sh/resource-policy=keep migrate-to-bootstrap/kept-by=elsewhere/other" >> "$ANNOT"
+  echo "namespace - app-ns-logging helm.sh/resource-policy=keep migrate-to-bootstrap/release=your-service-name migrate-to-bootstrap/namespace=your-service-name-dev" >> "$ANNOT"
+  echo "namespace - other-ns helm.sh/resource-policy=keep migrate-to-bootstrap/release=other migrate-to-bootstrap/namespace=elsewhere" >> "$ANNOT"
   run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
   [ "$status" -eq 0 ]
   [[ "$output" == *"kept, now unmanaged: decide by hand"*"Namespace app-ns-logging"* ]]
@@ -335,8 +345,53 @@ fake_yq() {
 
 @test "a release already migrated still lists what an earlier run kept" {
   echo switched > "$STATE"
-  echo "secret app-ns-logging shipper helm.sh/resource-policy=keep migrate-to-bootstrap/kept-by=your-service-name-dev/your-service-name" >> "$ANNOT"
+  echo "secret app-ns-logging shipper helm.sh/resource-policy=keep migrate-to-bootstrap/release=your-service-name migrate-to-bootstrap/namespace=your-service-name-dev" >> "$ANNOT"
   run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
   [ "$status" -eq 0 ]
   [[ "$output" == *"nothing to do"*"kept, now unmanaged"*"Secret app-ns-logging/shipper"* ]]
+}
+
+@test "a yq that prints nothing and exits 0 stops the run before any upgrade" {
+  orphans
+  fake_yq
+  STUB_YQ_MODE=empty run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"yq found 0"*"the manifest has"* ]]
+  run ! grep -q -e "^helm upgrade" -e "annotate" "$LOG"
+}
+
+@test "a yq that drops one of the objects stops the run before any upgrade" {
+  orphans
+  fake_yq
+  STUB_YQ_MODE=drop run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"the manifest has 5"* ]]
+  run ! grep -q -e "^helm upgrade" -e "annotate" "$LOG"
+}
+
+@test "the kept objects are listed by their marker labels, after the admin checks" {
+  orphans
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 0 ]
+  can="$(grep -n "auth can-i" "$LOG" | tail -n 1 | cut -d: -f1)"
+  list="$(grep -n " get secrets -A -l migrate-to-bootstrap/release=your-service-name,migrate-to-bootstrap/namespace=your-service-name-dev " "$LOG" | head -n 1 | cut -d: -f1)"
+  [ -n "$list" ]
+  (( can < list ))
+  run ! grep -Eq " get (secrets|namespaces|persistentvolumeclaims)( -A)? --no-headers" "$LOG"
+}
+
+@test "a re-run by a non-admin of a migrated release exits 0 and lists nothing" {
+  echo switched > "$STATE"
+  STUB_CAN=no run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"nothing to do"*"cluster admin"* ]]
+  run ! grep -q " get secrets" "$LOG"
+}
+
+@test "a release that was never deployed is refused with how to recover, not a rollback" {
+  STUB_STATUS=failed STUB_NEVER=1 run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"never been deployed"* ]]
+  [[ "$output" != *"helm rollback"* ]]
+  run ! grep -q "^helm upgrade" "$LOG"
 }

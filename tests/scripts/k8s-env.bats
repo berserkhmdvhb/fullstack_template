@@ -23,7 +23,7 @@ echo "helm $*" >> "$LOG"
 [[ "$1 $2" != "upgrade svc" || "$*" != *"namespaces.create=false"* ]] || touch "$STATE"
 if [[ "$1" == status ]]; then
   [[ -n "${STUB_MANIFEST-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
-  echo '{"version": 1, "info": {"status": "deployed"}}'
+  echo "{\"version\": 1, \"info\": {\"status\": \"${STUB_STATUS:-deployed}\"}}"
 fi
 if [[ "$1" == history ]]; then
   [[ -z "${STUB_GET_FAIL-}" ]] || { echo "Error: Kubernetes cluster unreachable" >&2; exit 1; }
@@ -57,6 +57,9 @@ esac
 STUB
   chmod +x "$B"/*
   export PATH="$B:$PATH" LIB_TS=0 NO_COLOR=1
+  # A stored Namespace document, named as Helm stores it (the migration checks yq's list of the
+  # manifest's Namespaces, PVCs and Secrets against a count of their documents).
+  NS_DOC=$'---\nkind: Namespace\nmetadata:\n  name: svc-dev'
 }
 
 @test "apply pipes the bootstrap into kubectl before the chart, and the chart creates no namespace" {
@@ -118,7 +121,7 @@ STUB
 
 @test "the deploy's own values reach the migration" {
   printf 'x: 1\n' > "$BATS_TEST_TMPDIR/extra.yaml"
-  STUB_MANIFEST="kind: Namespace" run bash "$SCRIPT" apply --env dev --release svc --no-wait \
+  STUB_MANIFEST="$NS_DOC" run bash "$SCRIPT" apply --env dev --release svc --no-wait \
     --values "$BATS_TEST_TMPDIR/extra.yaml" --set a=b
   [ "$status" -eq 0 ]
   [[ "$output" == *"migrate-to-bootstrap.sh dev --context stub-ctx --release svc --namespace svc-dev --values $BATS_TEST_TMPDIR/extra.yaml --set a=b --yes"* ]]
@@ -135,13 +138,13 @@ STUB
 }
 
 @test "every upgrade keeps 5 revisions of Helm history, as the deploy does" {
-  STUB_MANIFEST="kind: Namespace" run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  STUB_MANIFEST="$NS_DOC" run bash "$SCRIPT" apply --env dev --release svc --no-wait
   [ "$status" -eq 0 ]
   [ "$(grep "^helm upgrade" "$LOG" | grep -c -- "--history-max 5")" -eq 3 ]
 }
 
 @test "a stored manifest larger than a pipe buffer still triggers the keep-upgrade" {
-  STUB_BIG=1 STUB_MANIFEST=$'---\nkind: Namespace' run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  STUB_BIG=1 STUB_MANIFEST="$NS_DOC" run bash "$SCRIPT" apply --env dev --release svc --no-wait
   [ "$status" -eq 0 ]
   grep -q "^helm upgrade .*--set namespaces.create=true --set rbac.create=true" "$LOG"
 }
@@ -155,14 +158,14 @@ STUB
 }
 
 @test "the keep-upgrade is printed as the exact command it runs" {
-  STUB_MANIFEST="kind: Namespace" run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  STUB_MANIFEST="$NS_DOC" run bash "$SCRIPT" apply --env dev --release svc --no-wait
   [ "$status" -eq 0 ]
   cmd="$(grep "^helm upgrade .*rbac.create=true" "$LOG" | sed 's/^helm //')"
   [[ "$output" == *"helm $cmd"* ]]
 }
 
 @test "a dry run shows the migration it would run, and runs nothing" {
-  STUB_MANIFEST="kind: Namespace" run bash "$SCRIPT" apply --env dev --release svc --dry-run --no-wait
+  STUB_MANIFEST="$NS_DOC" run bash "$SCRIPT" apply --env dev --release svc --dry-run --no-wait
   [ "$status" -eq 0 ]
   [[ "$output" == *"would run"* ]]
   [[ "$output" == *"migrate-to-bootstrap.sh dev --context stub-ctx --release svc --namespace svc-dev --env-values-only --yes"* ]]
@@ -194,16 +197,35 @@ STUB
 @test "the gate reads the deployed revision, not a later failed one" {
   # Revision 3 failed and lacks the Namespace; revision 2, the deployed one, still holds it.
   STUB_HISTORY='[{"revision": 2, "status": "deployed"}, {"revision": 3, "status": "failed"}]' STUB_DEPLOYED_REV=2 \
-    STUB_MANIFEST=$'---\nkind: Namespace' run bash "$SCRIPT" apply --env dev --release svc --no-wait
+    STUB_MANIFEST="$NS_DOC" run bash "$SCRIPT" apply --env dev --release svc --no-wait
   grep -q "^helm get manifest svc -n svc-dev --revision 2$" "$LOG"
   [[ "$output" == *"still owns its Namespace"* ]]
   [[ "$output" == *"migrate-to-bootstrap.sh dev --context stub-ctx --release svc"* ]]
 }
 
-@test "a release that was never deployed gets only the normal upgrade" {
-  STUB_HISTORY='[{"revision": 1, "status": "failed"}]' STUB_MANIFEST="kind: Namespace" \
+@test "a release that was never deployed and holds its Namespaces is refused, with how to recover" {
+  STUB_STATUS=failed STUB_HISTORY='[{"revision": 1, "status": "failed"}]' STUB_MANIFEST="$NS_DOC" \
+    run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  [ "$status" -ne 0 ]
+  grep -q "^helm get manifest svc -n svc-dev --revision 1$" "$LOG"
+  [[ "$output" == *"never been deployed"* ]]
+  run ! grep -q "^helm upgrade" "$LOG"
+}
+
+@test "a release that was never deployed and holds no Namespace gets only the normal upgrade" {
+  STUB_HISTORY='[{"revision": 1, "status": "failed"}]' STUB_MANIFEST=$'---\nkind: Deployment' \
     run bash "$SCRIPT" apply --env dev --release svc --no-wait
   [ "$status" -eq 0 ]
-  run ! grep -q "get manifest" "$LOG"
   [ "$(grep -c "^helm upgrade" "$LOG")" -eq 1 ]
+}
+
+@test "the release gate refuses a yq that is not the pinned one" {
+  real="$(command -v yq)"
+  # shellcheck disable=SC2016 # expanded by the stub
+  printf '#!/usr/bin/env bash\n[[ "$1" != --version ]] || { echo "yq (https://github.com/mikefarah/yq/) version v4.0.0"; exit 0; }\nexec "%s" "$@"\n' "$real" > "$B/yq"
+  chmod +x "$B/yq"
+  STUB_MANIFEST="$NS_DOC" run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not the pinned"* ]]
+  run ! grep -q "^helm upgrade" "$LOG"
 }
