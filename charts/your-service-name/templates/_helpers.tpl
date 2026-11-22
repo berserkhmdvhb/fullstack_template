@@ -111,6 +111,11 @@ matchLabels:
 {{- printf "http://%s:%s" (include "chart.apiBackendService" .) (include "chart.apiBackendPort" .) -}}
 {{- end -}}
 
+{{/* The port the WAF forwards to: waf.upstream.port, else the backend port. */}}
+{{- define "chart.wafUpstreamPort" -}}
+{{- .Values.waf.upstream.port | default (include "chart.backendPort" .) -}}
+{{- end -}}
+
 {{/* The backend and frontend Service ports: one source (config.*_PORT) for the Services and the edge. */}}
 {{- define "chart.backendPort" -}}{{ .Values.config.BACKEND_PORT }}{{- end -}}
 {{- define "chart.frontendPort" -}}{{ .Values.config.FRONTEND_PORT }}{{- end -}}

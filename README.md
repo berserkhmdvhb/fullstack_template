@@ -35,6 +35,7 @@ It ensures:
 ├── docker-compose.yml      # Local development stack (optional)
 ├── Dockerfile.backend      # Backend image (FastAPI + Uvicorn)
 ├── Dockerfile.frontend     # Frontend image (Next.js standalone)
+├── Dockerfile.waf          # Optional WAF image (Envoy + the pinned Coraza Wasm)
 ├── charts/your-service-name/  # Helm chart (dev/qa/production/local via values.<env>.yaml)
 ├── .github/                # GitHub Actions workflows, composite actions, helper scripts
 ├── Makefile

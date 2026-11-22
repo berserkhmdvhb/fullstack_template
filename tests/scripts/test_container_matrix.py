@@ -287,6 +287,14 @@ def test_deploy_matrix_requires_select(run: Runner) -> None:
         ("images:\n  - {id: a, repository: r, dockerfile: d, run_env: [x]}\n", "run_env"),
         ("images:\n  - {id: a, repository: r, dockerfile: d, run_env: {K: 1}}\n", "run_env"),
         ("images:\n  - {id: a, repository: r, dockerfile: d, run_args: x}\n", "run_args"),
+        (
+            "images:\n  - {id: a, repository: r, dockerfile: d, healthcheck_exempt: true}\n",
+            "healthcheck_exempt",
+        ),
+        (
+            "images:\n  - {id: a, repository: r, dockerfile: d, healthcheck_exempt: '  '}\n",
+            "healthcheck_exempt",
+        ),
     ],
 )
 def test_bad_manifest_refused(run: Runner, manifest: str, needle: str) -> None:
@@ -296,7 +304,8 @@ def test_bad_manifest_refused(run: Runner, manifest: str, needle: str) -> None:
 def test_image_check_settings_are_accepted_and_not_rendered(run: Runner) -> None:
     manifest = (
         "images:\n  - {id: a, repository: r, dockerfile: d, distroless: true,"
-        " run_env: {K: v}, run_args: ['--read-only']}\n"
+        " run_env: {K: v}, run_args: ['--read-only'],"
+        " healthcheck_exempt: probed by Kubernetes only}\n"
     )
     res = run("--matrix", manifest=manifest)
     assert res.code == 0, res.stderr
@@ -319,7 +328,7 @@ def test_repo_manifest_renders() -> None:
     )
     assert proc.returncode == 0, proc.stderr
     ids = [i["id"] for i in json.loads(proc.stdout.splitlines()[0])["include"]]
-    assert ids == ["backend", "frontend"]
+    assert ids == ["backend", "frontend", "waf"]
 
 
 FORBIDDEN_RUN_ARGS = [
@@ -435,6 +444,6 @@ def test_the_repo_manifest_lists_both_platforms_and_its_runner_map() -> None:
     legs = json.loads(out["platform_matrix"])["include"]
     assert {(e["id"], e["platform"], e["runner"]) for e in legs} == {
         (i, p, r)
-        for i in ("backend", "frontend")
+        for i in ("backend", "frontend", "waf")
         for p, r in (("linux/amd64", "ubuntu-24.04"), ("linux/arm64", "ubuntu-24.04-arm"))
     }

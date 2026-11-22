@@ -32,6 +32,11 @@ images:
     repository: "ghcr.io/o/r/full"
     dockerfile: Dockerfile.full
     distroless: false
+  - id: probed
+    repository: "ghcr.io/o/r/probed"
+    dockerfile: Dockerfile.probed
+    distroless: true
+    healthcheck_exempt: "no probe binary; Kubernetes probes the health listener"
 YML
   # A healthy, non-root image with every label, as the stub default.
   export STUB_USER=10001
@@ -170,6 +175,19 @@ placeholder_source() {
   STUB_HC_TEST='' run bash "$SCRIPT" slim ref:t
   [ "$status" -eq 1 ]
   [[ "$output" == *"::error::"*"HEALTHCHECK"* ]]
+}
+
+@test "healthcheck: an exempt image is not run, and the log gives the manifest's reason" {
+  STUB_HC_TEST="" run bash "$SCRIPT" probed ref:t
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"healthcheck: skipped (no probe binary; Kubernetes probes the health listener)"* ]]
+  run grep -q '^run ' "$STUB_LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "healthcheck: the exemption is per image; the others still need one" {
+  STUB_HC_TEST='' run bash "$SCRIPT" slim ref:t
+  [ "$status" -eq 1 ]
 }
 
 @test "healthcheck: NONE counts as no healthcheck" {

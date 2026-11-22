@@ -43,7 +43,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: postgresql
-          image: {{ .Values.postgresql.image }}
+          image: {{ include "chart.image" (dict "image" .Values.postgresql.image) }}
           # The port (config.DB_PORT) is unprivileged, so the server needs no capability and no
           # privilege escalation — drop ALL to satisfy the restricted profile.
           args: ["-c", "port={{ include "chart.dbPort" . }}"]

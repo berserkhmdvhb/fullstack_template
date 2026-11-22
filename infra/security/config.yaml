@@ -123,6 +123,10 @@ image:
       env_var: FRONTEND_IMAGE
       docker_env_var: FRONTEND_IMAGE_DOCKER
       match: frontend
+    - name: waf
+      env_var: WAF_IMAGE
+      docker_env_var: WAF_IMAGE_DOCKER
+      match: waf
 
 # ---------- Vulnerability Policy ----------
 policy:

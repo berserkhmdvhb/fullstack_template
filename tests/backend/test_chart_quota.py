@@ -143,3 +143,38 @@ def test_a_higher_hpa_maximum_is_caught(helm: str) -> None:
     )
     assert more["requests.memory"] > base["requests.memory"]
     assert more["pods"] >= base["pods"] + 2
+
+
+def steady_requests(docs: list[dict[str, Any]]) -> dict[str, float]:
+    """What the long-running Pods request at their minimum replicas (both namespaces, no Jobs)."""
+    hpa_min = {
+        d["spec"]["scaleTargetRef"]["name"]: d["spec"]["minReplicas"]
+        for d in docs
+        if d["kind"] == "HorizontalPodAutoscaler"
+    }
+    total = {"requests.cpu": 0.0, "requests.memory": 0.0}
+    for d in docs:
+        if d["kind"] not in ("Deployment", "StatefulSet"):
+            continue
+        count = hpa_min.get(d["metadata"]["name"], d["spec"].get("replicas", 1))
+        cost = pod_cost(d["spec"]["template"]["spec"])
+        for key in total:
+            total[key] += cost[key] * count
+    return total
+
+
+@pytest.mark.parametrize(
+    ("values", "args", "memory", "cpu"),
+    [
+        ("values.yaml", (), "5Gi", 0.85),
+        ("values.yaml", ("--set", "waf.enabled=true"), "5.5Gi", 0.95),
+        ("values.local.yaml", (), "3Gi", 0.55),
+    ],
+)
+def test_the_values_note_on_the_default_requests_holds(
+    helm: str, values: str, args: tuple[str, ...], memory: str, cpu: float
+) -> None:
+    """values.yaml's header states these sums; the quota's worst case is a separate upper bound."""
+    found = steady_requests(render(helm, values, *args))
+    assert found["requests.memory"] == quantity(memory)
+    assert found["requests.cpu"] == pytest.approx(cpu)

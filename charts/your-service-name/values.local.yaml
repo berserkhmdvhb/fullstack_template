@@ -6,6 +6,7 @@ imagePullPolicy: IfNotPresent
 images:
   backend: {repository: your-service-name-backend, tag: local, registry: ""}
   frontend: {repository: your-service-name-frontend, tag: local, registry: ""}
+  waf: {repository: your-service-name-waf, tag: local, registry: ""}
 
 # A local cluster is reached through a port-forward, which sends Host: localhost or 127.0.0.1.
 backend:

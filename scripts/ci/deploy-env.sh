@@ -6,7 +6,8 @@
 # 3. helm upgrade --install --rollback-on-failure --wait --wait-for-jobs (Helm rolls a failed upgrade back
 #    itself; --wait-for-jobs makes a failed migration Job fail the release; a failed deploy prints the
 #    migration Job's status and logs first; a first install first deletes a leftover Failed migration Job)
-# 4. deploy-verify.sh, then scripts/smoke-test.sh through a port-forward
+# 4. deploy-verify.sh (for each image the release renders a component for), then scripts/smoke-test.sh
+#    through a port-forward
 # 5. when verify or smoke fails: helm rollback to the recorded revision, then exit 1
 #
 # Env (all required unless a default is shown): SERVICE_NAME DEPLOY_ENV (dev|qa|production) CHART_DIR
@@ -91,9 +92,21 @@ if (( helm_rc != 0 )); then
 fi
 helm history "$SERVICE_NAME" -n "$NAMESPACE" --max 5
 
+# 3b. Every image is deployed by digest, but an optional one (the WAF, off unless waf.enabled) runs
+# no Pod when its feature is off: verify a component only when the release renders it.
+manifest="$(helm get manifest "$SERVICE_NAME" -n "$NAMESPACE")" || fail "cannot read the manifest of ${SERVICE_NAME}"
+rendered=()
+for c in "${components[@]}"; do
+  if grep -qE "^[[:space:]]*app\.kubernetes\.io/component: \"?${c}\"?[[:space:]]*$" <<<"$manifest"; then
+    rendered+=("$c")
+  else
+    echo "${c}: not rendered by this release (feature off); its digest is set, its Pods are not checked"
+  fi
+done
+
 # 4. verify and smoke
 checks() {
-  RELEASE="$SERVICE_NAME" NAMESPACE="$NAMESPACE" COMPONENTS="${components[*]}" bash "$VERIFY_SCRIPT" || return 1
+  RELEASE="$SERVICE_NAME" NAMESPACE="$NAMESPACE" COMPONENTS="${rendered[*]}" bash "$VERIFY_SCRIPT" || return 1
   local pf rc=0
   kubectl -n "$NAMESPACE" port-forward "svc/${BACKEND_SERVICE}" "${BACKEND_PORT}:${BACKEND_PORT}" >"$WORK_DIR/pf.log" 2>&1 &
   pf=$!

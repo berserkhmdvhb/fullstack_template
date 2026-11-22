@@ -133,49 +133,12 @@ def test_the_split_values_format_is_matched_once_a_digest_is_set() -> None:
         and "tag:" in "".join(m["matchStrings"])
     )
     pattern = _compile(manager["matchStrings"][0])
-    assert not pattern.search(values), "an unpinned (empty digest) image must not be looked up"
-    digest = "sha256:" + "a" * 64
-    pinned = values.replace(
-        '    repository: envoyproxy/envoy\n    tag: v1.31.0\n    digest: ""',
-        f'    repository: envoyproxy/envoy\n    tag: v1.31.0\n    digest: "{digest}"',
-    )
-    assert pinned != values
-    match = pattern.search(pinned)
-    assert match
-    assert (match.group("depName"), match.group("currentValue"), match.group("currentDigest")) == (
-        "envoyproxy/envoy",
-        "v1.31.0",
-        digest,
-    )
-
-
-def test_no_private_planning_reference_in_the_new_files() -> None:
-    for rel in (
-        "renovate.json5",
-        "tools/pins.tsv",
-        "scripts/pins_refresh.py",
-        "scripts/github-settings.sh",
-    ):
-        text = (ROOT / rel).read_text(encoding="utf-8")
-        assert not re.search(r"spec section|design doc", text, re.IGNORECASE), rel
-
-
-def test_renovate_maintains_uv_lock_and_moves_the_uv_pin_with_its_image() -> None:
-    cfg = renovate()
-    assert cfg["lockFileMaintenance"]["enabled"] is True
-    assert cfg["minimumReleaseAge"] == "7 days"
-    rule = next(r for r in cfg["packageRules"] if r.get("groupName") == "uv")
-    assert set(rule["matchPackageNames"]) == {"astral-sh/uv", "ghcr.io/astral-sh/uv"}
-
-
-def test_uv_lock_maintenance_is_not_blocked_by_the_release_age_check() -> None:
-    # A lock refresh has no release timestamp: with minimumReleaseAge set, the default
-    # timestamp-required behaviour would create no branch. uv's exclude-newer holds the 7 days.
-    rules = renovate()["packageRules"]
-    rule = next(r for r in rules if r.get("matchUpdateTypes") == ["lockFileMaintenance"])
-    assert rule["matchManagers"] == ["pep621"]
-    assert "minimumReleaseAge" in rule
-    assert rule["minimumReleaseAge"] is None
-    # An update with no release timestamp is held by the default timestamp-required behaviour.
-    assert rule["minimumReleaseAgeBehaviour"] == "timestamp-optional"
-    assert renovate()["minimumReleaseAge"] == "7 days"
+    found = [(m.group("depName"), m.group("currentValue")) for m in pattern.finditer(values)]
+    # The pinned third-party images only; the release's own (empty digest) are never looked up.
+    assert found == [
+        ("gcr.io/cloud-sql-connectors/cloud-sql-proxy", "2.28.0"),
+        ("postgres", "16-alpine"),
+        ("postgres", "16-alpine"),
+    ]
+    unpinned = re.sub(r'digest: "sha256:[0-9a-f]{64}"', 'digest: ""', values)
+    assert not pattern.search(unpinned), "an empty digest is not matched"

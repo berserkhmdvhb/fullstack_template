@@ -333,7 +333,7 @@ cloudSqlProxy:
 
 The proxy listens on `config.DB_PORT`, logs as structured JSON, and runs restricted (non-root, read-only root
 filesystem, all capabilities dropped, `RuntimeDefault` seccomp) with `cloudSqlProxy.resources`. The image is
-`cloudSqlProxy.image` (repository, tag, digest, like `waf.envoyImage`): set the digest to pin it. The
+`cloudSqlProxy.image` (repository, tag, digest), pinned by its multi-arch index digest; Renovate refreshes it. The
 NetworkPolicy is IP-based, so `cloudSqlProxy.egressCIDRs` is required: the backend and the Job may reach those
 ranges on 3307 (the instance) and 443 (Google APIs). With a private-IP instance list its range; for Google APIs
 over Private Google Access add `199.36.153.8/30` (`private.googleapis.com`) or the VIP range your VPC uses.

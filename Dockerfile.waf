@@ -1,0 +1,65 @@
+# your-service-name — adaptable service template (see wiki/getting-started.md)
+# WAF — Envoy with the Coraza proxy-wasm filter (OWASP CRS embedded), the optional third image
+# ===================================================================
+# Every input is pinned: the two base images by digest, the Coraza release asset by version and
+# sha256. The module is baked in, so Envoy loads it from a local file and fetches nothing at runtime.
+
+#################################
+# STAGE 1: Fetch and check the Coraza Wasm
+#################################
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS wasm
+
+# The release asset's sha256 was recorded when the version was first pinned (trust on first use).
+# Renovate moves the version; the build then fails the checksum until the new asset's sha256 is set.
+# renovate: datasource=github-releases depName=corazawaf/coraza-proxy-wasm
+ARG CORAZA_WASM_VERSION=0.6.0
+ARG CORAZA_WASM_SHA256=cca4e3c75cf6b2e615907f936a1b6dcd0955250e0fb7d3b1c2ecef807d84603c
+
+# BuildKit checks the download against the sha256 before any step can use it.
+ADD --checksum=sha256:${CORAZA_WASM_SHA256} https://github.com/corazawaf/coraza-proxy-wasm/releases/download/${CORAZA_WASM_VERSION}/coraza-proxy-wasm-${CORAZA_WASM_VERSION}.zip /tmp/coraza.zip
+
+# The zip holds one deflated member, the module; gzip reads such a zip and checks its CRC (Debian has
+# no unzip). The Wasm magic number confirms the member is the module.
+RUN mkdir /out \
+    && gzip -dc < /tmp/coraza.zip > /out/coraza-proxy-wasm.wasm \
+    && printf '\000asm' > /tmp/magic \
+    && cmp -n 4 /tmp/magic /out/coraza-proxy-wasm.wasm \
+    && chmod 0444 /out/coraza-proxy-wasm.wasm
+
+############################
+# STAGE 2: Runtime
+############################
+# Distroless Envoy (no shell). Its configured user is 65532 (nonroot); the chart runs the Pod as it.
+FROM envoyproxy/envoy:distroless-v1.33.14@sha256:8599dee1e6ea059e23021cbf1eac7a6e7cede3999391b0334054edd58f14ab40 AS runtime
+
+# ---- Metadata ----
+ARG VERSION=0.0.0
+ARG VCS_REF=unknown
+ARG VCS_BRANCH=unknown
+ARG BUILD_DATE=unknown
+# The repository the image belongs to; GHCR links the package to it. CI passes the real URL.
+ARG SOURCE_URL=https://github.com/your-org/your-repo
+
+LABEL org.opencontainers.image.title="Your Service Name — WAF" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.ref.name="${VCS_BRANCH}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="${SOURCE_URL}" \
+      org.opencontainers.image.vendor="YourOrg" \
+      org.opencontainers.image.url="https://your-domain.example/" \
+      org.opencontainers.image.authors="YourOrg"
+
+# Root-owned and read-only (mode 0444, set in the builder): Envoy reads the module, nothing rewrites
+# it. No --chmod here: it would also apply to the directory COPY creates, which Envoy could then not
+# enter.
+COPY --from=wasm /out/coraza-proxy-wasm.wasm /etc/envoy/coraza/coraza-proxy-wasm.wasm
+
+# No HEALTHCHECK: the image has no binary to probe with. Kubernetes probes the health listener the
+# chart configures (.github/container-images.yml: healthcheck_exempt).
+USER 65532:65532
+
+# The chart passes the whole Envoy configuration as arguments. Run bare, the image only prints its
+# version, instead of the base's default configuration (which binds the admin interface to every
+# address).
+CMD ["--version"]

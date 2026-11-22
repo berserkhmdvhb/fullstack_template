@@ -36,6 +36,8 @@ NON_DEFAULT_PORTS = (
     "config.DB_PORT=5433",
     "--set",
     "waf.service.port=9300",
+    "--set",
+    "waf.health.port=9310",
 )
 PORT_OPTIONS = ALL_ON
 
@@ -60,7 +62,7 @@ def test_no_default_port_literal_survives_a_port_override(
 ) -> None:
     """With every port moved, a default literal left in the render is a hard-coded port."""
     text = _text(helm, values, *NON_DEFAULT_PORTS, *extra)
-    found = sorted(set(re.findall(r"(?<![\w.-])(8000|3000|8080|5432)(?![\w.-])", text)))
+    found = sorted(set(re.findall(r"(?<![\w.-])(8000|3000|8080|8090|5432)(?![\w.-])", text)))
     assert found == []
 
 
@@ -73,7 +75,7 @@ def test_every_port_follows_the_overrides(helm: str) -> None:
 
     assert ports(BACKEND) == [9100]
     assert ports(FRONTEND) == [9200]
-    assert ports("Deployment/svc-your-service-name-waf") == [9300]
+    assert ports("Deployment/svc-your-service-name-waf") == [9300, 9310]
     assert ports("StatefulSet/svc-your-service-name-postgresql") == [5433]
     env = {e["name"]: e.get("value") for e in pods[FRONTEND][0]["containers"][0]["env"]}
     assert env["PORT"] == "9200"

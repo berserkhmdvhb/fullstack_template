@@ -73,6 +73,7 @@ flowchart TB
 ├── docker-compose.yml          # Local dev stack (3 long-running services plus a one-shot `migrate` job)
 ├── Dockerfile.backend          # Backend container (FastAPI + Uvicorn)
 ├── Dockerfile.frontend         # Frontend container (Next.js)
+├── Dockerfile.waf              # Optional WAF container (Envoy + the pinned Coraza Wasm)
 ├── Makefile                    # Development shortcuts
 ├── pyproject.toml              # Python project config (Ruff, MyPy, pytest)
 ├── alembic.ini                 # Database migration config

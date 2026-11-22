@@ -10,6 +10,7 @@ Per-service Dockerfiles, buildx builds in GitHub Actions, container runtime, and
 - [Per-Service Dockerfiles](#per-service-dockerfiles)
 - [Dockerfile.backend](#dockerfilebackend)
 - [Dockerfile.frontend](#dockerfilefrontend)
+- [Dockerfile.waf](#dockerfilewaf)
 - [Image builds in CI](#image-builds-in-ci)
 - [Container Runtime](#container-runtime)
 - [Image Tags](#image-tags)
@@ -22,7 +23,7 @@ Per-service Dockerfiles, buildx builds in GitHub Actions, container runtime, and
 
 ## Overview
 
-The project uses **two dedicated Dockerfiles**, one per service (backend and frontend). Each image contains only the dependencies it needs and starts its service directly via `CMD`. There is no `SERVICE_MODE` variable.
+The project builds **two app images**, one per service (backend and frontend), plus an **optional WAF image** (`Dockerfile.waf`: Envoy with the Coraza Wasm, deployed only with the chart's `waf.enabled`). All three are built, scanned, signed and deployed by digest the same way. Each image contains only what it needs and starts its service directly via `CMD`. There is no `SERVICE_MODE` variable.
 
 ```mermaid
 flowchart TB
@@ -48,6 +49,7 @@ flowchart TB
 |------------|---------|-----------|------|
 | `Dockerfile.backend` | FastAPI + Uvicorn | `debian:13-slim` (build), distroless `python3-debian13` (runtime) | 8000 |
 | `Dockerfile.frontend` | Next.js standalone | `node:26-trixie-slim` (build), distroless `nodejs26-debian13` (runtime) | 3000 |
+| `Dockerfile.waf` | Envoy + Coraza Wasm (optional) | `debian:13-slim` (fetch and check the Wasm), distroless `envoyproxy/envoy` (runtime) | `waf.service.port` (8080), health `waf.health.port` (8090) |
 
 ---
 
@@ -142,9 +144,35 @@ CMD ["server.js"]   # the image's ENTRYPOINT is /nodejs/bin/node
 
 ---
 
+## Dockerfile.waf
+
+The optional WAF (`waf.enabled` in the chart). Every input is pinned: the builder (`debian:13-slim`, the backend's
+digest) and the runtime (`envoyproxy/envoy:distroless-<version>`) by multi-arch index digest, and the
+[Coraza proxy-wasm](https://github.com/corazawaf/coraza-proxy-wasm) release asset by the `CORAZA_WASM_VERSION`
+and `CORAZA_WASM_SHA256` build arguments. `ADD --checksum` makes BuildKit check the download before any step
+uses it; the builder extracts the module (the zip's one member; `gzip` reads it and checks its CRC) and checks
+the Wasm magic number. The final stage only copies the module to `/etc/envoy/coraza/coraza-proxy-wasm.wasm`
+(no `RUN`, no shell) and runs as the base image's user, `65532:65532`.
+
+- **The Envoy minor** is the newest one the pinned Coraza release is tested against (its CI's Envoy list).
+- **Trust on first use.** The asset's sha256 was recorded when the version was first pinned. Renovate proposes a
+  new `CORAZA_WASM_VERSION` (the `# renovate:` line above it), and the build then fails the checksum until a
+  maintainer records the new asset's sha256 (GitHub shows each release asset's digest). Renovate refreshes the
+  two base image digests.
+- **No HEALTHCHECK:** distroless Envoy has no binary to probe with, so its manifest entry sets
+  `healthcheck_exempt` and Kubernetes probes the chart's health listener instead. Run bare, the image prints
+  its version: the chart passes the whole Envoy configuration, and the base image's default configuration
+  (which binds the admin interface to every address) is never used.
+- **Runtime:** Envoy loads the module from that file (`vm_config.code.local.filename`), so nothing is fetched at
+  runtime; the admin interface is disabled, a separate listener answers the probes, and the root filesystem
+  is read-only. Build it locally with
+  `docker build -t your-service-name-waf:local -f Dockerfile.waf .` (it downloads the pinned asset).
+
+---
+
 ## Image builds in CI
 
-The release workflow builds the two images with `docker/build-push-action` (buildx) on a GitHub-hosted runner, only on a push to `main` or a `v*` tag (a pull request builds locally, without pushing, to check the images). No Docker-in-Docker, no privileged runner:
+The release workflow builds the images (the two app images and the WAF image) with `docker/build-push-action` (buildx) on a GitHub-hosted runner, only on a push to `main` or a `v*` tag (a pull request builds locally, without pushing, to check the images). No Docker-in-Docker, no privileged runner:
 
 ```mermaid
 flowchart TB
@@ -158,7 +186,7 @@ flowchart TB
 
 | Feature | Benefit |
 |---------|---------|
-| **Matrix legs** | The two images build in parallel |
+| **Matrix legs** | The images build in parallel |
 | **Cold builds** | The release build uses no layer cache, so every layer is built from the commit, the pinned bases and the locked dependencies |
 | **Digest check** | The pushed manifest digest must equal the build's digest |
 | **Pinned actions** | Every action is pinned by a full commit SHA |
@@ -177,13 +205,13 @@ The image list is `.github/container-images.yml` (the single source), rendered i
 
 ## Image structure checks
 
-`scripts/ci/image-checks.sh [--strict] <image-id> <image-ref>` checks one built image, with the settings of its entry in `.github/container-images.yml` (`distroless`, and the optional `run_env` and `run_args` for the health-check container; none of the shipped images needs any):
+`scripts/ci/image-checks.sh [--strict] <image-id> <image-ref>` checks one built image, with the settings of its entry in `.github/container-images.yml` (`distroless`, the optional `run_env` and `run_args` for the health-check container, which none of the shipped images needs, and the optional `healthcheck_exempt`):
 
 | Check | Passes when |
 |---|---|
 | user | `Config.User` is numeric and not 0 (`USER 10001`) |
 | no shell | distroless images only: the filesystem (read with `docker export`, nothing executed) has no shell, package manager or fetcher in `/bin`, `/sbin`, `/usr/bin`, `/usr/sbin`, `/usr/local/bin` or `/usr/local/sbin` |
-| healthcheck | the image declares a HEALTHCHECK, and a throwaway container (unique name, no published ports) becomes `healthy` within the image's own start period + interval x retries + timeout |
+| healthcheck | the image declares a HEALTHCHECK, and a throwaway container (unique name, no published ports) becomes `healthy` within the image's own start period + interval x retries + timeout; skipped, with the manifest's reason in the log, for an image whose entry sets `healthcheck_exempt: <reason>` (today only the WAF image, which has no binary to probe with and is probed by Kubernetes) |
 | labels | the OCI `source`, `version`, `revision`, `created` and `title` labels are present; with `--strict` none is `unknown` and `source` is not the template placeholder |
 
 Each failure prints an `::error::` line (an unhealthy container also prints its last health-log entries and log lines); the container is always removed by its exact name.

@@ -8,7 +8,7 @@
 #   * the edge: the Gateway, or the ingress class and its namespace, or the tunnel
 #   * the Postgres + backup StorageClass (tripleo vs standard vs gp3 vs ...)
 #   * the TLS mode                       (plain HTTP vs a real cert secret)
-#   * the CI-built SHORT image names      (backend / frontend)
+#   * the CI-built SHORT image names      (backend / frontend / waf)
 #   * the registry pull secret name
 #
 # The identity + coordinates (service name, domain, image registry) are handled
@@ -42,6 +42,7 @@
 images:
   backend:  { repository: backend,  registry: registry.your-domain.example, tag: latest }
   frontend: { repository: frontend, registry: registry.your-domain.example, tag: latest }
+  waf:      { repository: waf,      registry: registry.your-domain.example, tag: latest }
 
 global:
   # The docker-registry secret, created once in the app namespace:

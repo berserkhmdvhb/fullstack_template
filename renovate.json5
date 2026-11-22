@@ -82,6 +82,17 @@
       ]
     },
     {
+      // A line `# renovate: datasource=<datasource> depName=<package>` directly above `ARG <NAME>=<version>` in a root
+      // Dockerfile (the Coraza Wasm release in Dockerfile.waf). Its sha256 ARG is not matched: the build fails the
+      // checksum until a maintainer records the new asset's sha256.
+      "customType": "regex",
+      "description": "Annotated release versions in the Dockerfiles",
+      "managerFilePatterns": ["/^Dockerfile\\.[a-z0-9-]+$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>\\S+)\\nARG [A-Z0-9_]+=(?<currentValue>v?[0-9][^\\s]*)"
+      ]
+    },
+    {
       // `repository:tag@sha256:...` written inline (config.yaml's DAST image, or an inline ref in a values file).
       "customType": "regex",
       "description": "Inline image digests in values files and config.yaml",

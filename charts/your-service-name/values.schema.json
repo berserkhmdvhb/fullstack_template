@@ -59,7 +59,8 @@
       "additionalProperties": false,
       "properties": {
         "backend":  { "$ref": "#/definitions/image" },
-        "frontend": { "$ref": "#/definitions/image" }
+        "frontend": { "$ref": "#/definitions/image" },
+        "waf":      { "$ref": "#/definitions/image" }
       }
     },
 
@@ -394,14 +395,35 @@
         "enabled":    { "type": "boolean" },
         "provider":   { "type": "string", "enum": ["coraza"] },
         "owaspCrs":   { "type": "boolean" },
-        "envoyImage": { "$ref": "#/definitions/image" },
-        "wasmImage":  { "type": "string" },
         "service": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
           }
+        },
+        "health": {
+          "description": "The health listener the probes ask: a direct 200 on path, nothing else.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "path": { "type": "string", "pattern": "^/" }
+          }
+        },
+        "upstream": {
+          "description": "Where the WAF forwards; empty host and port mean the backend Service and port.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host": { "type": "string" },
+            "port": { "anyOf": [{ "type": "integer", "minimum": 1, "maximum": 65535 }, { "type": "string", "pattern": "^([1-9][0-9]*)?$" }] }
+          }
+        },
+        "upstreamPeers": {
+          "description": "NetworkPolicy peers (to entries) the WAF egress allows on the upstream port instead of the backend Pods.",
+          "type": "array",
+          "items": { "type": "object", "minProperties": 1 }
         },
         "upstreamIdleTimeoutSeconds": { "type": "integer", "minimum": 1 },
         "resources": { "$ref": "#/definitions/resources" }
@@ -431,8 +453,8 @@
       "additionalProperties": false,
       "properties": {
         "enabled":     { "type": "boolean" },
-        "image":       { "type": "string" },
-        "clientImage": { "type": "string" },
+        "image":       { "$ref": "#/definitions/image" },
+        "clientImage": { "$ref": "#/definitions/image" },
         "existingSecret":    { "description": "Secret in the database namespace holding the server's password.", "type": "string" },
         "existingSecretKey": { "type": "string", "minLength": 1 },
         "storage": {

@@ -1,0 +1,161 @@
+suite: the WAF runs this repository's image, loads its Wasm locally and is probed on its own health listener
+release:
+  name: svc
+  namespace: app
+templates:
+  - waf-proxy.yaml
+  - network-policy.yaml
+set:
+  waf: {enabled: true}
+tests:
+  - it: the WAF runs the image from images.waf, by digest once the release sets one
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      images:
+        waf: {registry: ghcr.io, repository: o/r/waf, tag: t1, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+    asserts:
+      - equal:
+          path: 'spec.template.spec.containers[0].image'
+          value: ghcr.io/o/r/waf@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  - it: the image's entrypoint runs; the chart passes only the configuration
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - notExists: {path: 'spec.template.spec.containers[0].command'}
+      - equal: {path: 'spec.template.spec.containers[0].args[0]', value: --config-yaml}
+  - it: Envoy loads the Wasm from the image's local file and fetches nothing
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'local:\s+filename: /etc/envoy/coraza/coraza-proxy-wasm\.wasm'}
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'envoy\.extensions\.filters\.http\.wasm\.v3\.Wasm'}
+      - notMatchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'remote:|http_uri|oci://|https?://'}
+  - it: the admin interface is disabled, so nothing serves /quitquitquit
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - notMatchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: '(?m)^admin:'}
+  - it: a dedicated health listener answers the health path with a direct 200
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - matchRegex:
+          path: 'spec.template.spec.containers[0].args[1]'
+          pattern: 'port_value: 8090 \}[\s\S]*match: \{ path: "/healthz" \}\s+direct_response: \{ status: 200'
+      - contains:
+          path: 'spec.template.spec.containers[0].ports'
+          content: {name: health, containerPort: 8090}
+      - contains:
+          path: 'spec.template.spec.containers[0].ports'
+          content: {name: http, containerPort: 8080}
+  - it: the startup, readiness and liveness probes ask the health listener
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].startupProbe.httpGet', value: {path: /healthz, port: health}}
+      - equal: {path: 'spec.template.spec.containers[0].readinessProbe.httpGet', value: {path: /healthz, port: health}}
+      - equal: {path: 'spec.template.spec.containers[0].livenessProbe.httpGet', value: {path: /healthz, port: health}}
+  - it: the health port and path come from values
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      waf: {health: {port: 9311, path: /ready}}
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].readinessProbe.httpGet', value: {path: /ready, port: health}}
+      - contains: {path: 'spec.template.spec.containers[0].ports', content: {name: health, containerPort: 9311}}
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'port_value: 9311 \}[\s\S]*match: \{ path: "/ready" \}'}
+  - it: the Pod runs as the image's user with a read-only root filesystem and a writable /tmp
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - equal: {path: spec.template.spec.securityContext.runAsUser, value: 65532}
+      - equal: {path: spec.template.spec.securityContext.runAsGroup, value: 65532}
+      - equal: {path: spec.template.spec.securityContext.runAsNonRoot, value: true}
+      - equal: {path: 'spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem', value: true}
+      - equal: {path: 'spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation', value: false}
+      - contains: {path: 'spec.template.spec.containers[0].volumeMounts', content: {name: tmp, mountPath: /tmp}}
+      - contains: {path: spec.template.spec.volumes, content: {name: tmp, emptyDir: {medium: Memory, sizeLimit: 16Mi}}}
+  - it: by default the upstream is the backend Service on the backend port
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - matchRegex:
+          path: 'spec.template.spec.containers[0].args[1]'
+          pattern: 'address: svc-your-service-name-backend\s+port_value: 8000'
+  - it: the upstream host and port come from values (an auth proxy behind the WAF)
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      waf:
+        upstream: {host: auth-proxy.auth.svc.cluster.local, port: 4180}
+        upstreamPeers: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: auth}}}]
+    asserts:
+      - matchRegex:
+          path: 'spec.template.spec.containers[0].args[1]'
+          pattern: 'address: auth-proxy\.auth\.svc\.cluster\.local\s+port_value: 4180'
+      - notMatchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'svc-your-service-name-backend'}
+  - it: a custom upstream host without upstreamPeers fails (the default-deny egress would drop it)
+    template: waf-proxy.yaml
+    set:
+      waf: {upstream: {host: auth-proxy.auth.svc.cluster.local, port: 4180}}
+    asserts:
+      - failedTemplate: {errorPattern: waf.upstreamPeers}
+  - it: other Pods reach only the WAF port, never the health port (kubelet probes are exempt)
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from: [{podSelector: {matchLabels: {app.kubernetes.io/component: frontend}}}]
+            ports: [{protocol: TCP, port: 8080}]
+      # The frontend and the edge peers, each on the WAF port only.
+      - lengthEqual: {path: spec.ingress, count: 2}
+      - equal: {path: 'spec.ingress[0].ports', value: [{protocol: TCP, port: 8080}]}
+      - equal: {path: 'spec.ingress[1].ports', value: [{protocol: TCP, port: 8080}]}
+  - it: by default the WAF egress reaches the backend Pods on the backend port
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
+    asserts:
+      - equal:
+          path: 'spec.egress[0]'
+          value:
+            to: [{podSelector: {matchLabels: {app.kubernetes.io/component: backend}}}]
+            ports: [{protocol: TCP, port: 8000}]
+  - it: with upstreamPeers the WAF egress reaches those peers on the upstream port instead of the backend
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
+    set:
+      waf:
+        upstream: {host: auth-proxy.auth.svc.cluster.local, port: 4180}
+        upstreamPeers: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: auth}}}]
+    asserts:
+      - equal:
+          path: 'spec.egress[0]'
+          value:
+            to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: auth}}}]
+            ports: [{protocol: TCP, port: 4180}]
+      - notContains:
+          path: spec.egress
+          content:
+            to: [{podSelector: {matchLabels: {app.kubernetes.io/component: backend}}}]
+            ports: [{protocol: TCP, port: 8000}]
+  - it: upstreamPeers with the default host keeps the backend port
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-waf}
+    set:
+      waf:
+        upstreamPeers: [{podSelector: {matchLabels: {app.kubernetes.io/name: auth-proxy}}}]
+    asserts:
+      - equal:
+          path: 'spec.egress[0]'
+          value:
+            to: [{podSelector: {matchLabels: {app.kubernetes.io/name: auth-proxy}}}]
+            ports: [{protocol: TCP, port: 8000}]
+  - it: the old remote-Wasm and Envoy image values are refused
+    template: waf-proxy.yaml
+    set:
+      waf: {wasmImage: "ghcr.io/corazawaf/wasm-plugins/coraza:latest"}
+    asserts:
+      - failedTemplate: {}

@@ -196,13 +196,11 @@ headers. The auth proxy needs three things: a NetworkPolicy flow to the backend
 in `AUTH_PROXY_CIDRS`, and the routing above. Which component connects to the backend in each mode:
 [Infrastructure, NetworkPolicy per mode](./infrastructure.md#networkpolicy-per-mode).
 
-**With the WAF on.** The intended chain is WAF → auth proxy → backend: the WAF's upstream points at
-the auth proxy, the proxy is listed in `networkPolicy.backendExtraIngressPeers` and in
-`AUTH_PROXY_CIDRS`, and the WAF is in neither. **The chart's WAF cannot do this today:** its
-upstream is the backend Service, fixed in `templates/waf-proxy.yaml`, and its egress policy admits
-only the backend Pods. Until that is configurable, gateway mode with the chart's WAF leaves two
-choices: run the WAF off, or route the API to an auth proxy that is admitted by
-`backendExtraIngressPeers`, so that API traffic reaches the backend around the WAF.
+**With the WAF on.** The chain is WAF → auth proxy → backend: set the WAF's upstream to the auth
+proxy (`waf.upstream.host` and `waf.upstream.port`) and list the proxy's NetworkPolicy peers in
+`waf.upstreamPeers`, so the WAF's egress reaches the proxy on that port instead of the backend
+Pods (a host without peers fails the render). Then list the proxy in
+`networkPolicy.backendExtraIngressPeers` and in `AUTH_PROXY_CIDRS`; the WAF is in neither.
 
 ### OIDC mode
 
@@ -654,7 +652,7 @@ spec:
 |--------|-----------|--------|-------------|---------|
 | `allow-to-frontend` | Ingress | the edge peers of `edge.mode` | frontend pods on the frontend port | Edge → UI |
 | `allow-to-backend` | Ingress | WAF on: the WAF pods; WAF off: the frontend pods and the edge peers; plus, only when the chart renders a scrape target, the collector Pods (`monitoringPodSelector`) in the `monitoringNamespaceSelector` namespace, both required (`monitoringNamespaceSelector: null` removes the rule) | backend pods on the backend port | Nothing reaches the backend around the WAF |
-| `allow-waf` (WAF on) | Ingress + Egress | the frontend pods and the edge peers | WAF pods on `waf.service.port`; egress to the backend + DNS | Edge / frontend → WAF → backend |
+| `allow-waf` (WAF on) | Ingress + Egress | the frontend pods and the edge peers | WAF pods on `waf.service.port` (never `waf.health.port`: only the kubelet probes it); egress to the upstream (the backend Pods, or `waf.upstreamPeers`, on the upstream port) + DNS | Edge / frontend → WAF → backend (or auth proxy) |
 | `allow-backend-to-db` | Egress | backend pods | postgresql:5432 + DNS | Backend → database |
 | `allow-migration-to-db` | Egress | migration job | postgresql:5432 + DNS | Migration → database |
 | `allow-frontend-to-backend` | Egress | frontend pods | the backend port (the WAF port when it is on) + DNS | Server-side calls (`BACKEND_URL`) |
@@ -716,6 +714,18 @@ operational steps in
   the Helm chart (`charts/your-service-name/templates/waf-proxy.yaml`) and is
   **off by default** (`waf.enabled: false`) — no side effect until you enable it.
   The frontend bypasses it (it is not an injection target).
+- **The WAF's supply chain.** The WAF runs this repository's third image,
+  `Dockerfile.waf`: the distroless Envoy image pinned by its multi-arch index digest, plus
+  the Coraza proxy-wasm release asset, pinned by version and sha256 and checked by
+  BuildKit (`ADD --checksum`) before the build uses it. The sha256 was recorded when the
+  version was first pinned (trust on first use); Renovate then proposes new versions and
+  the build fails the checksum until a maintainer records the new asset's sha256. The
+  release builds, scans, signs and attests it like the app images, and the deploy passes
+  its digest. Envoy loads the Wasm from a file in the image (`code.local.filename`), so
+  the Pod fetches nothing at runtime and its egress is only its upstream and DNS. The
+  Pod runs as the image's user (65532) with a read-only root filesystem. Envoy's admin
+  interface (which serves endpoints such as `/quitquitquit`) is disabled; the probes ask
+  a separate listener (`waf.health.port`, `waf.health.path`) that answers a fixed `200`.
 
 | | DAST (ZAP) | WAF (Coraza) |
 |---|---|---|
@@ -727,7 +737,8 @@ operational steps in
 > **OpenShift:** the chart's WAF is the vanilla-K8s (Gateway or Ingress) expression; on
 > OpenShift it sits behind the Route/Router edge. The in-cluster proxy validates on
 > any cluster; the exact wasm image pin and the SQLi/XSS→403 behaviour are confirmed
-> on a cluster (runbook §4).
+> on a cluster (runbook §4); the image itself is proven to load the Wasm and block a
+> CRS match locally.
 
 ---
 

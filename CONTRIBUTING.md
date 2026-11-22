@@ -1,6 +1,6 @@
 # Contributing
 
-How to contribute to this service template — a FastAPI + Next.js 16 service with two images (backend and frontend),
+How to contribute to this service template — a FastAPI + Next.js 16 service with two app images (backend and frontend) plus an optional WAF image,
 Helm packaging, GitHub Actions, and supply-chain hardening. This guide is organised by the **kind of
 change** you are making; every kind ends at the same quality gates. The deep "how" for each area
 lives in `wiki/` and in the scoped skills under `agent/skills/` — this file points at them rather

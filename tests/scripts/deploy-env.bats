@@ -22,7 +22,10 @@ case "$1" in
     echo "$STUB_HISTORY" ;;
   upgrade) exit "${STUB_UPGRADE_RC:-0}" ;;
   get) [[ -z "${STUB_NO_RELEASE-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
-       printf -- '---\nkind: Job\nmetadata:\n  name: svc-migrate-r2\n  labels:\n    app.kubernetes.io/component: migration\n' ;;
+       printf -- '---\nkind: Job\nmetadata:\n  name: svc-migrate-r2\n  labels:\n    app.kubernetes.io/component: migration\n'
+       for c in ${STUB_RENDERED-backend frontend web-ui}; do
+         printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-%s\n  labels:\n    app.kubernetes.io/component: %s\n' "$c" "$c"
+       done ;;
 esac
 STUB
   cat > "$B/kubectl" <<'STUB'
@@ -194,6 +197,28 @@ STUB
   DEPLOY_IMAGES=backend,web-ui DIGESTS="{\"BACKEND_IMAGE_DIGEST\":\"$D\",\"WEB_UI_IMAGE_DIGEST\":\"$D\"}" run bash "$SCRIPT"
   [ "$status" -eq 0 ]
   grep -q "^verify COMPONENTS=backend web-ui WEB_UI=$D" "$LOG"
+}
+
+@test "an optional image the release does not run (the WAF, off) is deployed by digest but not verified" {
+  DEPLOY_IMAGES=backend,frontend,waf DIGESTS="{\"BACKEND_IMAGE_DIGEST\":\"$D\",\"FRONTEND_IMAGE_DIGEST\":\"$D\",\"WAF_IMAGE_DIGEST\":\"$D\"}" run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ "$(jq -r .images.waf.digest "$WORK_DIR/image-values.json")" = "$D" ]
+  grep -q "^verify COMPONENTS=backend frontend " "$LOG"
+  [[ "$output" == *"waf: not rendered by this release"* ]]
+}
+
+@test "an optional image the release runs (the WAF, on) is verified too" {
+  STUB_RENDERED="backend frontend waf" DEPLOY_IMAGES=backend,frontend,waf DIGESTS="{\"BACKEND_IMAGE_DIGEST\":\"$D\",\"FRONTEND_IMAGE_DIGEST\":\"$D\",\"WAF_IMAGE_DIGEST\":\"$D\"}" run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  grep -q "^verify COMPONENTS=backend frontend waf " "$LOG"
+}
+
+@test "an optional image still needs its digest" {
+  DEPLOY_IMAGES=backend,frontend,waf run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"WAF_IMAGE_DIGEST"* ]]
+  run grep -q "helm upgrade" "$LOG"
+  [ "$status" -ne 0 ]
 }
 
 @test "missing inputs are refused" {

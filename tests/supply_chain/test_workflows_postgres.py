@@ -21,7 +21,8 @@ def _jobs() -> dict[str, Any]:
 
 def _chart_image() -> str:
     values = yaml.safe_load((REPO / "charts/your-service-name/values.yaml").read_text("utf-8"))
-    return str(values["postgresql"]["image"])
+    image = values["postgresql"]["image"]
+    return f"{image['repository']}:{image['tag']}"
 
 
 def test_integration_and_e2e_have_a_postgres_service_with_a_health_check() -> None:

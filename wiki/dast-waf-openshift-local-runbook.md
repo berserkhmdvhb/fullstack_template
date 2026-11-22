@@ -118,11 +118,12 @@ helm upgrade mysvc ./charts/your-service-name -n mysvc-qa \
 helm status mysvc -n mysvc-qa        # wait for the WAF pod to be READY
 ```
 
-> ⚠ **Pin before this step.** The Coraza Envoy base image + the wasm plugin image
-> in `values.yaml` are placeholders — review and pin them (digest) to a real
-> Envoy+Coraza release before deploying, and confirm the wasm filter `type_url`
-> matches the pinned plugin. If the WAF pod won't come up `READY`, the image /
-> `type_url` is the first thing to check.
+> The WAF runs this repository's own image (`images.waf`, built from `Dockerfile.waf`:
+> the distroless Envoy image and the Coraza Wasm, both pinned), deployed by digest like
+> the app images. The Pod is `READY` once Envoy has loaded the Wasm and its health
+> listener (`waf.health`) answers; if it never does, read the Envoy log (a Wasm that
+> fails to load stops Envoy at start-up). See
+> [Containerization, Dockerfile.waf](./containerization.md#dockerfilewaf).
 
 **Prove it (the CI-able "does the WAF work" check):**
 ```bash

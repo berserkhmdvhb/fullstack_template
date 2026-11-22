@@ -1,13 +1,17 @@
 # .github/container-images.yml — the image manifest (SSOT for which images build).
 # .github/scripts/container_matrix.py renders it for the workflows, and
-# infra/security/local/devsec.sh (local build) reads the same file. Minimal template ships
-# a backend and a frontend image; add ids here to build more.
+# infra/security/local/devsec.sh (local build) reads the same file. The template ships two app
+# images (backend, frontend) and the optional WAF image (Envoy with the Coraza Wasm, deployed only
+# with the chart's waf.enabled); add ids here to build more.
 # Per image, scripts/ci/image-checks.sh also reads:
 #   distroless: true  the image has no shell, package manager or fetcher (the check fails if one is found)
 #   platforms         the platforms the image supports (default: linux/amd64 only); the repository
 #                     variable BUILD_ARM64=true builds all of them, anything else builds linux/amd64 only
 #   run_env, run_args optional: environment variables and extra `docker run` arguments the throwaway
 #                     health-check container needs to start alone (none of the shipped images do)
+#   healthcheck_exempt optional, a reason: the image declares no HEALTHCHECK and the health-check run is
+#                     skipped, logging the reason (only for an image with nothing to probe with, which
+#                     Kubernetes probes instead)
 # Placeholders: ${OWNER} and ${REPO} (lowercased GitHub owner and repository name) and
 # ${VERSION} (the computed version).
 schema_version: 1
@@ -43,6 +47,16 @@ images:
     dockerfile: Dockerfile.frontend
     distroless: true
     platforms: [linux/amd64, linux/arm64]
+    context: .
+    dockerfile_context: .
+    build_args:
+      VERSION: "${VERSION}"
+  - id: waf
+    repository: "ghcr.io/${OWNER}/${REPO}/waf"
+    dockerfile: Dockerfile.waf
+    distroless: true
+    platforms: [linux/amd64, linux/arm64]
+    healthcheck_exempt: "distroless Envoy has no probe binary; Kubernetes probes the chart's health listener"
     context: .
     dockerfile_context: .
     build_args:

@@ -44,6 +44,7 @@ IMAGE_KEYS = {
     "distroless",
     "run_env",
     "run_args",
+    "healthcheck_exempt",
 }
 ID_RE = re.compile(r"[a-z0-9-]+")
 VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?")
@@ -147,7 +148,10 @@ def forbidden_run_arg(arg: str) -> bool:
 
 
 def check_image_checks_settings(image: dict[str, Any]) -> None:
-    """Validate the keys scripts/ci/image-checks.sh reads: distroless, run_env and run_args."""
+    """Validate the keys scripts/ci/image-checks.sh reads.
+
+    distroless, run_env, run_args and healthcheck_exempt (why an image declares no HEALTHCHECK).
+    """
     env_vars = image.get("run_env") or {}
     if not isinstance(env_vars, dict) or not all(
         isinstance(k, str) and isinstance(v, str) for k, v in env_vars.items()
@@ -160,6 +164,10 @@ def check_image_checks_settings(image: dict[str, Any]) -> None:
         raise InputError(msg)
     if bad := [a for a in run_args if forbidden_run_arg(a)]:
         msg = f"manifest: run_args of {image['id']!r} may not hold {bad[0]!r} (ports, mounts, host)"
+        raise InputError(msg)
+    exempt = image.get("healthcheck_exempt", "reason")
+    if not isinstance(exempt, str) or not exempt.strip():
+        msg = f"manifest: healthcheck_exempt of {image['id']!r} must be a non-empty reason"
         raise InputError(msg)
     if not isinstance(image.get("distroless", False), bool):
         msg = f"manifest: distroless of {image['id']!r} must be true or false"

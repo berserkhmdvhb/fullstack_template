@@ -46,7 +46,8 @@ defaults:
 env:
   SERVICE_NAME: ${{ vars.SERVICE_NAME || 'your-service-name' }}
   CHART_DIR: charts/your-service-name
-  DEPLOY_IMAGES: backend,frontend
+  # Every image the release builds; the WAF's renders only with waf.enabled (scripts/ci/deploy-env.sh).
+  DEPLOY_IMAGES: backend,frontend,waf
   BACKEND_PORT: "8000"
   FRONTEND_PORT: "3000"
   API_VERSION: v1

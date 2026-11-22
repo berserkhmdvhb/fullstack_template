@@ -109,7 +109,7 @@ spec:
 {{- end }}
 ---
 {{- if .Values.waf.enabled }}
-# ---- 3b. Allow the frontend and the edge -> WAF, and WAF -> backend + DNS ----
+# ---- 3b. Allow the frontend and the edge -> WAF, and WAF -> its upstream + DNS ----
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -139,14 +139,20 @@ spec:
         - protocol: TCP
           port: {{ .Values.waf.service.port }}
 {{- end }}
+  # The upstream only: the backend Pods, or waf.upstreamPeers (an auth proxy) on the upstream port.
+  # The health port (waf.health.port) is admitted to nobody: kubelet probes are exempt.
   egress:
     - to:
+{{- with .Values.waf.upstreamPeers }}
+{{- toYaml . | nindent 8 }}
+{{- else }}
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: backend
+{{- end }}
       ports:
         - protocol: TCP
-          port: {{ $backendPort }}
+          port: {{ include "chart.wafUpstreamPort" . }}
 {{- include "chart.dnsEgress" . | nindent 4 }}
 ---
 {{- end }}

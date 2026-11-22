@@ -13,7 +13,8 @@
 #   no shell     distroless images only: no shell, package manager or fetcher in the filesystem, read
 #                from `docker export` (nothing in the image is executed to find out)
 #   healthcheck  the image declares one, and a throwaway container becomes healthy within the bound
-#                start period + interval x retries + timeout, read from the image
+#                start period + interval x retries + timeout, read from the image; skipped, with the reason
+#                logged, for an image whose manifest entry sets `healthcheck_exempt: <reason>`
 #   labels       the OCI source, version, revision, created and title labels are present and non-empty
 #
 # Environment: IMAGE_CHECKS_MANIFEST (manifest path), IMAGE_CHECKS_POLL (seconds between health polls).
@@ -94,7 +95,12 @@ show_diagnostics() {
 }
 
 check_healthcheck() {
-  local test times start interval timeout retries bound
+  local test times start interval timeout retries bound exempt
+  exempt="$(manifest_get '.healthcheck_exempt // ""')"
+  if [[ -n "$exempt" ]]; then
+    echo "healthcheck: skipped (${exempt})"
+    return
+  fi
   test="$(docker image inspect --format '{{if .Config.Healthcheck}}{{.Config.Healthcheck.Test}}{{end}}' "$ref")" \
     || { fail "docker image inspect failed reading the HEALTHCHECK of ${ref}"; return; }
   if [[ -z "$test" || "$test" == "[NONE]" ]]; then

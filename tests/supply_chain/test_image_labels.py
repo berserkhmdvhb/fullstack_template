@@ -10,7 +10,7 @@ import pytest
 
 from tests.supply_chain._workflows import REPO, workflow
 
-DOCKERFILES = ("Dockerfile.backend", "Dockerfile.frontend")
+DOCKERFILES = ("Dockerfile.backend", "Dockerfile.frontend", "Dockerfile.waf")
 ARGS = {
     "version": "VERSION",
     "revision": "VCS_REF",

@@ -8,6 +8,7 @@ imagePullPolicy: Always
 images:
   backend: {repository: your-service-name-backend, tag: dev, registry: registry.your-domain.example}
   frontend: {repository: your-service-name-frontend, tag: dev, registry: registry.your-domain.example}
+  waf: {repository: your-service-name-waf, tag: dev, registry: registry.your-domain.example}
 
 # Kustomize dev overlay ran a single replica; mirror that here and drop the HPA
 # min to 1 so it can't scale back up (replica drift seen in an end-to-end run). qa/production stay at 2.
