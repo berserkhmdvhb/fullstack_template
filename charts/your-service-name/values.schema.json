@@ -379,6 +379,11 @@
           "type": "array",
           "items": { "type": "object" }
         },
+        "monitoringExtraPeers": {
+          "description": "NetworkPolicy peers (from entries, for example an ipBlock for a node range) admitted to the metrics port only, next to the collector peer. Empty adds none.",
+          "type": "array",
+          "items": { "type": "object" }
+        },
         "backendExtraIngressPeers": {
           "description": "NetworkPolicy peers (from entries) also admitted to the backend port, with the WAF on or off; for example the auth proxy in AUTH_MODE=gateway. Empty adds no rule.",
           "type": "array",

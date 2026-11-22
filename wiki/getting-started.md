@@ -254,7 +254,7 @@ Run each service in its own terminal. Two terminals minimum (backend + frontend)
 ### Terminal 1 — Backend
 
 ```bash
-./run_backend.sh   # runs the migrations, then serves with auto-reload
+./run_backend.sh   # runs the migrations, then serves (no auto-reload; restart on a change)
 # Backend API at http://127.0.0.1:8000
 # API docs at http://127.0.0.1:8000/docs
 ```

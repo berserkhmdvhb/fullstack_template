@@ -115,14 +115,15 @@ jobs:
         env:
           TEST_DATABASE_URL: ""
         run: make test-integration INTEGRATION_JUNIT=test-results/junit-integration-sqlite.xml
-      # The suite is hermetic, but the job also boots uvicorn so it exercises the real startup path.
+      # The suite is hermetic, but the job also boots the backend (the serve module) so it exercises the real startup path.
       - name: Integration tests (PostgreSQL)
         run: |
           export PATH="$PWD/.venv/bin:$PATH"
           port="${BACKEND_PORT:-8000}"
           # The app does not migrate at startup; readiness stays 503 until the schema is at head.
           python -m your_service_name.backend.db.run_migrations
-          uvicorn "${BACKEND_ENTRY:-your_service_name.backend.main:app}" --host 127.0.0.1 --port "$port" &
+          # The one launcher, as the image runs it.
+          BACKEND_BIND=127.0.0.1 BACKEND_PORT="$port" python -m your_service_name.backend.serve &
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
           python tests/utils/wait_for_service.py "http://127.0.0.1:$port/api/${API_VERSION:-v1}/health" 45 0.5 Backend

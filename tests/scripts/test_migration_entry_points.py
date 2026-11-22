@@ -15,10 +15,12 @@ def _text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_the_dev_launcher_migrates_before_uvicorn() -> None:
+def test_the_dev_launcher_migrates_before_serving() -> None:
     script = _text("run_backend.sh")
     assert f"python -m {MODULE}" in script
-    assert script.index(f"python -m {MODULE}") < script.index("exec uvicorn")
+    assert script.index(f"python -m {MODULE}") < script.index(
+        "exec python -m your_service_name.backend.serve"
+    )
 
 
 def test_the_runtime_entrypoint_migrates_with_the_module() -> None:
@@ -38,6 +40,8 @@ def test_compose_runs_a_migration_before_the_backend() -> None:
     }
 
 
-def test_the_ci_job_that_boots_uvicorn_migrates_first() -> None:
+def test_the_ci_job_that_boots_the_backend_migrates_first() -> None:
     workflow = _text(".github/workflows/reusable-backend.yml")
-    assert workflow.index(f"python -m {MODULE}") < workflow.index('uvicorn "')
+    assert workflow.index(f"python -m {MODULE}") < workflow.index(
+        "python -m your_service_name.backend.serve"
+    )

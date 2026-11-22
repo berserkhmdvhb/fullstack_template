@@ -21,13 +21,13 @@ Local development workflow, Makefile commands, code quality tools, Kubernetes de
 
 ### Recommended Setup
 
-1. **Backend terminal**: Run backend in watch/reload mode
+1. **Backend terminal**: Run the backend (`./run_backend.sh`; restart it to pick up a change)
 2. **Frontend terminal**: Run Next.js dev server
 3. **Kubernetes terminal** (optional): Local cluster for integration testing
 
 ### Hot Reload
 
-- **Backend**: run `./run_backend.sh` (Uvicorn with `--reload`) for auto-reload on code changes
+- **Backend**: `./run_backend.sh` runs the same launcher as the image (`python -m your_service_name.backend.serve`), which has no auto-reload: stop it and run it again after a code change (the metrics server runs in that process, so a reloading child would serve an empty registry)
 - **Frontend**: `npm run dev` includes hot module replacement (HMR) by default
 
 ---
@@ -259,7 +259,7 @@ kubectl -n your-service-name-local port-forward svc/your-service-name-backend 80
 # Enable debug logging
 DEBUG=TRUE LOG_LEVEL=DEBUG python -m your_service_name.backend.main
 
-# Run with auto-reload
+# Migrate, then serve (the image launcher; restart on a change)
 ./run_backend.sh
 
 # Check database connectivity

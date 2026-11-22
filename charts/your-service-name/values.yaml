@@ -414,11 +414,14 @@ networkPolicy:
   #                        {app.kubernetes.io/name: collector}
   # On GKE Autopilot the managed collector's namespace is gke-gmp-system. If the collector reaches
   # the Pod from a node address (host networking: Google's docs do not say), the selectors never
-  # match it. The adopter then adds the node range as an ipBlock in backendExtraIngressPeers,
-  # which admits that peer to the backend (API) port, not the metrics port.
-  # monitoringNamespaceSelector: null disables the rule.
+  # match it: add the node range in monitoringExtraPeers.
+  # monitoringNamespaceSelector: null drops the collector peer (monitoringExtraPeers remain).
   monitoringNamespaceSelector: {}
   monitoringPodSelector: {}
+  # Extra peers (a list of `from` entries: ipBlock, podSelector, namespaceSelector) admitted to the
+  # metrics port ONLY, next to the collector peer: a node range, or another collector source. They
+  # never reach the API port. Same condition as the collector rule (a scrape target). Empty: none.
+  monitoringExtraPeers: []
   # Extra NetworkPolicy peers (a list of `from` entries: podSelector, namespaceSelector, ipBlock)
   # admitted to the backend Pods on the backend port, with the WAF on or off. For the auth proxy in
   # AUTH_MODE=gateway: list it here AND in config.AUTH_PROXY_CIDRS. Empty adds no rule. Every peer

@@ -132,3 +132,68 @@ tests:
               - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gke-gmp-system}}
                 podSelector: {matchLabels: {app.kubernetes.io/name: collector, extra: "yes"}}
             ports: [{protocol: TCP, port: 9102}]
+
+  - it: monitoringExtraPeers empty - the scrape rule holds the collector peer only
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - lengthEqual: {path: 'spec.ingress[2].from', count: 1}
+
+  - it: monitoringExtraPeers are admitted on the metrics port only, next to the collector peer
+    set:
+      networkPolicy:
+        monitoringExtraPeers:
+          - ipBlock: {cidr: 10.20.0.0/24}
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - equal:
+          path: 'spec.ingress[2]'
+          value:
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+                podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
+              - ipBlock: {cidr: 10.20.0.0/24}
+            ports: [{protocol: TCP, port: 9102}]
+
+  - it: monitoringExtraPeers never appear in a rule on the API port
+    set:
+      networkPolicy:
+        monitoringExtraPeers:
+          - ipBlock: {cidr: 10.20.0.0/24}
+    template: network-policy.yaml
+    asserts:
+      - notContains:
+          path: spec.ingress[0].from
+          content: {ipBlock: {cidr: 10.20.0.0/24}}
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+      - notContains:
+          path: spec.ingress[1].from
+          content: {ipBlock: {cidr: 10.20.0.0/24}}
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+
+  - it: monitoringExtraPeers still render when the collector selector is null, on the metrics port
+    set:
+      networkPolicy:
+        monitoringNamespaceSelector: null
+        monitoringExtraPeers:
+          - ipBlock: {cidr: 10.20.0.0/24}
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - equal:
+          path: 'spec.ingress[2]'
+          value:
+            from: [{ipBlock: {cidr: 10.20.0.0/24}}]
+            ports: [{protocol: TCP, port: 9102}]
+
+  - it: no scrape target - the extra peers render nothing
+    set:
+      monitoring: {scrapeAnnotations: false}
+      networkPolicy:
+        monitoringExtraPeers:
+          - ipBlock: {cidr: 10.20.0.0/24}
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - lengthEqual: {path: spec.ingress, count: 2}

@@ -53,7 +53,6 @@ BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
 BACKEND_BIND="${BACKEND_BIND:-${BACKEND_HOST}}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 BACKEND_GRACEFUL_TIMEOUT="${BACKEND_GRACEFUL_TIMEOUT:-30}"
-BACKEND_RELOAD="${BACKEND_RELOAD:-false}"
 
 FRONTEND_IMPL="${FRONTEND_IMPL:-react}"   # frontend implementation (react)
 FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
@@ -91,7 +90,7 @@ Environment (overridable via .env or -e):
   BACKEND_HOST         127.0.0.1
   BACKEND_PORT         8000
   BACKEND_GRACEFUL_TIMEOUT   30
-  BACKEND_RELOAD             false
+  METRICS_PORT               9102 (the Prometheus metrics server)
 
   # Frontend
   FRONTEND_IMPL        react (frontend implementation)
@@ -253,7 +252,7 @@ resolve_ca_bundle
 # ---- Tool checks --------------------------------------------------------------
 case "${SERVICE_MODE}" in
   backend)
-    need_cmd uvicorn
+    need_cmd python
     need_cmd curl
     ;;
 
@@ -268,7 +267,7 @@ case "${SERVICE_MODE}" in
 
   all)
     need_cmd curl
-    need_cmd uvicorn
+    need_cmd python
     need_cmd node
     # Fallback: resolve local ./frontend/ path if container default not found
     if [[ ! -f "${FRONTEND_REACT_SERVER}" && -f "./frontend/.next/standalone/server.js" ]]; then
@@ -305,18 +304,10 @@ run_migrations() {
 
 start_backend() {
   echo "🚀 Starting backend ..."
-  local args=(
-    "${BACKEND_ENTRY}"
-    --host "${BACKEND_BIND:-${BACKEND_HOST}}"
-    --port "${BACKEND_PORT}"
-    --log-level info
-    # The app resolves the client IP itself (TRUSTED_PROXY_CIDRS); Uvicorn's resolver stays off.
-    --no-proxy-headers
-    --no-server-header
-    --timeout-graceful-shutdown "${BACKEND_GRACEFUL_TIMEOUT}"
-  )
-  [[ "${BACKEND_RELOAD}" == "true" ]] && args+=( --reload )
-  uvicorn "${args[@]}" &
+  # The one launcher (the image runs it too): Uvicorn with the same fixed options, the graceful
+  # timeout and the metrics server. It reads these from the environment.
+  export BACKEND_ENTRY BACKEND_BIND BACKEND_PORT BACKEND_GRACEFUL_TIMEOUT
+  python -m your_service_name.backend.serve &
   pids+=("$!")
 }
 

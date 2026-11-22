@@ -98,14 +98,22 @@ spec:
        defaults follow monitoring.flavour; explicit selectors replace them. The metrics port only:
        the collector is never admitted to the API port. */}}
 {{- $gmp := eq .Values.monitoring.flavour "gmp" }}
-{{- if and (or .Values.monitoring.scrapeAnnotations .Values.monitoring.serviceMonitor) (not (kindIs "invalid" $np.monitoringNamespaceSelector)) }}
+{{- /* networkPolicy.monitoringExtraPeers (a node range, another collector source) join the
+       collector peer in this rule: the metrics port only, never the API port. */}}
+{{- $collector := not (kindIs "invalid" $np.monitoringNamespaceSelector) }}
+{{- if and (or .Values.monitoring.scrapeAnnotations .Values.monitoring.serviceMonitor) (or $collector $np.monitoringExtraPeers) }}
     - from:
+{{- if $collector }}
         - namespaceSelector:
             matchLabels:
 {{- toYaml ($np.monitoringNamespaceSelector | default (dict "kubernetes.io/metadata.name" (ternary "gmp-system" "monitoring" $gmp))) | nindent 14 }}
           podSelector:
             matchLabels:
 {{- toYaml ($np.monitoringPodSelector | default (dict "app.kubernetes.io/name" (ternary "collector" "prometheus" $gmp))) | nindent 14 }}
+{{- end }}
+{{- with $np.monitoringExtraPeers }}
+{{- toYaml . | nindent 8 }}
+{{- end }}
       ports:
         - protocol: TCP
           port: {{ include "chart.metricsPort" . }}

@@ -7,8 +7,8 @@
 # - Creates/uses a local venv (.venv)
 # - Loads .env if present
 # - Runs the database migrations before serving (the app never migrates itself)
-# - Developer launcher: Uvicorn with --reload (autoreload on code changes)
-# - The image uses `python -m your_service_name.backend.serve` instead (no reload, production flags)
+# - Developer launcher: the same launcher as the image, `python -m your_service_name.backend.serve`
+#   (one process, no auto-reload: restart to pick up a change; serves the metrics on METRICS_PORT)
 # ---------------------------------------------
 # Env (via .env or defaults):
 #   APP="your_service_name.backend.main:app"
@@ -60,14 +60,17 @@ source .venv/bin/activate
 echo "Applying database migrations..."
 python -m your_service_name.backend.db.run_migrations
 
-echo "Host: ${BACKEND_HOST} | Port: ${BACKEND_PORT} | Reload=on"
+echo "Host: ${BACKEND_HOST} | Port: ${BACKEND_PORT} | Metrics: ${METRICS_PORT:-9102}"
 
-echo "▶️  Starting backend (Uvicorn, --reload) at http://localhost:${BACKEND_PORT}"
+echo "▶️  Starting backend (the serve module) at http://localhost:${BACKEND_PORT}"
 echo "🔗 API base : http://localhost:${BACKEND_PORT}/api/${API_VERSION}"
 echo "🔗 Docs     : http://localhost:${BACKEND_PORT}/docs"
 echo "🔗 Health   : http://localhost:${BACKEND_PORT}/api/${API_VERSION}/health"
-echo "Press Ctrl+C to stop the server"
+echo "Press Ctrl+C to stop the server (no auto-reload: restart to pick up a change)"
 
-# --reload watches the working directory and restarts on a change.
-exec uvicorn "${BACKEND_ENTRY}" --host "${BACKEND_HOST}" --port "${BACKEND_PORT}" --reload --log-level info \
-  --no-proxy-headers
+# The same launcher as the image (python -m your_service_name.backend.serve): the fixed Uvicorn
+# options, the graceful timeout and the Prometheus metrics server (METRICS_PORT). It reads its
+# settings from the environment.
+export BACKEND_ENTRY BACKEND_PORT
+export BACKEND_BIND="${BACKEND_BIND:-${BACKEND_HOST}}"
+exec python -m your_service_name.backend.serve

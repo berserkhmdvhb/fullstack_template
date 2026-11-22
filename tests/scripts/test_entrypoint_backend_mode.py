@@ -34,6 +34,7 @@ def test_backend_mode_starts_without_a_frontend_build(tmp_path: Path) -> None:
         "PYTHONPATH": str(ROOT / "src"),
         "TEST_DATABASE_URL": f"sqlite+aiosqlite:///{tmp_path / 'e.db'}",
         "BACKEND_PORT": str(port),
+        "METRICS_PORT": str(_free_port()),
         "BACKEND_HOST": "127.0.0.1",
     }
     env.pop("SERVICE_MODE", None)

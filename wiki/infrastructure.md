@@ -291,6 +291,7 @@ give the Gateway a namespace or list its Pods in `extraPeers` with a `podSelecto
 | WAF | backend, backend port (or `waf.upstreamPeers` on the upstream port) | `waf.enabled: true`; `waf.upstream` points the WAF at an auth proxy |
 | `networkPolicy.backendExtraIngressPeers` (NetworkPolicy peers, for example the auth proxy) | backend, backend port | when set, with the WAF on or off; empty adds no rule. These peers reach the backend around the WAF |
 | `monitoringPodSelector` Pods in the `monitoringNamespaceSelector` namespace (`networkPolicy`) | backend, `config.METRICS_PORT` only (never the API port) | only with a scrape target (`monitoring.scrapeAnnotations`, on by default, or `monitoring.serviceMonitor`); empty selectors follow `monitoring.flavour`: `app.kubernetes.io/name: prometheus` in `monitoring` (prometheus-operator), `app.kubernetes.io/name: collector` in `gmp-system` (gmp); `monitoringNamespaceSelector: null` removes the rule |
+| `networkPolicy.monitoringExtraPeers` (peers, for example a node range) | backend, `config.METRICS_PORT` only | when set, with a scrape target; never the API port |
 | backend, migration Job | PostgreSQL :5432 (or `externalDatabase.egressCIDR`) | always |
 | every egress policy | kube-dns :53 (`networkPolicy.dns`; empty: `k8s-app: kube-dns` in `kube-system`; plus optional `ipBlocks` such as NodeLocal DNSCache) | always |
 
@@ -308,8 +309,10 @@ API port never exposes metrics. The port is the backend container's `metrics` po
 Service's `metrics` port, and the scrape NetworkPolicy admits the collector to that port only. Pick a
 value that no other container port in the Pod uses (the API port, the Cloud SQL proxy's
 `cloudSqlProxy.healthPort`); a test checks every Pod's ports are unique with every option on. The
-metric names and labels are unchanged. The frontend exposes no metrics. The dev launchers
-(`run_backend.sh`, `infra/runtime/entrypoint.sh`) run bare Uvicorn and serve no metrics.
+metric names and labels are unchanged. The frontend exposes no metrics. Every way of starting the
+backend (the image, `run_backend.sh`, `infra/runtime/entrypoint.sh`, the CI job that boots it) runs
+`python -m your_service_name.backend.serve`, so the metrics server, the graceful timeout and the
+Uvicorn options are identical everywhere. A test checks that none runs bare `uvicorn`.
 
 `monitoring.flavour` picks the scrape and rule objects (`monitoring.serviceMonitor` and
 `monitoring.prometheusRule` still switch them on; both are off by default):
@@ -319,19 +322,32 @@ metric names and labels are unchanged. The frontend exposes no metrics. The dev 
 | `prometheus-operator` (default) | `ServiceMonitor` | `PrometheusRule` | `monitoring` and `app.kubernetes.io/name: prometheus` |
 | `gmp` | `PodMonitoring` (`monitoring.googleapis.com/v1`) | `Rules` (`monitoring.googleapis.com/v1`) | `gmp-system` and `app.kubernetes.io/name: collector` |
 
-The rule groups are defined once (`chart.alertGroups`) and both flavours embed them. The rules use
-`kube_*` and `container_*` series, so the backend you query needs kube-state-metrics and cAdvisor
-(managed collection includes cAdvisor; kube-state-metrics is yours to install on GMP). A
-`PodMonitoring` scrapes only its own namespace.
+The rule groups are defined once (`chart.alertGroups`) and both flavours embed them. A
+`PodMonitoring` scrapes only its own namespace. Which rules need which series, in both flavours:
+
+| Rules | Series | Source |
+|---|---|---|
+| `PodRestartingFrequently`, `PodPendingTooLong`, `PodFailed` | `kube_pod_container_status_restarts_total`, `kube_pod_status_phase` | kube-state-metrics |
+| `HighCPUUsage`, `HighMemoryUsage`, `MemoryApproachingOOM` | `container_cpu_usage_seconds_total`, `container_memory_working_set_bytes` | cAdvisor; and `kube_pod_container_resource_limits` from kube-state-metrics |
+| `BackendEndpointsDown`, `FrontendEndpointsDown`, `PostgreSQLDown` | `kube_endpoint_address_available` | kube-state-metrics |
+| `BackupJobFailed` | `kube_job_failed` | kube-state-metrics |
+| `HighErrorRate` | `http_requests_total` | the backend's metrics port (nothing to install) |
+
+Without kube-state-metrics every rule above that names a `kube_*` series evaluates to nothing and
+never fires. With the Prometheus Operator, kube-prometheus-stack installs kube-state-metrics and
+scrapes cAdvisor. With `gmp`, use GKE's kube-state-metrics package (the managed
+`--monitoring` components) for the `kube_*` series and managed collection's cAdvisor for the
+`container_*` ones; confirm the package exposes each series named above (an endpoint or job series
+may be missing), or deploy upstream kube-state-metrics for GMP to scrape.
 
 - **GKE Autopilot** runs the managed collector in `gke-gmp-system`: set
   `networkPolicy.monitoringNamespaceSelector` to `{kubernetes.io/metadata.name: gke-gmp-system}`
   (explicit selectors replace the defaults; set both).
 - **Host networking.** Google's documentation does not say whether the collector uses host
   networking. If it reaches the Pod from a node address, the selectors never match and the scrape is
-  refused: add the node range as an `ipBlock` peer in `networkPolicy.backendExtraIngressPeers`.
-  That peer is admitted to the backend (API) port, not the metrics port, so confirm what reaches
-  the Pod first (`networkPolicy.monitoringNamespaceSelector: null` removes the scrape rule).
+  refused: add the node range as an `ipBlock` in `networkPolicy.monitoringExtraPeers`. Those peers
+  are admitted to the metrics port only, next to the collector peer, and never to the API port.
+  `networkPolicy.monitoringNamespaceSelector: null` drops the collector peer and keeps them.
 
 ### GKE Gateway policies
 
@@ -425,8 +441,9 @@ The `infra/runtime/entrypoint.sh` script is retained **only for local developmen
 ### Backend Entry
 
 - Runs the database migrations first (`python -m your_service_name.backend.db.run_migrations`; the app does not migrate itself)
-- Starts Uvicorn (one process per container; Kubernetes scales pods)
-- Binds to `${BACKEND_HOST}:${BACKEND_PORT}`
+- Starts the one launcher, `python -m your_service_name.backend.serve` (Uvicorn, one process per container; Kubernetes scales pods; the same fixed options, graceful timeout and metrics server as the image)
+- Binds to `${BACKEND_HOST}:${BACKEND_PORT}`; the metrics are on `${METRICS_PORT}` (`9102`)
+- No auto-reload: restart to pick up a code change
 
 ### Frontend Entry
 
