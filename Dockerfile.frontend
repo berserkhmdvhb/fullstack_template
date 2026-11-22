@@ -3,6 +3,33 @@
 # ===================================================================
 
 #################################
+# STAGE 0: The runtime base, declared once
+#################################
+# Distroless runtime: gcr.io/distroless/nodejs26-debian13 bundles a pinned Node.js
+# (26.x, the same major as the builder) and its shared libs and nothing else — no shell,
+# no package manager, no npm. So npm's bundled deps (brace-expansion, ip-address,
+# pacote, sigstore, …) are never present (zero CVEs from them) and the surface is
+# smaller than even a hand-trimmed slim base. The debian13/trixie variant matches the
+# trixie builder below, so a native module built there links against the runtime's
+# glibc. The Next.js standalone bundle ships its own prod node_modules; the runtime
+# needs only the bundled `node` to exec server.js. The Debian fixes stage reads its
+# dpkg records, and the final stage starts from it, so the digest below is the only copy.
+FROM gcr.io/distroless/nodejs26-debian13@sha256:80631bd2f0e7ef192138a7409013b47d92fd11b8ff3bb35f5c0a65be3ecaea4c AS runtime-base
+
+#################################
+# Debian fixes the runtime base has not shipped yet
+#################################
+# Each <package>=<version> is fetched from the Debian archive and the runtime stage copies it over the
+# base; the build refuses an entry the base already has (scripts/docker/debian-fixes.sh). Empty is the
+# usual state; when to add or remove one: wiki/containerization.md#debian-fixes-the-base-has-not-shipped-yet.
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS debian-fixes
+# glibc: CVE-2026-19499 and CVE-2026-5435 (High), fixed in 2.41-12+deb13u5.
+ARG DEBIAN_FIXES="libc6=2.41-12+deb13u5"
+COPY --from=runtime-base /var/lib/dpkg/status.d/ /base-status.d/
+COPY scripts/docker/debian-fixes.sh /usr/local/bin/debian-fixes
+RUN debian-fixes /base-status.d /out
+
+#################################
 # STAGE 1: Build
 #################################
 FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS builder
@@ -52,22 +79,17 @@ RUN test -f .next/standalone/server.js \
 ############################
 # STAGE 2: Runtime
 ############################
-# Distroless runtime: gcr.io/distroless/nodejs26-debian13 bundles a pinned Node.js
-# (26.x, the same major as the builder) and its shared libs and nothing else — no shell,
-# no package manager, no npm. So npm's bundled deps (brace-expansion, ip-address,
-# pacote, sigstore, …) are never present (zero CVEs from them) and the surface is
-# smaller than even a hand-trimmed slim base. The debian13/trixie variant matches the
-# trixie builder above, so a native module built there links against the runtime's
-# glibc, and it ships current openssl/libc. The Next.js standalone bundle ships its own
-# prod node_modules; the runtime needs only the bundled `node` to exec server.js.
-#
+# The distroless runtime base (declared at the top), with the Debian fixes over it.
 # The image's ENTRYPOINT is already `/nodejs/bin/node`, so CMD is just the app file.
 # It has no shell and `/nodejs/bin` is not on PATH, so the fetch healthcheck uses the
 # absolute node path. It defaults to root, so we pin the same non-root UID the
 # backend uses (10001) for a consistent k8s runAsUser — distroless bases run any
 # numeric UID. Node is PID 1 here (no tini); Node 26 terminates on SIGTERM, which is
 # fine for the stateless frontend (add a preStop hook if you need a graceful drain).
-FROM gcr.io/distroless/nodejs26-debian13@sha256:80631bd2f0e7ef192138a7409013b47d92fd11b8ff3bb35f5c0a65be3ecaea4c AS runtime
+FROM runtime-base AS runtime
+
+# The Debian fixes first, so every later layer sits on the fixed base.
+COPY --from=debian-fixes /out/ /
 
 # ---- Metadata ----
 ARG VERSION=0.0.0

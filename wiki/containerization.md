@@ -11,6 +11,7 @@ Per-service Dockerfiles, buildx builds in GitHub Actions, container runtime, and
 - [Dockerfile.backend](#dockerfilebackend)
 - [Dockerfile.frontend](#dockerfilefrontend)
 - [Dockerfile.waf](#dockerfilewaf)
+- [Debian fixes the base has not shipped yet](#debian-fixes-the-base-has-not-shipped-yet)
 - [Image builds in CI](#image-builds-in-ci)
 - [Container Runtime](#container-runtime)
 - [Image Tags](#image-tags)
@@ -54,12 +55,22 @@ flowchart TB
 | `Dockerfile.frontend` | Next.js standalone | `node:26-trixie-slim` (build), distroless `nodejs26-debian13` (runtime) | 3000 |
 | `Dockerfile.waf` | Envoy + Coraza Wasm (optional) | `debian:13-slim` (fetch and check the Wasm), distroless `envoyproxy/envoy` (runtime) | `waf.service.port` (8080), health `waf.health.port` (8090) |
 
+Each Dockerfile declares its distroless runtime base once (`runtime-base`, by digest), and its runtime stage
+starts from it and first copies the `debian-fixes` stage over it: [Debian fixes the base has not shipped
+yet](#debian-fixes-the-base-has-not-shipped-yet).
+
 ---
 
 ## Dockerfile.backend
 
 ```dockerfile
 FROM gcr.io/distroless/python3-debian13@sha256:<digest> AS runtime-base   # declared once, by digest
+
+FROM debian:13-slim@sha256:<digest> AS debian-fixes   # Debian fixes the base has not shipped yet
+ARG DEBIAN_FIXES="..."
+COPY --from=runtime-base /var/lib/dpkg/status.d/ /base-status.d/
+COPY scripts/docker/debian-fixes.sh /usr/local/bin/debian-fixes
+RUN debian-fixes /base-status.d /out
 
 FROM debian:13-slim@sha256:<digest> AS py-builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON=/usr/bin/python3.13 \
@@ -75,6 +86,7 @@ COPY src /app/src
 RUN uv sync --frozen --no-dev --no-editable
 
 FROM runtime-base AS runtime
+COPY --from=debian-fixes /out/ /                        # first, so every later layer sits on the fixed base
 LABEL org.opencontainers.image.title="Your Service Name"
 LABEL org.opencontainers.image.source="${SOURCE_URL}"   # plus version, revision, ref.name and created
 
@@ -112,7 +124,10 @@ absence of `RUN`.
 ## Dockerfile.frontend
 
 ```dockerfile
-# Both base images are pinned by digest in the real file (shortened here).
+# Every base image is pinned by digest in the real file (shortened here).
+FROM gcr.io/distroless/nodejs26-debian13@sha256:... AS runtime-base   # declared once
+FROM debian:13-slim@sha256:... AS debian-fixes                       # as in Dockerfile.backend
+
 FROM node:26-trixie-slim@sha256:... AS builder
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
@@ -123,7 +138,8 @@ ARG VCS_REF
 RUN npm run openapi-gen \
  && NEXT_DEPLOYMENT_ID="$(node scripts/deployment-id.mjs "${VERSION}" "${VCS_REF}")" npx next build
 
-FROM gcr.io/distroless/nodejs26-debian13@sha256:... AS runtime
+FROM runtime-base AS runtime
+COPY --from=debian-fixes /out/ /
 LABEL org.opencontainers.image.title="Your Service Name — Frontend"
 WORKDIR /app
 COPY --from=builder --chown=10001:10001 /app/.next/standalone ./
@@ -154,8 +170,9 @@ digest) and the runtime (`envoyproxy/envoy:distroless-<version>`) by multi-arch 
 [Coraza proxy-wasm](https://github.com/corazawaf/coraza-proxy-wasm) release asset by the `CORAZA_WASM_VERSION`
 and `CORAZA_WASM_SHA256` build arguments. `ADD --checksum` makes BuildKit check the download before any step
 uses it; the builder extracts the module (the zip's one member; `gzip` reads it and checks its CRC) and checks
-the Wasm magic number. The final stage only copies the module to `/etc/envoy/coraza/coraza-proxy-wasm.wasm`
-(no `RUN`, no shell) and runs as the base image's user, `65532:65532`.
+the Wasm magic number. The final stage starts from the Envoy base (declared once, as `runtime-base`), copies
+the [Debian fixes](#debian-fixes-the-base-has-not-shipped-yet) over it, then only copies the module to
+`/etc/envoy/coraza/coraza-proxy-wasm.wasm` (no `RUN`, no shell) and runs as the base image's user, `65532:65532`.
 
 - **The Envoy minor** is the newest supported one (1.39). Coraza 0.6.0's own CI tests Envoy up to 1.33, which is end of life; the proxy-wasm ABI is stable, and the pin was proven by a run of the chart's configuration: the Wasm loads, the health path answers 200, a benign GET and POST reach the upstream, and a query-string XSS and a form-body SQLi get 403.
 - **Trust on first use.** The asset's sha256 was recorded when the version was first pinned. Renovate proposes a
@@ -187,6 +204,57 @@ the Wasm magic number. The final stage only copies the module to `/etc/envoy/cor
   runtime; the admin interface is disabled, a separate listener answers the probes, and the root filesystem
   is read-only. Build it locally with
   `docker build -t your-service-name-waf:local -f Dockerfile.waf .` (it downloads the pinned asset).
+
+---
+
+## Debian fixes the base has not shipped yet
+
+The three runtime bases are distroless images built from Debian packages, and their publishers rebuild them
+some days after Debian publishes a fix. Until then the blocking vulnerability gate (Grype, `fail-on: high`
+with `only-fixed`) fails on every image built from such a base: the fix exists in Debian, not yet in the
+image. So each Dockerfile has a `debian-fixes` stage, on the backend's `debian:13-slim` digest, and its runtime
+stage copies that stage's output over the base before anything else:
+
+```dockerfile
+FROM debian:13-slim@sha256:<digest> AS debian-fixes
+# glibc: CVE-... (High), fixed in 2.41-12+deb13u5.
+ARG DEBIAN_FIXES="libc6=2.41-12+deb13u5"
+COPY --from=runtime-base /var/lib/dpkg/status.d/ /base-status.d/
+COPY scripts/docker/debian-fixes.sh /usr/local/bin/debian-fixes
+RUN debian-fixes /base-status.d /out
+# ...
+FROM runtime-base AS runtime
+COPY --from=debian-fixes /out/ /
+```
+
+`scripts/docker/debian-fixes.sh` reads the base's own dpkg records (distroless keeps one file per package in
+`/var/lib/dpkg/status.d/`). For each `<package>=<version>` it:
+
+- requires that the base ships the package, for the stage's architecture, at an older version;
+- downloads exactly that version with apt, which checks it against the archive's signed indices;
+- unpacks it, and replaces the package's record and md5sums, so an SBOM lists the fixed version;
+- checks the unpacked files against those md5sums, and refuses a fixed package that no longer ships a file
+  the base has (copying over the base cannot remove a file).
+
+The image then holds the same files its base will have once its publisher rebuilds it. An empty list (the
+usual state) fetches nothing and copies nothing.
+
+- **Adding a fix.** When the gate fails on a package of the base (the Grype report names the package, its
+  installed version and the fixed version), first check whether the base has been rebuilt: Renovate proposes
+  each base's new digest, and it may already carry the fix. If not, add `<package>=<fixed version>` to
+  `DEBIAN_FIXES` in each affected Dockerfile, with a comment naming the CVEs. One Debian source often builds
+  several packages a base ships (glibc builds `libc6` and `libc-bin`): every package the report names needs
+  its own entry. Build the image and scan it to see the finding clear (`make help` lists the local
+  `security-*` targets).
+- **Removing a fix.** The build refuses an entry the base already has, at that version or newer (`the base
+  already ships libc6 2.41-12+deb13u5 (not older than 2.41-12+deb13u5): remove 'libc6=2.41-12+deb13u5' from
+  DEBIAN_FIXES`). When Renovate moves a base digest past a fix, the image build of its pull request fails
+  with that message: delete the entry in the same pull request. A fix never outlives the base's own update,
+  and never downgrades it.
+- **The archive serves only the current version.** Debian's archive keeps the newest version of each package
+  of a release; once a later point release supersedes a listed version, the build can no longer download it
+  and fails. By then the base has normally caught up and the entry is gone; if not, move the entry to the
+  newer version.
 
 ---
 

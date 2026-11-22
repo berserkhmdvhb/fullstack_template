@@ -8,11 +8,19 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 DOCKERFILE = (ROOT / "Dockerfile.frontend").read_text(encoding="utf-8")
-FROM = re.compile(r"^FROM (\S+) AS (\w+)$", re.MULTILINE)
+FROM = re.compile(r"^FROM (\S+) AS ([\w-]+)$", re.MULTILINE)
 
 
 def _stage(name: str) -> str:
+    """The image a stage starts FROM."""
     return next(m[1] for m in FROM.finditer(DOCKERFILE) if m[2] == name)
+
+
+def _stage_text(name: str) -> str:
+    """A stage's instructions, from its FROM line to the next FROM."""
+    starts = [(m.start(), m[2]) for m in FROM.finditer(DOCKERFILE)]
+    ends = [s for s, _ in starts[1:]] + [len(DOCKERFILE)]
+    return next(DOCKERFILE[s:e] for (s, n), e in zip(starts, ends, strict=True) if n == name)
 
 
 def _pinned_node_version() -> str:
@@ -28,7 +36,7 @@ def test_the_builder_node_is_the_pinned_node_version() -> None:
 
 def test_the_build_derives_the_deployment_id_from_the_version_and_the_commit() -> None:
     """One id per build: the version alone repeats on every main build."""
-    builder = DOCKERFILE.split("AS runtime")[0]
+    builder = _stage_text("builder")
     assert re.search(r"^ARG VERSION$", builder, re.MULTILINE)
     assert re.search(r"^ARG VCS_REF$", builder, re.MULTILINE)
     assert re.search(
@@ -61,8 +69,10 @@ def test_package_manager_is_the_npm_bundled_with_the_pinned_node() -> None:
 def test_the_runtime_is_the_pinned_nodejs_major_pinned_by_digest() -> None:
     major = _pinned_node_version().split(".")[0]
     assert re.fullmatch(
-        rf"gcr\.io/distroless/nodejs{major}-debian\d+@sha256:[0-9a-f]{{64}}", _stage("runtime")
+        rf"gcr\.io/distroless/nodejs{major}-debian\d+@sha256:[0-9a-f]{{64}}", _stage("runtime-base")
     )
+    assert _stage("runtime") == "runtime-base"
+    assert len(re.findall(r"^FROM gcr\.io/distroless/", DOCKERFILE, re.MULTILINE)) == 1
 
 
 def test_every_npm_runner_checks_the_package_manager_version() -> None:
@@ -95,7 +105,7 @@ def test_the_healthcheck_probes_the_frontends_own_health_route() -> None:
 
 def test_the_image_binds_every_interface() -> None:
     """Next's standalone server.js listens on $HOSTNAME, which docker sets to the container id."""
-    runtime = DOCKERFILE[DOCKERFILE.index(" AS runtime") :]
+    runtime = _stage_text("runtime")
     assert re.search(r"^ENV HOSTNAME=0\.0\.0\.0$", runtime, re.MULTILINE)
 
 

@@ -12,6 +12,19 @@
 FROM gcr.io/distroless/python3-debian13@sha256:60faad2efce94a847f32e2adbcaefeb2e4fd3e3a78075a3abb600904a5e010e9 AS runtime-base
 
 #################################
+# Debian fixes the runtime base has not shipped yet
+#################################
+# Each <package>=<version> is fetched from the Debian archive and the runtime stage copies it over the
+# base; the build refuses an entry the base already has (scripts/docker/debian-fixes.sh). Empty is the
+# usual state; when to add or remove one: wiki/containerization.md#debian-fixes-the-base-has-not-shipped-yet.
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS debian-fixes
+# glibc: CVE-2026-19499 and CVE-2026-5435 (High), fixed in 2.41-12+deb13u5.
+ARG DEBIAN_FIXES="libc6=2.41-12+deb13u5 libc-bin=2.41-12+deb13u5"
+COPY --from=runtime-base /var/lib/dpkg/status.d/ /base-status.d/
+COPY scripts/docker/debian-fixes.sh /usr/local/bin/debian-fixes
+RUN debian-fixes /base-status.d /out
+
+#################################
 # STAGE 1: Build
 #################################
 FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS py-builder
@@ -67,6 +80,9 @@ RUN uv sync --frozen --no-dev --no-editable
 # STAGE 2: Runtime
 ############################
 FROM runtime-base AS runtime
+
+# The Debian fixes first, so every later layer sits on the fixed base.
+COPY --from=debian-fixes /out/ /
 
 # ---- Metadata ----
 ARG VERSION=0.0.0

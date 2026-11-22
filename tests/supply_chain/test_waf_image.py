@@ -2,8 +2,8 @@
 
 The WAF image is built, scanned and signed like the two app images. Its base is the distroless
 Envoy image by its index digest, the Coraza release asset is checked against a pinned sha256 in the
-build, and the final stage only copies the Wasm in (no RUN, no shell). The chart loads the module
-from the same local path the Dockerfile writes.
+build, and the final stage only copies the Debian fixes and the Wasm in (no RUN, no shell). The
+chart loads the module from the same local path the Dockerfile writes.
 """
 
 from __future__ import annotations
@@ -31,6 +31,13 @@ def _stages() -> list[str]:
     return re.split(r"^(?=FROM )", DOCKERFILE, flags=re.MULTILINE)[1:]
 
 
+def _froms() -> dict[str, str]:
+    """Stage name -> the image it starts FROM; every FROM names its stage."""
+    froms = re.findall(r"^FROM (\S+) AS ([\w-]+)$", DOCKERFILE, re.MULTILINE)
+    assert len(froms) == len(re.findall(r"^FROM ", DOCKERFILE, re.MULTILINE))
+    return {name: image for image, name in froms}
+
+
 def _arg(name: str) -> str:
     match = re.search(rf"^ARG {name}=(\S+)$", DOCKERFILE, re.MULTILINE)
     assert match, f"Dockerfile.waf must declare ARG {name}=<value>"
@@ -38,15 +45,19 @@ def _arg(name: str) -> str:
 
 
 def test_every_base_image_is_pinned_by_digest() -> None:
-    froms = re.findall(r"^FROM (\S+)", DOCKERFILE, re.MULTILINE)
-    assert len(froms) == 2  # noqa: PLR2004 (the builder and the runtime)
-    for ref in froms:
+    froms = _froms()
+    assert set(froms) == {"runtime-base", "debian-fixes", "wasm", "runtime"}
+    assert froms.pop("runtime") == "runtime-base"
+    for ref in froms.values():
         assert re.search(DIGEST + "$", ref), ref
 
 
 def test_the_runtime_is_the_distroless_envoy_image() -> None:
-    runtime = _stages()[-1].splitlines()[0]
-    assert re.match(r"FROM envoyproxy/envoy:distroless-v\d+\.\d+\.\d+" + DIGEST, runtime)
+    assert re.fullmatch(
+        r"envoyproxy/envoy:distroless-v\d+\.\d+\.\d+" + DIGEST, _froms()["runtime-base"]
+    )
+    assert _stages()[-1].startswith("FROM runtime-base AS runtime\n")
+    assert DOCKERFILE.count("FROM envoyproxy/envoy:") == 1
 
 
 # A value to bump, not derived: the oldest Envoy minor still supported. Envoy supports each minor
@@ -67,7 +78,7 @@ def test_the_builder_is_the_debian_image_the_backend_uses() -> None:
     backend = (ROOT / "Dockerfile.backend").read_text(encoding="utf-8")
     debian = re.search(r"^FROM (debian:13-slim" + DIGEST + ")", backend, re.MULTILINE)
     assert debian
-    assert _stages()[0].startswith(f"FROM {debian.group(1)} ")
+    assert _froms()["wasm"] == debian.group(1)
 
 
 def test_the_coraza_asset_is_a_pinned_release_checked_against_a_pinned_sha256() -> None:
@@ -105,16 +116,17 @@ def test_renovate_tracks_the_coraza_version() -> None:
     ]
 
 
-def test_the_final_stage_only_copies_the_wasm_and_runs_nothing() -> None:
+def test_the_final_stage_only_copies_the_debian_fixes_and_the_wasm_and_runs_nothing() -> None:
     final = _stages()[-1]
     assert not re.search(r"^RUN ", final, re.MULTILINE)
     assert not re.search(r"^(ADD|SHELL) ", final, re.MULTILINE)
     copies = re.findall(r"^COPY .+$", final, re.MULTILINE)
-    assert len(copies) == 1
-    assert copies[0].startswith("COPY --from=wasm ")
+    assert copies[0] == "COPY --from=debian-fixes /out/ /"
+    assert len(copies) == 2  # noqa: PLR2004 (the Debian fixes, then the Wasm)
+    assert copies[1].startswith("COPY --from=wasm ")
     # --chmod would also set the mode of the directory COPY creates; 0444 there leaves Envoy unable
     # to enter it ("Invalid path" at start-up). The builder sets the file's mode instead.
-    assert "--chmod" not in copies[0]
+    assert "--chmod" not in copies[1]
 
 
 def test_the_image_runs_as_the_base_images_numeric_user() -> None:
