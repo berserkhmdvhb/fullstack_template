@@ -23,10 +23,12 @@ case "$1" in
   upgrade) exit "${STUB_UPGRADE_RC:-0}" ;;
   template|get) [[ "$1" == template || -z "${STUB_NO_RELEASE-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
        printf -- '---\nkind: Job\nmetadata:\n  name: svc-migrate-r2\n  labels:\n    app.kubernetes.io/component: migration\n'
-       # Each entry is <component label>[=<image id>]: a Deployment with that label running that image.
+       # Each entry is <component label>[=<image id>]: a Deployment with that label running that image,
+       # by tag, or by digest with STUB_REF=digest (a values file that already pins one).
+       ref=":t1"; [[ "${STUB_REF-}" != digest ]] || ref="@sha256:$(printf '0%.0s' {1..64})"
        for e in ${STUB_RENDERED-backend frontend web-ui}; do
          c="${e%%=*}" i="${e#*=}"
-         printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-%s\n  labels:\n    app.kubernetes.io/component: %s\nspec:\n  template:\n    spec:\n      containers:\n        - name: %s\n          image: ghcr.io/o/r/%s:t1\n' "$c" "$c" "$c" "$i"
+         printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-%s\n  labels:\n    app.kubernetes.io/component: %s\nspec:\n  template:\n    spec:\n      containers:\n        - name: %s\n          image: ghcr.io/o/r/%s%s\n' "$c" "$c" "$c" "$i" "$ref"
        done ;;
 esac
 STUB
@@ -235,6 +237,30 @@ STUB
   [ "$status" -eq 0 ]
   grep "^helm template svc charts/x" "$LOG" | grep -q -- "-f charts/x/values.dev.yaml -f $WORK_DIR/image-values.json"
   [ "$(grep -n "^helm template" "$LOG" | cut -d: -f1)" -lt "$(grep -n "^helm upgrade" "$LOG" | cut -d: -f1)" ]
+}
+
+@test "the discovery render runs without the placeholder guard, and the upgrade adds it to the same values" {
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  discovery="$(grep "^helm template svc charts/x" "$LOG")"
+  [[ "$discovery" != *rejectPlaceholders* ]]
+  args="${discovery#helm template svc charts/x }"
+  args="${args% --namespace svc-dev}"
+  grep "^helm upgrade --install svc charts/x" "$LOG" | grep -qF -- "charts/x $args --set guards.rejectPlaceholders=true --namespace svc-dev"
+}
+
+@test "an image the values file already runs by digest is still found, so it still needs its release digest" {
+  STUB_REF=digest STUB_RENDERED="backend frontend jobs=worker" DEPLOY_IMAGES=backend,frontend,worker run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"WORKER_IMAGE_DIGEST"* ]]
+  run grep -q "helm upgrade" "$LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "an optional image is not found by digest when it does not render" {
+  STUB_REF=digest DEPLOY_IMAGES=backend,frontend,waf run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"waf: not rendered by this release (feature off) and no WAF_IMAGE_DIGEST"* ]]
 }
 
 @test "a backend digest is still required, whatever renders" {

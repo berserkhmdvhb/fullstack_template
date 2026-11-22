@@ -44,9 +44,10 @@ def test_other_environments_are_not_production(env: str) -> None:
     assert not Settings(ENV=_config(env)["ENV"]).is_production
 
 
-def _chart_settings(env: str, **extra: str) -> Settings:
-    """Settings as the backend sees them in ``env``: ConfigMap + chart DATABASE_URL + ``extra``."""
-    config = {k: v for k, v in _config(env).items() if k in Settings.model_fields}
+def _chart_settings(env: str, *, drop: tuple[str, ...] = (), **extra: str) -> Settings:
+    """Settings as the backend sees them in ``env``: ConfigMap + chart DATABASE_URL + ``extra``,
+    without the ``drop`` keys."""
+    config = {k: v for k, v in _config(env).items() if k in Settings.model_fields and k not in drop}
     config.setdefault("DATABASE_URL", CHART_DATABASE_URL)
     return Settings(**{**config, **extra})
 
@@ -57,10 +58,19 @@ def test_non_production_configuration_starts_the_backend(env: str) -> None:
     _chart_settings(env)
 
 
-def test_production_refuses_to_start_until_an_auth_mode_is_chosen() -> None:
-    """The template does not choose anonymous production for the adopter; only auth is missing."""
+def test_production_values_choose_oidc_and_pass_the_backend_checks() -> None:
+    """values.production.yaml sets oidc with a placeholder issuer and audience (the deploy guard
+    refuses those); nothing else in it fails the backend's production checks."""
+    settings = _chart_settings("production")
+    assert settings.AUTH_MODE == "oidc"
+    assert settings.OIDC_ISSUER
+    assert settings.OIDC_AUDIENCE
+
+
+def test_production_without_its_auth_mode_refuses_to_start_on_auth_alone() -> None:
+    """Never anonymous by default: dropping AUTH_MODE fails, and only because of auth."""
     with pytest.raises(ValidationError) as excinfo:
-        _chart_settings("production")
+        _chart_settings("production", drop=("AUTH_MODE", "OIDC_ISSUER", "OIDC_AUDIENCE"))
     text = str(excinfo.value)
     assert "AUTH_MODE" in text
     assert "ALLOW_ANONYMOUS" in text

@@ -15,10 +15,15 @@ global:
 # `local` keeps IfNotPresent so the node-daemon image resolves off a bare tag.
 imagePullPolicy: Always
 
+# Production runs every image by digest (templates/validate-values.yaml refuses an image it renders
+# without one). The digests below are placeholders (sha256: and 64 zeros) so the file renders in CI
+# and in the admin bootstrap; the deploy (scripts/ci/deploy-env.sh) replaces each with the release's
+# digest, and guards.rejectPlaceholders, which it sets, refuses any zero digest still in place. The
+# migration Job runs the backend image.
 images:
-  backend: {repository: your-service-name-backend, tag: latest, registry: registry.your-domain.example}
-  frontend: {repository: your-service-name-frontend, tag: latest, registry: registry.your-domain.example}
-  waf: {repository: your-service-name-waf, tag: latest, registry: registry.your-domain.example}
+  backend: {repository: your-service-name-backend, tag: latest, registry: registry.your-domain.example, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+  frontend: {repository: your-service-name-frontend, tag: latest, registry: registry.your-domain.example, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+  waf: {repository: your-service-name-waf, tag: latest, registry: registry.your-domain.example, digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
 
 config:
   ENV: production
@@ -31,12 +36,15 @@ config:
   # here on purpose, so a missing CA fails loudly at the first connection. See wiki/database.md.
   DB_SSLMODE: verify-full
   # An auth mode is REQUIRED in production: with ENV=production the backend refuses to start on
-  # AUTH_MODE=none. Choose one (oidc or cloudflare-access for
-  # production; gateway and bearer are reference modes; see wiki/security.md). gateway also needs
-  # AUTH_PROXY_CIDRS, the authenticating proxy's Pod range (empty is refused). For example:
-  # AUTH_MODE: oidc
-  # OIDC_ISSUER: https://idp.example.com
-  # OIDC_AUDIENCE: api://your-service
+  # AUTH_MODE=none, and the chart refuses to render it (unless ALLOW_ANONYMOUS is "true"). oidc is
+  # set here because it works behind every edge mode (cloudflare-access needs Cloudflare Access in
+  # front); oidc and cloudflare-access are the production modes, gateway and bearer reference modes
+  # (wiki/security.md). gateway also needs AUTH_PROXY_CIDRS, the authenticating proxy's Pod range
+  # (empty is refused). The issuer and the audience are placeholders: guards.rejectPlaceholders
+  # refuses them at deploy time. Set your provider's issuer (https) and the API's audience.
+  AUTH_MODE: oidc
+  OIDC_ISSUER: https://idp.your-domain.example
+  OIDC_AUDIENCE: your-oidc-audience
   # Same-origin, versioned: the browser calls /api/v1 and the Next.js server
   # proxies it to BACKEND_URL (set in the ConfigMap). Relative => one bundle
   # for every environment; no build-time API URL to inject per env.

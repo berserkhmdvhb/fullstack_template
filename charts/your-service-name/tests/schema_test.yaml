@@ -67,3 +67,11 @@ tests:
     set: {networkPolicy: {monitoringNamespaceSelector: monitoring}}
     asserts:
       - failedTemplate: {}
+  - it: rejects a malformed image digest in any environment
+    set: {cloudSqlProxy: {image: {digest: latest}}}
+    asserts:
+      - failedTemplate: {}
+  - it: accepts an empty image digest (the tag is used)
+    set: {images: {backend: {digest: ""}}}
+    asserts:
+      - notFailedTemplate: {}

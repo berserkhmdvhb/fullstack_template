@@ -565,7 +565,7 @@
         "repository": { "type": "string" },
         "tag":        { "type": "string" },
         "registry":   { "type": "string" },
-        "digest":     { "type": "string" }
+        "digest":     { "description": "An immutable pin, sha256:<64 lower-case hex>; empty uses the tag. Production needs one on every image it renders (templates/validate-values.yaml).", "type": "string", "pattern": "^(sha256:[0-9a-f]{64})?$" }
       }
     },
 

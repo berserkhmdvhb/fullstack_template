@@ -1,0 +1,240 @@
+suite: production rules (environment production) and the placeholder digests and auth the deploy guard refuses
+release:
+  name: svc
+  namespace: app
+templates:
+  - validate-values.yaml
+values:
+  - ../values.production.yaml
+tests:
+  # ---- the production values as committed ----
+  - it: values.production.yaml renders without the deploy guard (CI, the bootstrap)
+    asserts:
+      - notFailedTemplate: {}
+
+  # ---- every rendered image has a digest ----
+  - it: a backend image without a digest is refused
+    set: {images: {backend: {digest: ""}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'environment is production but images\.backend\.digest is empty'
+
+  - it: a frontend image without a digest is refused
+    set: {images: {frontend: {digest: ""}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'images\.frontend\.digest is empty'
+
+  - it: the database client image (the migration wait and the backups) without a digest is refused
+    set: {postgresql: {clientImage: {digest: ""}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'postgresql\.clientImage\.digest is empty'
+
+  - it: the WAF image needs a digest when the WAF renders
+    set: {waf: {enabled: true}, images: {waf: {digest: ""}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'images\.waf\.digest is empty'
+
+  - it: the WAF image needs no digest when the WAF is off
+    set: {images: {waf: {digest: ""}}}
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: the Cloud SQL proxy image needs a digest when the proxy renders
+    set:
+      externalDatabase: {enabled: false}
+      config: {DB_SSLMODE: disable}
+      cloudSqlProxy: {enabled: true, egressCIDRs: [199.36.153.8/30], image: {digest: ""}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'cloudSqlProxy\.image\.digest is empty'
+
+  - it: a digest in another algorithm is refused by the schema
+    set: {images: {backend: {digest: "sha512:0000000000000000000000000000000000000000000000000000000000000000"}}}
+    asserts:
+      - failedTemplate: {}
+
+  - it: a short digest is refused by the schema
+    set: {images: {frontend: {digest: "sha256:abc"}}}
+    asserts:
+      - failedTemplate: {}
+
+  - it: an upper-case digest is refused by the schema
+    set: {images: {waf: {digest: "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}}
+    asserts:
+      - failedTemplate: {}
+
+  - it: a digest without its algorithm is refused by the schema
+    set: {postgresql: {clientImage: {digest: "f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d"}}}
+    asserts:
+      - failedTemplate: {}
+
+  # ---- the managed database ----
+  - it: the in-cluster PostgreSQL is refused
+    set: {postgresql: {enabled: true}, secrets: {existingSecret: ""}, externalDatabase: {enabled: false}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'environment is production but postgresql\.enabled is true'
+
+  - it: no managed database at all is refused
+    set: {externalDatabase: {enabled: false}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'needs a managed database: set externalDatabase\.enabled or cloudSqlProxy\.enabled'
+
+  - it: the Cloud SQL proxy alone is a managed database
+    set:
+      externalDatabase: {enabled: false}
+      config: {DB_SSLMODE: disable}
+      cloudSqlProxy: {enabled: true, egressCIDRs: [199.36.153.8/30]}
+    asserts:
+      - notFailedTemplate: {}
+
+  # ---- the auth mode (the backend's own production rule) ----
+  - it: AUTH_MODE none is refused
+    set: {config: {AUTH_MODE: none}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'config\.AUTH_MODE is "none"'
+
+  - it: an empty AUTH_MODE counts as none, and is refused
+    set: {config: {AUTH_MODE: ""}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'config\.AUTH_MODE is "none"'
+
+  - it: AUTH_MODE none with ALLOW_ANONYMOUS true is accepted, as the backend accepts it
+    set: {config: {AUTH_MODE: none, ALLOW_ANONYMOUS: "true"}}
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: AUTH_MODE none with ALLOW_ANONYMOUS false is refused
+    set: {config: {AUTH_MODE: none, ALLOW_ANONYMOUS: "false"}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'config\.AUTH_MODE is "none"'
+
+  - it: another auth mode is accepted
+    set: {config: {AUTH_MODE: cloudflare-access}}
+    asserts:
+      - notFailedTemplate: {}
+
+  # ---- at least two replicas ----
+  - it: a backend HPA with one minimum replica is refused
+    set: {hpa: {backend: {minReplicas: 1}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'hpa\.backend\.minReplicas is 1'
+
+  - it: a frontend HPA with one minimum replica is refused
+    set: {hpa: {frontend: {minReplicas: 1}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'hpa\.frontend\.minReplicas is 1'
+
+  - it: without the HPA, one backend replica is refused
+    set: {hpa: {backend: {enabled: false}}, replicas: {backend: 1}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'replicas\.backend is 1'
+
+  - it: without the HPA, one frontend replica is refused
+    set: {hpa: {frontend: {enabled: false}}, replicas: {frontend: 1}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'replicas\.frontend is 1'
+
+  - it: without the HPA, two replicas are accepted
+    set: {hpa: {backend: {enabled: false}, frontend: {enabled: false}}, replicas: {backend: 2, frontend: 2}}
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: with the HPA, its minimum decides (a static replica count of one is ignored)
+    set: {replicas: {backend: 1, frontend: 1}}
+    asserts:
+      - notFailedTemplate: {}
+
+  # ---- the PDB is on ----
+  - it: a backend PDB with minAvailable 0 is refused
+    set: {pdb: {backend: {minAvailable: 0}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'pdb\.backend\.minAvailable is 0'
+
+  - it: a frontend PDB with minAvailable 0 is refused
+    set: {pdb: {frontend: {minAvailable: 0}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'pdb\.frontend\.minAvailable is 0'
+
+  # ---- the deploy guard (guards.rejectPlaceholders) ----
+  - it: with the guard, the placeholder digests are refused, each named
+    set:
+      guards: {rejectPlaceholders: true}
+      edge:
+        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'images\.backend\.digest, images\.frontend\.digest still hold the placeholder digest sha256:0{64}'
+
+  - it: with the guard, a placeholder digest on an image that renders is refused (the WAF on)
+    set:
+      guards: {rejectPlaceholders: true}
+      waf: {enabled: true}
+      images:
+        backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+        frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+      edge:
+        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: '(: |, )images\.waf\.digest still holds the placeholder digest'
+
+  - it: with the guard, a placeholder third-party digest is refused too
+    set:
+      guards: {rejectPlaceholders: true}
+      images:
+        backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+        frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+      postgresql: {clientImage: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}}
+      edge:
+        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'postgresql\.clientImage\.digest still holds the placeholder digest'
+
+  - it: with the guard and real digests, the placeholder OIDC issuer and audience are refused, each named
+    set:
+      guards: {rejectPlaceholders: true}
+      images:
+        backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+        frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+      edge:
+        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'config\.OIDC_ISSUER, config\.OIDC_AUDIENCE still hold placeholders'
+
+  - it: with the guard and real-format stand-ins for every placeholder, production renders
+    set:
+      guards: {rejectPlaceholders: true}
+      images:
+        backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+        frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+      config: {OIDC_ISSUER: "https://idp.svc.test", OIDC_AUDIENCE: "api://svc"}
+      edge:
+        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: without the guard the placeholder digest and auth render (not a deploy)
+    set: {waf: {enabled: true}}
+    asserts:
+      - notFailedTemplate: {}

@@ -25,6 +25,57 @@
 {{- fail (printf "%s: environment is production but config.ENV is %q. Layer values.production.yaml (-f) or set config.ENV=production, otherwise the backend's production checks stay off." (include "chart.fullname" .) (toString .Values.config.ENV)) }}
 {{- end }}
 {{- /*
+  The images this release renders, by values path: the backend (the API and the migration Job), the
+  frontend, the database client (the migration's wait-for-db and the backups), and each optional
+  image while its feature is on. backend.extraInitContainers are the adopter's own and not listed.
+  The production rules and the placeholder guard below both read it.
+*/ -}}
+{{- $images := dict "images.backend" .Values.images.backend "images.frontend" .Values.images.frontend "postgresql.clientImage" .Values.postgresql.clientImage }}
+{{- if .Values.waf.enabled }}{{- $_ := set $images "images.waf" .Values.images.waf }}{{- end }}
+{{- if .Values.postgresql.enabled }}{{- $_ := set $images "postgresql.image" .Values.postgresql.image }}{{- end }}
+{{- if .Values.cloudSqlProxy.enabled }}{{- $_ := set $images "cloudSqlProxy.image" .Values.cloudSqlProxy.image }}{{- end }}
+{{- /*
+  Production rules. Here rather than in values.schema.json because they depend on what renders (the
+  WAF, the proxy, the HPA), and because Helm checks the schema before any template: a schema rule
+  would hide the config.ENV message above. The digest's format is the schema's (any environment).
+  - every image the release renders runs by digest;
+  - a managed database: no in-cluster PostgreSQL, and externalDatabase or the Cloud SQL proxy;
+  - an auth mode: AUTH_MODE none (also the default when unset) only with ALLOW_ANONYMOUS true, the
+    backend's own production rule (the truthy spellings are the ones the backend parses);
+  - at least two backend and two frontend Pods: the HPA's minReplicas when it is on, else replicas;
+  - both PodDisruptionBudgets keep at least one Pod (minAvailable 0 would let a drain take them all).
+*/ -}}
+{{- if eq (toString .Values.environment) "production" }}
+{{- range $path := keys $images | sortAlpha }}
+{{- if not (get $images $path).digest }}
+{{- fail (printf "%s: environment is production but %s.digest is empty. Production runs every image it renders by digest (sha256:<64 hex>); the deploy (scripts/ci/deploy-env.sh) sets the release's digests." (include "chart.fullname" $) $path) }}
+{{- end }}
+{{- end }}
+{{- if .Values.postgresql.enabled }}
+{{- fail (printf "%s: environment is production but postgresql.enabled is true. Production uses a managed database: set postgresql.enabled=false with externalDatabase or cloudSqlProxy." (include "chart.fullname" .)) }}
+{{- else if not (or .Values.externalDatabase.enabled .Values.cloudSqlProxy.enabled) }}
+{{- fail (printf "%s: environment is production and needs a managed database: set externalDatabase.enabled or cloudSqlProxy.enabled (postgresql.enabled stays false)." (include "chart.fullname" .)) }}
+{{- end }}
+{{- $authMode := toString (default "none" (get .Values.config "AUTH_MODE")) }}
+{{- $anonymous := has (lower (toString (get .Values.config "ALLOW_ANONYMOUS"))) (list "1" "on" "t" "true" "y" "yes") }}
+{{- if and (eq $authMode "none") (not $anonymous) }}
+{{- fail (printf "%s: environment is production but config.AUTH_MODE is \"none\" (unset means none), which serves every endpoint anonymously and the backend refuses it. Set config.AUTH_MODE (oidc or cloudflare-access; wiki/security.md), or set config.ALLOW_ANONYMOUS to \"true\" to accept that explicitly." (include "chart.fullname" .)) }}
+{{- end }}
+{{- range $c := list "backend" "frontend" }}
+{{- $hpa := get $.Values.hpa $c }}
+{{- if $hpa.enabled }}
+{{- if lt (int $hpa.minReplicas) 2 }}
+{{- fail (printf "%s: environment is production but hpa.%s.minReplicas is %d. Production runs at least 2 %s Pods: set it to 2 or more." (include "chart.fullname" $) $c (int $hpa.minReplicas) $c) }}
+{{- end }}
+{{- else if lt (int (get $.Values.replicas $c)) 2 }}
+{{- fail (printf "%s: environment is production but replicas.%s is %d (hpa.%s.enabled is false). Production runs at least 2 %s Pods: set it to 2 or more." (include "chart.fullname" $) $c (int (get $.Values.replicas $c)) $c $c) }}
+{{- end }}
+{{- if lt (int (get $.Values.pdb $c).minAvailable) 1 }}
+{{- fail (printf "%s: environment is production but pdb.%s.minAvailable is %d, so a node drain may evict every %s Pod. Set it to 1 or more." (include "chart.fullname" $) $c (int (get $.Values.pdb $c).minAvailable) $c) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- /*
   The metrics port is its own container port in the backend Pod: it may not be the API port or, with
   the Cloud SQL proxy sidecar, the proxy's health port. Two containers on one port fail at bind
   time, after the render passed.
@@ -81,6 +132,22 @@
 {{- if or (eq $name "your-domain.example") (hasSuffix ".your-domain.example" $name) }}
 {{- fail (printf "%s: edge.hosts.%s is %q, which still holds the placeholder domain your-domain.example. Set your real hostnames (infra/adapt/adopt.sh stamps them) before a deploy." (include "chart.fullname" $) $role $host) }}
 {{- end }}
+{{- end }}
+{{- /* The placeholder digest (values.production.yaml) on any image that renders. */}}
+{{- $zero := printf "sha256:%s" (repeat 64 "0") }}
+{{- $held := list }}
+{{- range $path := keys $images | sortAlpha }}
+{{- if eq (toString (get $images $path).digest) $zero }}{{- $held = append $held (printf "%s.digest" $path) }}{{- end }}
+{{- end }}
+{{- if $held }}
+{{- fail (printf "%s: %s still %s the placeholder digest %s. The deploy sets each image's release digest; a hand-run upgrade passes them (--set images.<name>.digest=sha256:<64 hex>)." (include "chart.fullname" .) (join ", " $held) (ternary "holds" "hold" (eq (len $held) 1)) $zero) }}
+{{- end }}
+{{- /* The placeholder OIDC issuer and audience (values.production.yaml). */}}
+{{- $authHeld := list }}
+{{- if regexMatch "^[a-zA-Z][a-zA-Z0-9+.-]*://([^/?#@]*\\.)?your-domain\\.example\\.?(:[0-9]+)?([/?#].*)?$" (toString (get .Values.config "OIDC_ISSUER")) }}{{- $authHeld = append $authHeld "config.OIDC_ISSUER" }}{{- end }}
+{{- if regexMatch "(^|,)\\s*your-oidc-audience\\s*(,|$)" (toString (get .Values.config "OIDC_AUDIENCE")) }}{{- $authHeld = append $authHeld "config.OIDC_AUDIENCE" }}{{- end }}
+{{- if $authHeld }}
+{{- fail (printf "%s: %s still hold placeholders (an issuer on your-domain.example, the audience your-oidc-audience). Set your OIDC provider's issuer and the API's audience (values.<env>.yaml) before a deploy." (include "chart.fullname" .) (join ", " $authHeld)) }}
 {{- end }}
 {{- end }}
 {{- /*

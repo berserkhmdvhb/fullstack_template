@@ -53,20 +53,24 @@ jq -n --argjson m "$matrix" --argjson d "$DIGESTS" --arg tag "$IMAGE_TAG" '
     registry: (.repository | split("/")[0]),
     repository: (.repository | split("/")[1:] | join("/")),
     tag: $tag}}) | from_entries)}' > "$VALUES"
-# 1b. Which images this release runs: a render with the deploy's own values, before anything changes.
-# An optional image (the WAF, off unless waf.enabled) renders no Pod when its feature is off, so it
-# needs no digest then (an older release's digest file may have none) and its Pods are not checked.
-# The render and the upgrade take the same values. guards.rejectPlaceholders: a real deploy refuses the
-# chart's placeholder hosts and Gateway.
-release_values=(-f "$CHART_DIR/values.${DEPLOY_ENV}.yaml" -f "$VALUES" --set guards.rejectPlaceholders=true)
-manifest="$(helm template "$SERVICE_NAME" "$CHART_DIR" "${release_values[@]}" --namespace "$NAMESPACE")" || fail "cannot render ${SERVICE_NAME} for ${DEPLOY_ENV}"
-# An image is used when a rendered container runs its tag-form reference (the render has no digest
-# yet), whatever the component label; its component is checked when a Pod carries the id as label.
+# 1b. Which images this release runs: a render with the deploy's own values files, before anything
+# changes. An optional image (the WAF, off unless waf.enabled) renders no Pod when its feature is off,
+# so it needs no digest then (an older release's digest file may have none) and its Pods are not
+# checked. This discovery render is not a deploy: it runs without guards.rejectPlaceholders, because
+# the release digests are not set yet (values.production.yaml holds placeholder digests until then).
+# The upgrade takes the same values plus the guard, which refuses the chart's placeholder hosts,
+# Gateway, digests and auth settings.
+discovery_values=(-f "$CHART_DIR/values.${DEPLOY_ENV}.yaml" -f "$VALUES")
+release_values=("${discovery_values[@]}" --set guards.rejectPlaceholders=true)
+manifest="$(helm template "$SERVICE_NAME" "$CHART_DIR" "${discovery_values[@]}" --namespace "$NAMESPACE")" || fail "cannot render ${SERVICE_NAME} for ${DEPLOY_ENV}"
+# An image is used when a rendered container runs its repository, by tag or by digest (a values file
+# may already hold one, such as the placeholder), whatever the component label; its component is
+# checked when a Pod carries the id as label.
 used() {
-  local ref images
-  ref="$(jq -r --arg id "$1" '.images[$id] | "\(.registry)/\(.repository):\(.tag)"' "$VALUES")"
+  local repo images
+  repo="$(jq -r --arg id "$1" '.images[$id] | "\(.registry)/\(.repository)"' "$VALUES")"
   images="$(grep -E '^[[:space:]]*(- )?image:' <<<"$manifest" || true)"
-  grep -qF -e "image: ${ref}" -e "image: \"${ref}\"" <<<"$images"
+  grep -qF -e "image: ${repo}:" -e "image: ${repo}@" -e "image: \"${repo}:" -e "image: \"${repo}@" <<<"$images"
 }
 renders() { grep -qE "^[[:space:]]*app\.kubernetes\.io/component: \"?${1}\"?[[:space:]]*$" <<<"$manifest"; }
 components=()

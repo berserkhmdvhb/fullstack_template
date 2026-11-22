@@ -112,3 +112,8 @@ tests:
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - notFailedTemplate: {}
+
+  - it: the production rules do not apply elsewhere - values.local.yaml (no digest, in-cluster database, AUTH_MODE none, one replica) renders
+    values: [../values.local.yaml]
+    asserts:
+      - notFailedTemplate: {}
