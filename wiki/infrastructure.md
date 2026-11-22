@@ -60,8 +60,59 @@ flowchart TB
 **The deploy refuses placeholders.** The deploy script (`scripts/ci/deploy-env.sh`) runs
 `helm upgrade` with `--set guards.rejectPlaceholders=true`, so the render fails while an
 `edge.hosts` value still contains `your-domain.example`, or, in gateway mode, an
-`edge.gateway.parentRefs` entry still names `your-gateway`. CI renders leave the guard off, so the
-template's own values keep rendering. Pass the same `--set` to a `helm upgrade` you run by hand.
+`edge.gateway.parentRefs` entry still names `your-gateway`, or an image the release renders still
+has the placeholder digest (`sha256:` and 64 zeros), or `config.OIDC_ISSUER` is on
+`your-domain.example` or `config.OIDC_AUDIENCE` is `your-oidc-audience`. Each message names the
+field. CI renders and the admin bootstrap leave the guard off, so the template's own values keep
+rendering; so does the deploy's first render, which only finds the images that run, before the
+release digests are set. Pass the same `--set` to a `helm upgrade` you run by hand.
+
+**Production rules.** With `environment: production` the render fails unless:
+- every image the release renders has a digest (the backend and the migration Job, the frontend,
+  the database client; the WAF and the Cloud SQL proxy while they are on);
+- the database is managed: `postgresql.enabled` is false, and `externalDatabase.enabled` or
+  `cloudSqlProxy.enabled` is true;
+- `config.AUTH_MODE` is not `none` (unset means `none`), unless `config.ALLOW_ANONYMOUS` is `"true"`:
+  the backend's own production rule, checked before the Pods start;
+- the backend and the frontend run at least 2 Pods: `hpa.<name>.minReplicas` while the HPA is on,
+  else `replicas.<name>`;
+- each PodDisruptionBudget keeps a Pod (`pdb.<name>.minAvailable` 1 or more).
+
+These live in `templates/validate-values.yaml`, not the schema, because they depend on what renders
+and because Helm checks the schema before any template (a schema rule would hide the clearer
+`config.ENV` message). The schema checks the digest format in every environment:
+`sha256:<64 lower-case hex>`, or empty for the tag.
+
+**Before the first production deploy**, replace what `values.production.yaml` holds as a
+placeholder. The deploy sets the image digests itself, so in the file:
+- `edge.hosts` (and, in gateway mode, `edge.gateway.parentRefs`): your hostnames and Gateway;
+- `config.OIDC_ISSUER` and `config.OIDC_AUDIENCE`: your identity provider's issuer (https) and the
+  API's audience. To use another mode, change `config.AUTH_MODE` and set its own settings
+  ([Security](./security.md));
+- `externalDatabase` (`host`, `egressCIDR`) and `secrets.existingSecret`: your managed database and
+  its Secret.
+
+A hand-run `helm upgrade` also passes `--set images.<name>.digest=sha256:<64 hex>` for each image.
+The guard names every field it refuses.
+
+### Validating every render (kubeconform)
+
+`make kubeconform` (`scripts/ci/kubeconform.sh`; CI runs it in the chart job) renders each
+`values.<env>.yaml` with each edge mode (`ci/<mode>-values.yaml`) and both monitoring flavours, each
+environment with every optional object on and with the Cloud SQL proxy, and the admin bootstrap,
+and validates each render with `kubeconform -strict`. It reads local schemas only, so it runs
+offline: an unknown field, or a kind with no schema, fails it.
+- **Kubernetes kinds:** generated once into `.tools/k8s-schemas` from the Kubernetes OpenAPI spec of
+  the chart's `kubeVersion` floor, pinned in `tools/pins.tsv` (`k8s-openapi`) and installed by
+  `scripts/tools.sh install k8s-openapi`. Move the pin with the floor.
+- **CRDs:** `charts/your-service-name/ci/crds/<group>/<kind>_<version>.json`, committed and
+  generated from the upstream CRDs listed, with version and sha256, in `ci/crds/sources.tsv`.
+
+To add a CRD schema (a new kind the chart renders): add or extend its row in `ci/crds/sources.tsv`
+(the upstream file at a release tag, its sha256 and the kind), run `make crd-schemas` (the fetch is
+the only network step; it refuses a sha256 mismatch) and commit the generated files.
+`make crd-schemas-check`, which CI runs too, fails when the committed files differ from what the
+pinned sources generate.
 
 ### Chart templates (`charts/your-service-name/templates/`)
 
