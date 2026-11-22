@@ -75,9 +75,8 @@ backend:
   # backend through a port-forward sets "localhost,127.0.0.1" (values.local.yaml).
   extraAllowedHosts: ""
   # Init containers rendered FIRST (before wait-for-db) in both the backend Deployment and the
-  # migration Job, for example a Cloud SQL Auth Proxy as a native sidecar (an init container with
-  # restartPolicy: Always, Kubernetes 1.29+). The chart does not ship the proxy image; see
-  # wiki/database.md. Empty by default.
+  # migration Job, for any native sidecar of your own. (The Cloud SQL Auth Proxy has its own
+  # switch: cloudSqlProxy.) Empty by default.
   extraInitContainers: []
   networkPolicy:
     # Egress rules appended to the backend's NetworkPolicy (a list of NetworkPolicy `egress`
@@ -205,11 +204,56 @@ config:
 # SINGLE SOURCE OF TRUTH: the internal Postgres password is sourced from
 # secrets.dbPassword too (templates/db-secret.yaml), so the app and the database
 # always share ONE value to keep in sync — not two.
+#
+# EXACTLY ONE source holds the app Secret; two at once fail the render:
+#   1. the chart's own Secret, from dbPassword / statsPass here (dev/local);
+#   2. existingSecret, a Secret you manage (sealed-secrets, SOPS, a hand-made one);
+#   3. externalSecret.enabled, an External Secrets Operator ExternalSecret that syncs the keys
+#      from the platform's secret store (for example GCP Secret Manager, wiki/security.md). The
+#      store itself (a ClusterSecretStore and its Workload Identity) is the platform's: the chart
+#      ships none.
 secrets:
   existingSecret: ""
   dbUser: app            # username (not secret) — safe to keep
   dbPassword: ""         # <-- supply out-of-band (see note above)
   statsPass: ""          # <-- supply out-of-band (see note above)
+  externalSecret:
+    enabled: false
+    refreshInterval: 1h
+    secretStoreRef:
+      name: gcp-secret-manager     # the platform's store; a placeholder
+      kind: ClusterSecretStore     # or SecretStore
+    # Secret key -> remote key in the store. The names are placeholders: set yours. Add a key
+    # (for example RATE_LIMIT_STORAGE) to sync it too.
+    remoteKeys:
+      DB_USER: your-service-name-db-user
+      DB_PASSWORD: your-service-name-db-password
+      STATS_PASS: your-service-name-stats-pass
+
+# Cloud SQL Auth Proxy as a native sidecar (an init container with restartPolicy: Always,
+# Kubernetes 1.29+) in the backend Deployment and the migration Job, which completes when the
+# migrate container exits. Off by default. On, DB_HOST is 127.0.0.1 and the proxy listens on
+# config.DB_PORT; set config.DB_SSLMODE to disable (the proxy encrypts) and leave postgresql.enabled
+# false. The pod's service account needs Cloud SQL Client (Workload Identity; wiki/database.md).
+# The Private Service Connect path needs no proxy: see wiki/database.md.
+cloudSqlProxy:
+  enabled: false
+  instanceConnectionName: ""     # project:region:instance, required when enabled (a placeholder)
+  # Third-party image, pinned like waf.envoyImage: set the digest to pin immutably.
+  image:
+    repository: gcr.io/cloud-sql-connectors/cloud-sql-proxy
+    tag: 2.28.0
+    digest: ""
+  privateIp: false               # --private-ip: connect to the instance's private address
+  autoIamAuthn: false            # --auto-iam-authn: IAM database authentication
+  runAsUser: 65532               # the image's non-root user
+  # Where the proxy may connect (NetworkPolicy is IP-based): required when enabled. The proxy
+  # reaches the instance on 3307 and Google APIs on 443; for example the Private Google Access
+  # range 199.36.153.8/30 (private.googleapis.com) and the instance's private address range.
+  egressCIDRs: []
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 128Mi}
 
 # ---- Edge -----------------------------------------------------------------
 # How traffic reaches the two Services. ONE routes list drives every mode, so a path is

@@ -54,6 +54,21 @@ ALL_ON = (
     "postgresql.backup.enabled=true",
     "--set",
     "monitoring.scrapeAnnotations=true",
+    # The secret sources are exclusive: the ExternalSecret replaces production's existingSecret.
+    "--set",
+    "secrets.externalSecret.enabled=true",
+    "--set",
+    "secrets.existingSecret=",
+    "--set",
+    "cloudSqlProxy.enabled=true",
+    "--set",
+    "cloudSqlProxy.instanceConnectionName=proj:region:inst",
+    "--set",
+    "cloudSqlProxy.egressCIDRs[0]=199.36.153.8/30",
+    "--set",
+    "cloudSqlProxy.privateIp=true",
+    "--set",
+    "cloudSqlProxy.autoIamAuthn=true",
 )
 RENDERS = [(f, ()) for f in VALUES_FILES] + [(f, ALL_ON) for f in VALUES_FILES]
 

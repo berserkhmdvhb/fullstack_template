@@ -185,6 +185,19 @@ spec:
         - protocol: TCP
           port: 5432
 {{- end }}
+{{- if .Values.cloudSqlProxy.enabled }}
+    # Cloud SQL Auth Proxy sidecar: the instance (3307) and Google APIs (443), on cloudSqlProxy.egressCIDRs.
+    - to:
+{{- range .Values.cloudSqlProxy.egressCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+{{- end }}
+      ports:
+        - protocol: TCP
+          port: 3307
+        - protocol: TCP
+          port: 443
+{{- end }}
 {{- include "chart.dnsEgress" . | nindent 4 }}
 {{- /* backend.networkPolicy.extraEgress: an OTLP collector (4318), a Redis (6379), ... */}}
 {{- with .Values.backend.networkPolicy.extraEgress }}
@@ -224,6 +237,19 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+{{- end }}
+{{- if .Values.cloudSqlProxy.enabled }}
+    # Cloud SQL Auth Proxy sidecar: the instance (3307) and Google APIs (443), on cloudSqlProxy.egressCIDRs.
+    - to:
+{{- range .Values.cloudSqlProxy.egressCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+{{- end }}
+      ports:
+        - protocol: TCP
+          port: 3307
+        - protocol: TCP
+          port: 443
 {{- end }}
 {{- include "chart.dnsEgress" . | nindent 4 }}
 ---

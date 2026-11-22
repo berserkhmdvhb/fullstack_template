@@ -16,9 +16,14 @@
    backoffLimit/activeDeadlineSeconds are the Job's own retry budget; the runner also retries the
    database connection itself.
 
-   DB_USER is pulled from the APP secret (the one the migrate container consumes) and DB_NAME from
-   the ConfigMap, both in the Job's own namespace. Referencing the db-namespace secret here
-   stranded the init container in CreateContainerConfigError.
+   The Job takes no env from the app ConfigMap: its database settings are an explicit list (DB_HOST,
+   DB_PORT, DB_NAME, DB_SSLMODE, the two timeouts, DB_SSLROOTCERT) rendered from the same values and
+   helpers the ConfigMap uses, plus DB_USER and DB_PASSWORD from the APP secret (whichever source
+   holds it) in the Job's own namespace. Referencing the db-namespace secret here stranded the init
+   container in CreateContainerConfigError.
+
+   With cloudSqlProxy.enabled the Auth Proxy is a native sidecar init container (restartPolicy:
+   Always), so the Job completes when the migrate container exits.
 */}}
 apiVersion: batch/v1
 kind: Job
@@ -69,20 +74,13 @@ spec:
                 sleep 2
               done
               echo "PostgreSQL is ready."
-          envFrom:
-            - configMapRef:
-                name: {{ include "chart.fullname" . }}-config
           env:
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
                   name: {{ include "chart.secretName" . }}
                   key: DB_USER
-            - name: DB_NAME
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "chart.fullname" . }}-config
-                  key: DB_NAME
+            {{- include "chart.dbEnv" . | nindent 12 }}
           resources:
             requests:
               cpu: 50m
@@ -98,19 +96,18 @@ spec:
         - name: migrate
           image: {{ include "chart.image" (dict "image" .Values.images.backend) }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
-          # No shell in the image: Kubernetes expands $(VAR) from the ConfigMap and Secret above.
+          # No shell in the image: Kubernetes expands $(VAR) from the env below, which comes from
+          # values and the app Secret, never from the app ConfigMap (the runner reads only these).
           command:
             - /usr/bin/tini
             - --
             - /app/.venv/bin/python
             - -m
             - your_service_name.backend.db.run_migrations
-          envFrom:
-            - configMapRef:
-                name: {{ include "chart.fullname" . }}-config
-            - secretRef:
-                name: {{ include "chart.secretName" . }}
           env:
+            {{- include "chart.dbSecretEnv" . | nindent 12 }}
+            {{- include "chart.dbEnv" . | nindent 12 }}
+            {{- include "chart.dbOptionalEnv" . | nindent 12 }}
             - name: DATABASE_URL
               value: {{ include "chart.databaseURL" . | quote }}
             {{- include "chart.dbCaEnv" . | nindent 12 }}

@@ -235,6 +235,92 @@ imagePullSecrets:
 {{- end -}}
 {{- end -}}
 
+{{/*
+   The DB_HOST value, in one place (the ConfigMap and the migration Job both render it): loopback
+   with the Cloud SQL Auth Proxy sidecar, else the in-cluster Postgres Service, else the managed host.
+*/}}
+{{- define "chart.dbHostValue" -}}
+{{- if .Values.cloudSqlProxy.enabled -}}
+127.0.0.1
+{{- else if .Values.postgresql.enabled -}}
+{{- include "chart.dbHost" . -}}
+{{- else -}}
+{{- .Values.externalDatabase.host -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+   The migration Job's database env: its own explicit list, never the app ConfigMap. DB_HOST, DB_PORT
+   and DB_NAME come from the same values keys the ConfigMap renders (chart.dbHostValue, config.*);
+   emits list items at column 0 (use `| nindent`).
+*/}}
+{{- define "chart.dbEnv" -}}
+- name: DB_HOST
+  value: {{ include "chart.dbHostValue" . | quote }}
+- name: DB_PORT
+  value: {{ .Values.config.DB_PORT | quote }}
+- name: DB_NAME
+  value: {{ .Values.config.DB_NAME | quote }}
+{{- end -}}
+
+{{/* DB_USER and DB_PASSWORD from the app Secret, whichever source holds it (chart.secretName). */}}
+{{- define "chart.dbSecretEnv" -}}
+{{- range $key := list "DB_USER" "DB_PASSWORD" }}
+- name: {{ $key }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "chart.secretName" $ }}
+      key: {{ $key }}
+{{- end }}
+{{- end -}}
+
+{{/*
+   The other settings the migration runner reads (db/run_migrations.py, db/connect.py): TLS mode and
+   the two timeouts, each only when config sets it (the runner has defaults).
+*/}}
+{{- define "chart.dbOptionalEnv" -}}
+{{- range $key := list "DB_SSLMODE" "DB_CONNECT_TIMEOUT_SECONDS" "DB_MIGRATION_LOCK_TIMEOUT_MS" }}
+{{- if hasKey $.Values.config $key }}
+- name: {{ $key }}
+  value: {{ get $.Values.config $key | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+   The Cloud SQL Auth Proxy as a native sidecar (an init container with restartPolicy: Always): it
+   starts before the containers after it, keeps running, and ends with the Pod, so the migration
+   Job completes when the migrate container exits. Listens on loopback, on config.DB_PORT.
+*/}}
+{{- define "chart.cloudSqlProxyContainer" -}}
+{{- $p := .Values.cloudSqlProxy }}
+- name: cloud-sql-proxy
+  image: {{ include "chart.image" (dict "image" $p.image) }}
+  imagePullPolicy: {{ .Values.imagePullPolicy }}
+  restartPolicy: Always
+  args:
+    - --structured-logs
+    - {{ printf "--port=%v" .Values.config.DB_PORT }}
+    {{- if $p.privateIp }}
+    - --private-ip
+    {{- end }}
+    {{- if $p.autoIamAuthn }}
+    - --auto-iam-authn
+    {{- end }}
+    - {{ $p.instanceConnectionName | quote }}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: {{ $p.runAsUser }}
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    seccompProfile:
+      type: RuntimeDefault
+  resources:
+{{- toYaml $p.resources | nindent 4 }}
+{{- end -}}
+
 {{/* Backend DB connection assembled from ConfigMap (host/port/name) + app Secret (user/pass). */}}
 {{- define "chart.databaseURL" -}}
 {{- printf "postgresql+asyncpg://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)" -}}
@@ -299,9 +385,15 @@ imagePullSecrets:
 {{- end }}
 {{- end -}}
 
-{{/* backend.extraInitContainers, rendered first (before any chart init container). */}}
+{{/*
+   The init containers rendered ahead of the chart's own (wait-for-db): backend.extraInitContainers,
+   then the Cloud SQL Auth Proxy when enabled, so the proxy is up before wait-for-db dials it.
+*/}}
 {{- define "chart.extraInitContainers" -}}
 {{- with .Values.backend.extraInitContainers }}
 {{ toYaml . }}
+{{- end }}
+{{- if .Values.cloudSqlProxy.enabled }}
+{{ include "chart.cloudSqlProxyContainer" . }}
 {{- end }}
 {{- end -}}

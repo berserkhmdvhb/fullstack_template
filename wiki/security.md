@@ -758,26 +758,40 @@ kubeseal --format yaml < secret.json > sealed-secret.yaml
 kubectl apply -f sealed-secret.yaml
 ```
 
-### External Secrets Operator (Alternative)
+### Secret sources
 
-For cloud-integrated secret management, use [External Secrets Operator](https://external-secrets.io/):
+The app Secret (`DB_USER`, `DB_PASSWORD`, `STATS_PASS`) has exactly one source, and two at once fail the render:
+
+| Source | Set | Renders |
+|---|---|---|
+| the chart's own Secret | `secrets.dbPassword` or `secrets.statsPass` (dev and local) | a `Secret` |
+| a Secret you manage | `secrets.existingSecret` (sealed-secrets, SOPS, by hand) | nothing |
+| External Secrets Operator | `secrets.externalSecret.enabled` | an `ExternalSecret` |
+
+### External Secrets Operator
+
+[External Secrets Operator](https://external-secrets.io/) syncs the Secret from the platform's secret store. With
+`secrets.externalSecret.enabled` the chart renders one `external-secrets.io/v1` `ExternalSecret` that creates the
+Secret the backend and the migration Job read (`creationPolicy: Owner`), with one `data` entry per key in
+`secrets.externalSecret.remoteKeys` (the Secret key and its remote key in the store; the names in the values are
+placeholders):
 
 ```yaml
-apiVersion: external-secrets.io/v1beta1
-kind: ExternalSecret
-metadata:
-  name: your-service-name-db-credentials
-spec:
-  secretStoreRef:
-    name: aws-secrets-manager
-    kind: ClusterSecretStore
-  target:
-    name: your-service-name-db-credentials
-  data:
-    - secretKey: DB_PASSWORD
-      remoteRef:
-        key: your-service-name/db-password
+secrets:
+  externalSecret:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef: {name: <store>, kind: ClusterSecretStore}   # or SecretStore
+    remoteKeys:
+      DB_USER: <remote-key-for-the-user>
+      DB_PASSWORD: <remote-key-for-the-password>
+      STATS_PASS: <remote-key-for-the-stats-password>
 ```
+
+The store is the platform's, not the chart's: the operator, a `ClusterSecretStore` for GCP Secret Manager and its
+Workload Identity binding (a Google service account with the Secret Accessor role on those secrets, bound to the
+operator's Kubernetes service account) are installed once per cluster. The app chart ships none of them. The
+deployer's Role (`infra/k8s/bootstrap`) holds `externalsecrets` in the `external-secrets.io` group for this.
 
 ### Best Practices
 

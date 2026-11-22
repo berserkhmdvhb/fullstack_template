@@ -171,7 +171,41 @@
         "existingSecret": { "type": "string" },
         "dbUser":         { "type": "string" },
         "dbPassword":     { "type": "string" },
-        "statsPass":      { "type": "string" }
+        "statsPass":      { "type": "string" },
+        "externalSecret": {
+          "description": "External Secrets Operator ExternalSecret that syncs the app Secret from the platform's secret store. One of three exclusive secret sources.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled":         { "type": "boolean" },
+            "refreshInterval": { "type": "string", "minLength": 1 },
+            "secretStoreRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string", "minLength": 1 },
+                "kind": { "type": "string", "enum": ["ClusterSecretStore", "SecretStore"] }
+              }
+            },
+            "remoteKeys": { "description": "Secret key -> remote key in the store.", "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } }
+          }
+        }
+      }
+    },
+
+    "cloudSqlProxy": {
+      "description": "Cloud SQL Auth Proxy as a native sidecar in the backend Deployment and the migration Job. Off by default.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled":                { "type": "boolean" },
+        "instanceConnectionName": { "type": "string" },
+        "image":                  { "$ref": "#/definitions/image" },
+        "privateIp":              { "type": "boolean" },
+        "autoIamAuthn":           { "type": "boolean" },
+        "runAsUser":              { "type": "integer", "minimum": 1 },
+        "egressCIDRs":            { "type": "array", "items": { "type": "string" } },
+        "resources":              { "$ref": "#/definitions/resources" }
       }
     },
 

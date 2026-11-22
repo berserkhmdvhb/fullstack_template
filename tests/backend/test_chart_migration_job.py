@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from typing import Any
 
@@ -201,3 +202,80 @@ def test_extra_init_containers_come_first_in_both_workloads() -> None:
 
 def test_no_init_containers_by_default_on_the_backend() -> None:
     assert "initContainers" not in _workloads()["backend"]
+
+
+# ---- The Job's database settings never come from the app ConfigMap -------------------------------
+
+PROXY_ON = (
+    "--set",
+    "cloudSqlProxy.enabled=true",
+    "--set",
+    "cloudSqlProxy.instanceConnectionName=proj:region:inst",
+    "--set",
+    "cloudSqlProxy.egressCIDRs[0]=199.36.153.8/30",
+)
+DB_FROM_CONFIG = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_SSLMODE")
+
+
+def _job_env(pod: dict[str, Any], container: str) -> dict[str, Any]:
+    found = [c for c in pod["initContainers"] + pod["containers"] if c["name"] == container]
+    return {e["name"]: e for e in found[0]["env"]}
+
+
+@pytest.mark.parametrize("env", ["dev", "qa", "local", "production"])
+@pytest.mark.parametrize("extra", [(), PROXY_ON], ids=["plain", "proxy"])
+def test_the_job_reads_nothing_from_the_app_configmap(env: str, extra: tuple[str, ...]) -> None:
+    text = str(_job(env, *extra))
+    assert "configMapRef" not in text
+    assert "configMapKeyRef" not in text
+
+
+@pytest.mark.parametrize("env", ["dev", "production"])
+@pytest.mark.parametrize("extra", [(), PROXY_ON], ids=["plain", "proxy"])
+def test_each_database_value_in_the_job_equals_the_configmaps(
+    env: str, extra: tuple[str, ...]
+) -> None:
+    """One source, two renderings: the Job's DB_* values are the ConfigMap's for the same input."""
+    config = _render("configmap.yaml", env, *extra)["data"]
+    pod = _job(env, *extra)["spec"]["template"]["spec"]
+    for container in ("wait-for-db", "migrate"):
+        found = _job_env(pod, container)
+        for name in DB_FROM_CONFIG:
+            if name in found:
+                assert found[name]["value"] == config[name], (container, name)
+    migrate = _job_env(pod, "migrate")
+    assert {"DB_HOST", "DB_PORT", "DB_NAME"} <= set(migrate)
+    assert (("DB_SSLMODE" in migrate) == ("DB_SSLMODE" in config)) is True
+
+
+def test_the_job_env_names_are_settings_the_runner_reads() -> None:
+    """Only settings the migration runner reads: the URL and the connect and TLS arguments."""
+    pod = _job("production")["spec"]["template"]["spec"]
+    reads = {
+        "DATABASE_URL",
+        "DB_USER",  # expanded into DATABASE_URL
+        "DB_PASSWORD",
+        "DB_HOST",
+        "DB_PORT",
+        "DB_NAME",
+        "DB_SSLMODE",
+        "DB_SSLROOTCERT",
+        "DB_CONNECT_TIMEOUT_SECONDS",
+        "DB_MIGRATION_LOCK_TIMEOUT_MS",
+    }
+    for container in pod["initContainers"] + pod["containers"]:
+        assert {e["name"] for e in container["env"]} <= reads, container["name"]
+
+
+def test_the_app_never_migrates_at_startup() -> None:
+    """Only the Job and the local entry points run migrations: nothing the app imports does."""
+    import pathlib  # noqa: PLC0415
+
+    root = pathlib.Path(__file__).resolve().parents[2] / "src" / "your_service_name"
+    runner = root / "backend" / "db" / "run_migrations.py"
+    for source in root.rglob("*.py"):
+        if source == runner:
+            continue
+        text = source.read_text(encoding="utf-8")
+        assert not re.search(r"^\s*(from|import) .*\brun_migrations\b", text, re.MULTILINE), source
+        assert "command.upgrade" not in text, source

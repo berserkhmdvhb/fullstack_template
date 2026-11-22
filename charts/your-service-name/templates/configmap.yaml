@@ -18,10 +18,6 @@ data:
   {{- if not (hasKey .Values.config "ALLOWED_HOSTS") }}
   ALLOWED_HOSTS: {{ include "chart.allowedHosts" . | quote }}
   {{- end }}
-  # DB_HOST points at the internal Postgres Service (computed from the db
-  # namespace) for local/dev/qa, or at the managed DB host in production.
-  {{- if .Values.postgresql.enabled }}
-  DB_HOST: {{ include "chart.dbHost" . | quote }}
-  {{- else }}
-  DB_HOST: {{ .Values.externalDatabase.host | quote }}
-  {{- end }}
+  # DB_HOST: loopback with the Cloud SQL Auth Proxy sidecar, else the internal Postgres Service
+  # (computed from the db namespace) for local/dev/qa, or the managed DB host (chart.dbHostValue).
+  DB_HOST: {{ include "chart.dbHostValue" . | quote }}

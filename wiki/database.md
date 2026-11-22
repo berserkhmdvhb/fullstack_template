@@ -225,6 +225,18 @@ with the Deployment; the new Pods stay unready until it finishes and a rolling u
 serving meanwhile. `scripts/ci/deploy-env.sh` passes `--wait-for-jobs`, so a failed migration fails the
 release and the existing rollback runs. Operating it: [operations runbook](./operations-runbook.md#database-migrations).
 
+Every other intent of a hook design holds: the app never migrates at startup, the schema leads the code
+(new Pods stay unready until it matches), and a failed migration fails the release. The name carries `.Release.Revision`, which `helm template` always renders as `1`: the supported path is
+`helm upgrade`, and a tool that applies rendered manifests would find the previous Job's immutable spec in its way.
+
+**The Job's database settings.** The Job never reads the app ConfigMap. Its init and migrate containers get an
+explicit env list: `DB_HOST`, `DB_PORT`, `DB_NAME` and, when `config` sets them, `DB_SSLMODE`,
+`DB_CONNECT_TIMEOUT_SECONDS` and `DB_MIGRATION_LOCK_TIMEOUT_MS`, rendered from the same values and helpers as
+the ConfigMap (so they cannot drift), plus `DB_SSLROOTCERT` when `database.tls.caSecret` is set, and `DB_USER`
+and `DB_PASSWORD` from the app Secret, whichever of the three [secret sources](./security.md#secret-sources)
+holds it. These are the settings the runner reads (`db/run_migrations.py`, `db/connect.py`); `ENV` is not
+among them, so the production-only checks of the backend's settings run in the app, not in the Job.
+
 ### Expand/contract policy
 
 A migration must stay compatible with the **previous release's code**: add before you use (a new nullable
@@ -296,30 +308,43 @@ identity, and the certificate does not carry a private IP, so use `verify-ca` wi
 `database.tls.caSecret` (`verify-full` fits a shared CA or a DNS name in the certificate); see Google's
 [SSL/TLS certificates page](https://cloud.google.com/sql/docs/postgres/configure-ssl-instance).
 
-**Cloud SQL with the Auth Proxy** (text only; placeholders). The proxy encrypts the hop itself, so set the
-database host to `127.0.0.1` and `DB_SSLMODE=disable` (a loopback host is allowed in production). The proxy
-must be running before the migration's `wait-for-db` init container checks the database, and it must not stop
-the Job from completing, so run it as a **native sidecar**: an init container with `restartPolicy: Always`
-(on by default since Kubernetes 1.29, stable in 1.33; see the Kubernetes
+**Cloud SQL with the Auth Proxy** (a chart switch; placeholders). The proxy encrypts the hop itself, so the
+database host is `127.0.0.1` and `config.DB_SSLMODE` is `disable` (a loopback host is allowed in production).
+The proxy must be running before the migration's `wait-for-db` init container checks the database, and it must
+not stop the Job from completing, so it runs as a **native sidecar**: an init container with
+`restartPolicy: Always` (on by default since Kubernetes 1.29, stable in 1.33; see the Kubernetes
 [sidecar containers](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/) page, which also
-covers Jobs). `backend.extraInitContainers` renders such containers first, before `wait-for-db`, in both the
-backend Deployment and the migration Job:
+covers Jobs). Turn it on and the chart adds it to the backend Deployment and the migration Job, ahead of
+`wait-for-db`, sets `DB_HOST` to `127.0.0.1` (the ConfigMap and the Job alike) and allows the egress:
 
 ```yaml
-backend:
-  extraInitContainers:
-    - name: cloud-sql-proxy
-      image: gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:<digest>   # pin by digest; current images: Google's Auth Proxy page
-      args: ["--port=5432", "<project>:<region>:<instance>"]
-      restartPolicy: Always
-      securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true, capabilities: {drop: ["ALL"]}}
+postgresql: {enabled: false}
+config: {DB_SSLMODE: disable}
+cloudSqlProxy:
+  enabled: true
+  instanceConnectionName: <project>:<region>:<instance>
+  privateIp: true               # --private-ip
+  autoIamAuthn: false           # --auto-iam-authn
+  egressCIDRs: [<instance-private-range>, 199.36.153.8/30]
 ```
 
-The chart does not ship the proxy image; take a current one from Google's
-[Cloud SQL Auth Proxy page](https://cloud.google.com/sql/docs/postgres/connect-auth-proxy). With IAM database
-authentication, add `--auto-iam-authn`, run the Pod under a Kubernetes service account bound to a Google
-service account with the Cloud SQL Instance User role, and use the database user `<service-account>@<project>.iam`
-with no password.
+The proxy listens on `config.DB_PORT`, logs as structured JSON, and runs restricted (non-root, read-only root
+filesystem, all capabilities dropped, `RuntimeDefault` seccomp) with `cloudSqlProxy.resources`. The image is
+`cloudSqlProxy.image` (repository, tag, digest, like `waf.envoyImage`): set the digest to pin it. The
+NetworkPolicy is IP-based, so `cloudSqlProxy.egressCIDRs` is required: the backend and the Job may reach those
+ranges on 3307 (the instance) and 443 (Google APIs). With a private-IP instance list its range; for Google APIs
+over Private Google Access add `199.36.153.8/30` (`private.googleapis.com`) or the VIP range your VPC uses.
+`externalDatabase.egressCIDR` is not required with the proxy. The Pod's service account needs the Cloud SQL
+Client role through Workload Identity. With IAM database authentication set `autoIamAuthn`, grant the Cloud SQL
+Instance User role, and use the database user `<service-account>@<project>.iam` with no password. Your own
+sidecars still go in `backend.extraInitContainers`, ahead of the proxy.
+
+**Cloud SQL over Private Service Connect.** No proxy: the instance gets a PSC endpoint, a private IP in your
+VPC. Set `externalDatabase.host` to that endpoint's address or DNS name, `externalDatabase.egressCIDR` to the
+endpoint's subnet (the :5432 egress rule renders from it), `postgresql.enabled` to `false` and `DB_SSLMODE` to
+`verify-ca` or `verify-full` with the instance CA in `database.tls.caSecret` (the server certificate does not
+carry the endpoint's address, so `verify-ca` fits the per-instance CA). The chart renders nothing PSC-specific.
+See Google's [Private Service Connect page](https://cloud.google.com/sql/docs/postgres/configure-private-service-connect).
 
 ---
 

@@ -9,9 +9,11 @@
   mesh), so the backend + migration can only reach the DB if externalDatabase
   .egressCIDR names the managed DB's subnet. An empty egressCIDR => the default
   -deny egress stands and the DB is silently unreachable while /health looks
-  green. Fail here so the mistake surfaces at render time, not at 3am.
+  green. Fail here so the mistake surfaces at render time, not at 3am. With the Cloud SQL Auth
+  Proxy (cloudSqlProxy.enabled) the app dials loopback instead, and cloudSqlProxy.egressCIDRs
+  (checked below) is the egress that matters.
 */ -}}
-{{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.enabled (eq (toString .Values.externalDatabase.egressCIDR) "") }}
+{{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.enabled (not .Values.cloudSqlProxy.enabled) (eq (toString .Values.externalDatabase.egressCIDR) "") }}
 {{- fail (printf "%s: externalDatabase is selected (postgresql.enabled=false) but externalDatabase.egressCIDR is empty. Set it to the managed DB's VPC subnet (e.g. your RDS CIDR) in values.production.yaml so the :5432 egress allow renders; empty => default-deny egress strands the DB." (include "chart.fullname" .)) }}
 {{- end }}
 {{- /*
@@ -54,5 +56,29 @@
 {{- if or (eq $name "your-domain.example") (hasSuffix ".your-domain.example" $name) }}
 {{- fail (printf "%s: edge.hosts.%s is %q, which still holds the placeholder domain your-domain.example. Set your real hostnames (infra/adapt/adopt.sh stamps them) before a deploy." (include "chart.fullname" $) $role $host) }}
 {{- end }}
+{{- end }}
+{{- end }}
+{{- /*
+  Exactly one secret source holds the app Secret: the chart's own (secrets.dbPassword or
+  secrets.statsPass), secrets.existingSecret, or the ExternalSecret. Two at once would leave it
+  unclear which one the Pods read, so refuse to render.
+*/ -}}
+{{- $sources := list }}
+{{- if or .Values.secrets.dbPassword .Values.secrets.statsPass }}{{ $sources = append $sources "secrets.dbPassword or secrets.statsPass" }}{{ end }}
+{{- if .Values.secrets.existingSecret }}{{ $sources = append $sources "secrets.existingSecret" }}{{ end }}
+{{- if .Values.secrets.externalSecret.enabled }}{{ $sources = append $sources "secrets.externalSecret.enabled" }}{{ end }}
+{{- if gt (len $sources) 1 }}
+{{- fail (printf "%s: more than one secret source is set (%s); choose exactly one: the chart's own Secret from values, secrets.existingSecret, or secrets.externalSecret.enabled." (include "chart.fullname" .) (join ", " $sources)) }}
+{{- end }}
+{{- /*
+  The Cloud SQL Auth Proxy needs the instance to dial and the CIDRs its egress may reach (the
+  NetworkPolicy is IP-based); without either the Pods start and cannot connect.
+*/ -}}
+{{- if .Values.cloudSqlProxy.enabled }}
+{{- if not .Values.cloudSqlProxy.instanceConnectionName }}
+{{- fail (printf "%s: cloudSqlProxy.instanceConnectionName is required when cloudSqlProxy.enabled is true. Set it to project:region:instance." (include "chart.fullname" .)) }}
+{{- end }}
+{{- if not .Values.cloudSqlProxy.egressCIDRs }}
+{{- fail (printf "%s: cloudSqlProxy.egressCIDRs is required when cloudSqlProxy.enabled is true. List the CIDRs the proxy may reach on 3307 and 443 (the instance's private range and, for example, Private Google Access 199.36.153.8/30); empty => default-deny egress strands the proxy." (include "chart.fullname" .)) }}
 {{- end }}
 {{- end }}

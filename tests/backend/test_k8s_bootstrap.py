@@ -54,6 +54,7 @@ KIND_TO_RESOURCE = {
     "GCPBackendPolicy": ("networking.gke.io", "gcpbackendpolicies"),
     "ServiceMonitor": ("monitoring.coreos.com", "servicemonitors"),
     "PrometheusRule": ("monitoring.coreos.com", "prometheusrules"),
+    "ExternalSecret": ("external-secrets.io", "externalsecrets"),
     "Role": ("rbac.authorization.k8s.io", "roles"),
     "RoleBinding": ("rbac.authorization.k8s.io", "rolebindings"),
 }
