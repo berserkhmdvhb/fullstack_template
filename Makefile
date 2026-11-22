@@ -345,7 +345,9 @@ crd-schemas-check:
 # -------------------------------------------------------------------
 # Tests
 # -------------------------------------------------------------------
-# Run every hermetic layer in one pass: unit + integration + e2e.
+# Run every hermetic layer in one pass: unit + integration + e2e. No test uses the network: the
+# ones that need a pinned artifact (helm, the Node tarball, the CRD sources) read what `make tools`
+# downloaded and verified into .tools; the Node and CRD tests fail, naming the install, without it.
 # Live tests are excluded on purpose (-m "not live") — they need a running
 # external backend and have their own `test-live` target. Resetting addopts
 # clears the default "not integration and not e2e and not live" marker filter

@@ -17,6 +17,9 @@ PINS="${PINS:-$ROOT/tools/pins.tsv}"
 REQS="${REQS:-$ROOT/tools/requirements}"
 TOOLS_DIR="${TOOLS_DIR:-$ROOT/.tools}"
 DRY_RUN=false # only --dry-run sets it
+# Pins whose verified download is also kept, in $TOOLS_DIR/downloads/<name>-<version>-<file>:
+# tests/supply_chain/test_tools_pins.py reinstalls the real Node tarball from it, offline.
+KEEP_DOWNLOAD="node"
 TMP="" PART=""
 
 die() { echo "tools: $*" >&2; exit 1; }
@@ -144,6 +147,10 @@ install_pin() { # uses NAME VER URL SHA
       file="$TMP/${URL##*/}"
       curl -fsSL --proto "${TOOLS_PROTO:-=https}" --proto-redir =https -o "$file" "$URL"
       verify "$file" "$SHA"
+      if [[ " $KEEP_DOWNLOAD " == *" $NAME "* ]]; then
+        mkdir -p "$TOOLS_DIR/downloads"
+        cp "$file" "$TOOLS_DIR/downloads/.part" && mv "$TOOLS_DIR/downloads/.part" "$TOOLS_DIR/downloads/$NAME-$VER-${URL##*/}"
+      fi
       PART="$dest.part"
       rm -rf "$PART"
       mkdir -p "$PART"

@@ -13,7 +13,7 @@ import subprocess
 import tarfile
 from pathlib import Path
 
-import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPT = ROOT / "scripts/tools.sh"
@@ -356,17 +356,49 @@ def test_setuid_bit_is_stripped(tmp_path: Path) -> None:
 
 
 def test_real_node_tarball_still_installs_and_npm_works(tmp_path: Path) -> None:
+    """The pinned Node tarball, as `scripts/tools.sh install node` downloaded and verified it (kept
+    in .tools/downloads), installs again against the pinned sha256 and its npm runs. Offline."""
+    _name, version, _plat, url, sha = next(r for r in rows() if r[0] == "node" and r[2] == PLATFORM)
+    kept = ROOT / ".tools" / "downloads" / f"node-{version}-{url.rsplit('/', 1)[1]}"
+    assert kept.is_file(), (
+        f"{kept} is missing: run `scripts/tools.sh install node` (or `make tools`)"
+    )
+    pins = tmp_path / "pins.tsv"
+    pins.write_text(f"node\t{version}\t{PLATFORM}\tfile://{kept}\t{sha}\n")
     tools = tmp_path / ".tools"
-    env = {**os.environ, "TOOLS_DIR": str(tools)}
+    env = {**os.environ, "PINS": str(pins), "TOOLS_DIR": str(tools), "TOOLS_PROTO": "=file"}
     r = run(["install", "node"], env)
-    if r.returncode != 0 and "curl" in r.stderr:
-        pytest.skip("node tarball not reachable")
     assert r.returncode == 0, r.stderr
     env["PATH"] = f"{tools / 'bin'}{os.pathsep}{os.environ['PATH']}"
     out = subprocess.run(
         [str(tools / "bin/npm"), "--version"], capture_output=True, text=True, check=False, env=env
     )
+    shutil.rmtree(tools)  # about 250 MB unpacked; /tmp may be RAM-backed
     assert out.returncode == 0, out.stderr
+
+
+def test_the_ci_unit_job_installs_node_before_the_tests() -> None:
+    """The Node tarball test reads the verified download the tool install keeps."""
+    backend = ROOT / ".github" / "workflows" / "reusable-backend.yml"
+    steps = yaml.safe_load(backend.read_text(encoding="utf-8"))["jobs"]["unit"]["steps"]
+    runs = [str(s.get("run", "")) for s in steps]
+    install = next(i for i, r in enumerate(runs) if "scripts/tools.sh install" in r)
+    assert "node" in runs[install].split("scripts/tools.sh install", 1)[1].split()
+    assert install < next(i for i, r in enumerate(runs) if "make test-unit" in r)
+
+
+def test_tools_sh_keeps_the_verified_node_download(tmp_path: Path) -> None:
+    """A node install keeps its verified tarball in .tools/downloads; a mismatch keeps nothing."""
+    art = tmp_path / "node-v9.9.9-linux-x64.tar.xz"
+    art.write_bytes(b"not really a tarball")
+    pins = tmp_path / "pins.tsv"
+    pins.write_text(f"node\t9.9.9\t{PLATFORM}\tfile://{art}\t{'0' * 64}\n")
+    tools = tmp_path / ".tools"
+    env = {**os.environ, "PINS": str(pins), "TOOLS_DIR": str(tools), "TOOLS_PROTO": "=file"}
+    assert run(["install", "node"], env).returncode != 0
+    assert not (tools / "downloads").exists()
+    assert "downloads" in SRC
+    assert 'KEEP_DOWNLOAD="node"' in SRC
 
 
 def test_uv_is_pinned_from_the_vendor_release_and_installed_before_every_uv_row() -> None:
