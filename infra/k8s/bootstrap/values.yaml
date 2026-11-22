@@ -7,6 +7,9 @@ release: your-service-name
 # name as it always does; an override in the chart's values.<env>.yaml is read too.
 fullname: ""
 nameOverride: ""
+# The app's ServiceAccount, the subject of its RoleBinding: set it when the release overrides the
+# chart's serviceAccount.name anywhere but the chart's values.<env>.yaml. "" uses the chart's own.
+serviceAccountName: ""
 environment: dev
 # "" => <release>-<environment>. The database namespace is <namespace>-<dbSuffix>, as the chart derives it.
 namespace: ""

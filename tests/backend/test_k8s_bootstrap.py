@@ -544,3 +544,34 @@ def test_the_db_namespace_follows_the_charts_in_cluster_database(env: str) -> No
     boot = _merged(BOOTSTRAP / "values.yaml", BOOTSTRAP / f"values.{env}.yaml")
     app = _merged(CHART / "values.yaml", CHART / f"values.{env}.yaml")
     assert boot["database"]["inCluster"] == app["postgresql"]["enabled"], env
+
+
+@pytest.mark.parametrize(
+    ("config", "subject"), [({"serviceAccountName": "app-sa"}, "app-sa"), ({}, None)]
+)
+def test_the_app_rolebinding_names_the_configured_service_account(
+    helm: str, tmp_path: Path, config: dict[str, Any], subject: str | None
+) -> None:
+    docs = bootstrap(helm, "dev", "--values", _extra(tmp_path, config))
+    binding = next(
+        d for d in docs if d["kind"] == "RoleBinding" and d["metadata"]["name"] != BOOTSTRAP_NAME
+    )
+    # Unset, the chart's own serviceAccount.name (values.yaml) is used, as the chart does.
+    chart_sa = _merged(CHART / "values.yaml", CHART / "values.dev.yaml")["serviceAccount"]["name"]
+    sa = subject or chart_sa
+    assert binding["subjects"] == [
+        {"kind": "ServiceAccount", "name": sa, "namespace": "your-service-name-dev"}
+    ]
+    sets = ("--set", f"serviceAccount.name={sa}", "--set", "rbac.create=true")
+    rendered = chart(
+        helm,
+        "-f",
+        str(CHART / "values.dev.yaml"),
+        *sets,
+        release="your-service-name",
+        ns="your-service-name-dev",
+    )
+    assert (
+        binding["subjects"] == next(d for d in rendered if d["kind"] == "RoleBinding")["subjects"]
+    )
+    assert yaml.safe_load((BOOTSTRAP / "values.yaml").read_text())["serviceAccountName"] == ""

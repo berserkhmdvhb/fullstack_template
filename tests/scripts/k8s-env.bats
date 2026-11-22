@@ -18,8 +18,11 @@ setup() {
 echo "helm $*" >> "$LOG"
 [[ "$1" != template ]] || echo "kind: Namespace # rendered"
 if [[ "$1 $2" == "get manifest" ]]; then
+  [[ -z "${STUB_GET_FAIL-}" ]] || { echo "Error: Kubernetes cluster unreachable" >&2; exit 1; }
   [[ -n "${STUB_MANIFEST-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
   printf '%s\n' "$STUB_MANIFEST"
+  # A large release: far more than one pipe buffer (64 KiB) after the Namespace.
+  [[ -z "${STUB_BIG-}" ]] || yes "# a long stored manifest line, written after the Namespace" | head -n 20000
 fi
 STUB
   cat > "$B/kubectl" <<'STUB'
@@ -73,7 +76,7 @@ STUB
 @test "a release that still owns its Namespaces is first upgraded once to keep them" {
   STUB_MANIFEST=$'---\nkind: Namespace\nmetadata:\n  name: svc-qa\n---\nkind: Role' run bash "$SCRIPT" apply --env qa --release svc --no-wait
   [ "$status" -eq 0 ]
-  [[ "$output" == *"still owns its Namespace objects"* ]]
+  [[ "$output" == *"still owns its Namespace"* ]]
   once="$(grep -n "^helm upgrade .*--set namespaces.create=true --set rbac.create=true" "$LOG" | cut -d: -f1)"
   applied="$(grep -n "^kubectl apply -f -$" "$LOG" | cut -d: -f1)"
   last="$(grep -n "^helm upgrade" "$LOG" | tail -n 1 | cut -d: -f1)"
@@ -97,4 +100,44 @@ STUB
   STUB_MANIFEST="kind: Namespace" run bash "$SCRIPT" apply --env dev --release svc --no-wait
   [ "$status" -eq 0 ]
   [ "$(grep "^helm upgrade" "$LOG" | grep -c -- "--history-max 5")" -eq 2 ]
+}
+
+@test "a stored manifest larger than a pipe buffer still triggers the keep-upgrade" {
+  STUB_BIG=1 STUB_MANIFEST=$'---\nkind: Namespace' run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  [ "$status" -eq 0 ]
+  grep -q "^helm upgrade .*--set namespaces.create=true --set rbac.create=true" "$LOG"
+}
+
+@test "a failed release lookup is an error, not a release without namespaces" {
+  STUB_GET_FAIL=1 run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cluster unreachable"* ]]
+  run grep -q "^helm upgrade" "$LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "the keep-upgrade is printed as the exact command it runs" {
+  STUB_MANIFEST="kind: Namespace" run bash "$SCRIPT" apply --env dev --release svc --no-wait
+  [ "$status" -eq 0 ]
+  cmd="$(grep "^helm upgrade .*rbac.create=true" "$LOG" | sed 's/^helm //')"
+  [[ "$output" == *"helm $cmd"* ]]
+}
+
+@test "a dry run shows the keep-upgrade it would run, and runs nothing" {
+  STUB_MANIFEST="kind: Namespace" run bash "$SCRIPT" apply --env dev --release svc --dry-run --no-wait
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"would run"* ]]
+  [[ "$output" == *"⇢ helm upgrade --install svc"*"--set namespaces.create=true --set rbac.create=true"* ]]
+  run grep -q "^helm upgrade" "$LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "a release that still owns only the app Role or RoleBinding gets the keep-upgrade too" {
+  for kind in Role RoleBinding; do
+    : > "$LOG"
+    STUB_MANIFEST=$'---\nkind: Deployment\n---\nkind: '"$kind" run bash "$SCRIPT" apply --env dev --release svc --no-wait
+    [ "$status" -eq 0 ]
+    [ "$(grep -c "^helm upgrade" "$LOG")" -eq 2 ]
+    [[ "$output" == *"still owns"* ]]
+  done
 }

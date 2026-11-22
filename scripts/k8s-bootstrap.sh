@@ -72,7 +72,7 @@ namespace="${namespace:-$(conf namespace)}"
 namespace="${namespace:-${release}-$(conf environment)}"
 label namespace "$namespace"
 chart_args=(-f "$CHART/values.${ENV_NAME}.yaml" -n "$namespace" --set rbac.create=true)
-for key in fullname:fullnameOverride nameOverride:nameOverride; do
+for key in fullname:fullnameOverride nameOverride:nameOverride serviceAccountName:serviceAccount.name; do
   value="$(conf "${key%%:*}")"
   [[ -z "$value" ]] || { label "${key%%:*}" "$value"; chart_args+=(--set-string "${key##*:}=$value"); }
 done

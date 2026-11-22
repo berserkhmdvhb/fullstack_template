@@ -122,10 +122,11 @@ from the chart, so a kind added to the chart fails it until the Role covers the 
 quota covers them, the one written during an upgrade, the chart's own Secrets and headroom; a test
 recomputes it for every environment, so raise the two together.
 
-**A `fullnameOverride` or `nameOverride`:** they name the app's Role and RoleBinding
-(`<fullname>-role`, `<fullname>-binding`). The bootstrap renders them with the chart's
-`values.<env>.yaml`, so an override set there is used as it is; one set elsewhere goes in the
-bootstrap's `values.<env>.yaml` as `fullname` or `nameOverride`. Unset, the chart derives the name.
+**A `fullnameOverride`, `nameOverride` or `serviceAccount.name`:** the first two name the app's Role
+and RoleBinding (`<fullname>-role`, `<fullname>-binding`), the third is the RoleBinding's subject.
+The bootstrap renders them with the chart's `values.<env>.yaml`, so an override set there is used as
+it is; one set elsewhere (`--set`, another values file) goes in the bootstrap's `values.<env>.yaml` as
+`fullname`, `nameOverride` or `serviceAccountName`. Unset, the chart's own values decide.
 
 **What it may never do:** use a wildcard, `escalate`, `bind` or `impersonate`; touch namespaces,
 ResourceQuotas or LimitRanges; or create, change or delete any Role or RoleBinding. So it can't widen
@@ -141,12 +142,32 @@ record in the release namespace, so that namespace must exist first, with Helm's
 for the release to adopt it (the label `app.kubernetes.io/managed-by=Helm`, the annotations
 `meta.helm.sh/release-name` and `meta.helm.sh/release-namespace`).
 
-**An existing release that created its namespaces:** upgrade once with `namespaces.create=true` and
-`rbac.create=true` (the chart's Namespaces, Role and RoleBinding now carry
-`helm.sh/resource-policy: keep`), then apply the bootstrap and upgrade with the defaults. Without that
-first step, Helm deletes the namespaces it no longer renders, and everything in them.
-`scripts/k8s-env.sh apply` (`make k8s-apply`, `make deploy`) sees such a release (its stored manifest
-holds a Namespace) and runs that upgrade first, saying so.
+**An existing release from an older chart** owns its Namespaces and the app's Role and RoleBinding
+(the older chart rendered them unconditionally). Switching it to the bootstrap is a one-time admin
+step, before the first deployer upgrade: the deployer has no rights on Namespaces or RBAC, so its
+upgrade would try to delete them and be refused, and an admin upgrade without this step would delete
+the namespaces with everything in them. As a cluster admin, with the chart checkout the deploy uses:
+
+```bash
+RELEASE=<release>; ENV=<env>; NS="$RELEASE-$ENV"
+# 1. One upgrade that still renders them: they gain helm.sh/resource-policy: keep.
+helm upgrade "$RELEASE" charts/your-service-name -n "$NS" --reset-then-reuse-values \
+  --history-max 5 --set namespaces.create=true --set rbac.create=true --wait
+# 2. The bootstrap: its namespaces, quota, deployer RBAC and the app's Role and RoleBinding,
+#    applied over the release's own objects of the same names.
+scripts/k8s-bootstrap.sh "$ENV" --release "$RELEASE" | kubectl apply -f -
+# 3. One upgrade with both off: the release stops recording them, and keep leaves them in place.
+helm upgrade "$RELEASE" charts/your-service-name -n "$NS" --reset-then-reuse-values \
+  --history-max 5 --set namespaces.create=false --set rbac.create=false --wait
+# 4. Check: prints nothing once the release no longer holds them.
+helm get manifest "$RELEASE" -n "$NS" | grep -Ex 'kind: (Namespace|Role|RoleBinding)'
+```
+
+`--reset-then-reuse-values` keeps the release's own values (the image digests the deploy set) on the
+current chart. From then on the deployer's upgrades touch none of these objects.
+`scripts/k8s-env.sh apply` (`make k8s-apply`, `make deploy`), which runs as an admin, does steps 1 to
+3 itself when the release's stored manifest holds a Namespace, Role or RoleBinding, and prints each
+command (a dry run prints the upgrade it would run).
 
 ---
 
