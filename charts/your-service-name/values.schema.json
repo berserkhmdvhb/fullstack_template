@@ -283,7 +283,11 @@
           }
         },
         "monitoringNamespaceSelector": {
-          "description": "matchLabels of the namespace allowed to scrape the backend's /metrics; empty means the monitoring namespace.",
+          "description": "matchLabels of the namespace allowed to scrape the backend's /metrics; empty means the monitoring namespace, null disables the rule.",
+          "oneOf": [ { "$ref": "#/definitions/labels" }, { "type": "null" } ]
+        },
+        "monitoringPodSelector": {
+          "description": "matchLabels of the scraping Pods; empty means app.kubernetes.io/name: prometheus.",
           "$ref": "#/definitions/labels"
         }
       }
@@ -425,6 +429,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "scrapeAnnotations": { "type": "boolean" },
         "serviceMonitor":  { "type": "boolean" },
         "prometheusRule":  { "type": "boolean" },
         "logging":         { "type": "boolean" },

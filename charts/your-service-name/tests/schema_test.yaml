@@ -59,3 +59,7 @@ tests:
     set: {guards: {rejectPlaceholders: "yes"}}
     asserts:
       - failedTemplate: {}
+  - it: rejects a monitoring selector that is neither an object nor null
+    set: {networkPolicy: {monitoringNamespaceSelector: monitoring}}
+    asserts:
+      - failedTemplate: {}

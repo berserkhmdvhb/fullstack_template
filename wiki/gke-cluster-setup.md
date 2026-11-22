@@ -403,7 +403,32 @@ kubectl delete namespace np-test
 The chart's default edge mode is `gateway`: it renders `HTTPRoute`s and expects a Gateway you run.
 
 1. **The Gateway.** Create one with the GatewayClass `gke-l7-global-external-managed` (9.2), in its own
-   namespace, with the listener certificate you manage (the chart renders no TLS in this mode).
+   namespace, with the listener certificate you manage (the chart renders no TLS in this mode). The
+   listener must admit the app namespace in `allowedRoutes.namespaces`: the default (`Same`) admits
+   only the Gateway's own namespace, and the chart's HTTPRoutes stay unattached. A minimal one, which
+   admits namespaces with the chart's `tier: app-ns` label:
+
+   ```yaml
+   apiVersion: gateway.networking.k8s.io/v1
+   kind: Gateway
+   metadata:
+     name: edge
+     namespace: gateway-system
+   spec:
+     gatewayClassName: gke-l7-global-external-managed
+     listeners:
+       - name: https
+         protocol: HTTPS
+         port: 443
+         tls:
+           mode: Terminate
+           certificateRefs: [{name: edge-tls}]   # a TLS Secret in gateway-system
+         allowedRoutes:
+           namespaces:
+             from: Selector
+             selector:
+               matchLabels: {tier: app-ns}
+   ```
 2. **Point the chart at it.** Set `edge.gateway.parentRefs` to that Gateway's name and namespace; the
    placeholder `your-gateway` must not reach production.
 3. **Turn on the GKE policies.** Set `edge.gateway.gke.enabled: true`. GKE does not read readiness

@@ -77,6 +77,9 @@ golden render, WAF off:
             - namespaceSelector:
                 matchLabels:
                   kubernetes.io/metadata.name: monitoring
+              podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: prometheus
           ports:
             - port: 8000
               protocol: TCP
@@ -280,6 +283,9 @@ golden render, WAF on:
             - namespaceSelector:
                 matchLabels:
                   kubernetes.io/metadata.name: monitoring
+              podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: prometheus
           ports:
             - port: 8000
               protocol: TCP

@@ -81,6 +81,7 @@ tests:
               ports: [{protocol: TCP, port: 8000}]
             - from:
                 - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+                  podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
               ports: [{protocol: TCP, port: 8000}]
 
   - it: WAF on - no edge peer (and not the frontend) reaches the backend; only the WAF and monitoring do
@@ -94,6 +95,7 @@ tests:
               ports: [{protocol: TCP, port: 8000}]
             - from:
                 - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+                  podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
               ports: [{protocol: TCP, port: 8000}]
       - notContains:
           path: spec.ingress

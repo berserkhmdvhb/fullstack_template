@@ -256,9 +256,11 @@ imagePullSecrets:
 {{- $svc := printf "%s-backend" (include "chart.fullname" .) -}}
 {{- $ns := .Release.Namespace -}}
 {{- $hosts := list .Values.edge.hosts.api .Values.edge.hosts.app .Values.edge.hosts.root -}}
-{{- /* With the WAF on the frontend reaches the backend through it, and Envoy passes the Host on. */ -}}
-{{- range $s := ternary (list $svc (printf "%s-waf" (include "chart.fullname" .))) (list $svc) .Values.waf.enabled -}}
-{{- $hosts = concat $hosts (list $s (printf "%s.%s" $s $ns) (printf "%s.%s.svc" $s $ns) (printf "%s.%s.svc.cluster.local" $s $ns)) -}}
+{{- $hosts = concat $hosts (list $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns)) -}}
+{{- /* With the WAF on the frontend calls it by the short name in BACKEND_URL, and Envoy passes that
+       Host on unchanged (waf-proxy.yaml sets no host rewrite), so only that form is added. */ -}}
+{{- if .Values.waf.enabled -}}
+{{- $hosts = append $hosts (include "chart.apiBackendService" .) -}}
 {{- end -}}
 {{- if .Values.backend.extraAllowedHosts -}}
 {{- $hosts = concat $hosts (list (trim .Values.backend.extraAllowedHosts)) -}}

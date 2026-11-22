@@ -146,7 +146,7 @@ FastAPI dependency, which resolves a `Principal` per request.
 | `oidc` | **Production mode.** `Authorization: Bearer <jwt>` from an OpenID Connect provider, verified against the provider's JWKS. | The service verifies every token itself; see [OIDC](#oidc-mode). |
 | `cloudflare-access` | **Production mode.** The Cloudflare Access application token in the `Cf-Access-Jwt-Assertion` header, verified against the team's keys and the application's AUD tag. | The service verifies every token itself; see [Cloudflare Access](#cloudflare-access-mode). |
 | `none` *(default)* | Auth disabled; the dependency yields an anonymous principal. Reference CRUD is open. With `ENV=production` it is refused unless `ALLOW_ANONYMOUS=true`. | N/A — opt-in only. |
-| `gateway` *(reference)* | Identity is read from a gateway-injected header (`AUTH_USER_ID_HEADER`, default `X-Authenticated-User-Id`; roles from `AUTH_ROLES_HEADER`, default `X-Authenticated-User-Roles`, comma-separated). Missing → `401`. | The service trusts the header **unconditionally**. Safe only because the deployment denies every client but the ingress the path to the pods (Kubernetes `NetworkPolicy` default-deny). Do not expose the service directly to untrusted clients in this mode. |
+| `gateway` *(reference)* | Identity is read from a gateway-injected header (`AUTH_USER_ID_HEADER`, default `X-Authenticated-User-Id`; roles from `AUTH_ROLES_HEADER`, default `X-Authenticated-User-Roles`, comma-separated). Missing → `401`. | The service trusts the header **unconditionally**. Safe only while nothing untrusted can reach the backend port: the chart's default-deny `NetworkPolicy` admits only the edge peers (WAF off) or the WAF (WAF on), the frontend (WAF off), and the metrics scrape when it is enabled ([who reaches the backend](./infrastructure.md#networkpolicy-per-mode)). Every Pod those rules admit can send the header. Do not expose the service directly to untrusted clients in this mode. |
 | `bearer` *(reference)* | Identity from an HMAC-signed JWT bearer token verified with a shared secret (`AUTH_JWT_SECRET`, algorithm `AUTH_JWT_ALGORITHM`, default `HS256`, subject claim `AUTH_JWT_USER_ID_CLAIM`, default `sub`). Missing/invalid → `401`. | A shared secret for internal or test use, **not** end-user identity: whoever holds it can mint any identity. |
 
 `gateway` and `bearer` are **reference modes**; use `oidc` or `cloudflare-access` in production.
@@ -416,13 +416,18 @@ versions you run.
   entry from the right, falling back to the peer), so a value of 1 would make Envoy see the ingress Pod
   instead of the client; the chart leaves it at 0. **Limit:** with the WAF on, the backend sees
   `X-Forwarded-Proto: http` for https clients; the client IP is unaffected.
-  The WAF is safe only because the edge in front has already set the headers: **nothing but the
-  edge may reach the WAF Pod**, which the chart's [NetworkPolicy](#networkpolicy) enforces.
+  The WAF is safe only because the hop in front has already set the headers: **only the edge peers
+  and the frontend may reach the WAF Pod**, which the chart's [NetworkPolicy](#networkpolicy)
+  enforces (the frontend's proxy forwards `X-Forwarded-For` unchanged).
   Both behaviours (the `X-Forwarded-Proto` overwrite at zero, and the trusted-client-address rule) are in the
   [Envoy header reference](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_conn_man/headers).
 - **Trusting a range trusts every Pod in it.** A Pod inside `TRUSTED_PROXY_CIDRS` can send any
-  `X-Forwarded-For` and be believed, so a [NetworkPolicy](#networkpolicy) must limit the backend port
-  to the gateway Pods (and `cloudflared`), and nothing else may be in the trusted range.
+  `X-Forwarded-For` and be believed, so nothing but the trusted hops may be in the range. The chart's
+  [NetworkPolicy](#networkpolicy) admits to the backend port, per mode: with the WAF off, the edge
+  peers (the Gateway namespace, the controller's namespace, or `cloudflared`) and the frontend; with
+  the WAF on, only the WAF, which the edge peers and the frontend reach; and, when a scrape target is
+  rendered, the monitoring Pods. The full matrix:
+  [Infrastructure, NetworkPolicy per mode](./infrastructure.md#networkpolicy-per-mode).
 - **`CF-Connecting-IP` is safe only when `cloudflared` is the only way in.** If the ingress or the
   backend is reachable any other way, a client sends its own header and is believed.
 
@@ -434,6 +439,7 @@ Per edge mode:
 | **Ingress** | The ingress controller's Pod range, plus the WAF's (Envoy) when `waf.enabled`. | `false` |
 | **Tunnel** (Cloudflare Tunnel) | The same, plus `cloudflared`'s Pod range if it targets the backend Service directly. | `true`, with `cloudflared` the only way in |
 | **Google** load balancer / GKE Gateway | The Google front end that is the peer (its request source ranges are listed in the [load balancer documentation](https://cloud.google.com/load-balancing/docs/https)), **and the load balancer's own address**: the balancer appends `CLIENT_IP, LOAD_BALANCER_IP`, so without that address trusted every client resolves to it. | `false` |
+| *Every mode, WAF off* | Add the frontend's Pod range: same-origin `/api/v1` calls on the app host reach the backend from the frontend's proxy, which forwards `X-Forwarded-For` unchanged (it appends nothing), so each client keeps its own address. | — |
 
 ---
 

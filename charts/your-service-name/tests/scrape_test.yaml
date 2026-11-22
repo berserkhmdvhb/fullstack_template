@@ -1,0 +1,69 @@
+suite: the metrics scrape allow follows the chart's scrape targets
+release:
+  name: svc
+  namespace: app
+templates:
+  - network-policy.yaml
+  - services.yaml
+tests:
+  - it: defaults - the scrape annotations render, and the rule admits the prometheus Pods of the monitoring namespace
+    asserts:
+      - equal: {path: 'metadata.annotations["prometheus.io/scrape"]', value: "true"}
+        template: services.yaml
+        documentIndex: 0
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+                podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
+            ports: [{protocol: TCP, port: 8000}]
+        template: network-policy.yaml
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+
+  - it: no scrape target (annotations off, no ServiceMonitor) - no annotations and no rule
+    set: {monitoring: {scrapeAnnotations: false}}
+    asserts:
+      - notExists: {path: 'metadata.annotations["prometheus.io/scrape"]'}
+        template: services.yaml
+        documentIndex: 0
+      - lengthEqual: {path: spec.ingress, count: 2}
+        template: network-policy.yaml
+        documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+
+  - it: a ServiceMonitor alone is a scrape target
+    set: {monitoring: {scrapeAnnotations: false, serviceMonitor: true}}
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - lengthEqual: {path: spec.ingress, count: 3}
+
+  - it: a null namespace selector disables the rule
+    set: {networkPolicy: {monitoringNamespaceSelector: null}}
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - lengthEqual: {path: spec.ingress, count: 2}
+      - notContains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}
+                podSelector: {matchLabels: {app.kubernetes.io/name: prometheus}}
+            ports: [{protocol: TCP, port: 8000}]
+
+  - it: overrides replace both defaults (a managed collector's namespace and labels)
+    set:
+      networkPolicy:
+        monitoringNamespaceSelector: {kubernetes.io/metadata.name: gmp-system}
+        monitoringPodSelector: {app: managed-prometheus-collector}
+    template: network-policy.yaml
+    documentSelector: {path: metadata.name, value: svc-your-service-name-allow-to-backend}
+    asserts:
+      - equal:
+          path: 'spec.ingress[2]'
+          value:
+            from:
+              - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gmp-system}}
+                podSelector: {matchLabels: {app: managed-prometheus-collector}}
+            ports: [{protocol: TCP, port: 8000}]

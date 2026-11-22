@@ -50,7 +50,7 @@
 {{- end }}
 {{- end }}
 {{- range $role, $host := .Values.edge.hosts }}
-{{- if contains "your-domain.example" $host }}
+{{- if or (eq $host "your-domain.example") (hasSuffix ".your-domain.example" $host) }}
 {{- fail (printf "%s: edge.hosts.%s is %q, which still holds the placeholder domain your-domain.example. Set your real hostnames (infra/adapt/adopt.sh stamps them) before a deploy." (include "chart.fullname" $) $role $host) }}
 {{- end }}
 {{- end }}

@@ -89,12 +89,20 @@ the api host the `backend` routes, the app host the `frontend` routes. `backend`
 or the WAF Service when `waf.enabled`. Gateway mode renders it into the HTTPRoutes, ingress mode into
 the Ingress rules.
 
-In tunnel mode the same list is the tunnel's route table. `helm install` prints it in NOTES, one line
-per hostname and path, with the in-cluster URL to point the tunnel at:
+In tunnel mode the same list is the tunnel's route table. `helm install` prints it in NOTES (print it
+again with `helm get notes <release> -n <namespace>`), one line per hostname and path, with the
+in-cluster URL to point the tunnel at. The full table for the default values, release `svc` in
+namespace `app`:
 
 ```text
-api.your-domain.example/api           PathPrefix -> http://<release>-backend.<namespace>.svc.cluster.local:8000
-app.your-domain.example/              PathPrefix -> http://<release>-frontend.<namespace>.svc.cluster.local:3000
+api.your-domain.example/api                              PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
+api.your-domain.example/docs                             PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
+api.your-domain.example/openapi.json                     Exact      -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
+app.your-domain.example/                                 PathPrefix -> http://svc-your-service-name-frontend.app.svc.cluster.local:3000
+your-service-name.your-domain.example/api                PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
+your-service-name.your-domain.example/docs               PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
+your-service-name.your-domain.example/openapi.json       Exact      -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
+your-service-name.your-domain.example/                   PathPrefix -> http://svc-your-service-name-frontend.app.svc.cluster.local:3000
 ```
 
 Configure the tunnel from that table: [Cloudflare setup](./cloudflare-setup.md#84-route-a-test-hostname-through-the-tunnel).
@@ -111,7 +119,8 @@ The edge peers depend on the mode:
 | `ingress` | The namespace `edge.namespaceSelector` selects. Required: the render fails without it, because the chart does not guess your controller's namespace. |
 
 Every mode adds `edge.extraPeers`, for example a regional load balancer's proxy-only subnet as an
-`ipBlock`. The flows, each allowed on both ends:
+`ipBlock`. A `parentRef` without a namespace admits every Pod of the app namespace; to narrow it,
+give the Gateway a namespace or list its Pods in `extraPeers` with a `podSelector`. The flows, each allowed on both ends:
 
 | Source | Destination | When |
 |--------|-------------|------|
@@ -120,13 +129,14 @@ Every mode adds `edge.extraPeers`, for example a regional load balancer's proxy-
 | frontend | backend, backend port | `waf.enabled: false` (server-side calls, `BACKEND_URL`) |
 | Edge peers, frontend | WAF, `waf.service.port` | `waf.enabled: true`; then nothing but the WAF reaches the backend |
 | WAF | backend, backend port | `waf.enabled: true` |
-| `networkPolicy.monitoringNamespaceSelector` | backend, backend port (`/metrics`) | always (empty: the `monitoring` namespace) |
+| `monitoringPodSelector` Pods in the `monitoringNamespaceSelector` namespace (`networkPolicy`) | backend, the metrics port (today the API port) | only with a scrape target (`monitoring.scrapeAnnotations`, on by default, or `monitoring.serviceMonitor`); empty selectors mean `app.kubernetes.io/name: prometheus` in the `monitoring` namespace; `monitoringNamespaceSelector: null` removes the rule |
 | backend, migration Job | PostgreSQL :5432 (or `externalDatabase.egressCIDR`) | always |
 | every egress policy | kube-dns :53 (`networkPolicy.dns`; empty: `k8s-app: kube-dns` in `kube-system`; plus optional `ipBlocks` such as NodeLocal DNSCache) | always |
 
 With the WAF on, the frontend's `BACKEND_URL` is the WAF Service too, so the same-origin `/api/v1`
 proxy and server-side calls pass the WAF. A set selector replaces its default; it is not merged
-with it. Nothing else reaches PostgreSQL or the migration Job. Other backend egress (a collector, a Redis) goes
+with it. A managed collector (for example GKE's managed Prometheus) runs in another namespace with
+other labels: set both monitoring selectors to match it. Nothing else reaches PostgreSQL or the migration Job. Other backend egress (a collector, a Redis) goes
 in `backend.networkPolicy.extraEgress`.
 
 ### GKE Gateway policies
@@ -172,9 +182,12 @@ Response headers come from the backend and the frontend, never the edge: [Securi
 
 ### Client IP behind the edge
 
-Set `config.TRUSTED_PROXY_CIDRS` to the hop that connects to the backend: the gateway Pods' range
+Set `config.TRUSTED_PROXY_CIDRS` to the hops that connect to the backend: the gateway Pods' range
 (gateway mode, in-cluster), the Google ranges above (GKE), the controller's Pods (ingress), or the
-`cloudflared` Pod range (tunnel); add the WAF's Pods when it is on. The rules and what each proxy
+`cloudflared` Pod range (tunnel); add the WAF's Pods when it is on. With the WAF off, add the
+frontend Pod range too: same-origin `/api/v1` calls on the app host reach the backend from the
+frontend's proxy, which forwards `X-Forwarded-For` unchanged (it appends nothing), so trusting it
+keeps each client's own address. The rules and what each proxy
 must do: [Security, Client IP](./security.md#client-ip).
 
 ---

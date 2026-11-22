@@ -16,7 +16,6 @@ tests:
     asserts:
       - equal: {path: data.BACKEND_URL, value: 'http://svc-your-service-name-waf:8080'}
       - matchRegex: {path: data.ALLOWED_HOSTS, pattern: '(^|,)svc-your-service-name-waf(,|$)'}
-      - matchRegex: {path: data.ALLOWED_HOSTS, pattern: '(^|,)svc-your-service-name-waf\.app\.svc\.cluster\.local(,|$)'}
   - it: WAF off - the WAF Service is not an allowed Host
     template: configmap.yaml
     asserts:
@@ -72,3 +71,10 @@ tests:
           content:
             from: [{podSelector: {matchLabels: {app.kubernetes.io/component: frontend}}}]
             ports: [{protocol: TCP, port: 8000}]
+  - it: WAF on - ALLOWED_HOSTS is the edge hosts, the backend's four names and the WAF's short name
+    template: configmap.yaml
+    set: {waf: {enabled: true}}
+    asserts:
+      - equal:
+          path: data.ALLOWED_HOSTS
+          value: api.your-domain.example,app.your-domain.example,your-service-name.your-domain.example,svc-your-service-name-backend,svc-your-service-name-backend.app,svc-your-service-name-backend.app.svc,svc-your-service-name-backend.app.svc.cluster.local,svc-your-service-name-waf

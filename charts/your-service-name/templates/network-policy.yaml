@@ -84,13 +84,20 @@ spec:
           port: {{ $backendPort }}
 {{- end }}
 {{- end }}
+{{- /* The metrics scrape: only with a scrape target; a null namespace selector disables it. */}}
+{{- $np := .Values.networkPolicy }}
+{{- if and (or .Values.monitoring.scrapeAnnotations .Values.monitoring.serviceMonitor) (not (kindIs "invalid" $np.monitoringNamespaceSelector)) }}
     - from:
         - namespaceSelector:
             matchLabels:
-{{- toYaml (.Values.networkPolicy.monitoringNamespaceSelector | default (dict "kubernetes.io/metadata.name" "monitoring")) | nindent 14 }}
+{{- toYaml ($np.monitoringNamespaceSelector | default (dict "kubernetes.io/metadata.name" "monitoring")) | nindent 14 }}
+          podSelector:
+            matchLabels:
+{{- toYaml ($np.monitoringPodSelector | default (dict "app.kubernetes.io/name" "prometheus")) | nindent 14 }}
       ports:
         - protocol: TCP
           port: {{ $backendPort }}
+{{- end }}
 ---
 {{- if .Values.waf.enabled }}
 # ---- 3b. Allow the frontend and the edge -> WAF, and WAF -> backend + DNS ----

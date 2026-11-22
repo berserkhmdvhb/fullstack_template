@@ -258,10 +258,15 @@ networkPolicy:
     namespaceSelector: {}
     podSelector: {}
     ipBlocks: []
-  # The namespace allowed to scrape the backend's /metrics (the Service's prometheus.io
-  # annotations and the optional ServiceMonitor), on the backend port. Empty means
-  # {kubernetes.io/metadata.name: monitoring}; a set one replaces it.
+  # Who may scrape the backend's /metrics: Pods matching monitoringPodSelector in the namespace
+  # matching monitoringNamespaceSelector, on the metrics port (today the API port). The rule renders
+  # only when the chart renders a scrape target (monitoring.scrapeAnnotations or
+  # monitoring.serviceMonitor). Empty means the default, a set one replaces it:
+  # {kubernetes.io/metadata.name: monitoring} and {app.kubernetes.io/name: prometheus}.
+  # monitoringNamespaceSelector: null disables the rule. A managed collector (for example GKE's
+  # managed Prometheus) runs in another namespace with other labels: set both.
   monitoringNamespaceSelector: {}
+  monitoringPodSelector: {}
 
 # ---- Web Application Firewall (WAF) --------------------------------------
 # In-cluster Coraza WAF (Go, CNCF) running as an Envoy wasm plugin with the OWASP
@@ -403,6 +408,8 @@ externalDatabase:
 # Prometheus Operator CRDs are required for serviceMonitor / prometheusRule.
 # Logging forwards to an external sink (ES/Loki/CloudWatch) — see the daemonset.
 monitoring:
+  # The prometheus.io/scrape annotations on the backend Service (annotation-based discovery).
+  scrapeAnnotations: true
   serviceMonitor: false
   prometheusRule: false
   logging: false

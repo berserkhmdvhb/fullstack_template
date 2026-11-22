@@ -8,9 +8,10 @@ metadata:
     app.kubernetes.io/component: config
 data:
   {{- toYaml .Values.config | nindent 2 }}
-  # Runtime proxy target for the frontend's same-origin /api/v1 calls (Next.js
-  # rewrites in next.config.ts). Points at the in-cluster backend Service; the
-  # browser never sees it. A runtime env, so one image serves every environment.
+  # Runtime proxy target for the frontend's same-origin /api/v1, /docs and /openapi.json calls
+  # (frontend/proxy.ts reads it per request). The in-cluster backend Service, or the WAF Service
+  # when waf.enabled (chart.backendURL); the browser never sees it. A runtime env, so one image
+  # serves every environment.
   BACKEND_URL: {{ include "chart.backendURL" . | quote }}
   # Host values the backend accepts (a 400 otherwise); probes and /metrics are exempt. Set
   # config.ALLOWED_HOSTS to take over the list.

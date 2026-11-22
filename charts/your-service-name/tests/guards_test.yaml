@@ -45,3 +45,49 @@ tests:
         hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
     asserts:
       - notFailedTemplate: {}
+
+  - it: on - a host that only contains the placeholder text is not a placeholder
+    set:
+      guards: {rejectPlaceholders: true}
+      edge:
+        hosts: {api: api.notyour-domain.example.com, app: app.svc.test, root: your-domain.example.svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: on - the bare placeholder domain is refused
+    set:
+      guards: {rejectPlaceholders: true}
+      edge:
+        hosts: {api: api.svc.test, app: app.svc.test, root: your-domain.example}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'edge\.hosts\.root is "your-domain\.example"'
+
+  - it: on - values.dev.yaml's placeholder hosts are refused
+    values: [../values.dev.yaml]
+    set:
+      guards: {rejectPlaceholders: true}
+      edge: {gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'still holds the placeholder domain your-domain\.example'
+
+  - it: on - values.qa.yaml's placeholder hosts are refused
+    values: [../values.qa.yaml]
+    set:
+      guards: {rejectPlaceholders: true}
+      edge: {gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'still holds the placeholder domain your-domain\.example'
+
+  - it: on - values.production.yaml's placeholder hosts are refused
+    values: [../values.production.yaml]
+    set:
+      guards: {rejectPlaceholders: true}
+      edge: {gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'still holds the placeholder domain your-domain\.example'
