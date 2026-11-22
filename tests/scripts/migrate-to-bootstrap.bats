@@ -241,3 +241,13 @@ orphans() {
   code="$(grep -v '^\s*#' "$SCRIPT")"
   run ! grep -Eq 'kubectl[^|]* delete|helm[^|]* (uninstall|delete)' <<<"$code"
 }
+
+@test "the kept objects are computed the same in any locale (sort and comm agree)" {
+  export STUB_OLD="$STUB_OLD"$'\n---\nkind: Secret\nmetadata:\n  name: a-b\n---\nkind: Secret\nmetadata:\n  name: a_c\n---\nkind: Secret\nmetadata:\n  name: A-d\n---\nkind: Secret\nmetadata:\n  name: ab'
+  export STUB_NEW="$STUB_NEW"$'\n---\nkind: Secret\nmetadata:\n  name: a_c\n---\nkind: Secret\nmetadata:\n  name: ab'
+  LC_ALL=en_US.UTF-8 run --separate-stderr bash "$SCRIPT" dev --context kind-x "${V[@]}" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$stderr" != *"sorted order"* ]]
+  [[ "$output" == *"Secret your-service-name-dev/A-d"* && "$output" == *"Secret your-service-name-dev/a-b"* ]]
+  [[ "$output" != *"/a_c"* && "$output" != *"/ab"* ]]
+}

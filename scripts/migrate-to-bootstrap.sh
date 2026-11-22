@@ -119,7 +119,7 @@ objects() { # Namespace, PersistentVolumeClaim and Secret objects of a manifest:
   yq -N 'select(.kind == "Namespace" or .kind == "PersistentVolumeClaim" or .kind == "Secret")
     | select(.metadata.name != null)
     | .kind + " " + (.metadata.namespace // "'"$namespace"'") + " " + .metadata.name
-    | sub("^Namespace [^ ]+ ", "Namespace - ")' <<<"$1" | sort -u
+    | sub("^Namespace [^ ]+ ", "Namespace - ")' <<<"$1" | LC_ALL=C sort -u
 }
 
 deployed > /dev/null
@@ -137,7 +137,7 @@ for check in "create namespaces" "create resourcequotas -n $namespace" "create r
 done
 # What the release holds and the first upgrade's render does not, Helm deletes in that upgrade.
 render="$(helm template "$release" "$CHART" -n "$namespace" "${values[@]}" --set namespaces.create=true --set rbac.create=true)"
-mapfile -t keep < <(comm -23 <(objects "$stored") <(objects "$render"))
+mapfile -t keep < <(LC_ALL=C comm -23 <(objects "$stored") <(objects "$render"))
 show() { # kind namespace/name, or kind name for a Namespace
   local obj k n name
   for obj in "${keep[@]}"; do
