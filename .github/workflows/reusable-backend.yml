@@ -59,8 +59,9 @@ jobs:
       # scripts/k8s-bootstrap.sh (tests/backend/test_k8s_bootstrap.py) also reads its config with yq.
       # crd-sources: the pinned CRD sources (sha256-checked, cached in .tools) the CRD schema test reads.
       # node: its verified tarball is kept in .tools/downloads, which the Node install test reinstalls offline.
-      - name: Install the pinned Helm, yq, Node and the CRD sources
-        run: scripts/tools.sh install helm4 yq node crd-sources
+      # promtool: tests/supply_chain/test_rules_test.py proves make rules-test fails on a broken rule.
+      - name: Install the pinned Helm, yq, Node, promtool and the CRD sources
+        run: scripts/tools.sh install helm4 yq node promtool crd-sources
       # The coverage floor (85 percent) is set in pyproject.toml, under [tool.coverage.report].
       - name: Unit tests with coverage
         run: make test-unit

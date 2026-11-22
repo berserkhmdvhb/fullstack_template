@@ -120,6 +120,11 @@ def _configure_logging(settings: Settings) -> None:
 # ``.env`` is read by ``Settings`` itself (env_file), relative to the working directory.
 logger = logging.getLogger(__name__)
 
+# The bounds (seconds) of http_request_duration_seconds{method,handler}. The latency SLO's threshold
+# (Helm monitoring.slo.latency.thresholdSeconds) must be one of them; the chart's copy
+# (chart.latencyBuckets) is test-locked to this one.
+LATENCY_BUCKETS: tuple[float, ...] = (0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -297,7 +302,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Records into the default registry only. The API app has no /metrics route: the launcher
     # (serve.py) serves the registry on its own port (METRICS_PORT), which the network policy
     # admits a scraper to, and the API port never exposes it.
-    Instrumentator().instrument(app)
+    Instrumentator().instrument(app, latency_lowr_buckets=LATENCY_BUCKETS)
 
     # --- Opt-in tracing --------------------------------------------------------
     # The instrumentation wraps the whole middleware stack, so it is outermost whatever the order.

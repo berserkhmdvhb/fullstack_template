@@ -43,6 +43,7 @@ exes_for() {
     helm3) echo "linux-amd64/helm:helm3" ;;
     helm4) echo "linux-amd64/helm:helm4" ;;
     yq) echo "yq_linux_amd64:yq" ;;
+    promtool) echo "prometheus-$VER.linux-amd64/promtool:promtool" ;;
     bats) echo "bats-core-$VER/bin/bats:bats" ;;
     shellcheck) echo "shellcheck-v$VER/shellcheck:shellcheck" ;;
     node) echo "node-v$VER-linux-x64/bin/node:node node-v$VER-linux-x64/bin/npm:npm node-v$VER-linux-x64/bin/npx:npx" ;;

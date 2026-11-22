@@ -121,6 +121,16 @@ pinned sources generate; its test (in `make test`) reads only the cache that `ma
 versions of the sources like the tool pins; the `pins` check stays red until `make pins-refresh` has
 written the new sha256, and then `make crd-schemas` regenerates the files.
 
+### Checking the rules (promtool)
+
+`make rules-test` (`scripts/ci/rules-test.sh`; CI runs it in the chart job) renders the chart with the
+rules on in both monitoring flavours, extracts every `spec.groups` into a Prometheus rule file per
+flavour, runs `promtool check rules` on it, and runs `promtool test rules` on each file in
+`charts/your-service-name/tests/rules` against both. promtool comes from the Prometheus release,
+pinned with its sha256 in `tools/pins.tsv` (`scripts/tools.sh install promtool`); the check is offline.
+A test proves it fails on a broken rule. The objectives and alerts are described in
+[Service Level Objectives](./operations-runbook.md#service-level-objectives).
+
 ### Chart templates (`charts/your-service-name/templates/`)
 
 The base resource set maps 1:1 into the chart. Per-env differences live in
@@ -523,7 +533,7 @@ Uvicorn options are identical everywhere. A test checks that none runs bare `uvi
 
 The rule groups are defined once, in two sets (`chart.alertGroupsApp`, `chart.alertGroupsCluster`), and
 both flavours embed them. A `PodMonitoring` scrapes only its own namespace. A namespaced `Rules` object
-evaluates only series of its own namespace, so with `gmp` it holds the app set (`HighErrorRate`) and the
+evaluates only series of its own namespace, so with `gmp` it holds the app set (`HighErrorRate` and the SLO rules) and the
 kube-state-metrics and cAdvisor set is a cluster-scoped `ClusterRules`. The deployer has no cluster
 rights, so the deploy never renders it (`monitoring.gmp.clusterRules.enabled: false`): the admin
 bootstrap does, with `gmpClusterRules: true` (in the bootstrap values) and `monitoring.flavour: gmp` in
@@ -540,6 +550,7 @@ selecting on `namespace`. The deployer Role holds `podmonitorings` and `rules`. 
 | `BackendEndpointsDown`, `FrontendEndpointsDown`, `PostgreSQLDown` | `kube_endpoint_address_available` | kube-state-metrics |
 | `BackupJobFailed` | `kube_job_failed` | kube-state-metrics |
 | `HighErrorRate` | `http_requests_total` | the backend's metrics port (nothing to install) |
+| `SLOAvailabilityBurnFast`, `SLOAvailabilityBurnSlow`, `SLOLatencyBurnFast`, `SLOLatencyBurnSlow` (and the `slo:sli_error:ratio_rate<w>` recording rules) | `http_requests_total`, `http_request_duration_seconds_bucket` | the backend's metrics port (nothing to install); the objectives are `monitoring.slo`, see [Service Level Objectives](./operations-runbook.md#service-level-objectives) |
 
 Without kube-state-metrics every rule above that names a `kube_*` series evaluates to nothing and
 never fires. With the Prometheus Operator, kube-prometheus-stack installs kube-state-metrics and

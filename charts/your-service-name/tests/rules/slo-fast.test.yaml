@@ -1,0 +1,176 @@
+# promtool unit tests for the fast-burn SLO alerts (make rules-test; scripts/ci/rules-test.sh runs
+# them against each flavour's rendered rules, copied in as rules.yaml). Release svc, namespace app.
+# Budgets: availability 99.9% -> 0.001, latency 95% -> 0.05. A constant error ratio is the same in
+# every window, so it tests the 6x pair; a burst after 6h of clean traffic dilutes the 6h window and
+# tests the 14.4x pair on its own.
+rule_files: [rules.yaml]
+# promtool otherwise orders the groups at random; the alerts read this step's recordings.
+group_eval_order: [slo-recording, slo-alerts]
+evaluation_interval: 1m
+
+tests:
+  - name: availability at 6.1x (constant) fires the fast alert through the 6h and 30m pair
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0+9939x60'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0+61x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: SLOAvailabilityBurnFast
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: app, slo: availability}
+            exp_annotations:
+              summary: "Availability SLO error budget burning fast (0.61% of requests answered 5xx)"
+              description: &availability_fast "The 99.9% availability objective's error budget is burning at least 14.4x the sustainable rate over 1h and 5m, or 6x over 6h and 30m: at 14.4x a 30-day budget is gone in about 2 days. Act now."
+
+  - name: availability at 5.9x (constant) stays quiet
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0+9941x60'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0+59x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: SLOAvailabilityBurnFast
+        exp_alerts: []
+
+  - name: availability bursting at 14.5x after 6h clean fires through the 1h and 5m pair alone
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0+10000x360 3609855+9855x70'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0x360 145+145x70'
+    alert_rule_test:
+      - eval_time: 431m
+        alertname: SLOAvailabilityBurnFast
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: app, slo: availability}
+            exp_annotations:
+              summary: "Availability SLO error budget burning fast (1.45% of requests answered 5xx)"
+              description: *availability_fast
+
+  - name: availability bursting at 14.3x after 6h clean stays quiet
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0+10000x360 3609857+9857x70'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0x360 143+143x70'
+    alert_rule_test:
+      - eval_time: 431m
+        alertname: SLOAvailabilityBurnFast
+        exp_alerts: []
+
+  - name: latency at 6.2x (constant) fires the fast alert through the 6h and 30m pair
+    interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0+690x60'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0+1000x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: SLOLatencyBurnFast
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: app, slo: latency}
+            exp_annotations:
+              summary: "Latency SLO error budget burning fast (31% of requests slower than 0.5s)"
+              description: &latency_fast "The 95% latency objective's error budget is burning at least 14.4x the sustainable rate over 1h and 5m, or 6x over 6h and 30m: at 14.4x a 30-day budget is gone in about 2 days. Act now."
+
+  - name: latency at 5.8x (constant) stays quiet
+    interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0+710x60'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0+1000x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: SLOLatencyBurnFast
+        exp_alerts: []
+
+  - name: latency bursting at 14.6x after 6h clean fires through the 1h and 5m pair alone
+    interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0+1000x360 360270+270x70'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0+1000x431'
+    alert_rule_test:
+      - eval_time: 431m
+        alertname: SLOLatencyBurnFast
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: app, slo: latency}
+            exp_annotations:
+              summary: "Latency SLO error budget burning fast (73% of requests slower than 0.5s)"
+              description: *latency_fast
+
+  - name: latency bursting at 14.2x after 6h clean stays quiet
+    interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0+1000x360 360290+290x70'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0+1000x431'
+    alert_rule_test:
+      - eval_time: 431m
+        alertname: SLOLatencyBurnFast
+        exp_alerts: []
+
+  - name: no traffic records no SLI and fires nothing
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '100x90'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '7x90'
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '50x90'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '107x90'
+    promql_expr_test:
+      - expr: 'slo:sli_error:ratio_rate5m'
+        eval_time: 60m
+        exp_samples: []
+      - expr: 'slo:sli_error:ratio_rate1h'
+        eval_time: 60m
+        exp_samples: []
+    alert_rule_test:
+      - {eval_time: 60m, alertname: SLOAvailabilityBurnFast, exp_alerts: []}
+      - {eval_time: 60m, alertname: SLOAvailabilityBurnSlow, exp_alerts: []}
+      - {eval_time: 60m, alertname: SLOLatencyBurnFast, exp_alerts: []}
+      - {eval_time: 60m, alertname: SLOLatencyBurnSlow, exp_alerts: []}
+      - {eval_time: 60m, alertname: HighErrorRate, exp_alerts: []}
+
+  - name: the excluded handlers (probes, the scrape) count in neither SLI
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0+1000x60'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/health", method="GET", status="5xx"}'
+        values: '0+1000x60'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/healthz", method="GET", status="5xx"}'
+        values: '0+1000x60'
+      - series: 'http_requests_total{namespace="app", handler="/metrics", method="GET", status="5xx"}'
+        values: '0+1000x60'
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0+1000x60'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0+1000x60'
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/health", method="GET", le="0.5"}'
+        values: '0x60'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/health", method="GET"}'
+        values: '0+1000x60'
+    promql_expr_test:
+      - expr: 'slo:sli_error:ratio_rate5m'
+        eval_time: 30m
+        exp_samples:
+          - {labels: 'slo:sli_error:ratio_rate5m{namespace="app", slo="availability"}', value: 0}
+          - {labels: 'slo:sli_error:ratio_rate5m{namespace="app", slo="latency"}', value: 0}
+    alert_rule_test:
+      - {eval_time: 30m, alertname: SLOAvailabilityBurnFast, exp_alerts: []}
+      - {eval_time: 30m, alertname: SLOLatencyBurnFast, exp_alerts: []}

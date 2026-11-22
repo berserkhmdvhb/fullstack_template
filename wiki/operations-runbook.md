@@ -250,7 +250,7 @@ curl -fsS https://app.your-domain.example/
 The backend serves these on the metrics port (`METRICS_PORT`, default registry, one process per Pod):
 
 - `http_requests_total{handler,method,status}` — requests by route, method and status.
-- `http_request_duration_seconds{handler,method}` — latency histogram, buckets 0.1, 0.5, 1 s (no `status` label).
+- `http_request_duration_seconds{handler,method}` — latency histogram, buckets 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5 s (`LATENCY_BUCKETS` in `main.py`; no `status` label). The latency SLO's threshold is one of these bounds.
 - `http_request_duration_highr_seconds` — latency histogram, no labels, 21 buckets (0.01 s to 60 s), for percentiles.
 - `http_request_size_bytes{handler}` / `http_response_size_bytes{handler}` — Summaries of the `Content-Length` header values (count and sum only).
 - `process_*` and `python_*` — the Prometheus client's default process and runtime series (CPU, memory, file descriptors, GC).
@@ -274,6 +274,46 @@ kubectl -n monitoring port-forward svc/prometheus 9090:9090
 # Query error rate
 # Rate: http_requests_total{service="your-service-name-backend",status=~"5.."}
 ```
+
+### Service Level Objectives
+
+The chart records two SLOs from the backend's own series and alerts on how fast each spends its error
+budget (`monitoring.slo` in `values.yaml`; on by default, rendered whenever `monitoring.prometheusRule`
+renders the rules, in both flavours):
+
+| SLO | Measures | Objective (default) |
+|---|---|---|
+| `availability` | the share of requests answered 5xx (`http_requests_total`, `status=~"5.."`) | `monitoring.slo.availability.objective: 99.9` (percent not 5xx) |
+| `latency` | the share of requests slower than `thresholdSeconds` (`http_request_duration_seconds_bucket`) | `monitoring.slo.latency.objective: 95` under `thresholdSeconds: 0.5` |
+
+Both leave out the handlers matching `monitoring.slo.excludeHandlers` (default
+`.*/(health|healthz|readyz|livez|metrics)$`: the probes and the scrape are not user traffic). The latency
+histogram has no `status` label, so the latency SLI covers every response, errors included: a fast 500
+counts as fast. To change an objective, set it in `values.<env>.yaml`; the render fails unless it is a
+number strictly between 0 and 100, and unless `thresholdSeconds` is one of the histogram's bucket bounds
+(the list in [Prometheus Metrics](#prometheus-metrics); a new bound means changing `LATENCY_BUCKETS` in
+`main.py` and `chart.latencyBuckets` in the chart together, which a test keeps equal).
+`monitoring.slo.enabled: false` drops the SLO groups.
+
+**Recording rules** (group `slo-recording`): `slo:sli_error:ratio_rate<w>{namespace, slo}`, the error
+ratio (bad requests over all requests) for `slo` `availability` or `latency` over each window `w` in
+5m, 30m, 1h, 2h, 6h, 1d, 3d. A window without traffic records nothing, so no traffic never alerts.
+
+**Burn-rate alerts** (group `slo-alerts`; the Google SRE workbook's multiwindow, multi-burn-rate
+alerts). The burn rate is the error ratio divided by the error budget (1 − objective/100); 1 spends
+exactly a 30-day budget in 30 days. Each alert needs a long and a short window over the burn rate
+together: the long one proves the burn is significant, the short one that it is still happening, so
+an alert clears soon after the problem stops.
+
+| Alert | Fires when | Severity |
+|---|---|---|
+| `SLOAvailabilityBurnFast`, `SLOLatencyBurnFast` | burn rate > 14.4 over 1h and 5m, or > 6 over 6h and 30m (at 14.4 the budget is gone in about 2 days) | `critical`: page, act now |
+| `SLOAvailabilityBurnSlow`, `SLOLatencyBurnSlow` | burn rate > 3 over 1d and 2h, or > 1 over 3d and 6h (the budget runs out within the period) | `warning`: a ticket, fix within working hours |
+
+`HighErrorRate` (5xx above 5% for 10 minutes) is the older single-threshold alert and stays as a
+backstop: when it fires with an SLO alert, act on the SLO alert first. `make rules-test` checks every
+rule with the pinned `promtool` and runs the unit tests in `charts/your-service-name/tests/rules`
+(each alert fires just over its thresholds and stays quiet just under them).
 
 ### Grafana Dashboards
 

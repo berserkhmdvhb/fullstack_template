@@ -3,8 +3,8 @@
 #
 # Rule: a pin is the newest stable release published at least 7 days before it was pinned
 # (Renovate minimumReleaseAge). Pinned on 2026-11-20. The sha256 comes from the vendor's checksum
-# file (helm: <asset>.sha256sum; node: SHASUMS256.txt; kind, kubeconform, ct, helm-unittest, actionlint,
-# hadolint, gitleaks, oasdiff, cosign, kyverno: the release checksum file; uv: the <asset>.sha256 beside the asset; yq: the sha256 column of
+# file (helm: <asset>.sha256sum; node: SHASUMS256.txt; kind, kubeconform, promtool (sha256sums.txt), ct, helm-unittest,
+# actionlint, hadolint, gitleaks, oasdiff, cosign, kyverno: the release checksum file; uv: the <asset>.sha256 beside the asset; yq: the sha256 column of
 # the release `checksums`). squawk and shellcheck publish no checksum file: their sha256 is the GitHub
 # release-asset digest, confirmed against the downloaded bytes. bats is the GitHub tag archive (no
 # vendor checksum exists), hashed on download; a changed archive is refused.
@@ -56,6 +56,8 @@ kubectl	1.37.2	linux-amd64	https://dl.k8s.io/release/v1.37.2/bin/linux/amd64/kub
 kubectl-floor	1.34.13	linux-amd64	https://dl.k8s.io/release/v1.34.13/bin/linux/amd64/kubectl	b4bb494e9466a7a94bb851414548bc0d3e2f8da90757e6eccc3371e648648591
 kind	0.33.0	linux-amd64	https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64	aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
 kubeconform	0.8.0	linux-amd64	https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz	9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+# promtool: the Prometheus release archive; only its promtool is linked (make rules-test checks the chart's rules).
+promtool	3.16.0	linux-amd64	https://github.com/prometheus/prometheus/releases/download/v3.16.0/prometheus-3.16.0.linux-amd64.tar.gz	68727009472a2c02e1ff7f062fd5b3e637285bffc8fc2d340c76fb449d6e0f34
 k8s-openapi	1.34.13	any	https://raw.githubusercontent.com/kubernetes/kubernetes/v1.34.13/api/openapi-spec/swagger.json	d3b0cdc2fda15c753206d25ab459dc7c12df64e2fd652b6809687471ea751c37
 ct	3.15.0	linux-amd64	https://github.com/helm/chart-testing/releases/download/v3.15.0/chart-testing_3.15.0_linux_amd64.tar.gz	467561730f25fe09d5e6cd09a3e1f6aa759871c657a57602947c716d9be2c583
 helm-unittest	1.2.1	linux-amd64	https://github.com/helm-unittest/helm-unittest/releases/download/v1.2.1/helm-unittest-linux-amd64-1.2.1.tgz	48e86ecc1467b009630e5954375e5d8494139f73b466df5fe8c04fa45b634939

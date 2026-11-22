@@ -558,7 +558,29 @@
         "scrapeAnnotations": { "type": "boolean" },
         "serviceMonitor":  { "type": "boolean" },
         "prometheusRule":  { "type": "boolean" },
-        "prometheusRelease": { "type": "string" }
+        "prometheusRelease": { "type": "string" },
+        "slo": {
+          "description": "Service level objectives: recording rules and burn-rate alerts (wiki/operations-runbook.md). The range and the bucket bound are checked by templates/validate-values.yaml.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "availability": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "objective": { "type": "number" } }
+            },
+            "latency": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "objective": { "type": "number" },
+                "thresholdSeconds": { "type": "number" }
+              }
+            },
+            "excludeHandlers": { "type": "string" }
+          }
+        }
       }
     }
   },

@@ -87,6 +87,11 @@ SOURCES: dict[str, tuple[str, str, str]] = {
         "{dir}/CHECKSUMS",
         "https://github.com/yannh/kubeconform/releases/download/",
     ),
+    "promtool": (
+        "sumfile",
+        "{dir}/sha256sums.txt",
+        "https://github.com/prometheus/prometheus/releases/download/",
+    ),
     "ct": (
         "sumfile",
         "{dir}/checksums.txt",

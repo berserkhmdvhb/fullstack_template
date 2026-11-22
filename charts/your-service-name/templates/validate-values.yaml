@@ -105,6 +105,19 @@
 {{- fail (printf "%s: config.METRICS_PORT (%s) is the Cloud SQL proxy's health port (cloudSqlProxy.healthPort). Change one of them." (include "chart.fullname" .) (toString .Values.config.METRICS_PORT)) }}
 {{- end }}
 {{- /*
+  The SLO objectives are percents strictly between 0 and 100 (100 leaves no error budget, so every
+  burn rate divides by zero), and the latency threshold must be a bucket bound (chart.sloLatencyLe).
+*/ -}}
+{{- if .Values.monitoring.slo.enabled }}
+{{- range $s := list "availability" "latency" }}
+{{- $o := (get $.Values.monitoring.slo $s).objective }}
+{{- if or (le (float64 $o) 0.0) (ge (float64 $o) 100.0) }}
+{{- fail (printf "%s: monitoring.slo.%s.objective (%v) must be a number strictly between 0 and 100 (a percent of requests)." (include "chart.fullname" $) $s $o) }}
+{{- end }}
+{{- end }}
+{{- $_ := include "chart.sloLatencyLe" . }}
+{{- end }}
+{{- /*
   Opt-in tracing needs a collector URL: without it the backend refuses to start.
 */ -}}
 {{- if and .Values.observability.tracing.enabled (eq (toString .Values.observability.tracing.endpoint) "") }}

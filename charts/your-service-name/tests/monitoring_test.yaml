@@ -188,7 +188,7 @@ tests:
     set: {monitoring: {flavour: gmp, prometheusRule: true}}
     template: gmp-rules.yaml
     asserts:
-      - lengthEqual: {path: spec.groups, count: 1}
+      - lengthEqual: {path: spec.groups, count: 3}  # app-health, slo-recording, slo-alerts
       - equal: {path: 'spec.groups[0].name', value: app-health}
       - matchRegex: {path: 'spec.groups[0].rules[0].expr', pattern: 'http_requests_total'}
       - notMatchRegex: {path: 'spec.groups[0].rules[0].expr', pattern: 'kube_'}
@@ -235,7 +235,7 @@ tests:
     set: {monitoring: {prometheusRule: true}}
     template: prometheusrule.yaml
     asserts:
-      - lengthEqual: {path: spec.groups, count: 5}
+      - lengthEqual: {path: spec.groups, count: 7}  # 4 cluster groups, then the 3 app groups
       - equal: {path: 'spec.groups[0].name', value: pod-health}
       - equal: {path: 'spec.groups[1].name', value: resource-usage}
       - equal: {path: 'spec.groups[2].name', value: service-health}

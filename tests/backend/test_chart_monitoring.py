@@ -17,7 +17,8 @@ from tests.backend.test_chart_pod_security import (
     pod_specs,
     render,
 )
-from tests.backend.test_chart_production_guard import find_helm, require_helm
+from tests.backend.test_chart_production_guard import CHART, find_helm, require_helm
+from your_service_name.backend.main import LATENCY_BUCKETS
 
 BACKEND = "Deployment/svc-your-service-name-backend"
 FRONTEND = "Deployment/svc-your-service-name-frontend"
@@ -42,6 +43,7 @@ def _flavour(helm: str, values: str, flavour: str, *args: str) -> list[dict[str,
 
 
 CLUSTER_ON = ("--set", "monitoring.gmp.clusterRules.enabled=true")
+APP_GROUPS = ["app-health", "slo-recording", "slo-alerts"]
 
 
 def _kube_exprs(groups: list[dict[str, Any]]) -> list[str]:
@@ -62,10 +64,19 @@ def test_the_rule_groups_are_one_source_split_across_the_gmp_objects(
     assert groups
     app_groups, cluster_groups = rules[0]["spec"]["groups"], cluster[0]["spec"]["groups"]
     assert not _kube_exprs(app_groups), "the namespaced Rules must hold no kube_* rule"
-    assert [g["name"] for g in app_groups] == ["app-health"]
+    assert [g["name"] for g in app_groups] == APP_GROUPS
     # The operator's groups are the same two sets (its selectors say `namespace`, gmp's the label).
     assert [g["name"] for g in groups] == [g["name"] for g in [*cluster_groups, *app_groups]]
-    assert app_groups == groups[-1:]
+    assert app_groups == groups[-len(APP_GROUPS) :]
+
+
+def test_the_charts_latency_buckets_are_the_backends() -> None:
+    """chart.latencyBuckets is the backend's LATENCY_BUCKETS, as the client renders `le`."""
+    helpers = (CHART / "templates" / "_helpers.tpl").read_text(encoding="utf-8")
+    found = re.search(r'define "chart.latencyBuckets" -}}([^{]*){{-', helpers)
+    assert found, "_helpers.tpl no longer defines chart.latencyBuckets"
+    # str(1.0) is "1.0", as the client writes `le` (test_metrics_server.py reads the served bounds).
+    assert found.group(1).split() == [str(b) for b in LATENCY_BUCKETS]
 
 
 @pytest.mark.parametrize("label", ["exported_namespace", "kube_namespace"])

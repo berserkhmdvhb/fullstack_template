@@ -1,0 +1,85 @@
+suite: the SLO recording rules and burn-rate alerts (both flavours) and their guards
+release:
+  name: svc
+  namespace: app
+templates:
+  - prometheusrule.yaml
+  - gmp-rules.yaml
+  - validate-values.yaml
+tests:
+  - it: prometheus-operator holds the SLO recording rules and the four burn-rate alerts after app-health
+    set: {monitoring: {prometheusRule: true}}
+    template: prometheusrule.yaml
+    asserts:
+      - equal: {path: 'spec.groups[4].name', value: app-health}
+      - equal: {path: 'spec.groups[5].name', value: slo-recording}
+      - lengthEqual: {path: 'spec.groups[5].rules', count: 14}
+      - equal: {path: 'spec.groups[5].rules[0].record', value: 'slo:sli_error:ratio_rate5m'}
+      - equal: {path: 'spec.groups[5].rules[0].labels.slo', value: availability}
+      - matchRegex: {path: 'spec.groups[5].rules[0].expr', pattern: 'http_requests_total\{namespace="app", handler!~"\.\*/\(health\|healthz\|readyz\|livez\|metrics\)\$", status=~"5\.\."\}\[5m\]'}
+      - equal: {path: 'spec.groups[5].rules[13].record', value: 'slo:sli_error:ratio_rate3d'}
+      - equal: {path: 'spec.groups[5].rules[13].labels.slo', value: latency}
+      - matchRegex: {path: 'spec.groups[5].rules[13].expr', pattern: 'http_request_duration_seconds_bucket\{namespace="app", handler!~"[^"]+", le="0\.5"\}\[3d\]'}
+      - equal: {path: 'spec.groups[6].name', value: slo-alerts}
+      - equal: {path: 'spec.groups[6].rules[0].alert', value: SLOAvailabilityBurnFast}
+      - equal: {path: 'spec.groups[6].rules[1].alert', value: SLOAvailabilityBurnSlow}
+      - equal: {path: 'spec.groups[6].rules[2].alert', value: SLOLatencyBurnFast}
+      - equal: {path: 'spec.groups[6].rules[3].alert', value: SLOLatencyBurnSlow}
+      - equal: {path: 'spec.groups[6].rules[0].labels.severity', value: critical}
+      - equal: {path: 'spec.groups[6].rules[1].labels.severity', value: warning}
+      - matchRegex: {path: 'spec.groups[6].rules[0].expr', pattern: 'ratio_rate1h\{namespace="app", slo="availability"\} > 14\.4 \* \(1 - 99\.9 / 100\)'}
+      - matchRegex: {path: 'spec.groups[6].rules[3].expr', pattern: 'ratio_rate3d\{namespace="app", slo="latency"\} > 1 \* \(1 - 95 / 100\)'}
+      - isNotNullOrEmpty: {path: 'spec.groups[6].rules[2].annotations.summary'}
+      - isNotNullOrEmpty: {path: 'spec.groups[6].rules[2].annotations.description'}
+
+  - it: gmp Rules hold the same SLO groups
+    set: {monitoring: {flavour: gmp, prometheusRule: true}}
+    template: gmp-rules.yaml
+    asserts:
+      - equal: {path: 'spec.groups[0].name', value: app-health}
+      - equal: {path: 'spec.groups[1].name', value: slo-recording}
+      - equal: {path: 'spec.groups[2].name', value: slo-alerts}
+      - lengthEqual: {path: 'spec.groups[1].rules', count: 14}
+      - lengthEqual: {path: 'spec.groups[2].rules', count: 4}
+
+  - it: monitoring.slo.enabled false renders no SLO group, in either flavour
+    set: {monitoring: {prometheusRule: true, slo: {enabled: false}}}
+    asserts:
+      - lengthEqual: {path: spec.groups, count: 5}
+        template: prometheusrule.yaml
+
+  - it: monitoring.slo.enabled false, gmp
+    set: {monitoring: {flavour: gmp, prometheusRule: true, slo: {enabled: false}}}
+    template: gmp-rules.yaml
+    asserts:
+      - lengthEqual: {path: spec.groups, count: 1}
+
+  - it: a whole-second threshold selects the bucket the way the client writes it (le="1.0")
+    set: {monitoring: {prometheusRule: true, slo: {latency: {thresholdSeconds: 1}}}}
+    template: prometheusrule.yaml
+    asserts:
+      - matchRegex: {path: 'spec.groups[5].rules[7].expr', pattern: 'le="1\.0"'}
+
+  - it: the render refuses a latency threshold that is not a bucket bound
+    set: {monitoring: {slo: {latency: {thresholdSeconds: 0.3}}}}
+    template: validate-values.yaml
+    asserts:
+      - failedTemplate: {errorPattern: 'monitoring.slo.latency.thresholdSeconds \(0.3\) is not a bound of http_request_duration_seconds'}
+
+  - it: the render refuses an objective of 100
+    set: {monitoring: {slo: {availability: {objective: 100}}}}
+    template: validate-values.yaml
+    asserts:
+      - failedTemplate: {errorPattern: 'monitoring.slo.availability.objective \(100\) must be a number strictly between 0 and 100'}
+
+  - it: the render refuses an objective of 0
+    set: {monitoring: {slo: {latency: {objective: 0}}}}
+    template: validate-values.yaml
+    asserts:
+      - failedTemplate: {errorPattern: 'monitoring.slo.latency.objective \(0\) must be a number strictly between 0 and 100'}
+
+  - it: the schema refuses an objective that is not a number
+    set: {monitoring: {slo: {availability: {objective: "99.9"}}}}
+    template: validate-values.yaml
+    asserts:
+      - failedTemplate: {}

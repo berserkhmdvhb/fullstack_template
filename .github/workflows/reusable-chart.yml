@@ -21,12 +21,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # kubeconform, yq (the bootstrap render) and the pinned Kubernetes OpenAPI spec (k8s-openapi) its
-      # schemas come from, each checksum-verified; the CRD sources are fetched by their pinned sha256. The
-      # CRD check and kubeconform below then run offline.
-      - name: Install the pinned Helm, kubeconform and the schema sources
+      # kubeconform, promtool (the rule checks), yq (the bootstrap render and the rule extraction) and the
+      # pinned Kubernetes OpenAPI spec (k8s-openapi) its schemas come from, each checksum-verified; the CRD
+      # sources are fetched by their pinned sha256. The CRD check, kubeconform and the rule checks below
+      # then run offline.
+      - name: Install the pinned Helm, kubeconform, promtool and the schema sources
         run: |
-          scripts/tools.sh install helm4 helm-unittest kubeconform yq k8s-openapi crd-sources
+          scripts/tools.sh install helm4 helm-unittest kubeconform promtool yq k8s-openapi crd-sources
           echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
           echo "HELM_PLUGINS=$PWD/.tools/helm-plugins" >> "$GITHUB_ENV"
           python3 -m venv "$RUNNER_TEMP/pyyaml"
@@ -67,6 +68,8 @@ jobs:
         run: |
           scripts/ci/kubeconform.sh | tee "${RUNNER_TEMP}/kubeconform.txt"
           echo "- $(tail -n 1 "${RUNNER_TEMP}/kubeconform.txt")" >> "$GITHUB_STEP_SUMMARY"
+      - name: promtool checks the rules of both flavours and runs their unit tests (offline)
+        run: scripts/ci/rules-test.sh
       # The negative render: a production release whose config.ENV is not production would run the
       # backend with its production checks off, so validate-values.yaml must refuse it. The step fails
       # if that render succeeds, and if it fails for any other reason than the guard.

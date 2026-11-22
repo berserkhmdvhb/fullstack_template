@@ -1,0 +1,41 @@
+# promtool smoke tests for the older alerts: HighErrorRate (the app group) and PodFailed (the cluster
+# group), so a broken extraction of either set fails. The kube series carry both namespace labels:
+# the operator flavour selects `namespace`, gmp the object namespace label (exported_namespace).
+rule_files: [rules.yaml]
+# promtool otherwise orders the groups at random; the alerts read this step's recordings.
+group_eval_order: [slo-recording, slo-alerts]
+evaluation_interval: 1m
+
+tests:
+  - name: HighErrorRate fires on 10% 5xx held for 10m
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0+900x30'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0+100x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HighErrorRate
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: HighErrorRate
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: "High error rate detected (10%)"
+              description: "More than 5% of requests are returning 5xx errors."
+
+  - name: PodFailed fires on a Failed pod held for 5m
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_status_phase{namespace="app", exported_namespace="app", pod="p1", phase="Failed"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PodFailed
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: app, exported_namespace: app, pod: p1, phase: Failed}
+            exp_annotations:
+              summary: "Pod p1 has failed"
+              description: "Pod p1 is in Failed state."

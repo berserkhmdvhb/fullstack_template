@@ -678,4 +678,97 @@ key: password
       annotations:
         summary: "High error rate detected ({{ "{{" }} $value | humanizePercentage {{ "}}" }})"
         description: "More than 5% of requests are returning 5xx errors."
+{{- if .Values.monitoring.slo.enabled }}
+{{- /*
+   The SLOs (monitoring.slo; wiki/operations-runbook.md#service-level-objectives), SRE-workbook style.
+   slo:sli_error:ratio_rate<w>{slo=availability|latency} is the error ratio over the window w; the
+   alerts compare it to burn rate x error budget (1 - objective/100), a long and a short window
+   together (multiwindow, multi-burn-rate). A window without traffic records nothing (the
+   denominator is filtered to > 0), so no traffic fires no alert. The latency histogram has no
+   status label: the latency SLI covers every response, errors included.
+*/}}
+{{- $slo := .Values.monitoring.slo }}
+{{- $f := printf "namespace=%q, handler!~%q" .Release.Namespace $slo.excludeHandlers }}
+{{- $le := include "chart.sloLatencyLe" . }}
+- name: slo-recording
+  rules:
+{{- range $w := list "5m" "30m" "1h" "2h" "6h" "1d" "3d" }}
+    - record: slo:sli_error:ratio_rate{{ $w }}
+      labels:
+        slo: availability
+      expr: |
+        (
+          sum by (namespace) (rate(http_requests_total{{ "{" }}{{ $f }}, status=~"5.."}[{{ $w }}]))
+          or on (namespace)
+          0 * sum by (namespace) (rate(http_requests_total{{ "{" }}{{ $f }}}[{{ $w }}]))
+        )
+        /
+        (sum by (namespace) (rate(http_requests_total{{ "{" }}{{ $f }}}[{{ $w }}])) > 0)
+{{- end }}
+{{- range $w := list "5m" "30m" "1h" "2h" "6h" "1d" "3d" }}
+    - record: slo:sli_error:ratio_rate{{ $w }}
+      labels:
+        slo: latency
+      expr: |
+        1 - (
+          sum by (namespace) (rate(http_request_duration_seconds_bucket{{ "{" }}{{ $f }}, le="{{ $le }}"}[{{ $w }}]))
+          /
+          (sum by (namespace) (rate(http_request_duration_seconds_count{{ "{" }}{{ $f }}}[{{ $w }}])) > 0)
+        )
+{{- end }}
+- name: slo-alerts
+  rules:
+{{- $slis := list
+      (dict "slo" "availability" "name" "Availability" "bad" "of requests answered 5xx")
+      (dict "slo" "latency" "name" "Latency" "bad" (printf "of requests slower than %ss" $le)) }}
+{{- $speeds := list
+      (dict "name" "Fast" "severity" "critical" "pairs" (list (list "1h" "5m" "14.4") (list "6h" "30m" "6"))
+        "text" "at least 14.4x the sustainable rate over 1h and 5m, or 6x over 6h and 30m: at 14.4x a 30-day budget is gone in about 2 days. Act now.")
+      (dict "name" "Slow" "severity" "warning" "pairs" (list (list "1d" "2h" "3") (list "3d" "6h" "1"))
+        "text" "at least 3x the sustainable rate over 1d and 2h, or 1x over 3d and 6h: at that pace the 30-day budget is spent by the end of the period. Fix it within working hours.") }}
+{{- range $s := $slis }}
+{{- $o := (get $slo $s.slo).objective }}
+{{- $r := printf "{namespace=%q, slo=%q}" $.Release.Namespace $s.slo }}
+{{- range $sp := $speeds }}
+    - alert: SLO{{ $s.name }}Burn{{ $sp.name }}
+      expr: |
+{{- range $i, $p := $sp.pairs }}
+        {{ if $i }}or
+        {{ end }}(
+          slo:sli_error:ratio_rate{{ index $p 0 }}{{ $r }} > {{ index $p 2 }} * (1 - {{ $o }} / 100)
+          and
+          slo:sli_error:ratio_rate{{ index $p 1 }}{{ $r }} > {{ index $p 2 }} * (1 - {{ $o }} / 100)
+        )
+{{- end }}
+      labels:
+        severity: {{ $sp.severity }}
+      annotations:
+        summary: "{{ $s.name }} SLO error budget burning {{ lower $sp.name }} ({{ "{{" }} $value | humanizePercentage {{ "}}" }} {{ $s.bad }})"
+        description: "The {{ $o }}% {{ $s.slo }} objective's error budget is burning {{ $sp.text }}"
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+   The bounds of http_request_duration_seconds, written the way prometheus_client renders `le`
+   (1.0, not 1). The one chart copy of the backend's LATENCY_BUCKETS (main.py); a test keeps the two
+   equal. Change both together.
+*/}}
+{{- define "chart.latencyBuckets" -}}0.05 0.1 0.25 0.5 1.0 2.5 5.0{{- end -}}
+
+{{/*
+   The `le` label of the bucket at monitoring.slo.latency.thresholdSeconds; fails when the threshold
+   is not a bound (the latency SLI reads that bucket, so any other value would match nothing).
+*/}}
+{{- define "chart.sloLatencyLe" -}}
+{{- $t := .Values.monitoring.slo.latency.thresholdSeconds -}}
+{{- $le := "" -}}
+{{- range splitList " " (include "chart.latencyBuckets" .) -}}
+{{- if eq (float64 .) (float64 $t) }}{{ $le = . }}{{ end -}}
+{{- end -}}
+{{- if not $le -}}
+{{- fail (printf "%s: monitoring.slo.latency.thresholdSeconds (%v) is not a bound of http_request_duration_seconds (%s): the latency SLI reads the bucket at the threshold. Pick one of them, or change the backend's LATENCY_BUCKETS and chart.latencyBuckets together." (include "chart.fullname" .) $t (include "chart.latencyBuckets" .)) -}}
+{{- end -}}
+{{- $le -}}
 {{- end -}}

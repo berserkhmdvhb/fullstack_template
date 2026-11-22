@@ -354,6 +354,7 @@ NOT_ALL_ON = {
     "postgresql.enabled": "a database path, not an option: the values files render both",
     "externalDatabase.enabled": "a database path, not an option: the values files render both",
     "monitoring.gmp.clusterRules.enabled": "cluster-scoped: the bootstrap renders it",
+    "monitoring.slo.enabled": "on by default: a render with the rules on carries the SLO groups",
     "cloudSqlProxy.enabled": "needs a managed database, so it fails with the in-cluster: PROXY_ON",
     "cloudSqlProxy.privateIp": "a proxy flag: PROXY_ON turns it on with the proxy",
     "cloudSqlProxy.autoIamAuthn": "a proxy flag: PROXY_ON turns it on with the proxy",

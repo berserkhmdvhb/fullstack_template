@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
+import re
 import socket
 import urllib.request
 
 from fastapi.testclient import TestClient
-from prometheus_client import start_http_server
+from prometheus_client import REGISTRY, generate_latest, start_http_server
 
-from your_service_name.backend.main import create_app
+from your_service_name.backend.main import LATENCY_BUCKETS, create_app
 
 
 def _free_port() -> int:
@@ -47,3 +48,15 @@ def test_the_metrics_server_answers_on_its_port_and_the_api_app_does_not() -> No
         "db_pool_max_overflow",
     ):
         assert name in body
+
+
+def test_the_labelled_latency_histogram_has_the_slo_buckets() -> None:
+    """The latency SLO's threshold is a bucket bound: the served `le` set is LATENCY_BUCKETS."""
+    with TestClient(create_app()) as client:
+        client.get("/api/v1/healthz")
+    body = generate_latest(REGISTRY).decode()
+    bounds = set(
+        re.findall(r'^http_request_duration_seconds_bucket\{[^}]*le="([^"]+)"', body, re.MULTILINE)
+    )
+    assert bounds == {*(str(b) for b in LATENCY_BUCKETS), "+Inf"}
+    assert LATENCY_BUCKETS == (0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)

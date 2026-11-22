@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 import yaml
 
+from tests.backend.test_chart_monitoring import APP_GROUPS
 from tests.backend.test_chart_pod_security import ALL_ON, VALUES_FILES
 from tests.backend.test_chart_production_guard import CHART, ROOT, find_helm, require_helm
 
@@ -634,7 +635,9 @@ def test_the_bootstraps_clusterrules_are_the_operators_kube_rules_rule_by_rule(
         "PrometheusRule",
     )
     gmp_rules = _rule_set(cluster["spec"]["groups"], label="exported_namespace")
-    operator_rules = _rule_set([g for g in operator["spec"]["groups"] if g["name"] != "app-health"])
+    operator_rules = _rule_set(
+        [g for g in operator["spec"]["groups"] if g["name"] not in APP_GROUPS]
+    )
     assert gmp_rules
     assert gmp_rules == operator_rules
 

@@ -1,0 +1,121 @@
+# promtool unit tests for the slow-burn SLO alerts (see slo-fast.test.yaml). Samples every 5m keep
+# three days of series small; the slow windows (2h, 6h, 1d, 3d) need no finer step. A constant error
+# ratio tests the 1x pair (3d and 6h); 26h of errors after 2d of ten times the traffic, clean, dilutes
+# the 3d window and tests the 3x pair (1d and 2h) on its own.
+rule_files: [rules.yaml]
+# promtool otherwise orders the groups at random; the alerts read this step's recordings.
+group_eval_order: [slo-recording, slo-alerts]
+evaluation_interval: 10m
+
+tests:
+  - name: availability at 1.1x (constant) fires the slow alert through the 3d and 6h pair
+    interval: 5m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0+49945x90'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0+55x90'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: SLOAvailabilityBurnSlow
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: app, slo: availability}
+            exp_annotations:
+              summary: "Availability SLO error budget burning slow (0.11% of requests answered 5xx)"
+              description: &availability_slow "The 99.9% availability objective's error budget is burning at least 3x the sustainable rate over 1d and 2h, or 1x over 3d and 6h: at that pace the 30-day budget is spent by the end of the period. Fix it within working hours."
+
+  - name: availability at 0.9x (constant) stays quiet
+    interval: 5m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0+49955x90'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0+45x90'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: SLOAvailabilityBurnSlow
+        exp_alerts: []
+
+  - name: availability at 3.1x for 26h after 2d of heavy clean traffic fires through the 1d and 2h pair alone
+    interval: 5m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0+500000x576 288049845+49845x312'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0x576 155+155x312'
+    alert_rule_test:
+      - eval_time: 74h
+        alertname: SLOAvailabilityBurnSlow
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: app, slo: availability}
+            exp_annotations:
+              summary: "Availability SLO error budget burning slow (0.31% of requests answered 5xx)"
+              description: *availability_slow
+
+  - name: availability at 2.9x for 26h after 2d of heavy clean traffic stays quiet
+    interval: 5m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0+500000x576 288049855+49855x312'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0x576 145+145x312'
+    alert_rule_test:
+      - eval_time: 74h
+        alertname: SLOAvailabilityBurnSlow
+        exp_alerts: []
+
+  - name: latency at 1.1x (constant) fires the slow alert through the 3d and 6h pair
+    interval: 5m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0+4725x90'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0+5000x90'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: SLOLatencyBurnSlow
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: app, slo: latency}
+            exp_annotations:
+              summary: "Latency SLO error budget burning slow (5.5% of requests slower than 0.5s)"
+              description: &latency_slow "The 95% latency objective's error budget is burning at least 3x the sustainable rate over 1d and 2h, or 1x over 3d and 6h: at that pace the 30-day budget is spent by the end of the period. Fix it within working hours."
+
+  - name: latency at 0.9x (constant) stays quiet
+    interval: 5m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0+4775x90'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0+5000x90'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: SLOLatencyBurnSlow
+        exp_alerts: []
+
+  - name: latency at 3.2x for 26h after 2d of heavy clean traffic fires through the 1d and 2h pair alone
+    interval: 5m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0+50000x576 28804200+4200x312'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0+50000x576 28805000+5000x312'
+    alert_rule_test:
+      - eval_time: 74h
+        alertname: SLOLatencyBurnSlow
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: app, slo: latency}
+            exp_annotations:
+              summary: "Latency SLO error budget burning slow (16% of requests slower than 0.5s)"
+              description: *latency_slow
+
+  - name: latency at 2.8x for 26h after 2d of heavy clean traffic stays quiet
+    interval: 5m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0+50000x576 28804300+4300x312'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0+50000x576 28805000+5000x312'
+    alert_rule_test:
+      - eval_time: 74h
+        alertname: SLOLatencyBurnSlow
+        exp_alerts: []

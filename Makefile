@@ -4,7 +4,7 @@
     ruff-format ruff-format-check ruff-lint ruff-lint-fix mypy-check \
     openapi-gen openapi-drift-check env-docs env-docs-check \
     shellcheck image-checks frontend-deployment-id tools tools-dry-run pins-refresh \
-    check-all check-all-dry precommit chart-unittest kubeconform crd-schemas crd-schemas-check \
+    check-all check-all-dry precommit chart-unittest kubeconform rules-test crd-schemas crd-schemas-check \
     test test-unit test-integration test-e2e test-contract test-live test-file test-file-function test-fast \
     test-coverage test-coverage-xml test-cov-html test-coverage-rep test-coverage-file \
     check-updates check-toml \
@@ -73,6 +73,7 @@ help::
 	@echo "  precommit                Run every pre-commit hook on all files (pinned pre-commit, no network)"
 	@echo "  chart-unittest           Run the chart's helm-unittest suites (pinned plugin, no cluster)"
 	@echo "  kubeconform              Validate every chart and bootstrap render, strict and offline (local schemas only)"
+	@echo "  rules-test               Check the chart's alert and recording rules (both flavours) with promtool, and run its rule unit tests"
 	@echo "  crd-schemas              Regenerate the vendored CRD schemas from their pinned sources (fetches, sha256-checked)"
 	@echo "  crd-schemas-check        Fail if the vendored CRD schemas differ from what their pinned sources generate"
 	@echo "  openapi-gen              Regenerate openapi.json + TS types from the backend single source"
@@ -334,6 +335,12 @@ chart-unittest:
 # only: no network. Needs scripts/tools.sh install helm4 kubeconform yq k8s-openapi.
 kubeconform:
 	scripts/ci/kubeconform.sh
+
+# The chart's rules in both monitoring flavours through the pinned promtool: `promtool check rules` on
+# the rendered groups and `promtool test rules` on charts/your-service-name/tests/rules. Offline.
+# Needs scripts/tools.sh install helm4 promtool yq.
+rules-test:
+	scripts/ci/rules-test.sh
 
 # The vendored CRD schemas (charts/your-service-name/ci/crds), generated from the pinned upstream CRDs
 # in ci/crds/sources.tsv. The fetch (scripts/tools.sh install crd-sources, also part of `make tools`) is the only

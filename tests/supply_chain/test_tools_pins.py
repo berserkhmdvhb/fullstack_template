@@ -22,8 +22,8 @@ SRC = SCRIPT.read_text()
 BASH: str = shutil.which("bash") or "/usr/bin/bash"
 PLATFORM = "linux-amd64"
 REQUIRED = {
-    "helm3", "helm4", "kind", "kubeconform", "ct", "helm-unittest", "actionlint", "hadolint",
-    "gitleaks", "squawk", "oasdiff", "cosign", "kyverno", "yq", "bats", "node",
+    "helm3", "helm4", "kind", "kubeconform", "promtool", "ct", "helm-unittest", "actionlint",
+    "hadolint", "gitleaks", "squawk", "oasdiff", "cosign", "kyverno", "yq", "bats", "node",
     "zizmor", "schemathesis", "pre-commit", "python", "kubectl", "kubectl-floor", "uv",
 }  # fmt: skip
 
