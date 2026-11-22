@@ -5,6 +5,10 @@
 {{- if eq (int .Values.waf.health.port) (int .Values.waf.service.port) }}
 {{- fail "waf.health.port must differ from waf.service.port (both listeners bind in the one Pod)" }}
 {{- end }}
+{{- $gke := .Values.edge.gateway.gke }}
+{{- if and $gke.enabled (lt (int .Values.waf.timeouts.requestSeconds) (int $gke.timeoutSec)) }}
+{{- fail (printf "waf.timeouts.requestSeconds (%v) must be at least edge.gateway.gke.timeoutSec (%v): the WAF would cut off a request the load balancer still allows" .Values.waf.timeouts.requestSeconds $gke.timeoutSec) }}
+{{- end }}
 {{- if and .Values.waf.upstream.host (not .Values.waf.upstreamPeers) }}
 {{- fail "waf.upstream.host is set but waf.upstreamPeers is empty: list the upstream's NetworkPolicy peers, or the default-deny egress drops the WAF's traffic" }}
 {{- end }}
@@ -138,6 +142,18 @@ spec:
                             typed_config:
                               "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
                               stat_prefix: waf
+                              # One canonical path for Coraza and the router: dot segments resolved,
+                              # repeated slashes merged. An encoded slash (%2F) is refused (400): no
+                              # API route has one, and it is a classic way to split a path differently
+                              # for the WAF and the backend.
+                              normalize_path: true
+                              merge_slashes: true
+                              path_with_escaped_slashes_action: REJECT_REQUEST
+                              # Slow or unfinished requests are cut off (408): headers within
+                              # waf.timeouts.requestHeadersSeconds, the whole request within
+                              # waf.timeouts.requestSeconds (the buffer below holds it until then).
+                              request_headers_timeout: {{ .Values.waf.timeouts.requestHeadersSeconds }}s
+                              request_timeout: {{ .Values.waf.timeouts.requestSeconds }}s
                               # xff_num_trusted_hops is left at 0 on purpose: it also selects
                               # Envoy's trusted client address, so a non-zero value would hide the
                               # client behind the ingress Pod. The cost: Envoy overwrites

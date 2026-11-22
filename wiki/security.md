@@ -732,7 +732,9 @@ operational steps in
   or JSON body is blocked, not only one in the URL, and a larger body is a `413`. A buffer filter
   between Coraza and the router holds every request until Coraza has passed all of it, so a
   request whose body never finishes never reaches the backend. Envoy's overload manager bounds
-  its heap at 80% of the WAF's memory; `waf.extraDirectives` adds rule exclusions
+  its heap at 80% of the WAF's memory (the container limit stays the hard bound: Coraza's Wasm
+  memory is outside that heap); paths are normalised and encoded slashes refused, slow clients get
+  a `408`; `waf.extraDirectives` adds rule exclusions
   ([Containerization, Dockerfile.waf](./containerization.md#dockerfilewaf)). The same chart
   value sets the backend's limit through the ConfigMap; the backend's built-in default is kept
   equal to it by a test. Envoy's admin

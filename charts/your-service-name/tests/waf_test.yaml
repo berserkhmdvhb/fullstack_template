@@ -244,17 +244,49 @@ tests:
       waf: {extraDirectives: ["SecRuleRemoveById 920420"]}
     asserts:
       - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'Include @owasp_crs/\*\.conf\\",\\"SecRuleRemoveById 920420\\"\]'}
-  - it: the documented binary-upload exclusion renders as two directives after CRS
+  - it: the documented binary-upload exclusion (POST to the exact upload path only) renders after CRS
     template: waf-proxy.yaml
     documentSelector: {path: kind, value: Deployment}
     set:
       waf:
         extraDirectives:
           - SecRuleRemoveById 920420
-          - >-
-            SecRule REQUEST_URI "@beginsWith /api/v1/uploads"
-            "id:10001,phase:1,pass,nolog,ctl:requestBodyAccess=Off"
+          - SecRule REQUEST_METHOD "@streq POST" "id:10001,phase:1,pass,nolog,chain"
+          - SecRule REQUEST_FILENAME "@streq /api/v1/uploads" "ctl:requestBodyAccess=Off"
     asserts:
       - matchRegex:
           path: 'spec.template.spec.containers[0].args[1]'
-          pattern: 'owasp_crs/\*\.conf\\",\\"SecRuleRemoveById 920420\\",\\"SecRule REQUEST_URI \\\\\\"@beginsWith /api/v1/uploads\\\\\\" \\\\\\"id:10001,phase:1,pass,nolog,ctl:requestBodyAccess=Off\\\\\\"\\"\]'
+          pattern: 'owasp_crs/\*\.conf\\",\\"SecRuleRemoveById 920420\\",\\"SecRule REQUEST_METHOD \\\\\\"@streq POST\\\\\\" \\\\\\"id:10001,phase:1,pass,nolog,chain\\\\\\"\\",\\"SecRule REQUEST_FILENAME \\\\\\"@streq /api/v1/uploads\\\\\\" \\\\\\"ctl:requestBodyAccess=Off\\\\\\"\\"\]'
+  - it: the connection manager normalises the path (one canonical path for Coraza and the router) and rejects escaped slashes
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - matchRegex:
+          path: 'spec.template.spec.containers[0].args[1]'
+          pattern: 'stat_prefix: waf[\s\S]+?normalize_path: true\s+merge_slashes: true\s+path_with_escaped_slashes_action: REJECT_REQUEST\s'
+  - it: slow headers and slow or unfinished requests are cut off (defaults 10 s and 120 s)
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'stat_prefix: waf[\s\S]+?request_headers_timeout: 10s\s+request_timeout: 120s\s'}
+  - it: the timeouts come from values
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      waf: {timeouts: {requestHeadersSeconds: 5, requestSeconds: 300}}
+    asserts:
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'request_headers_timeout: 5s\s+request_timeout: 300s\s'}
+  - it: with the GKE backend policy on, a request timeout below its timeoutSec fails the render
+    template: waf-proxy.yaml
+    set:
+      waf: {timeouts: {requestSeconds: 60}}
+      edge: {gateway: {gke: {enabled: true, timeoutSec: 120}}}
+    asserts:
+      - failedTemplate: {errorPattern: "waf.timeouts.requestSeconds"}
+  - it: with the GKE backend policy off, a shorter request timeout is fine
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      waf: {timeouts: {requestSeconds: 60}}
+    asserts:
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'request_timeout: 60s\s'}
