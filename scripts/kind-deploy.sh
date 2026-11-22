@@ -63,7 +63,8 @@ contexts="$(kubectl config get-contexts -o name)"
 [[ "$contexts" == "$CONTEXT" ]] || die "refusing: $KUBECONFIG holds other contexts than $CONTEXT"
 
 minor() { jq -r ".$1.minor" <<<"$2" | tr -cd '0-9'; }
-server="$(minor serverVersion "$(kubectl version -o json)")"
+# Any kubectl reads the server's version (its skew warning is moot here: the leg's own is picked next).
+server="$(minor serverVersion "$(kubectl version -o json 2>/dev/null)")"
 pin="$(awk -F'\t' -v m="$server" '!/^#/ && $3 ~ ("^kindest/node:v1\\." m "\\.") {print $2}' "$ROOT/tools/kind-nodes.tsv")"
 [[ -n "$pin" ]] || die "no pinned kubectl for a 1.$server server (tools/kind-nodes.tsv)"
 WORK="$(mktemp -d)"
@@ -109,12 +110,12 @@ fi
 kind_args() { # chart dir, namespace
   local chart="$1" ns="$2" id
   for id in "${image_ids[@]}"; do
-    if yq -e ".images | has(\"$id\")" "$chart/values.yaml" >/dev/null; then
+    if yq -e ".images | has(\"$id\")" "$chart/values.yaml" >/dev/null 2>&1; then
       printf '%s\n' --set-string "images.$id.registry=" --set-string "images.$id.repository=kind-$CLUSTER/$id" \
         --set-string "images.$id.tag=$tag"
     fi
   done
-  if yq -e '.networkPolicy | has("monitoringNamespaceSelector") and has("monitoringPodSelector")' "$chart/values.yaml" >/dev/null; then
+  if yq -e '.networkPolicy | (has("monitoringNamespaceSelector") and has("monitoringPodSelector"))' "$chart/values.yaml" >/dev/null 2>&1; then
     printf '%s\n' --set-string "networkPolicy.monitoringNamespaceSelector.kubernetes\\.io/metadata\\.name=$ns" \
       --set-string "networkPolicy.monitoringPodSelector.metrics-collector=true"
   fi
@@ -210,7 +211,17 @@ if [[ -n "$base" ]]; then
   step "install the chart of the base commit $base, as the deployer"
   mkdir -p "$WORK/base"
   git archive "$commit" charts/your-service-name | tar -x -C "$WORK/base"
-  deploy "$WORK/base/charts/your-service-name"
+  base_chart="$WORK/base/charts/your-service-name"
+  # A base chart from before the PostgreSQL Pod mounted the backup PVC cannot bind that PVC before
+  # the first backup on a WaitForFirstConsumer class, so its --wait would time out: install it
+  # without backups (the upgrade below turns them on).
+  base_extra=()
+  if ! helm template "$RELEASE" "$base_chart" -n "$NS" -f "$base_chart/values.local.yaml" -f "$values" \
+      --show-only templates/postgresql-statefulset.yaml 2>/dev/null | grep -q 'claimName: .*-pg-backup-pvc'; then
+    echo "kind-deploy: the base chart does not bind its backup PVC at install: installing it without backups"
+    base_extra=(--set postgresql.backup.enabled=false)
+  fi
+  deploy "$base_chart" "${base_extra[@]}"
   migrated
   marker="kind-$tag"
   psql_db "CREATE TABLE IF NOT EXISTS kind_upgrade_check (marker text); INSERT INTO kind_upgrade_check VALUES ('$marker')"
@@ -220,8 +231,9 @@ if [[ -n "$base" ]]; then
   deploy "$CHART"
   migrated
   uids > "$WORK/after"
-  diff "$WORK/before" "$WORK/after" || die "a namespace or volume was replaced by the upgrade"
-  ok "no namespace or volume was deleted"
+  # Every namespace and volume of before is still there, by uid (the upgrade may add the backup PVC).
+  ! grep -vxFf "$WORK/after" "$WORK/before" || die "a namespace or volume (above) was replaced by the upgrade"
+  ok "no namespace or volume was deleted ($(wc -l < "$WORK/before") kept, $(wc -l < "$WORK/after") after)"
   [[ "$(psql_db "SELECT count(*) FROM kind_upgrade_check WHERE marker = '$marker'")" == 1 ]] ||
     die "the row written before the upgrade is gone"
   ok "the database row survived the upgrade"

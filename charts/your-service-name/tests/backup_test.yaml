@@ -77,3 +77,14 @@ tests:
       postgresql: {backup: {enabled: false}}
     asserts:
       - lengthEqual: {path: spec.ingress, count: 2}
+  - it: the backup Pods carry the labels the database's NetworkPolicy admits
+    template: pg-backup-cronjob.yaml
+    documentSelector: {path: kind, value: CronJob}
+    asserts:
+      - equal: {path: 'spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/component"]', value: backup}
+      - equal: {path: 'spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/instance"]', value: svc}
+  - it: the verify Pods carry them too
+    template: pg-backup-verify-cronjob.yaml
+    asserts:
+      - equal: {path: 'spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/component"]', value: backup-verification}
+      - equal: {path: 'spec.jobTemplate.spec.template.metadata.labels["app.kubernetes.io/instance"]', value: svc}

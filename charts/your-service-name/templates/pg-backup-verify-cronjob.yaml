@@ -29,6 +29,11 @@ spec:
     spec:
       ttlSecondsAfterFinished: 86400
       template:
+        metadata:
+          # What the database's NetworkPolicy admits (db-network-policy.yaml).
+          labels:
+{{- include "chart.labels" . | nindent 12 }}
+            app.kubernetes.io/component: backup-verification
         spec:
           restartPolicy: OnFailure
           securityContext:
