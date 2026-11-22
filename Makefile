@@ -268,6 +268,7 @@ export HELM_PLUGINS := $(CURDIR)/.tools/helm-plugins
 
 tools:
 	@scripts/tools.sh install
+	@scripts/tools.sh install crd-sources
 
 tools-dry-run:
 	@scripts/tools.sh --dry-run install
@@ -331,13 +332,14 @@ kubeconform:
 	scripts/ci/kubeconform.sh
 
 # The vendored CRD schemas (charts/your-service-name/ci/crds), generated from the pinned upstream CRDs
-# in ci/crds/sources.tsv. The fetch is the only network step (sha256-checked, cached in .tools/crd-sources).
+# in ci/crds/sources.tsv. The fetch (scripts/tools.sh install crd-sources, also part of `make tools`) is the only
+# network step (sha256-checked, cached in .tools/crd-sources).
 crd-schemas:
-	$(PYTHON) -I scripts/ci/kube_schemas.py crds fetch
+	scripts/tools.sh install crd-sources
 	$(PYTHON) -I scripts/ci/kube_schemas.py crds generate
 
 crd-schemas-check:
-	$(PYTHON) -I scripts/ci/kube_schemas.py crds fetch
+	scripts/tools.sh install crd-sources
 	$(PYTHON) -I scripts/ci/kube_schemas.py crds check
 
 # -------------------------------------------------------------------

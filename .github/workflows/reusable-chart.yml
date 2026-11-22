@@ -26,12 +26,11 @@ jobs:
       # CRD check and kubeconform below then run offline.
       - name: Install the pinned Helm, kubeconform and the schema sources
         run: |
-          scripts/tools.sh install helm4 helm-unittest kubeconform yq k8s-openapi
+          scripts/tools.sh install helm4 helm-unittest kubeconform yq k8s-openapi crd-sources
           echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
           echo "HELM_PLUGINS=$PWD/.tools/helm-plugins" >> "$GITHUB_ENV"
           python3 -m venv "$RUNNER_TEMP/pyyaml"
           "$RUNNER_TEMP/pyyaml/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pyyaml.txt
-          "$RUNNER_TEMP/pyyaml/bin/python" -I scripts/ci/kube_schemas.py crds fetch
       # ct calls yamllint (with the tracked config the pre-commit hook also uses) and yamale (Chart.yaml schema).
       # GitHub runners ship neither and no uv, so each gets a venv from its hashed lock, as zizmor does in ci.yml.
       - name: Install chart-testing, yamllint and yamale

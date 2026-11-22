@@ -156,7 +156,7 @@ def cached(sha: str) -> bytes:
     path = CACHE / sha
     if not path.is_file():
         die(
-            f"{path} is missing: run `make crd-schemas-check` (it fetches the pinned sources) first"
+            f"{path} is missing: run `scripts/tools.sh install crd-sources` (or `make tools`) first"
         )
     data = path.read_bytes()
     if _sha256(data) != sha:

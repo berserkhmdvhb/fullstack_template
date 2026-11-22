@@ -6,6 +6,7 @@ spec (tools/pins.tsv, k8s-openapi) and the CRDs from the committed charts/your-s
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -121,12 +122,71 @@ def _run(*args: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+INSTALL = "scripts/tools.sh install crd-sources"
+
+
 def test_the_committed_crd_schemas_are_what_the_pinned_sources_generate() -> None:
-    """Fetch (sha256-checked, cached in .tools/crd-sources) then regenerate and compare."""
-    fetched = _run("crds", "fetch", env={})
-    assert fetched.returncode == 0, fetched.stderr
+    """Regenerate from the cached pinned sources (.tools/crd-sources, put there by the tool install)
+    and compare. Offline: without the cache this fails and names the install command."""
     checked = _run("crds", "check", env={})
     assert checked.returncode == 0, checked.stderr
+
+
+def test_without_the_cache_the_check_fails_and_names_the_install(tmp_path: Path) -> None:
+    result = _run("crds", "check", env={"CRD_CACHE": str(tmp_path / "empty")})
+    assert result.returncode == 1
+    assert INSTALL in result.stderr
+
+
+def test_this_module_never_fetches() -> None:
+    """No test here may reach the network: no call passes the fetch subcommand."""
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            consts = [a.value for a in node.args if isinstance(a, ast.Constant)]
+            assert "fetch" not in consts, ast.unparse(node)
+    imported = {
+        alias.name.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import | ast.ImportFrom)
+        for alias in (
+            node.names if isinstance(node, ast.Import) else [ast.alias(node.module or "")]
+        )
+    }
+    assert not imported & {"urllib", "http", "requests", "httpx", "socket"}, imported
+
+
+def test_the_tool_install_fetches_the_crd_sources() -> None:
+    result = subprocess.run(
+        [BASH, str(ROOT / "scripts" / "tools.sh"), "--dry-run", "install", "crd-sources"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "scripts/ci/kube_schemas.py crds fetch" in result.stdout
+
+
+def test_make_tools_fetches_the_crd_sources_too() -> None:
+    result = subprocess.run(
+        [shutil.which("make") or "/usr/bin/make", "-n", "tools"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert INSTALL in result.stdout
+
+
+def test_the_ci_unit_job_installs_the_crd_sources_before_the_tests() -> None:
+    backend = ROOT / ".github" / "workflows" / "reusable-backend.yml"
+    steps = yaml.safe_load(backend.read_text(encoding="utf-8"))["jobs"]["unit"]["steps"]
+    runs = [str(s.get("run", "")) for s in steps]
+    install = next(i for i, r in enumerate(runs) if "scripts/tools.sh install" in r)
+    assert "crd-sources" in runs[install].split("scripts/tools.sh install", 1)[1].split("\n")[0]
+    tests = next(i for i, r in enumerate(runs) if "make test-unit" in r)
+    assert install < tests
 
 
 CRD = {
@@ -309,7 +369,7 @@ def test_the_chart_workflow_installs_the_sources_then_runs_both_checks_offline()
     steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["chart"]["steps"]
     runs = [str(s.get("run", "")) for s in steps]
     install = next(i for i, r in enumerate(runs) if "scripts/tools.sh install helm4" in r)
-    assert all(t in runs[install] for t in ("kubeconform", "yq", "k8s-openapi", "crds fetch"))
+    assert all(t in runs[install] for t in ("kubeconform", "yq", "k8s-openapi", "crd-sources"))
     check = next(i for i, r in enumerate(runs) if "kube_schemas.py crds check" in r)
     validate = next(i for i, r in enumerate(runs) if "scripts/ci/kubeconform.sh" in r)
     assert install < check < validate

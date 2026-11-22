@@ -2,6 +2,7 @@
 # Install the pinned dev toolchain into ./.tools (never system-wide, never via a piped installer).
 #
 # Usage: scripts/tools.sh [--dry-run] install [name...]   install all pins, or just the named ones
+#                                                         (crd-sources: the pinned CRD sources)
 #        scripts/tools.sh list                            show the pins for this platform
 #
 # Every download goes to a temp file, is checked against the sha256 in tools/pins.tsv, and only
@@ -197,6 +198,16 @@ cmd_install() {
     [[ "$URL" == uv:* || "$SHA" =~ ^[0-9a-f]{64}$ ]] || die "$NAME: pin has no sha256"
     install_pin
   done < "$PINS"
+  # crd-sources: the upstream CRDs pinned with their sha256 in charts/your-service-name/ci/crds/sources.tsv,
+  # cached in $TOOLS_DIR/crd-sources (scripts/ci/kube_schemas.py checks each digest; a mismatch is refused).
+  # The CRD schema check and its test read only that cache. Named only (`make tools` names it), so a
+  # bare install fetches nothing but the pins.
+  if [[ "$wanted" == *" crd-sources "* ]]; then
+    NAME=crd-sources
+    found+="crd-sources "
+    echo "==> crd-sources (charts/your-service-name/ci/crds/sources.tsv)"
+    run env CRD_CACHE="$TOOLS_DIR/crd-sources" "$(safe_python)" -I "$ROOT/scripts/ci/kube_schemas.py" crds fetch
+  fi
   for n in "$@"; do [[ "$found" == *" $n "* ]] || die "no pin named '$n' for $PLATFORM"; done
   helm_default="$(sed -n 's/^#default-helm: *//p' "$PINS")"
   if [[ -n "$helm_default" && ( $# -eq 0 || "$wanted" == *" helm$helm_default "* ) ]]; then
