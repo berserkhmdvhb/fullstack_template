@@ -15,8 +15,10 @@ import re
 import shutil
 import socket
 import subprocess
+import threading
 import time
 from collections.abc import Iterator
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import NoReturn
 
@@ -50,6 +52,22 @@ _FILES = {
     "temp.svg": _SVG,
 }
 _WEEK = "public, max-age=604800"
+_BACKEND_CSP = "default-src 'self'; script-src 'self'"
+
+
+class _StubBackend(BaseHTTPRequestHandler):
+    """Answers every request like the backend would: its own policy header and a marker."""
+
+    def do_GET(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Security-Policy", _BACKEND_CSP)
+        self.send_header("X-Backend", "stub")
+        self.end_headers()
+        self.wfile.write(b"stub")
+
+    def log_message(self, *args: object) -> None:
+        """Stay quiet."""
 
 
 def _unavailable(reason: str) -> NoReturn:
@@ -81,11 +99,13 @@ def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[httpx.Client]:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
+    backend = HTTPServer(("127.0.0.1", 0), _StubBackend)
+    threading.Thread(target=backend.serve_forever, daemon=True).start()
     env = {
         **os.environ,
         "PORT": str(port),
         "HOSTNAME": "127.0.0.1",
-        "BACKEND_URL": "http://127.0.0.1:1",
+        "BACKEND_URL": f"http://127.0.0.1:{backend.server_port}",
         "NODE_ENV": "production",
     }
     proc = subprocess.Popen(
@@ -108,6 +128,8 @@ def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[httpx.Client]:
         yield client
     finally:
         client.close()
+        backend.shutdown()
+        backend.server_close()
         proc.terminate()
         proc.wait(timeout=10)
 
@@ -169,6 +191,12 @@ _EVERY_RESPONSE = [
     ("/page.html", _OK, _PAGE),
     ("/noext", _OK, _PAGE),
     ("/robots.txt", _OK, _PAGE),
+    # A last segment that is only an extension has no stem: not a file, so not static.
+    ("/.svg", _MISSING, _PAGE),
+    ("/a/.svg", _MISSING, _PAGE),
+    ("/.png", _MISSING, _PAGE),
+    ("/.SVG", _MISSING, _PAGE),
+    ("/x/.webp", _MISSING, _PAGE),
 ]
 
 
@@ -185,3 +213,39 @@ def test_every_response_has_nosniff_no_framing_and_exactly_one_policy(
 def test_a_chunk_response_is_one_policy_too(server: httpx.Client) -> None:
     res = server.get(_chunk(server))
     assert len(res.headers.get_list("content-security-policy")) == 1
+
+
+@pytest.mark.parametrize("path", ["/api/v1/x.SVG", "/api/v1/x.png", "/api/v1/a/b.svg"])
+def test_a_backend_path_ending_in_an_image_extension_still_reaches_the_backend(
+    server: httpx.Client, path: str
+) -> None:
+    """The static set never applies under the backend prefixes (/api/v1, /docs, /openapi.json)."""
+    res = server.get(path)
+    assert res.headers.get("x-backend") == "stub", "the request did not reach the backend"
+    assert len(res.headers.get_list("content-security-policy")) == 1
+
+
+@pytest.mark.parametrize("path", ["/docs/x.PNG", "/docs/a/b.svg"])
+def test_a_docs_path_ending_in_an_image_extension_keeps_the_backends_one_policy(
+    server: httpx.Client, path: str
+) -> None:
+    res = server.get(path)
+    assert res.headers.get("x-backend") == "stub"
+    assert res.headers.get_list("content-security-policy") == [_BACKEND_CSP]
+
+
+# Next.js answers these with a built-in 308 before `headers()` and the proxy run, so they carry none
+# of the headers above. That is accepted: the redirect comes before every hook, its body is only
+# the target path, a browser follows it instead of rendering it, and turning the normalisation off
+# (`skipTrailingSlashRedirect`) would turn these URLs into 404 pages. This pins that they stay
+# nothing but a redirect: if Next ever renders a page for them, they would need the headers.
+@pytest.mark.parametrize("path", ["//t.svg", "/a.svg/", "/_next/image/", "//favicon.ico"])
+def test_next_builtin_redirects_stay_bare_redirects(server: httpx.Client, path: str) -> None:
+    # The raw path, as sent: httpx would read a leading `//` as a host.
+    request = server.build_request("GET", "/")
+    request.url = request.url.copy_with(raw_path=path.encode())
+    res = server.send(request)
+    assert res.status_code == status.HTTP_308_PERMANENT_REDIRECT
+    assert res.headers["location"]
+    assert "text/html" not in res.headers.get("content-type", "")
+    assert "<" not in res.text

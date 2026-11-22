@@ -1,6 +1,8 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
+import { BACKEND_PATHS, DOCS_PATH } from './static-paths';
+
 // Runtime backend proxy.
 //
 // The browser calls same-origin `/api/v1/...`, `/docs` and `/openapi.json`;
@@ -26,8 +28,6 @@ const resolveBackend = () =>
 // Same-origin paths rewritten onto the backend. `/api/healthz` is deliberately
 // NOT here (it is the frontend's own liveness probe and must stay served by the
 // frontend), so it falls through to `NextResponse.next()` below.
-const DOCS_PATH = '/docs';
-const BACKEND_PATHS = ['/api/v1', DOCS_PATH, '/openapi.json'];
 const proxiesToBackend = (pathname: string) =>
   BACKEND_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
@@ -112,6 +112,6 @@ export const config = {
   // other path, look-alikes such as /favicon.icox included, gets the page policy here. Next.js needs
   // this as a literal; static-paths.ts is the list it is built from, and a test checks they are equal.
   matcher: [
-    '/((?!(?:_next/static|_next/image)(?:/|$)|(?:favicon\\.ico)$|.*\\.(?:[sS][vV][gG]|[pP][nN][gG]|[jJ][pP][gG]|[jJ][pP][eE][gG]|[gG][iI][fF]|[wW][eE][bB][pP])$).*)',
+    '/((?!(?:_next/static|_next/image)(?:/|$)|(?:favicon\\.ico)$|(?!(?:api/v1|docs|openapi\\.json)(?:/|$))(?:.*/)?[^/]+\\.(?:[sS][vV][gG]|[pP][nN][gG]|[jJ][pP][gG]|[jJ][pP][eE][gG]|[gG][iI][fF]|[wW][eE][bB][pP])$).*)',
   ],
 };
