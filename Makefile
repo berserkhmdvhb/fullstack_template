@@ -15,7 +15,7 @@
     dev-tools-list dev-tools-outdated dev-tools-upgrade version-check- \
     k8s-apply k8s-delete k8s-build k8s-status k8s-pods k8s-services k8s-port-forward \
     k8s-wait k8s-logs k8s-port-forward-all deploy rebuild-and-roll smoke-test \
-    kind-up kind-deploy kind-down kind-shutdown-test kind-migration-test kind-admission-test \
+    kind-up kind-deploy kind-down kind-shutdown-test kind-migration-test kind-deploy-env-test kind-admission-test \
     kind-tracing-redis-test kind-csp-report-test kind-live kind-smoke kind-e2e kind-zap \
     secrets db-backup certs \
     security-local security-build security-tools \
@@ -147,6 +147,7 @@ help::
 	@echo "  kind-down                Delete the kind cluster fst and .local/kind"
 	@echo "  kind-shutdown-test       Delete a backend and a frontend Pod under load on fst: no request may fail"
 	@echo "  kind-migration-test      The migration lifecycle on fst (install, upgrade, rollbacks, failures, TLS)"
+	@echo "  kind-deploy-env-test     scripts/ci/deploy-env.sh itself on fst: install, upgrade, rollbacks, failed first install"
 	@echo "  kind-admission-test      The image admission policy on fst: signed and attested admitted, the rest denied"
 	@echo "  kind-tracing-redis-test  Spans to a collector and the rate limit in Redis, through the NetworkPolicy, on fst"
 	@echo "  kind-csp-report-test     A browser CSP violation on the release reaches the backend's log (Playwright)"
@@ -630,6 +631,11 @@ kind-shutdown-test:
 # (one sequence, so it stops at the first failure).
 kind-migration-test:
 	$(PYTHON) -m pytest tests/k8s/test_migrations.py -o addopts="" -v -s -x
+
+# After kind-deploy: tests/k8s/test_deploy_env.py, scripts/ci/deploy-env.sh itself on a release of its
+# own, its images by digest from a throwaway registry (one sequence, so it stops at the first failure).
+kind-deploy-env-test:
+	$(PYTHON) -m pytest tests/k8s/test_deploy_env.py -o addopts="" -v -s -x
 
 # After kind-up: tests/k8s/test_admission.py, the image admission policy with the pinned Kyverno,
 # ephemeral keys and a throwaway registry, all of its own (wiki/admission-control.md, Proven on kind).

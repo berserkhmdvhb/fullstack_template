@@ -356,3 +356,17 @@ def test_the_tracing_and_redis_test_runs_on_the_newest_leg_after_the_shutdown_ch
     dump = _step("Show the cluster state")["run"]
     assert "fst-otel-collector fst-redis" in dump
     assert "-n your-service-name-feat-local" in dump
+
+
+def test_the_deploy_script_test_runs_on_the_newest_leg_after_the_shutdown_check() -> None:
+    """Blocking, after the steps that check the main release, before ZAP; its own make target and
+    timeout, no env, action or secret (its registry is the loopback throwaway one)."""
+    names = _names()
+    name = next(n for n in names if n.startswith("Deploy script"))
+    step = _step(name)
+    assert step["run"] == "make kind-deploy-env-test"
+    assert step["if"] == "matrix.leg == 'newest'"
+    assert "continue-on-error" not in step
+    assert set(step) <= {"name", "if", "timeout-minutes", "run"}, step
+    assert names.index(SHUTDOWN) < names.index(name) < names.index(ZAP)
+    assert "tests/k8s/test_deploy_env.py" in _recipe("kind-deploy-env-test")

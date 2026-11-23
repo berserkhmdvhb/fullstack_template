@@ -28,7 +28,7 @@ case "$1" in
        ref=":t1"; [[ "${STUB_REF-}" != digest ]] || ref="@sha256:$(printf '0%.0s' {1..64})"
        for e in ${STUB_RENDERED-backend frontend web-ui}; do
          c="${e%%=*}" i="${e#*=}"
-         printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-%s\n  labels:\n    app.kubernetes.io/component: %s\nspec:\n  template:\n    spec:\n      containers:\n        - name: %s\n          image: ghcr.io/o/r/%s%s\n' "$c" "$c" "$c" "$i" "$ref"
+         printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-%s\n  labels:\n    app.kubernetes.io/name: '"${STUB_NAME-svc-chart}"'\n    app.kubernetes.io/instance: svc\n    app.kubernetes.io/component: %s\nspec:\n  template:\n    spec:\n      containers:\n        - name: %s\n          image: ghcr.io/o/r/%s%s\n' "$c" "$c" "$c" "$i" "$ref"
        done ;;
 esac
 STUB
@@ -37,6 +37,8 @@ STUB
 echo "kubectl $*" >> "$LOG"
 case "$*" in
   *port-forward*) exec sleep 30 ;;
+  "config get-contexts -o name") printf '%s\n' "${STUB_CONTEXTS-kind-fst}" ;;
+  "config current-context") echo "${STUB_CONTEXT-kind-fst}" ;;
   *"get job -l"*"--sort-by"*) printf '%s\n' "${STUB_NEWEST-}" | awk -F'|' '$1=="svc" {print $2"|"$3"|"$4"|"$5}' ;;
   *"get job -l"*) printf '%s\n' "${STUB_LEFTOVER-}" | awk -F'|' '$1=="svc" {print $2"|"$3}' ;;
   *"get job svc-migrate-r2"*jsonpath*) echo "svc-migrate-r2||4|True" ;;
@@ -55,7 +57,7 @@ echo "{\"include\":[${out%,}]}"
 STUB
   cat > "$BATS_TEST_TMPDIR/verify.sh" <<'STUB'
 #!/usr/bin/env bash
-echo "verify COMPONENTS=$COMPONENTS WEB_UI=${WEB_UI_IMAGE_DIGEST-} RELEASE=$RELEASE NAMESPACE=$NAMESPACE" >> "$LOG"
+echo "verify COMPONENTS=$COMPONENTS WEB_UI=${WEB_UI_IMAGE_DIGEST-} RELEASE=$RELEASE NAMESPACE=$NAMESPACE ARGS=$*" >> "$LOG"
 exit "${STUB_VERIFY_RC:-0}"
 STUB
   cat > "$BATS_TEST_TMPDIR/smoke.sh" <<'STUB'
@@ -281,4 +283,68 @@ STUB
   unset SERVICE_NAME
   run bash "$SCRIPT"
   [ "$status" -eq 1 ]
+}
+
+@test "verify finds the Pods by the chart's name label, not the release name" {
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  grep -q "^verify .*RELEASE=svc NAMESPACE=svc-dev ARGS=--name svc-chart$" "$LOG"
+}
+
+@test "a render without the release's name label is refused before any upgrade" {
+  STUB_NAME="" run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"app.kubernetes.io/name"* ]]
+  run grep -q "helm upgrade" "$LOG"
+  [ "$status" -ne 0 ]
+}
+
+# ---- DEPLOY_ENV=kind: test-only, refused without the flag and outside the kind context ----------
+
+@test "kind is refused without DEPLOY_ENV_KIND_TEST" {
+  DEPLOY_ENV=kind run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"test-only"* ]]
+  [ ! -s "$LOG" ]
+}
+
+@test "kind is refused with the flag set to anything but 1" {
+  DEPLOY_ENV=kind DEPLOY_ENV_KIND_TEST=true run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [ ! -s "$LOG" ]
+}
+
+@test "kind with the flag is refused outside the kind context" {
+  DEPLOY_ENV=kind DEPLOY_ENV_KIND_TEST=1 STUB_CONTEXTS=prod STUB_CONTEXT=prod run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"kind-fst"* ]]
+  run grep -q "^helm" "$LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "kind with the flag is refused when the kubeconfig holds another context too" {
+  DEPLOY_ENV=kind DEPLOY_ENV_KIND_TEST=1 STUB_CONTEXTS=$'kind-fst\nprod' run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  run grep -q "^helm" "$LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "kind with the flag is refused when helm is pointed at another context or server" {
+  for v in HELM_KUBECONTEXT=prod HELM_KUBEAPISERVER=https://192.0.2.1 HELM_KUBETOKEN=t; do
+    : > "$LOG"
+    run env "$v" DEPLOY_ENV=kind DEPLOY_ENV_KIND_TEST=1 bash "$SCRIPT"
+    [ "$status" -eq 1 ]
+    run grep -q "^helm" "$LOG"
+    [ "$status" -ne 0 ]
+  done
+}
+
+@test "kind in the kind context: values.local.yaml and the KIND_VALUES files, its own namespace, the guard on" {
+  DEPLOY_ENV=kind DEPLOY_ENV_KIND_TEST=1 KIND_VALUES="/k/a.yaml:/k/b.yaml" run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  grep "^helm upgrade --install svc charts/x" "$LOG" |
+    grep -qF -- "-f charts/x/values.local.yaml -f /k/a.yaml -f /k/b.yaml -f $WORK_DIR/image-values.json --set guards.rejectPlaceholders=true --namespace svc-kind"
+  run grep -q "values.kind.yaml" "$LOG"
+  [ "$status" -ne 0 ]
+  grep -q "^verify .*NAMESPACE=svc-kind" "$LOG"
 }

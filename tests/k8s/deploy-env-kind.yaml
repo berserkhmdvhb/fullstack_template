@@ -1,0 +1,9 @@
+# Test only: the kind values of scripts/ci/deploy-env.sh's DEPLOY_ENV=kind (tests/k8s/_kube.py
+# deploy_env), layered over values.local.yaml and the kind secrets. values.local.yaml names the
+# chart's placeholder Gateway, which the deploy's placeholder guard (guards.rejectPlaceholders)
+# refuses; this names one in the release namespace instead. No Gateway exists on fst: the
+# HTTPRoutes render and route nothing, and the tests reach the Pods through port-forwards.
+edge:
+  gateway:
+    parentRefs:
+      - {name: fst-gateway}

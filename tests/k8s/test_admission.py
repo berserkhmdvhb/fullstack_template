@@ -24,11 +24,9 @@ import re
 import secrets
 import shutil
 import socket
-import ssl
 import subprocess
 import tempfile
 import time
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -36,7 +34,19 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.k8s._kube import CONTEXT, KUBECONFIG, ROOT, Kube, _run, _tool
+from tests.k8s import _kube
+from tests.k8s._kube import (
+    CONTEXT,
+    KUBECONFIG,
+    REGISTRY,
+    REGISTRY_IMAGE,
+    ROOT,
+    Kube,
+    _run,
+    _tool,
+    manifest_digest,
+    registry_tls,
+)
 
 NAMESPACE = "fst-admission"
 KYVERNO_NAMESPACE = "fst-kyverno"
@@ -44,13 +54,6 @@ KYVERNO_RELEASE = "kyverno"
 POLICY = "verify-signed-images-kind"
 VARIANT = ROOT / "deploy" / "policies" / "test" / "kyverno-verify-images-kind.yaml"
 VALUES = ROOT / "deploy" / "policies" / "test" / "kyverno-values.yaml"
-CONTAINER = "fst-registry"
-REGISTRY = f"{CONTAINER}:5000"  # the reference containerd and Kyverno both resolve
-NODE = "fst-control-plane"
-NODE_CERTS = f"/etc/containerd/certs.d/{REGISTRY}"
-# renovate: image=docker.io/library/registry  # noqa: ERA001 - an annotation, not code
-REGISTRY_TAG = "3.1.2@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c"
-REGISTRY_IMAGE = f"docker.io/library/registry:{REGISTRY_TAG}"
 TAG = "test"
 # Repository -> (key that signs it or None, attested): one image, pushed under each.
 IMAGES: dict[str, tuple[str | None, bool]] = {
@@ -81,7 +84,7 @@ def _pin(name: str) -> str:
 
 
 def _docker(*args: str, check: bool = True) -> str:
-    return _run([_tool("docker"), *args], check=check)
+    return _kube.docker(*args, check=check)
 
 
 def _closed_port() -> int:
@@ -179,101 +182,27 @@ def work() -> Iterator[Path]:
 @pytest.fixture(scope="module")
 def tls(work: Path) -> Path:
     """A throwaway CA and the registry's certificate (fst-registry and 127.0.0.1)."""
-    out = work / "tls"
-    out.mkdir()
-    openssl = _tool("openssl")
-    ec = ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes"]
-    ca, cert, key = (str(out / n) for n in ("ca.crt", "tls.crt", "tls.key"))
-    days = ["-days", "1"]
-    # The extensions a strict verifier (Python's, Go's) requires of a CA and a server certificate.
-    ca_ext = ["-addext", "basicConstraints=critical,CA:TRUE"]
-    ca_ext += ["-addext", "keyUsage=critical,keyCertSign,cRLSign"]
-    req = [openssl, "req", *ec, *days, "-x509", *ca_ext, "-keyout", f"{ca}.key", "-out", ca]
-    _run([*req, "-subj", "/CN=fst-ca"])
-    _run([openssl, "req", *ec, "-keyout", key, "-out", f"{cert}.csr", "-subj", f"/CN={CONTAINER}"])
-    ext = out / "ext.cnf"
-    ext.write_text(
-        f"subjectAltName=DNS:{CONTAINER},IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\n"
-        "keyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\n"
-        "authorityKeyIdentifier=keyid\nsubjectKeyIdentifier=hash\n"
-    )
-    x509 = [openssl, "x509", "-req", "-in", f"{cert}.csr", "-CA", ca, "-CAkey", f"{ca}.key", *days]
-    _run([*x509, "-CAcreateserial", "-extfile", str(ext), "-out", cert])
-    Path(f"{ca}.key").unlink()  # nothing else is signed with it
-    (out / "tls.key").chmod(0o644)  # read by the registry container's user
-    return out
+    return registry_tls(work / "tls")
 
 
 @pytest.fixture(scope="module")
 def registry(kube: Kube, tls: Path) -> Iterator[str]:
     """fst-registry on the kind network, and its host address (127.0.0.1:<port>)."""
-    kube("get", "node", NODE)  # the node container below is fst's
-    _docker("rm", "-f", CONTAINER, check=False)  # one a killed run left behind
-    try:
-        _docker(
-            "run",
-            "-d",
-            "--name",
-            CONTAINER,
-            "--network",
-            "kind",
-            "-p",
-            "127.0.0.1::5000",
-            "-v",
-            f"{tls}:/certs:ro",
-            "-e",
-            "REGISTRY_HTTP_TLS_CERTIFICATE=/certs/tls.crt",
-            "-e",
-            "REGISTRY_HTTP_TLS_KEY=/certs/tls.key",
-            REGISTRY_IMAGE,
-        )
-        host = _docker("port", CONTAINER, "5000/tcp").split()[0]
-        assert host.startswith("127.0.0.1:"), host
-        # containerd on the node: the registry's https endpoint and the CA that signed it.
-        hosts = (
-            f'server = "https://{REGISTRY}"\n\n[host."https://{REGISTRY}"]\n'
-            f'  capabilities = ["pull", "resolve"]\n  ca = "{NODE_CERTS}/ca.crt"\n'
-        )
-        _docker("exec", NODE, "mkdir", "-p", NODE_CERTS)
-        _run(
-            [_tool("docker"), "exec", "-i", NODE, "cp", "/dev/stdin", f"{NODE_CERTS}/ca.crt"],
-            (tls / "ca.crt").read_text(),
-        )
-        _run(
-            [_tool("docker"), "exec", "-i", NODE, "cp", "/dev/stdin", f"{NODE_CERTS}/hosts.toml"],
-            hosts,
-        )
+    with _kube.registry(kube, tls) as host:
         yield host
-    finally:
-        _docker("exec", NODE, "rm", "-rf", NODE_CERTS, check=False)
-        _docker("exec", NODE, "rmdir", "/etc/containerd/certs.d", check=False)  # if now empty
-        _docker("rm", "-f", CONTAINER, check=False)
 
 
 @pytest.fixture(scope="module")
 def images(registry: str, tls: Path) -> Iterator[dict[str, str]]:
     """The registry image, pushed under each repository of IMAGES: repository -> digest."""
     tags = [f"{registry}/{repository}:{TAG}" for repository in IMAGES]
-    context = ssl.create_default_context(cafile=str(tls / "ca.crt"))
-    accept = ", ".join(
-        f"application/vnd.{t}"
-        for t in (
-            "oci.image.manifest.v1+json",
-            "docker.distribution.manifest.v2+json",
-            "oci.image.index.v1+json",
-            "docker.distribution.manifest.list.v2+json",
-        )
-    )
     digests = {}
     try:
         _docker("pull", "--quiet", REGISTRY_IMAGE)
         for repository, tag in zip(IMAGES, tags, strict=True):
             _docker("tag", REGISTRY_IMAGE, tag)
             _docker("push", "--quiet", tag)
-            url = f"https://{registry}/v2/{repository}/manifests/{TAG}"
-            request = urllib.request.Request(url, method="HEAD", headers={"Accept": accept})
-            with urllib.request.urlopen(request, context=context, timeout=30) as answer:
-                digests[repository] = answer.headers["Docker-Content-Digest"]
+            digests[repository] = manifest_digest(registry, repository, TAG, tls)
         assert len(set(digests.values())) == 1, digests  # one image under every name
         yield digests
     finally:

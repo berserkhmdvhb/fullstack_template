@@ -264,7 +264,7 @@ class Release:
         cmd += ["--set-string", f"postgresql.existingSecret={RELEASE}-db"]
         cmd += ["--set-string", f"config.RATE_LIMIT_DEFAULT={LIMIT}/hour"]
         cmd += ["--set", "replicas.backend=2", "--set", "hpa.backend.minReplicas=2"]
-        cmd += ["--history-max", "5", "--wait", "--wait-for-jobs", "--timeout", "10m"]
+        cmd += ["--history-max", "5", "--wait", "--wait-for-jobs", "--timeout", "9m"]
         started = time.time()
         out = _run(cmd)
         assert "forbidden" not in out.lower(), out

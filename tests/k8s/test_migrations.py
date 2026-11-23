@@ -8,9 +8,10 @@ collects it (tests/conftest.py ignores tests/k8s). It talks to fst only, through
 (``RELEASE`` in ``NAMESPACE`` and its database namespace, bootstrapped as cluster admin and
 removed at the end), deployed as the bootstrap's deployer the way scripts/kind-deploy.sh deploys
 (values.local.yaml, the kind secrets file, the images of the kind job's release, ``--wait
---wait-for-jobs --timeout 10m``), so it never disturbs the kind job's main release. The failed
-first install and its retry deploy as scripts/ci/deploy-env.sh does instead (its deploy steps and
-flags, the migration Job library's functions, the deploy workflow's default timeout).
+--wait-for-jobs --timeout 9m``), so it never disturbs the kind job's main release. The failed
+first install and its retry run scripts/ci/deploy-env.sh itself instead (its test-only
+``DEPLOY_ENV=kind``, tests/k8s/_kube.py), so ``NAMESPACE`` is the script's ``<release>-kind``; its
+images are the kind job's, pushed to the throwaway registry fst-registry for their digests.
 
 The tests are one lifecycle and run in file order (the make target stops at the first failure):
 install, a no-op upgrade, two rollbacks, a failed upgrade, a slow migration, the timeouts, the TLS
@@ -24,7 +25,6 @@ from __future__ import annotations
 
 import calendar
 import json
-import re
 import subprocess
 import tempfile
 import threading
@@ -38,7 +38,8 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.k8s._kube import CONTEXT, GROUP, KUBECONFIG, ROOT, Kube, _run, _tool, deployer
+from tests.k8s import _kube
+from tests.k8s._kube import CONTEXT, GROUP, KUBECONFIG, ROOT, Kube, Pushed, _run, _tool, deployer
 from tests.k8s._kube import NAMESPACE as MAIN_NAMESPACE
 from tests.k8s._kube import RELEASE as MAIN_RELEASE
 from your_service_name.backend.db import schema
@@ -47,7 +48,8 @@ CHART = ROOT / "charts" / "your-service-name"
 SECRETS = ROOT / ".local" / "kind" / "values.yaml"
 # Contains the chart's name, so the fullname is the release name.
 RELEASE = "your-service-name-mig"
-NAMESPACE = f"{RELEASE}-local"
+# deploy-env.sh's <SERVICE_NAME>-<DEPLOY_ENV> for its DEPLOY_ENV=kind (the last case runs it).
+NAMESPACE = f"{RELEASE}-kind"
 DB_NAMESPACE = f"{NAMESPACE}-db"
 DB_POD = f"{RELEASE}-postgresql-0"
 DB_HOST = f"{RELEASE}-postgresql.{DB_NAMESPACE}.svc.cluster.local"
@@ -167,7 +169,6 @@ SELECT n.nspowner::regrole, n.nspacl, obj_description(n.oid, 'pg_namespace'),
      WHERE d.datname = current_database())
 FROM pg_namespace n WHERE n.nspname = 'public'
 """
-DEPLOY_ENV = ROOT / "scripts" / "ci" / "deploy-env.sh"
 
 
 # ---- The cluster, the identities and the deploy -------------------------------------------------
@@ -186,14 +187,7 @@ class Cluster:
         self.helm = [*helm, "--kube-as-user", self.deployer, "--kube-as-group", GROUP]
         self.work = work
         # The deploy path's kubectl (scripts/ci/migration-job-lib.sh) as the deployer.
-        wrapper = work / "bin" / "kubectl"
-        wrapper.parent.mkdir()
-        wrapper.write_text(
-            "#!/usr/bin/env bash\n"
-            f'exec "{self.kubectl}" --kubeconfig "{KUBECONFIG}" --context {CONTEXT} '
-            f'--as "{self.deployer}" --as-group {GROUP} "$@"\n'
-        )
-        wrapper.chmod(0o755)
+        _kube.deployer_kubectl(work / "bin", self.kubectl)
         self.image_args = self._image_args()
 
     def _image_args(self) -> list[str]:
@@ -222,7 +216,7 @@ class Cluster:
         args += ["--set-string", "networkPolicy.monitoringPodSelector.metrics-collector=true"]
         return args
 
-    def deploy(self, *extra: str, timeout: str = "10m") -> tuple[int, str]:
+    def deploy(self, *extra: str, timeout: str = "9m") -> tuple[int, str]:
         """helm upgrade --install as kind-deploy.sh's deploy(); on a failure, the deploy path's
         report of the newest migration Job (as kind-deploy.sh and deploy-env.sh print it)."""
         cmd = [*self.helm, "upgrade", "--install", RELEASE, str(CHART), "-n", NAMESPACE]
@@ -239,32 +233,22 @@ class Cluster:
         print(f"deploy {' '.join(extra) or '(base)'}: rc {done.returncode}, {took:.0f}s")
         return done.returncode, out
 
-    def deploy_env(self, *extra: str) -> tuple[int, str]:
-        """scripts/ci/deploy-env.sh's steps 2, 2b and 3 (it cannot run on kind: see
-        wiki/database.md, "Proven on kind"): no deployed revision, so migration_job_purge_failed;
-        then helm upgrade --install with its flags and the deploy workflow's default timeout; on a
-        failure, migration_job_report_newest. Its own text is checked for the same steps."""
-        script = DEPLOY_ENV.read_text()
-        assert "migration_job_purge_failed" in script
-        assert "--rollback-on-failure --wait --wait-for-jobs" in script
-        history = _run([*self.helm, "history", RELEASE, "-n", NAMESPACE, "-o", "json"], check=False)
-        deployed = [r for r in json.loads(history or "[]") if r["status"] == "deployed"]
-        out = ""
-        if not deployed:
-            out += self.lib("migration_job_purge_failed")
-        cmd = [*self.helm, "upgrade", "--install", RELEASE, str(CHART), "-n", NAMESPACE]
-        cmd += ["-f", str(CHART / "values.local.yaml"), "-f", str(SECRETS), *self.image_args]
-        cmd += ["--rollback-on-failure", "--wait", "--wait-for-jobs", "--timeout", _helm_timeout()]
-        cmd += ["--history-max", "5", *COMMON, *extra]
+    def deploy_env(self, pushed: Pushed, *values: Path) -> tuple[int, str]:
+        """scripts/ci/deploy-env.sh itself, through its test-only DEPLOY_ENV=kind (_kube.deploy_env:
+        as the deployer, the deploy workflow's default HELM_TIMEOUT, the pushed images by digest),
+        with this release's timeouts and scrape peers (COMMON's and kind_args's) as values."""
+        common = self.work / "common.yaml"
+        peers = {
+            "monitoringNamespaceSelector": {"kubernetes.io/metadata.name": NAMESPACE},
+            "monitoringPodSelector": {"metrics-collector": "true"},
+        }
+        common.write_text(yaml.safe_dump({"config": TIMEOUTS, "networkPolicy": peers}))
         started = time.time()
-        done = subprocess.run(cmd, capture_output=True, text=True, env=_env(), check=False)
-        out += done.stdout + done.stderr
-        if done.returncode:
-            out += "\n--- the deploy path's migration Job report\n" + self.report()
+        rc, out = _kube.deploy_env(RELEASE, self.work, pushed, common, *values)
         assert "forbidden" not in out.lower(), f"the deployer was refused: {out}"
         took = time.time() - started
-        print(f"deploy-env {' '.join(extra) or '(base)'}: rc {done.returncode}, {took:.0f}s")
-        return done.returncode, out
+        print(f"deploy-env {[v.name for v in values]}: rc {rc}, {took:.0f}s")
+        return rc, out
 
     def lib(self, function: str) -> str:
         """A scripts/ci/migration-job-lib.sh function on this release, kubectl as the deployer."""
@@ -333,14 +317,6 @@ class Cluster:
             for e in s.get("endpoints") or []
             if (e.get("conditions") or {}).get("ready")
         )
-
-
-def _helm_timeout() -> str:
-    """The deploy workflow's default HELM_TIMEOUT (`vars.HELM_TIMEOUT || '<default>'`)."""
-    text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text()
-    found: set[str] = set(re.findall(r"vars\.HELM_TIMEOUT \|\| '([^']+)'", text))
-    assert len(found) == 1, f"deploy.yml has no single default HELM_TIMEOUT: {found}"
-    return found.pop()
 
 
 def _env() -> dict[str, str]:
@@ -481,6 +457,14 @@ def cluster() -> Iterator[Cluster]:
             _remove(c, objects)
 
 
+@pytest.fixture(scope="module")
+def pushed(cluster: Cluster) -> Iterator[Pushed]:
+    """The kind job's images in the throwaway registry, for the cases deploy-env.sh deploys."""
+    tls = _kube.registry_tls(cluster.work / "tls")
+    with _kube.registry(cluster.app, tls) as host:
+        yield _kube.push_release_images(host, tls, "fst-migrations")
+
+
 # ---- The lifecycle, in order ---------------------------------------------------------------------
 
 
@@ -579,7 +563,7 @@ def test_a_rollback_after_the_ttl_recreates_the_job_which_finds_the_database_ahe
 
 def _rollback(cluster: Cluster, revision: int) -> tuple[int, str]:
     cmd = [*cluster.helm, "rollback", RELEASE, str(revision), "-n", NAMESPACE]
-    cmd += ["--wait", "--wait-for-jobs", "--timeout", "10m", "--history-max", "5"]
+    cmd += ["--wait", "--wait-for-jobs", "--timeout", "9m", "--history-max", "5"]
     done = subprocess.run(cmd, capture_output=True, text=True, env=_env(), check=False)
     return done.returncode, done.stdout + done.stderr
 
@@ -836,10 +820,10 @@ def test_autogenerate_finds_no_change_against_the_migrated_database(cluster: Clu
 
 
 def test_a_failed_first_install_then_a_retry_succeeds_with_no_manual_cleanup(
-    cluster: Cluster,
+    cluster: Cluster, pushed: Pushed
 ) -> None:
-    """On a wiped release (uninstalled, its kept Jobs and its database volume deleted), deployed as
-    scripts/ci/deploy-env.sh deploys: the first install's migration fails on purpose, and
+    """On a wiped release (uninstalled, its kept Jobs and its database volume deleted), deployed by
+    scripts/ci/deploy-env.sh itself: the first install's migration fails on purpose, and
     --rollback-on-failure uninstalls the release at the timeout, leaving the Failed Job (resource-
     policy keep), whose logs the report prints. The retry, the same deploy without the failure,
     deletes that Job itself (migration_job_purge_failed: no deployed revision) and installs
@@ -849,18 +833,20 @@ def test_a_failed_first_install_then_a_retry_succeeds_with_no_manual_cleanup(
     _wait("the PostgreSQL Pod to be gone", lambda: not cluster.db.get("pod", DB_POD), 180)
     cluster.db("delete", "pvc", "-l", f"app.kubernetes.io/instance={RELEASE}", "--wait")
 
-    rc, out = cluster.deploy_env("--set", "tests.migration.fail=true")
+    fail = cluster.work / "fail.yaml"
+    fail.write_text("tests: {migration: {fail: true}}\n")
+    rc, out = cluster.deploy_env(pushed, fail)
     print(out)
     assert rc != 0
     status = [*cluster.helm, "status", RELEASE, "-n", NAMESPACE]
     assert not _run(status, check=False), "the failed first install was not uninstalled"
     failed = cluster.job(1)
     assert _condition(failed, "Failed"), failed.get("status")
-    report = out.split("--- the deploy path's migration Job report", 1)[1]
+    report = out.split(f"::group::migration Job of {RELEASE} in kind (the deploy failed)", 1)[1]
     assert f"migration job: {JOB_PREFIX}1|" in report
     assert "MIGRATION_TEST_FAIL: failing on purpose" in report
 
-    rc, out = cluster.deploy_env()
+    rc, out = cluster.deploy_env(pushed)
     print(out)
     assert rc == 0, out
     assert f"deleting the Failed migration Job {JOB_PREFIX}1 of {RELEASE}" in out

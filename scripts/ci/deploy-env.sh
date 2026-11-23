@@ -16,6 +16,10 @@
 # BACKEND_PORT API_VERSION; FRONTEND_PORT (3000); WORK_DIR (RUNNER_TEMP); SMOKE_WAIT_TRIES (30), SMOKE_WAIT_SLEEP (2).
 # MATRIX_CMD (the matrix helper command; deploy.yml points it at a PyYAML venv) and, for tests only,
 # VERIFY_SCRIPT and SMOKE_SCRIPT are overridable.
+# Test only: DEPLOY_ENV=kind deploys to the local kind cluster fst (tests/k8s/test_deploy_env.py), and
+# only with DEPLOY_ENV_KIND_TEST=1 and a kubeconfig whose one context is kind-fst; it is refused
+# otherwise, and no workflow sets it. It takes values.local.yaml, then each file of KIND_VALUES
+# (a colon list), instead of values.<env>.yaml; the namespace is <SERVICE_NAME>-kind.
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -26,7 +30,20 @@ fail() { echo "::error::$*" >&2; exit 1; }
 for v in SERVICE_NAME DEPLOY_ENV CHART_DIR DEPLOY_IMAGES DIGESTS IMAGE_TAG HELM_TIMEOUT BACKEND_PORT API_VERSION; do
   [[ -n "${!v:-}" ]] || fail "$v is required"
 done
-case "$DEPLOY_ENV" in dev|qa|production) ;; *) fail "DEPLOY_ENV must be dev, qa or production" ;; esac
+env_values=(-f "$CHART_DIR/values.${DEPLOY_ENV}.yaml")
+case "$DEPLOY_ENV" in dev|qa|production) ;;
+  kind)
+    [[ "${DEPLOY_ENV_KIND_TEST:-}" == 1 ]] || fail "DEPLOY_ENV=kind is test-only: it needs DEPLOY_ENV_KIND_TEST=1"
+    [[ -z "${HELM_KUBEAPISERVER:-}${HELM_KUBETOKEN:-}" && "${HELM_KUBECONTEXT:-kind-fst}" == kind-fst ]] ||
+      fail "DEPLOY_ENV=kind refuses a HELM_KUBECONTEXT, HELM_KUBEAPISERVER or HELM_KUBETOKEN other than kind-fst's"
+    [[ "$(kubectl config get-contexts -o name 2>/dev/null || true)" == kind-fst &&
+      "$(kubectl config current-context 2>/dev/null || true)" == kind-fst ]] ||
+      fail "DEPLOY_ENV=kind runs only with a kubeconfig whose one context is kind-fst"
+    env_values=(-f "$CHART_DIR/values.local.yaml")
+    IFS=: read -ra kind_files <<<"${KIND_VALUES:-}"
+    for f in "${kind_files[@]}"; do env_values+=(-f "$f"); done ;;
+  *) fail "DEPLOY_ENV must be dev, qa or production" ;;
+esac
 WORK_DIR="${WORK_DIR:-${RUNNER_TEMP:-}}"
 [[ -n "$WORK_DIR" ]] || fail "WORK_DIR or RUNNER_TEMP is required"
 MATRIX_CMD="${MATRIX_CMD:-python3 $ROOT/.github/scripts/container_matrix.py}"
@@ -60,7 +77,7 @@ jq -n --argjson m "$matrix" --argjson d "$DIGESTS" --arg tag "$IMAGE_TAG" '
 # the release digests are not set yet (values.production.yaml holds placeholder digests until then).
 # The upgrade takes the same values plus the guard, which refuses the chart's placeholder hosts,
 # Gateway, digests and auth settings.
-discovery_values=(-f "$CHART_DIR/values.${DEPLOY_ENV}.yaml" -f "$VALUES")
+discovery_values=("${env_values[@]}" -f "$VALUES")
 release_values=("${discovery_values[@]}" --set guards.rejectPlaceholders=true)
 manifest="$(helm template "$SERVICE_NAME" "$CHART_DIR" "${discovery_values[@]}" --namespace "$NAMESPACE")" || fail "cannot render ${SERVICE_NAME} for ${DEPLOY_ENV}"
 # An image is used when a rendered container runs its repository, by tag or by digest (a values file
@@ -72,6 +89,12 @@ used() {
   images="$(grep -E '^[[:space:]]*(- )?image:' <<<"$manifest" || true)"
   grep -qF -e "image: ${repo}:" -e "image: ${repo}@" -e "image: \"${repo}:" -e "image: \"${repo}@" <<<"$images"
 }
+# deploy-verify.sh finds the Pods by their app.kubernetes.io/name, the chart's name (the label above
+# the release's app.kubernetes.io/instance), which differs from the release name when that only
+# contains the chart's.
+app_name="$(awk -v rel="$SERVICE_NAME" '/^[[:space:]]*app\.kubernetes\.io\/name:/ { n = $2; next }
+  /^[[:space:]]*app\.kubernetes\.io\/instance:/ && n != "" && $2 == rel { print n } { n = "" }' <<<"$manifest" | tr -d '"' | sort -u)"
+[[ -n "$app_name" && "$app_name" != *$'\n'* ]] || fail "cannot tell the app.kubernetes.io/name of ${SERVICE_NAME} from its render"
 renders() { grep -qE "^[[:space:]]*app\.kubernetes\.io/component: \"?${1}\"?[[:space:]]*$" <<<"$manifest"; }
 components=()
 for id in ${DEPLOY_IMAGES//,/ }; do
@@ -120,7 +143,7 @@ helm history "$SERVICE_NAME" -n "$NAMESPACE" --max 5
 
 # 4. verify and smoke
 checks() {
-  RELEASE="$SERVICE_NAME" NAMESPACE="$NAMESPACE" COMPONENTS="${components[*]}" bash "$VERIFY_SCRIPT" || return 1
+  RELEASE="$SERVICE_NAME" NAMESPACE="$NAMESPACE" COMPONENTS="${components[*]}" bash "$VERIFY_SCRIPT" --name "$app_name" || return 1
   local pf rc=0
   kubectl -n "$NAMESPACE" port-forward "svc/${BACKEND_SERVICE}" "${BACKEND_PORT}:${BACKEND_PORT}" >"$WORK_DIR/pf.log" 2>&1 &
   pf=$!

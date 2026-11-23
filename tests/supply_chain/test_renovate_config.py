@@ -245,8 +245,9 @@ def test_the_drift_note_covers_the_crd_sources() -> None:
     assert "charts/your-service-name/ci/crds/sources.tsv" in rule["matchFileNames"]
 
 
-ADMISSION_IMAGE_FILES = ("deploy/policies/test/kyverno-values.yaml", "tests/k8s/test_admission.py")
-KIND_IMAGE_FILES = (*ADMISSION_IMAGE_FILES, "tests/k8s/test_tracing_redis.py")
+ADMISSION_IMAGE_FILES = ("deploy/policies/test/kyverno-values.yaml",)
+# tests/k8s/_kube.py holds the throwaway registry the admission and deploy tests share.
+KIND_IMAGE_FILES = (*ADMISSION_IMAGE_FILES, "tests/k8s/_kube.py", "tests/k8s/test_tracing_redis.py")
 
 
 def _file_managers(rel: str) -> list[dict[str, Any]]:
@@ -256,6 +257,15 @@ def _file_managers(rel: str) -> list[dict[str, Any]]:
         for m in renovate()["customManagers"]
         if any(re.search(p.strip("/"), rel) for p in m["managerFilePatterns"])
     ]
+
+
+def test_every_kind_test_file_with_an_image_digest_is_listed() -> None:
+    pinned = {
+        f"tests/k8s/{p.name}"
+        for p in (ROOT / "tests" / "k8s").glob("*.py")
+        if re.search(r"sha256:[a-f0-9]{64}", p.read_text(encoding="utf-8"))
+    }
+    assert pinned <= set(KIND_IMAGE_FILES), pinned - set(KIND_IMAGE_FILES)
 
 
 @pytest.mark.parametrize("rel", KIND_IMAGE_FILES)

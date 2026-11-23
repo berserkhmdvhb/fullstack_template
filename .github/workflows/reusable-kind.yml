@@ -23,8 +23,9 @@ jobs:
     # and the base-to-HEAD deploy 5, the shutdown check 4 with its limit upgrade and rollback, the
     # migration lifecycle 14 to 15), so 60 leaves more than twice that for a slower runner, its cold
     # tool, image and environment installs. The newest leg runs the browser, CSP (1, with its upgrade
-    # and rollback), tracing and Redis (2), admission (1) and ZAP (1) steps instead of the migration
-    # lifecycle: about 14 minutes by those steps' own times, plus the frontend and browser installs.
+    # and rollback), deploy script (5 to 6), tracing and Redis (2), admission (1) and ZAP (1) steps
+    # instead of the migration lifecycle: about 20 minutes by those steps' own times, plus the
+    # frontend and browser installs.
     timeout-minutes: 60
     permissions:
       contents: read
@@ -129,6 +130,15 @@ jobs:
         if: matrix.leg == 'floor'
         timeout-minutes: 30
         run: make kind-migration-test
+      # scripts/ci/deploy-env.sh itself (tests/k8s/test_deploy_env.py; wiki/ci-cd.md, "Proven on kind"):
+      # its test-only DEPLOY_ENV=kind, the main release's images pushed to the throwaway registry, on a
+      # release and namespaces of its own, removed by the test, so it runs after the steps that check
+      # the main release. Newest leg only (5 to 6 minutes on a workstation): the deploy path is Helm's
+      # and the script's, and the floor leg carries the migration lifecycle, which runs it once too.
+      - name: Deploy script (own release; install, no-op upgrade, failed upgrade and verify rolled back, failed first install and retry)
+        if: matrix.leg == 'newest'
+        timeout-minutes: 25
+        run: make kind-deploy-env-test
       # The image admission policy (tests/k8s/test_admission.py; wiki/admission-control.md, "Proven on
       # kind"): the pinned Kyverno, ephemeral keys and a throwaway registry, all removed by the test, and
       # a policy that matches only the test's namespace, so the release above is never judged by it;

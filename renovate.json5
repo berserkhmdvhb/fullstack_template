@@ -144,12 +144,12 @@
     {
       // The kind tests' throwaway images, each under a `# renovate: image=<name>` line: the Kyverno images in
       // deploy/policies/test/kyverno-values.yaml (the chart takes `tag: <tag>@<digest>`), the registry in
-      // tests/k8s/test_admission.py, and the collector and Redis in tests/k8s/test_tracing_redis.py (`<NAME>_TAG = `).
+      // tests/k8s/_kube.py, and the collector and Redis in tests/k8s/test_tracing_redis.py (`<NAME>_TAG = `).
       "customType": "regex",
       "description": "Annotated image tags and digests of the kind tests",
       "managerFilePatterns": [
         "/^deploy/policies/test/kyverno-values\\.yaml$/",
-        "/^tests/k8s/test_admission\\.py$/",
+        "/^tests/k8s/_kube\\.py$/",
         "/^tests/k8s/test_tracing_redis\\.py$/"
       ],
       "matchStrings": [
