@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -291,24 +292,46 @@ def test_the_admission_test_runs_on_the_newest_leg_after_the_shutdown_check() ->
     assert "kyverno-chart" in install
 
 
-def test_the_admission_tests_signing_has_no_identity_login_or_secret() -> None:
-    """The test-only exception to the image-ops rule (CONVENTIONS.md, 5): the step signs with a key
-    the job generates, so it needs no OIDC token, no registry login and no secret."""
+# What marks a kind test module that starts the throwaway registry or pushes to it.
+PUSHES = re.compile(r'docker push|push_from_node|push_release_images|registry\(|\("push"')
+
+
+def _registry_pushers() -> list[Path]:
+    """Every tests/k8s module that starts fst-registry or pushes (derived, so none is missed)."""
+    return [
+        p for p in sorted((REPO / "tests" / "k8s").glob("*.py")) if PUSHES.search(p.read_text())
+    ]
+
+
+def test_the_registry_tests_have_no_identity_login_or_secret() -> None:
+    """The test-only exception to the image-ops rule (CONVENTIONS.md, 5): the kind tests push to a
+    loopback throwaway registry (and the admission test signs with a key the job generates), so no
+    module that starts it or pushes, and no step that runs one, needs an OIDC token, a registry
+    login or a secret."""
     job = _kind()
     assert "id-token" not in job["permissions"]
-    step = _step(next(n for n in _names() if n.startswith("Image admission")))
-    assert set(step) <= {"name", "if", "timeout-minutes", "run"}, step  # no env, no action
-    test = (REPO / "tests" / "k8s" / "test_admission.py").read_text(encoding="utf-8")
-    for word in (
-        "docker login",
-        '"login"',
-        "id-token",
-        "ACTIONS_ID_TOKEN",
-        "${{",  # no workflow expression (a secret, a token)
-        "GITHUB_TOKEN",
-    ):
-        assert word not in test, word
-    assert "127.0.0.1" in test  # pushes and signs through the loopback only
+    for prefix in ("Image admission", "Deploy script", "Migration lifecycle"):
+        step = _step(next(n for n in _names() if n.startswith(prefix)))
+        assert set(step) <= {"name", "if", "timeout-minutes", "run"}, step  # no env, no action
+        assert "${{" not in step["run"], step  # no secret or token reaches it
+    pushers = _registry_pushers()
+    assert {"_kube.py", "test_admission.py", "test_deploy_env.py", "test_migrations.py"} <= {
+        p.name for p in pushers
+    }
+    for path in pushers:
+        test = path.read_text(encoding="utf-8")
+        for word in (
+            "docker login",
+            '"login"',
+            "id-token",
+            "ACTIONS_ID_TOKEN",
+            "${{",  # no workflow expression (a secret, a token)
+            "GITHUB_TOKEN",
+        ):
+            assert word not in test, f"{path.name}: {word}"
+    kube = (REPO / "tests" / "k8s" / "_kube.py").read_text(encoding="utf-8")
+    published = re.findall(r'"-p", "([^"]+)"', kube)
+    assert published == ["127.0.0.1::5000"], published  # the registry on the loopback only
     rules = (REPO / "CONVENTIONS.md").read_text(encoding="utf-8")
     assert "wiki/admission-control.md#proven-on-kind" in rules
 

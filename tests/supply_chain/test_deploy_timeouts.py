@@ -35,8 +35,9 @@ def _seconds(duration: str) -> int:
 def _waits() -> list[tuple[str, str]]:
     """(where, duration) of every Helm wait of a deploy path: the workflows' HELM_TIMEOUT defaults
     (deploy-env.sh's upgrade and rollback, deploy-ops.yml's rollback), and each literal --timeout of
-    an install, upgrade or rollback in the kind deploy, the bootstrap migration and the kind tests
-    (a `helm test`, which deploys nothing, is not one)."""
+    an install, upgrade or rollback in the kind deploy, the bootstrap migration and the kind tests,
+    and a kind-test helper's default `timeout: str = "<d>"` (a `helm test`, which deploys nothing,
+    is not one)."""
     found = []
     for wf in ("deploy.yml", "deploy-ops.yml"):
         text = (ROOT / ".github" / "workflows" / wf).read_text()
@@ -53,6 +54,9 @@ def _waits() -> list[tuple[str, str]]:
             if re.search(r"\b(helm_as|helm) test\b", line):
                 continue
             for d in re.findall(rf"--timeout[ =\"', ]+({DURATION})\b", line):
+                found.append((path.name, d))
+            # a helper's default wait, passed on as "--timeout", timeout
+            for d in re.findall(rf"\btimeout: str = \"({DURATION})\"", line):
                 found.append((path.name, d))
     return found
 

@@ -29,7 +29,9 @@ case "$1" in
        for e in ${STUB_RENDERED-backend frontend web-ui}; do
          c="${e%%=*}" i="${e#*=}"
          printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-%s\n  labels:\n    app.kubernetes.io/name: '"${STUB_NAME-svc-chart}"'\n    app.kubernetes.io/instance: svc\n    app.kubernetes.io/component: %s\nspec:\n  template:\n    spec:\n      containers:\n        - name: %s\n          image: ghcr.io/o/r/%s%s\n' "$c" "$c" "$c" "$i" "$ref"
-       done ;;
+       done
+       # STUB_EXTRA_NAME: one more Deployment of this release under another app.kubernetes.io/name.
+       [[ -z "${STUB_EXTRA_NAME-}" ]] || printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-extra\n  labels:\n    app.kubernetes.io/name: %s\n    app.kubernetes.io/instance: svc\n' "$STUB_EXTRA_NAME" ;;
 esac
 STUB
   cat > "$B/kubectl" <<'STUB'
@@ -293,6 +295,14 @@ STUB
 
 @test "a render without the release's name label is refused before any upgrade" {
   STUB_NAME="" run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"app.kubernetes.io/name"* ]]
+  run grep -q "helm upgrade" "$LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "a render with more than one name label for the release is refused before any upgrade" {
+  STUB_EXTRA_NAME=other-chart run bash "$SCRIPT"
   [ "$status" -eq 1 ]
   [[ "$output" == *"app.kubernetes.io/name"* ]]
   run grep -q "helm upgrade" "$LOG"
