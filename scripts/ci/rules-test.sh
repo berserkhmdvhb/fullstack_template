@@ -6,7 +6,7 @@
 # rule file per flavour and runs `promtool check rules` on it. Then runs `promtool test rules` on each
 # unit-test file in <chart>/tests/rules (*.test.yaml, whose rule_files is `rules.yaml`) once per
 # flavour, against that flavour's file. The render is release `svc` in namespace `app`, which the
-# test files' series use.
+# test files' series use, with the certificate alerts (off by default) on.
 #
 # Usage: scripts/ci/rules-test.sh. Needs helm, promtool and yq:
 # scripts/tools.sh install helm4 promtool yq. Env: CHART (default charts/your-service-name).
@@ -31,7 +31,8 @@ extract() {
   local flavour="$1" kinds="$2" dir="$WORK/$1"
   shift 2
   mkdir -p "$dir"
-  helm template svc "$CHART" -n app --set monitoring.prometheusRule=true "$@" > "$dir/render.yaml" \
+  helm template svc "$CHART" -n app --set monitoring.prometheusRule=true \
+    --set monitoring.alerts.certificateExpiry.enabled=true "$@" > "$dir/render.yaml" \
     || die "$flavour: the render failed"
   yq ea "[select($kinds) | .spec.groups[]] | {\"groups\": .}" "$dir/render.yaml" > "$dir/rules.yaml"
   [[ "$(yq '.groups | length' "$dir/rules.yaml")" -gt 0 ]] || die "$flavour: the render holds no rule group"

@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 import pytest
+import yaml
 
 from tests.backend.test_chart_pod_security import (
     ALL_ON,
@@ -222,3 +223,76 @@ def test_the_scrape_allow_covers_the_metrics_port_only(
         for rule in policy["spec"].get("ingress") or []:
             if {"protocol": "TCP", "port": 9105} in rule["ports"]:
                 assert peer in rule["from"], policy["metadata"]["name"]
+
+
+RUNBOOK = CHART.parents[1] / "wiki" / "operations-runbook.md"
+EVERY_ALERT = ("--set", "monitoring.alerts.certificateExpiry.enabled=true")
+
+
+def _slug(heading: str) -> str:
+    """GitHub's heading anchor: lower case, punctuation dropped, spaces to hyphens."""
+    return re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-")
+
+
+def _headings() -> list[tuple[int, str]]:
+    """The runbook's headings (level, text), skipping fenced code."""
+    out, fenced = [], False
+    for line in RUNBOOK.read_text(encoding="utf-8").splitlines():
+        if line.startswith("```"):
+            fenced = not fenced
+        elif not fenced and (m := re.match(r"(#{1,6}) (.+)$", line)):
+            out.append((len(m[1]), m[2]))
+    return out
+
+
+def _anchors() -> set[str]:
+    """The anchors GitHub gives the headings: a repeated slug gets -1, -2, ..."""
+    anchors: set[str] = set()
+    seen: dict[str, int] = {}
+    for _, text in _headings():
+        slug = _slug(text)
+        n = seen.get(slug, 0)
+        anchors.add(f"{slug}-{n}" if n else slug)
+        seen[slug] = n + 1
+    return anchors
+
+
+def _alerts(helm: str) -> dict[str, dict[str, Any]]:
+    """Every alert rule of every rule-bearing object, both flavours, every flag on."""
+    docs = [
+        *_flavour(helm, "values.yaml", "prometheus-operator", *EVERY_ALERT),
+        *_flavour(helm, "values.yaml", "gmp", *CLUSTER_ON, *EVERY_ALERT),
+    ]
+    return {
+        f"{d['kind']}/{r['alert']}": r
+        for d in docs
+        if d["kind"] in {"PrometheusRule", "Rules", "ClusterRules"}
+        for g in d["spec"]["groups"]
+        for r in g["rules"]
+        if "alert" in r
+    }
+
+
+def test_every_alert_links_a_runbook_section_and_every_alert_section_names_an_alert(
+    helm: str,
+) -> None:
+    base = yaml.safe_load((CHART / "values.yaml").read_text(encoding="utf-8"))["monitoring"][
+        "runbookUrl"
+    ]
+    alerts = _alerts(helm)
+    assert {k.split("/")[0] for k in alerts} == {"PrometheusRule", "Rules", "ClusterRules"}
+    anchors = _anchors()
+    for key, rule in alerts.items():
+        url = rule["annotations"].get("runbook_url", "")
+        assert url.startswith(f"{base}#"), (key, url)
+        assert url.removeprefix(f"{base}#") in anchors, (key, url)
+    # Every level-3 heading in the Alerts section names a rendered alert: no stale section.
+    names = {k.split("/")[1] for k in alerts}
+    section, under = [], False
+    for level, text in _headings():
+        if level == 2:  # noqa: PLR2004
+            under = text == "Alerts"
+        elif level == 3 and under:  # noqa: PLR2004
+            section.append(text)
+    assert section, "the runbook has no ## Alerts section"
+    assert set(section) <= names, set(section) - names

@@ -1,0 +1,76 @@
+# promtool unit tests for the failed-Job alerts: MigrationJobFailed, BackupJobFailed and
+# BackupVerifyFailed (the age and certificate alerts are in age.test.yaml). Release svc in namespace
+# app: fullname svc-your-service-name, database namespace app-db. The kube series carry both
+# namespace labels: the operator flavour selects `namespace`, gmp the object namespace label
+# (exported_namespace).
+rule_files: [rules.yaml]
+# promtool otherwise orders the groups at random; the alerts read this step's recordings.
+group_eval_order: [slo-recording, slo-alerts]
+evaluation_interval: 1m
+
+tests:
+  - name: MigrationJobFailed fires for this release's failed migration Job only
+    interval: 1m
+    input_series:
+      - series: 'kube_job_failed{namespace="app", exported_namespace="app", job_name="svc-your-service-name-migrate-r3"}'
+        values: '1x10'
+      # another release, a longer name, another job and another namespace stay quiet
+      - series: 'kube_job_failed{namespace="app", exported_namespace="app", job_name="svc2-your-service-name-migrate-r3"}'
+        values: '1x10'
+      - series: 'kube_job_failed{namespace="app", exported_namespace="app", job_name="svc-your-service-name-migrate-r3-x"}'
+        values: '1x10'
+      - series: 'kube_job_failed{namespace="app", exported_namespace="app", job_name="svc-your-service-name-seed-r3"}'
+        values: '1x10'
+      - series: 'kube_job_failed{namespace="other", exported_namespace="other", job_name="svc-your-service-name-migrate-r4"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: MigrationJobFailed
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: MigrationJobFailed
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: app, exported_namespace: app, job_name: svc-your-service-name-migrate-r3}
+            exp_annotations:
+              summary: "Migration job svc-your-service-name-migrate-r3 failed"
+              description: "Migration job svc-your-service-name-migrate-r3 has failed: that revision's rollout is blocked and the previous version keeps serving."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#migrationjobfailed"
+
+  - name: a failed restore-check Job fires BackupVerifyFailed, not BackupJobFailed
+    interval: 1m
+    input_series:
+      - series: 'kube_job_failed{namespace="app-db", exported_namespace="app-db", job_name="svc-your-service-name-pg-backup-verify-29000000"}'
+        values: '1x70'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: BackupVerifyFailed
+        exp_alerts: []
+      - eval_time: 61m
+        alertname: BackupJobFailed
+        exp_alerts: []
+      - eval_time: 61m
+        alertname: BackupVerifyFailed
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: app-db, exported_namespace: app-db, job_name: svc-your-service-name-pg-backup-verify-29000000}
+            exp_annotations:
+              summary: "PostgreSQL backup restore check failed"
+              description: "Restore-check job svc-your-service-name-pg-backup-verify-29000000 has failed: the newest backup may not restore."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#backupverifyfailed"
+
+  - name: a failed backup Job fires BackupJobFailed, not BackupVerifyFailed
+    interval: 1m
+    input_series:
+      - series: 'kube_job_failed{namespace="app-db", exported_namespace="app-db", job_name="svc-your-service-name-pg-backup-29000000"}'
+        values: '1x70'
+    alert_rule_test:
+      - eval_time: 61m
+        alertname: BackupVerifyFailed
+        exp_alerts: []
+      - eval_time: 61m
+        alertname: BackupJobFailed
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: app-db, exported_namespace: app-db, job_name: svc-your-service-name-pg-backup-29000000}
+            exp_annotations:
+              summary: "PostgreSQL backup job failed"
+              description: "Backup job svc-your-service-name-pg-backup-29000000 has failed."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#backupjobfailed"

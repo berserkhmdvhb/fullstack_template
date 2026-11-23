@@ -25,6 +25,7 @@ tests:
             exp_annotations:
               summary: "High error rate detected (10%)"
               description: "More than 5% of requests are returning 5xx errors."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#higherrorrate"
 
   - name: PodFailed fires on a Failed pod held for 5m
     interval: 1m
@@ -39,3 +40,4 @@ tests:
             exp_annotations:
               summary: "Pod p1 has failed"
               description: "Pod p1 is in Failed state."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#podfailed"

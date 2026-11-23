@@ -367,3 +367,49 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'environment is production but tests\.enabled is true\. The helm test hooks .* set tests\.enabled=false'
+
+  # ---- the runbook link under the deploy guard (the rules render) ----
+  - it: with the guard and the rules on, the placeholder runbook URL is refused
+    set:
+      guards: {rejectPlaceholders: true}
+      monitoring: {prometheusRule: true}
+      images: &real_digests
+        backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+        frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+      config: &real_oidc {OIDC_ISSUER: "https://idp.svc.test", OIDC_AUDIENCE: "api://svc"}
+      edge: &real_edge
+        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: '^\s*- monitoring\.runbookUrl is the placeholder "https://github\.com/your-org/your-repo/blob/main/wiki/operations-runbook\.md"'
+
+  - it: with the guard, the placeholder runbook URL is refused for the gmp ClusterRules too
+    set:
+      guards: {rejectPlaceholders: true}
+      monitoring: {flavour: gmp, gmp: {clusterRules: {enabled: true}}}
+      images: *real_digests
+      config: *real_oidc
+      edge: *real_edge
+    asserts:
+      - failedTemplate:
+          errorPattern: 'monitoring\.runbookUrl is the placeholder'
+
+  - it: with the guard and the rules off, the placeholder runbook URL is not a refusal
+    set:
+      guards: {rejectPlaceholders: true}
+      images: *real_digests
+      config: *real_oidc
+      edge: *real_edge
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: with the guard, the rules on and a real runbook URL, production renders
+    set:
+      guards: {rejectPlaceholders: true}
+      monitoring: {prometheusRule: true, runbookUrl: "https://git.svc.test/ops/runbook.md"}
+      images: *real_digests
+      config: *real_oidc
+      edge: *real_edge
+    asserts:
+      - notFailedTemplate: {}

@@ -541,14 +541,16 @@ the chart's `values.<env>.yaml` (or `--chart-values FILE` on the bootstrap), lik
 namespace with `monitoring.gmp.objectNamespaceLabel` (default `exported_namespace`; a third-party
 report says GMP relabels kube-state-metrics so, **verify it against your GMP** by reading the labels
 of `kube_pod_status_phase`). The prometheus-operator flavour is unchanged: one `PrometheusRule`,
-selecting on `namespace`. The deployer Role holds `podmonitorings` and `rules`. Which rules need which series, in both flavours:
+selecting on `namespace`. The deployer Role holds `podmonitorings` and `rules`. Every alert links its section of the runbook (`runbook_url`, from `monitoring.runbookUrl`; [Alerts](./operations-runbook.md#alerts)). Which rules need which series, in both flavours:
 
 | Rules | Series | Source |
 |---|---|---|
 | `PodRestartingFrequently`, `PodPendingTooLong`, `PodFailed` | `kube_pod_container_status_restarts_total`, `kube_pod_status_phase` | kube-state-metrics |
 | `HighCPUUsage`, `HighMemoryUsage`, `MemoryApproachingOOM` | `container_cpu_usage_seconds_total`, `container_memory_working_set_bytes` | cAdvisor; and `kube_pod_container_resource_limits` from kube-state-metrics |
 | `BackendEndpointsDown`, `FrontendEndpointsDown`, `PostgreSQLDown` | `kube_endpoint_address_available` | kube-state-metrics |
-| `BackupJobFailed` | `kube_job_failed` | kube-state-metrics |
+| `MigrationJobFailed`, `BackupJobFailed`, `BackupVerifyFailed` | `kube_job_failed` | kube-state-metrics |
+| `BackupTooOld`, `BackupVerifyTooOld` (with the backup CronJobs; `monitoring.alerts.backupMaxAgeHours`, `backupVerifyMaxAgeHours`) | `kube_cronjob_status_last_successful_time`, `kube_cronjob_created` | kube-state-metrics |
+| `CertificateExpiringSoon`, `CertificateExpiryCritical` (off by default: `monitoring.alerts.certificateExpiry`) | `certmanager_certificate_expiration_timestamp_seconds` | cert-manager's metrics endpoint; the Certificate's namespace is read from the same label as the `kube_*` series (with prometheus-operator, set `honorLabels` on cert-manager's ServiceMonitor) |
 | `HighErrorRate` | `http_requests_total` | the backend's metrics port (nothing to install) |
 | `SLOAvailabilityBurnFast`, `SLOAvailabilityBurnSlow`, `SLOLatencyBurnFast`, `SLOLatencyBurnSlow` (and the `slo:sli_error:ratio_rate<w>` recording rules) | `http_requests_total`, `http_request_duration_seconds_bucket` | the backend's metrics port (nothing to install); the objectives are `monitoring.slo`, see [Service Level Objectives](./operations-runbook.md#service-level-objectives) |
 

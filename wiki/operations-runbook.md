@@ -13,6 +13,7 @@ Kubernetes operational procedures for deploying, scaling, debugging, and maintai
 - [Log Correlation & Tracing](#log-correlation--tracing)
 - [Debugging](#debugging)
 - [Backup & Recovery](#backup--recovery)
+- [Alerts](#alerts)
 - [Incident Response](#incident-response)
 - [Maintenance](#maintenance)
 - [Reference Commands](#reference-commands)
@@ -551,6 +552,185 @@ velero restore create --from-backup your-service-name-manual
 # Check backup status
 velero backup describe your-service-name-manual
 ```
+
+---
+
+## Alerts
+
+One section per alert the chart renders (`templates/_helpers.tpl`, groups in this order). Every alert's
+`runbook_url` annotation links its section here: `monitoring.runbookUrl` + `#<alertname in lower case>`
+(set `monitoring.runbookUrl` to your repository's copy of this file; production refuses the placeholder).
+A test fails when an alert has no section or a section names no alert. Severity: `critical` pages,
+`warning` is a ticket for working hours ([Severity Levels](#severity-levels)). `<ns>` is the release
+namespace and `<db-ns>` the database namespace (`<ns>-db`).
+
+### PodRestartingFrequently
+
+- **Means:** a container of the namespace restarted more than 3 times in an hour (held 15 minutes).
+- **Impact:** requests to that Pod fail while it restarts; a crash loop is next.
+- **First checks:** `kubectl -n <ns> describe pod <pod>` (last state, exit code, `OOMKilled`) and
+  `kubectl -n <ns> logs <pod> --previous`.
+- **Fix:** [Pod CrashLoopBackOff](#pod-crashloopbackoff); an `OOMKilled` is [Resource Issues](#resource-issues).
+
+### PodPendingTooLong
+
+- **Means:** a Pod has stayed `Pending` for over 10 minutes.
+- **Impact:** less capacity than the replica count says; a rollout that waits on it is stuck.
+- **First checks:** the Pod's events (`kubectl -n <ns> describe pod <pod>`): unschedulable (CPU, memory,
+  node selector, PVC) or an image pull.
+- **Fix:** [Resource Issues](#resource-issues) for capacity; an image pull error means a wrong digest or
+  pull secret (`imagePullSecrets`).
+
+### PodFailed
+
+- **Means:** a Pod of the namespace is in phase `Failed` (held 5 minutes).
+- **Impact:** a failed Job Pod (a migration, a backup) or an evicted Pod; the matching Job alert says which.
+- **First checks:** `kubectl -n <ns> get pods --field-selector=status.phase=Failed` and its logs.
+- **Fix:** [Debugging](#debugging); delete an evicted Pod once its cause is fixed.
+
+### HighCPUUsage
+
+- **Means:** a Pod has used over 85% of its CPU limit for 15 minutes.
+- **Impact:** CPU throttling, so latency rises (watch the latency SLO).
+- **First checks:** `kubectl -n <ns> top pods` and the HPA (`kubectl -n <ns> get hpa`): at its maximum?
+- **Fix:** [Scaling](#scaling), or raise the limit; [Resource Issues](#resource-issues).
+
+### HighMemoryUsage
+
+- **Means:** a Pod's working set has been over 90% of its memory limit for 15 minutes.
+- **Impact:** none yet; an OOM kill is close (`MemoryApproachingOOM`).
+- **First checks:** `kubectl -n <ns> top pods`; whether it grows steadily (a leak) or with load.
+- **Fix:** [Resource Issues](#resource-issues): raise the limit or fix the leak.
+
+### MemoryApproachingOOM
+
+- **Means:** a Pod's working set has been over 95% of its memory limit for 5 minutes.
+- **Impact:** the kernel kills the container at the limit; in-flight requests fail.
+- **First checks:** as for `HighMemoryUsage`; `kubectl -n <ns> describe pod <pod>` for earlier `OOMKilled`.
+- **Fix:** raise the memory limit now (`values.<env>.yaml`, redeploy), then find the cause
+  ([Resource Issues](#resource-issues)).
+
+### BackendEndpointsDown
+
+- **Means:** the backend Service has had no ready endpoint for 5 minutes.
+- **Impact:** the API is down for every user.
+- **First checks:** `kubectl -n <ns> get pods,endpoints`; an unready Pod's reason (`schema_behind` or
+  `schema_missing` waits on the migration: `MigrationJobFailed`).
+- **Fix:** [P1 — Service Down](#p1--service-down); [Database Connection Issues](#database-connection-issues);
+  [Rolling Back a Deployment](#rolling-back-a-deployment).
+
+### FrontendEndpointsDown
+
+- **Means:** the frontend Service has had no ready endpoint for 5 minutes.
+- **Impact:** the web app is down for every user.
+- **First checks:** `kubectl -n <ns> get pods,endpoints` and the frontend Pods' logs.
+- **Fix:** [P1 — Service Down](#p1--service-down); [Rolling Back a Deployment](#rolling-back-a-deployment).
+
+### MigrationJobFailed
+
+- **Means:** this release's migration Job (`<fullname>-migrate-r<revision>`) has failed (held 5 minutes).
+- **Impact:** that revision's rollout is blocked; the previous version keeps serving, so it is not a page.
+  The failed Job is kept for 24 hours, so the alert stays until it is deleted or expires.
+- **First checks:** `kubectl -n <ns> describe job <migration-job-name>` and its logs.
+- **Fix:** [Database Migrations](#database-migrations): fix the migration and deploy again.
+
+### PostgreSQLDown
+
+- **Means:** the in-cluster PostgreSQL Service has had no ready endpoint for 5 minutes.
+- **Impact:** every request that reads the database fails; the backend turns unready.
+- **First checks:** `kubectl -n <db-ns> get pods,pvc` and the PostgreSQL Pod's logs and events.
+- **Fix:** [Database Connection Issues](#database-connection-issues); [Restoring from Backup](#restoring-from-backup)
+  for lost data.
+
+### BackupJobFailed
+
+- **Means:** a Job of the daily backup CronJob (`<fullname>-pg-backup`) has failed (held 1 hour).
+- **Impact:** no fresh backup: a restore would lose more data.
+- **First checks:** `kubectl -n <db-ns> get jobs` and the failed Job's logs (credentials, disk space on the
+  backup PVC).
+- **Fix:** [PostgreSQL Backup](#postgresql-backup); run a manual backup once fixed.
+
+### BackupVerifyFailed
+
+- **Means:** a Job of the weekly restore check (`<fullname>-pg-backup-verify`) has failed (held 1 hour).
+- **Impact:** the newest backup may not restore; treat the backups as unproven until a check passes.
+- **First checks:** the verify Job's logs (`kubectl -n <db-ns> logs -l app.kubernetes.io/component=backup-verification`).
+- **Fix:** [Backup Verification](#backup-verification); fix the backup (or the check), take a backup and
+  run the check again (`kubectl create job --from=cronjob/<fullname>-pg-backup-verify`).
+
+### BackupTooOld
+
+- **Means:** the backup CronJob has not succeeded for longer than `monitoring.alerts.backupMaxAgeHours`
+  (default 26), or never has and is older than that. Rendered with the backup CronJobs only.
+- **Impact:** the newest backup is stale or missing; a restore would lose that much data.
+- **First checks:** `kubectl -n <db-ns> get cronjob <fullname>-pg-backup` (suspended? last schedule?) and
+  its Jobs; a failed Job also fires `BackupJobFailed`.
+- **Fix:** [PostgreSQL Backup](#postgresql-backup); run a manual backup.
+
+### BackupVerifyTooOld
+
+- **Means:** the restore check has not succeeded for longer than
+  `monitoring.alerts.backupVerifyMaxAgeHours` (default 192, eight days), or never has and is older.
+- **Impact:** the backups have not been proven restorable for over a week.
+- **First checks:** `kubectl -n <db-ns> get cronjob <fullname>-pg-backup-verify` and its Jobs.
+- **Fix:** [Backup Verification](#backup-verification); run the check by hand.
+
+### CertificateExpiringSoon
+
+- **Means:** a cert-manager Certificate in a namespace matching
+  `monitoring.alerts.certificateExpiry.namespaces` expires in under `warningDays` (default 21). Off by
+  default (`monitoring.alerts.certificateExpiry.enabled`). cert-manager renews well before this, so
+  the renewal is failing.
+- **Impact:** none yet; browsers and clients refuse the endpoint once it expires.
+- **First checks:** `kubectl -n <namespace> describe certificate <name>` and its CertificateRequest and
+  Order (a failed ACME challenge, a missing issuer).
+- **Fix:** [Certificate Renewal](#certificate-renewal).
+
+### CertificateExpiryCritical
+
+- **Means:** as `CertificateExpiringSoon`, under `criticalDays` (default 7).
+- **Impact:** an outage at expiry, days away.
+- **First checks:** as for `CertificateExpiringSoon`.
+- **Fix:** [Certificate Renewal](#certificate-renewal) now; delete the Certificate's Secret to force a new
+  issue once the issuer works.
+
+### HighErrorRate
+
+- **Means:** over 5% of requests answered 5xx for 10 minutes (the older backstop to the SLO alerts).
+- **Impact:** users see errors.
+- **First checks:** act on a firing SLO alert first; the backend logs for the failing handler.
+- **Fix:** [Debugging](#debugging); [Rolling Back a Deployment](#rolling-back-a-deployment) if a deploy
+  caused it.
+
+### SLOAvailabilityBurnFast
+
+- **Means:** the availability error budget burns at 14.4x or 6x ([Service Level Objectives](#service-level-objectives)).
+- **Impact:** at this rate the 30-day budget is gone in about 2 days.
+- **First checks:** the 5xx by handler (`http_requests_total{status=~"5.."}`) and recent deploys.
+- **Fix:** [P1 — Service Down](#p1--service-down); roll back a bad deploy.
+
+### SLOAvailabilityBurnSlow
+
+- **Means:** the availability error budget burns at 3x or 1x ([Service Level Objectives](#service-level-objectives)).
+- **Impact:** the budget runs out within the period unless fixed.
+- **First checks:** the 5xx by handler over the last day.
+- **Fix:** [Debugging](#debugging) within working hours.
+
+### SLOLatencyBurnFast
+
+- **Means:** the latency error budget (requests over `thresholdSeconds`) burns at 14.4x or 6x
+  ([Service Level Objectives](#service-level-objectives)).
+- **Impact:** many requests are slow; the budget is gone in about 2 days.
+- **First checks:** the slow handlers (`http_request_duration_seconds_bucket`), CPU throttling
+  (`HighCPUUsage`), the database.
+- **Fix:** [P2 — Degraded Performance](#p2--degraded-performance); [Scaling](#scaling).
+
+### SLOLatencyBurnSlow
+
+- **Means:** the latency error budget burns at 3x or 1x ([Service Level Objectives](#service-level-objectives)).
+- **Impact:** the budget runs out within the period unless fixed.
+- **First checks:** the slow handlers over the last day.
+- **Fix:** [P2 — Degraded Performance](#p2--degraded-performance) within working hours.
 
 ---
 

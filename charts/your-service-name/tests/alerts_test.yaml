@@ -1,0 +1,99 @@
+suite: the migration, backup and certificate alerts, their gates, and the runbook link
+release:
+  name: svc
+  namespace: app
+templates:
+  - prometheusrule.yaml
+  - gmp-rules.yaml
+  - gmp-cluster-rules.yaml
+  - validate-values.yaml
+tests:
+  - it: the migration and backup alerts render with the rules, scoped to this release
+    set: {monitoring: {prometheusRule: true}}
+    template: prometheusrule.yaml
+    asserts:
+      - equal: {path: 'spec.groups[2].rules[2].alert', value: MigrationJobFailed}
+      - equal: {path: 'spec.groups[2].rules[2].for', value: 5m}
+      - equal: {path: 'spec.groups[2].rules[2].labels.severity', value: warning}
+      - matchRegex: {path: 'spec.groups[2].rules[2].expr', pattern: 'kube_job_failed\{namespace="app", job_name=~"svc-your-service-name-migrate-r\[0-9\]\+"\} == 1'}
+      - equal: {path: 'spec.groups[3].rules[1].alert', value: BackupJobFailed}
+      - matchRegex: {path: 'spec.groups[3].rules[1].expr', pattern: 'job_name=~"svc-your-service-name-pg-backup-\[0-9\]\+"'}
+      - equal: {path: 'spec.groups[3].rules[2].alert', value: BackupVerifyFailed}
+      - equal: {path: 'spec.groups[3].rules[2].for', value: 1h}
+      - matchRegex: {path: 'spec.groups[3].rules[2].expr', pattern: 'kube_job_failed\{namespace="app-db", job_name=~"svc-your-service-name-pg-backup-verify-\[0-9\]\+"\} == 1'}
+      - equal: {path: 'spec.groups[3].rules[3].alert', value: BackupTooOld}
+      - matchRegex: {path: 'spec.groups[3].rules[3].expr', pattern: 'kube_cronjob_status_last_successful_time\{namespace="app-db", cronjob="svc-your-service-name-pg-backup"\} > 26 \* 3600'}
+      - matchRegex: {path: 'spec.groups[3].rules[3].expr', pattern: 'kube_cronjob_created\{namespace="app-db", cronjob="svc-your-service-name-pg-backup"\} > 26 \* 3600'}
+      - equal: {path: 'spec.groups[3].rules[4].alert', value: BackupVerifyTooOld}
+      - matchRegex: {path: 'spec.groups[3].rules[4].expr', pattern: 'cronjob="svc-your-service-name-pg-backup-verify"\} > 192 \* 3600'}
+      - equal: {path: 'spec.groups[2].rules[2].annotations.runbook_url', value: 'https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#migrationjobfailed'}
+
+  - it: the max ages follow their values
+    set: {monitoring: {prometheusRule: true, alerts: {backupMaxAgeHours: 50, backupVerifyMaxAgeHours: 400}}}
+    template: prometheusrule.yaml
+    asserts:
+      - matchRegex: {path: 'spec.groups[3].rules[3].expr', pattern: '> 50 \* 3600'}
+      - matchRegex: {path: 'spec.groups[3].rules[4].expr', pattern: '> 400 \* 3600'}
+
+  - it: without the backup CronJobs (backups off) there is no backup-age alert
+    set: {monitoring: {prometheusRule: true}, postgresql: {backup: {enabled: false}}}
+    template: prometheusrule.yaml
+    asserts:
+      - lengthEqual: {path: 'spec.groups[3].rules', count: 3}
+      - notContains: {path: 'spec.groups[3].rules', content: {alert: BackupTooOld}, any: true}
+      - notContains: {path: 'spec.groups[3].rules', content: {alert: BackupVerifyTooOld}, any: true}
+
+  - it: without the in-cluster database there is no backup-age alert
+    set: {monitoring: {prometheusRule: true}, postgresql: {enabled: false}}
+    template: prometheusrule.yaml
+    asserts:
+      - notContains: {path: 'spec.groups[3].rules', content: {alert: BackupTooOld}, any: true}
+
+  - it: the certificate alerts are off by default
+    set: {monitoring: {prometheusRule: true}}
+    template: prometheusrule.yaml
+    asserts:
+      - notContains: {path: spec.groups, content: {name: certificates}, any: true}
+
+  - it: the flag adds the certificate group after the cluster groups (prometheus-operator)
+    set: {monitoring: {prometheusRule: true, alerts: {certificateExpiry: {enabled: true}}}}
+    template: prometheusrule.yaml
+    asserts:
+      - equal: {path: 'spec.groups[4].name', value: certificates}
+      - equal: {path: 'spec.groups[4].rules[0].alert', value: CertificateExpiringSoon}
+      - equal: {path: 'spec.groups[4].rules[0].labels.severity', value: warning}
+      - matchRegex: {path: 'spec.groups[4].rules[0].expr', pattern: 'certmanager_certificate_expiration_timestamp_seconds\{namespace=~"app"\} - time\(\) < 21 \* 86400'}
+      - equal: {path: 'spec.groups[4].rules[1].alert', value: CertificateExpiryCritical}
+      - equal: {path: 'spec.groups[4].rules[1].labels.severity', value: critical}
+      - matchRegex: {path: 'spec.groups[4].rules[1].expr', pattern: '\{namespace=~"app"\} - time\(\) < 7 \* 86400'}
+      - equal: {path: 'spec.groups[5].name', value: app-health}
+
+  - it: the certificate namespaces and thresholds follow their values
+    set: {monitoring: {prometheusRule: true, alerts: {certificateExpiry: {enabled: true, namespaces: 'app|gateway-system', warningDays: 30, criticalDays: 10}}}}
+    template: prometheusrule.yaml
+    asserts:
+      - matchRegex: {path: 'spec.groups[4].rules[0].expr', pattern: '\{namespace=~"app\|gateway-system"\} - time\(\) < 30 \* 86400'}
+      - matchRegex: {path: 'spec.groups[4].rules[1].expr', pattern: '< 10 \* 86400'}
+
+  - it: in gmp the certificate group is in the ClusterRules, on the object namespace label, not in Rules
+    set: {monitoring: {flavour: gmp, prometheusRule: true, gmp: {clusterRules: {enabled: true}}, alerts: {certificateExpiry: {enabled: true}}}}
+    asserts:
+      - equal: {path: 'spec.groups[4].name', value: certificates}
+        template: gmp-cluster-rules.yaml
+      - matchRegex: {path: 'spec.groups[4].rules[0].expr', pattern: '\{exported_namespace=~"app"\}'}
+        template: gmp-cluster-rules.yaml
+      - notContains: {path: spec.groups, content: {name: certificates}, any: true}
+        template: gmp-rules.yaml
+
+  - it: the render refuses criticalDays not below warningDays
+    set: {monitoring: {alerts: {certificateExpiry: {enabled: true, warningDays: 7, criticalDays: 7}}}}
+    template: validate-values.yaml
+    asserts:
+      - failedTemplate: {errorPattern: 'monitoring.alerts.certificateExpiry.criticalDays \(7\) must be below warningDays \(7\)'}
+
+  - it: the runbook URL follows monitoring.runbookUrl
+    set: {monitoring: {prometheusRule: true, runbookUrl: 'https://git.example/ops/runbook.md'}}
+    template: prometheusrule.yaml
+    asserts:
+      - equal: {path: 'spec.groups[0].rules[0].annotations.runbook_url', value: 'https://git.example/ops/runbook.md#podrestartingfrequently'}
+      - equal: {path: 'spec.groups[6].rules[0].annotations.runbook_url', value: 'https://git.example/ops/runbook.md#sloavailabilityburnfast'}

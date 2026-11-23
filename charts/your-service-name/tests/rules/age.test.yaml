@@ -1,0 +1,153 @@
+# promtool unit tests for the age and expiry alerts: BackupTooOld, BackupVerifyTooOld and the
+# certificate alerts (make rules-test renders those on). They have no `for:`, so an hourly evaluation
+# tests them as well as a per-minute one, in a fraction of the time. Release svc in namespace app
+# (database namespace app-db); the series carry both namespace labels (see smoke.test.yaml).
+rule_files: [rules.yaml]
+# promtool otherwise orders the groups at random; the alerts read this step's recordings.
+group_eval_order: [slo-recording, slo-alerts]
+evaluation_interval: 1h
+
+tests:
+  - name: BackupTooOld fires past 26h since the last success, not before
+    interval: 1h
+    input_series:
+      - series: 'kube_cronjob_status_last_successful_time{namespace="app-db", exported_namespace="app-db", cronjob="svc-your-service-name-pg-backup"}'
+        values: '0x30'
+      - series: 'kube_cronjob_created{namespace="app-db", exported_namespace="app-db", cronjob="svc-your-service-name-pg-backup"}'
+        values: '0x30'
+      # another release's CronJob never fires this release's alert
+      - series: 'kube_cronjob_status_last_successful_time{namespace="app-db", exported_namespace="app-db", cronjob="other-pg-backup"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: BackupTooOld
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: BackupTooOld
+        exp_alerts:
+          - exp_labels: &backup_labels {severity: warning, namespace: app-db, exported_namespace: app-db, cronjob: svc-your-service-name-pg-backup}
+            exp_annotations: &backup_too_old
+              summary: "No successful PostgreSQL backup for 1d 3h 0m 0s"
+              description: "CronJob svc-your-service-name-pg-backup has not completed a backup in the last 26 hours."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#backuptooold"
+
+  - name: BackupTooOld fires for a CronJob that never succeeded once it is older than 26h
+    interval: 1h
+    input_series:
+      - series: 'kube_cronjob_created{namespace="app-db", exported_namespace="app-db", cronjob="svc-your-service-name-pg-backup"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: BackupTooOld
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: BackupTooOld
+        exp_alerts:
+          - exp_labels: *backup_labels
+            exp_annotations: *backup_too_old
+
+  - name: an old CronJob with a recent success stays quiet
+    interval: 1h
+    input_series:
+      - series: 'kube_cronjob_status_last_successful_time{namespace="app-db", exported_namespace="app-db", cronjob="svc-your-service-name-pg-backup"}'
+        values: '90000x30'
+      - series: 'kube_cronjob_created{namespace="app-db", exported_namespace="app-db", cronjob="svc-your-service-name-pg-backup"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 27h
+        alertname: BackupTooOld
+        exp_alerts: []
+
+  - name: BackupVerifyTooOld fires past 192h since the last restore check, not before
+    interval: 1h
+    input_series:
+      - series: 'kube_cronjob_status_last_successful_time{namespace="app-db", exported_namespace="app-db", cronjob="svc-your-service-name-pg-backup-verify"}'
+        values: '0x200'
+      - series: 'kube_cronjob_created{namespace="app-db", exported_namespace="app-db", cronjob="svc-your-service-name-pg-backup-verify"}'
+        values: '0x200'
+    alert_rule_test:
+      - eval_time: 191h
+        alertname: BackupVerifyTooOld
+        exp_alerts: []
+      # the backup CronJob's alert does not read the verify CronJob
+      - eval_time: 193h
+        alertname: BackupTooOld
+        exp_alerts: []
+      - eval_time: 193h
+        alertname: BackupVerifyTooOld
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: app-db, exported_namespace: app-db, cronjob: svc-your-service-name-pg-backup-verify}
+            exp_annotations:
+              summary: "No successful PostgreSQL restore check for 8d 1h 0m 0s"
+              description: "CronJob svc-your-service-name-pg-backup-verify has not completed a restore check in the last 192 hours."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#backupverifytooold"
+
+  # Certificates: evaluated at 1h (time() = 3600), so an expiry of 3600 + N days leaves N days.
+  - name: a certificate 22 days from expiry stays quiet
+    interval: 1h
+    input_series:
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="app", exported_namespace="app", name="api-tls"}'
+        values: '1904400x2'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: CertificateExpiringSoon
+        exp_alerts: []
+      - eval_time: 1h
+        alertname: CertificateExpiryCritical
+        exp_alerts: []
+
+  - name: a certificate 20 days from expiry fires the warning only
+    interval: 1h
+    input_series:
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="app", exported_namespace="app", name="api-tls"}'
+        values: '1731600x2'
+      # a namespace the regex does not match stays quiet
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="other", exported_namespace="other", name="api-tls"}'
+        values: '1731600x2'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: CertificateExpiryCritical
+        exp_alerts: []
+      - eval_time: 1h
+        alertname: CertificateExpiringSoon
+        exp_alerts:
+          - exp_labels: &cert_labels {severity: warning, namespace: app, exported_namespace: app, name: api-tls}
+            exp_annotations:
+              summary: "Certificate api-tls expires in 20d 0h 0m 0s"
+              description: "cert-manager Certificate app/api-tls expires in less than 21 days: cert-manager has not renewed it."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#certificateexpiringsoon"
+
+  - name: a certificate 8 days from expiry is not critical yet
+    interval: 1h
+    input_series:
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="app", exported_namespace="app", name="api-tls"}'
+        values: '694800x2'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: CertificateExpiryCritical
+        exp_alerts: []
+
+  - name: a certificate 6 days from expiry fires the critical alert (and the warning)
+    interval: 1h
+    input_series:
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="app", exported_namespace="app", name="api-tls"}'
+        values: '522000x2'
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="other", exported_namespace="other", name="api-tls"}'
+        values: '522000x2'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: CertificateExpiryCritical
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: app, exported_namespace: app, name: api-tls}
+            exp_annotations:
+              summary: "Certificate api-tls expires in 6d 0h 0m 0s"
+              description: "cert-manager Certificate app/api-tls expires in less than 7 days. Renew it now."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#certificateexpirycritical"
+      - eval_time: 1h
+        alertname: CertificateExpiringSoon
+        exp_alerts:
+          - exp_labels: *cert_labels
+            exp_annotations:
+              summary: "Certificate api-tls expires in 6d 0h 0m 0s"
+              description: "cert-manager Certificate app/api-tls expires in less than 21 days: cert-manager has not renewed it."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#certificateexpiringsoon"

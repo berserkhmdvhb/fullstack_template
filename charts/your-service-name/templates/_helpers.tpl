@@ -486,10 +486,14 @@ key: password
 {{/*
    The migration Job's name: one per release revision (a Job's spec is immutable). The release
    fullname is cut to 44 characters so "-migrate-r<revision>" keeps the name within 63. Used by
-   the Job and by NOTES.txt, so they cannot disagree.
+   the Job, by NOTES.txt and (its prefix) by MigrationJobFailed, so they cannot disagree.
 */}}
 {{- define "chart.migrationJobName" -}}
-{{- printf "%s-migrate-r%d" (include "chart.fullname" . | trunc 44 | trimSuffix "-") (.Release.Revision | int) -}}
+{{- printf "%s%d" (include "chart.migrationJobPrefix" .) (.Release.Revision | int) -}}
+{{- end -}}
+{{/* The migration Job's name without the revision; MigrationJobFailed selects it. */}}
+{{- define "chart.migrationJobPrefix" -}}
+{{- printf "%s-migrate-r" (include "chart.fullname" . | trunc 44 | trimSuffix "-") -}}
 {{- end -}}
 
 {{/* Where a database CA from database.tls.caSecret is mounted (read-only), and its file. */}}
@@ -559,6 +563,7 @@ key: password
       annotations:
         summary: "Pod {{ "{{" }} $labels.pod {{ "}}" }} is restarting frequently"
         description: "Pod {{ "{{" }} $labels.pod {{ "}}" }} has restarted {{ "{{" }} $value {{ "}}" }} times in the last hour."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#podrestartingfrequently"
     - alert: PodPendingTooLong
       expr: |
         kube_pod_status_phase{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}", phase="Pending"} == 1
@@ -568,6 +573,7 @@ key: password
       annotations:
         summary: "Pod {{ "{{" }} $labels.pod {{ "}}" }} is pending for more than 10 minutes"
         description: "Pod {{ "{{" }} $labels.pod {{ "}}" }} has been in Pending state for over 10 minutes."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#podpendingtoolong"
     - alert: PodFailed
       expr: |
         kube_pod_status_phase{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}", phase="Failed"} == 1
@@ -577,6 +583,7 @@ key: password
       annotations:
         summary: "Pod {{ "{{" }} $labels.pod {{ "}}" }} has failed"
         description: "Pod {{ "{{" }} $labels.pod {{ "}}" }} is in Failed state."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#podfailed"
 - name: resource-usage
   rules:
     - alert: HighCPUUsage
@@ -591,6 +598,7 @@ key: password
       annotations:
         summary: "Pod {{ "{{" }} $labels.pod {{ "}}" }} CPU usage is above 85%"
         description: "Pod {{ "{{" }} $labels.pod {{ "}}" }} is using {{ "{{" }} $value | humanizePercentage {{ "}}" }} of its CPU limit."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#highcpuusage"
     - alert: HighMemoryUsage
       expr: |
         sum(container_memory_working_set_bytes{namespace="{{ .Release.Namespace }}"}) by (pod)
@@ -603,6 +611,7 @@ key: password
       annotations:
         summary: "Pod {{ "{{" }} $labels.pod {{ "}}" }} memory usage is above 90%"
         description: "Pod {{ "{{" }} $labels.pod {{ "}}" }} is using {{ "{{" }} $value | humanizePercentage {{ "}}" }} of its memory limit."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#highmemoryusage"
     - alert: MemoryApproachingOOM
       expr: |
         sum(container_memory_working_set_bytes{namespace="{{ .Release.Namespace }}"}) by (pod)
@@ -615,6 +624,7 @@ key: password
       annotations:
         summary: "Pod {{ "{{" }} $labels.pod {{ "}}" }} memory usage is above 95% (OOM risk)"
         description: "Pod {{ "{{" }} $labels.pod {{ "}}" }} is at risk of OOM kill."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#memoryapproachingoom"
 - name: service-health
   rules:
     - alert: BackendEndpointsDown
@@ -626,6 +636,7 @@ key: password
       annotations:
         summary: "Backend service has no ready endpoints"
         description: "Backend service {{ include "chart.fullname" . }}-backend has 0 ready endpoints."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#backendendpointsdown"
     - alert: FrontendEndpointsDown
       expr: |
         kube_endpoint_address_available{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}", endpoint="{{ include "chart.fullname" . }}-frontend"} == 0
@@ -635,6 +646,18 @@ key: password
       annotations:
         summary: "Frontend service has no ready endpoints"
         description: "Frontend service {{ include "chart.fullname" . }}-frontend has 0 ready endpoints."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#frontendendpointsdown"
+    - alert: MigrationJobFailed
+      # A failed migration blocks its revision's rollout; the old version keeps serving (not a page).
+      expr: |
+        kube_job_failed{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}", job_name=~"{{ include "chart.migrationJobPrefix" . }}[0-9]+"} == 1
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Migration job {{ "{{" }} $labels.job_name {{ "}}" }} failed"
+        description: "Migration job {{ "{{" }} $labels.job_name {{ "}}" }} has failed: that revision's rollout is blocked and the previous version keeps serving."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#migrationjobfailed"
 - name: database-health
   rules:
     - alert: PostgreSQLDown
@@ -646,10 +669,11 @@ key: password
       annotations:
         summary: "PostgreSQL has no ready endpoints"
         description: "PostgreSQL service {{ include "chart.fullname" . }}-postgresql has 0 ready endpoints."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#postgresqldown"
     - alert: BackupJobFailed
       # The backup CronJob's Jobs are "<name>-pg-backup-<timestamp>"; match the
-      # trailing timestamp with [0-9]+ so we DON'T also fire on the weekly
-      # "<name>-pg-backup-verify-<timestamp>" Jobs (cross-cutting finding).
+      # trailing timestamp with [0-9]+ so this does NOT also fire on the weekly
+      # "<name>-pg-backup-verify-<timestamp>" Jobs: BackupVerifyFailed covers those.
       expr: |
         kube_job_failed{{ "{" }}{{ $kns }}="{{ include "chart.dbNamespace" . }}", job_name=~"{{ include "chart.fullname" . }}-pg-backup-[0-9]+"} == 1
       for: 1h
@@ -658,6 +682,66 @@ key: password
       annotations:
         summary: "PostgreSQL backup job failed"
         description: "Backup job {{ "{{" }} $labels.job_name {{ "}}" }} has failed."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#backupjobfailed"
+    - alert: BackupVerifyFailed
+      expr: |
+        kube_job_failed{{ "{" }}{{ $kns }}="{{ include "chart.dbNamespace" . }}", job_name=~"{{ include "chart.fullname" . }}-pg-backup-verify-[0-9]+"} == 1
+      for: 1h
+      labels:
+        severity: warning
+      annotations:
+        summary: "PostgreSQL backup restore check failed"
+        description: "Restore-check job {{ "{{" }} $labels.job_name {{ "}}" }} has failed: the newest backup may not restore."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#backupverifyfailed"
+{{- if and .Values.postgresql.enabled .Values.postgresql.backup.enabled }}
+{{- /*
+   The age of the CronJob's last success; a CronJob that never succeeded has no
+   last_successful_time series, so its age since creation stands in once it passes the limit.
+*/}}
+{{- range $c := list
+      (dict "alert" "BackupTooOld" "suffix" "" "hours" $.Values.monitoring.alerts.backupMaxAgeHours "what" "backup")
+      (dict "alert" "BackupVerifyTooOld" "suffix" "-verify" "hours" $.Values.monitoring.alerts.backupVerifyMaxAgeHours "what" "restore check") }}
+{{- $sel := printf "{%s=%q, cronjob=%q}" $kns (include "chart.dbNamespace" $) (printf "%s-pg-backup%s" (include "chart.fullname" $) $c.suffix) }}
+    - alert: {{ $c.alert }}
+      expr: |
+        time() - kube_cronjob_status_last_successful_time{{ $sel }} > {{ $c.hours }} * 3600
+        or
+        (
+          time() - kube_cronjob_created{{ $sel }} > {{ $c.hours }} * 3600
+          unless on (cronjob)
+          kube_cronjob_status_last_successful_time{{ $sel }}
+        )
+      labels:
+        severity: warning
+      annotations:
+        summary: "No successful PostgreSQL {{ $c.what }} for {{ "{{" }} $value | humanizeDuration {{ "}}" }}"
+        description: "CronJob {{ include "chart.fullname" $ }}-pg-backup{{ $c.suffix }} has not completed a {{ $c.what }} in the last {{ $c.hours }} hours."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#{{ lower $c.alert }}"
+{{- end }}
+{{- end }}
+{{- $cert := .Values.monitoring.alerts.certificateExpiry }}
+{{- if $cert.enabled }}
+{{- /*
+   cert-manager's own series (scraped in its namespace), so with the cluster alerts. The namespace
+   label is the Certificate's: $kns, as for the kube-state-metrics series.
+*/}}
+{{- $sel := printf "{%s=~%q}" $kns (default .Release.Namespace $cert.namespaces) }}
+- name: certificates
+  rules:
+{{- range $a := list
+      (dict "alert" "CertificateExpiringSoon" "severity" "warning" "days" $cert.warningDays "text" ": cert-manager has not renewed it.")
+      (dict "alert" "CertificateExpiryCritical" "severity" "critical" "days" $cert.criticalDays "text" ". Renew it now.") }}
+    - alert: {{ $a.alert }}
+      expr: |
+        certmanager_certificate_expiration_timestamp_seconds{{ $sel }} - time() < {{ $a.days }} * 86400
+      labels:
+        severity: {{ $a.severity }}
+      annotations:
+        summary: "Certificate {{ "{{" }} $labels.name {{ "}}" }} expires in {{ "{{" }} $value | humanizeDuration {{ "}}" }}"
+        description: "cert-manager Certificate {{ "{{" }} $labels.{{ $kns }} {{ "}}" }}/{{ "{{" }} $labels.name {{ "}}" }} expires in less than {{ $a.days }} days{{ $a.text }}"
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#{{ lower $a.alert }}"
+{{- end }}
+{{- end }}
 {{- end -}}
 
 {{- define "chart.alertGroupsApp" -}}
@@ -678,6 +762,7 @@ key: password
       annotations:
         summary: "High error rate detected ({{ "{{" }} $value | humanizePercentage {{ "}}" }})"
         description: "More than 5% of requests are returning 5xx errors."
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#higherrorrate"
 {{- if .Values.monitoring.slo.enabled }}
 {{- /*
    The SLOs (monitoring.slo; wiki/operations-runbook.md#service-level-objectives), SRE-workbook style.
@@ -745,6 +830,7 @@ key: password
       annotations:
         summary: "{{ $s.name }} SLO error budget burning {{ lower $sp.name }} ({{ "{{" }} $value | humanizePercentage {{ "}}" }} {{ $s.bad }})"
         description: "The {{ $o }}% {{ $s.slo }} objective's error budget is burning {{ $sp.text }}"
+        runbook_url: "{{ $.Values.monitoring.runbookUrl }}#{{ lower (printf "SLO%sBurn%s" $s.name $sp.name) }}"
 {{- end }}
 {{- end }}
 {{- end }}

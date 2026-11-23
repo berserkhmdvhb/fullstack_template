@@ -24,6 +24,7 @@ tests:
             exp_annotations:
               summary: "Availability SLO error budget burning fast (0.61% of requests answered 5xx)"
               description: &availability_fast "The 99.9% availability objective's error budget is burning at least 14.4x the sustainable rate over 1h and 5m, or 6x over 6h and 30m: at 14.4x a 30-day budget is gone in about 2 days. Act now."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#sloavailabilityburnfast"
 
   - name: availability at 5.9x (constant) stays quiet
     interval: 1m
@@ -52,6 +53,7 @@ tests:
             exp_annotations:
               summary: "Availability SLO error budget burning fast (1.45% of requests answered 5xx)"
               description: *availability_fast
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#sloavailabilityburnfast"
 
   - name: availability bursting at 14.3x after 6h clean stays quiet
     interval: 1m
@@ -80,6 +82,7 @@ tests:
             exp_annotations:
               summary: "Latency SLO error budget burning fast (31% of requests slower than 0.5s)"
               description: &latency_fast "The 95% latency objective's error budget is burning at least 14.4x the sustainable rate over 1h and 5m, or 6x over 6h and 30m: at 14.4x a 30-day budget is gone in about 2 days. Act now."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#slolatencyburnfast"
 
   - name: latency at 5.8x (constant) stays quiet
     interval: 1m
@@ -108,6 +111,7 @@ tests:
             exp_annotations:
               summary: "Latency SLO error budget burning fast (73% of requests slower than 0.5s)"
               description: *latency_fast
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#slolatencyburnfast"
 
   - name: latency bursting at 14.2x after 6h clean stays quiet
     interval: 1m

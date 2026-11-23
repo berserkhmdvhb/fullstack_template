@@ -580,6 +580,26 @@
             },
             "excludeHandlers": { "type": "string" }
           }
+        },
+        "runbookUrl": { "type": "string", "minLength": 1 },
+        "alerts": {
+          "description": "Backup-age and certificate-expiry alerts (wiki/operations-runbook.md#alerts). criticalDays < warningDays is checked by templates/validate-values.yaml.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "backupMaxAgeHours": { "type": "integer", "minimum": 1 },
+            "backupVerifyMaxAgeHours": { "type": "integer", "minimum": 1 },
+            "certificateExpiry": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "namespaces": { "type": "string" },
+                "warningDays": { "type": "integer", "minimum": 1 },
+                "criticalDays": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
         }
       }
     }
