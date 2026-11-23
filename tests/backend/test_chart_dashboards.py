@@ -56,6 +56,13 @@ GRAFANA_VARS = {
     "namespace": "app",
     "cluster": ".*",
 }
+# The variables list the clusters and namespaces of a series every backend exports from start (a
+# label-less counter, at 0): a job name would follow the release's name (fullnameOverride and
+# nameOverride change it) and leave every dashboard empty.
+VARIABLE_QUERIES = {
+    "cluster": "label_values(rate_limit_rejections_total, cluster)",
+    "namespace": 'label_values(rate_limit_rejections_total{cluster=~"$cluster"}, namespace)',
+}
 # A regex with a backslash: the replacement must escape it for JSON, and PromQL must read it back.
 BACKSLASH_EXCLUDE = r".*/(health|healthz|readyz|livez|metrics)$|^/static/.*\.map$"
 # --set reads a backslash as an escape: pass the value as JSON.
@@ -267,8 +274,7 @@ def test_each_dashboard_is_hand_readable_and_takes_the_datasource_variable(name:
     assert variables["cluster"]["allValue"] == ".*"
     for var in ("cluster", "namespace"):
         assert variables[var]["datasource"] == DATASOURCE
-        assert 'job=~".*your-service-name.*"' in variables[var]["query"], var
-    assert 'cluster=~"$cluster"' in variables["namespace"]["query"]
+        assert variables[var]["query"] == VARIABLE_QUERIES[var], var
     panels = list(_panels(d))
     assert panels
     for p in panels:
@@ -285,6 +291,13 @@ def test_each_dashboard_is_hand_readable_and_takes_the_datasource_variable(name:
                     window == "30d" and "avg_over_time" in t["expr"]
                 )
             assert "/ 100" not in t["expr"], "an objective constant: use slo:objective:ratio"
+
+
+@pytest.mark.parametrize("name", sorted(UIDS))
+def test_no_dashboard_query_or_variable_selects_on_job(name: str) -> None:
+    """The job name follows the release's name, so a selector on it breaks with an override."""
+    text = (DASHBOARDS / name).read_text(encoding="utf-8")
+    assert not re.search(r'[{,]\s*job\s*(=~|!~|!=|=)', text.replace('\\"', '"')), name
 
 
 def test_the_slo_budget_comes_from_the_objective_recording() -> None:

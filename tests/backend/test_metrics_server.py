@@ -38,7 +38,8 @@ def test_the_metrics_server_answers_on_its_port_and_the_api_app_does_not() -> No
     assert "http_requests_total" in body
     assert "http_request_duration_seconds" in body
     # The rate-limit counters and the pool gauges the SLOs and dashboards use.
-    assert "rate_limit_rejections_total" in body
+    # A sample from start, not only its HELP line: the dashboards' variables list its labels.
+    assert re.search(r"^rate_limit_rejections_total \d", body, re.MULTILINE)
     assert "rate_limit_storage_failures_total" in body
     for name in (
         "db_pool_size",

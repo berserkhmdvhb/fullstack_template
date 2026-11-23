@@ -28,8 +28,8 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "query": "label_values(db_pool_size{job=~\".*your-service-name.*\"}, cluster)",
-        "definition": "label_values(db_pool_size{job=~\".*your-service-name.*\"}, cluster)",
+        "query": "label_values(rate_limit_rejections_total, cluster)",
+        "definition": "label_values(rate_limit_rejections_total, cluster)",
         "refresh": 2,
         "sort": 1,
         "includeAll": true,
@@ -48,8 +48,8 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "query": "label_values(db_pool_size{job=~\".*your-service-name.*\", cluster=~\"$cluster\"}, namespace)",
-        "definition": "label_values(db_pool_size{job=~\".*your-service-name.*\", cluster=~\"$cluster\"}, namespace)",
+        "query": "label_values(rate_limit_rejections_total{cluster=~\"$cluster\"}, namespace)",
+        "definition": "label_values(rate_limit_rejections_total{cluster=~\"$cluster\"}, namespace)",
         "refresh": 2,
         "sort": 1
       }

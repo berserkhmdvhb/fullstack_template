@@ -342,8 +342,8 @@ keys, documented with their defaults in [`values.yaml`](../charts/your-service-n
   the deploy fails with "configmaps is forbidden".
 - **Variables.** `datasource` (a Prometheus data source), `cluster` (All by default; a series without a
   `cluster` label matches All, so GMP's multi-cluster data is not summed when you pick one) and
-  `namespace` (the namespaces with series of a scrape job whose name contains the service name: the
-  ServiceMonitor's and the PodMonitoring's jobs do; a scrape by annotations must name its job so too).
+  `namespace` (the namespaces where the backend exports `rate_limit_rejections_total`, a counter it
+  serves at 0 from start, so the list does not depend on the release's or the scrape job's name).
 - **What the chart fills in.** The probe and scrape handlers are left out as the SLOs leave them out: the
   render writes `monitoring.slo.excludeHandlers` into the queries. The SLO dashboard divides by the
   release's own objective, recorded as `slo:objective:ratio{namespace, slo}`, so it is right in every
