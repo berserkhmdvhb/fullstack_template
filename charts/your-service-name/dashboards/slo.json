@@ -1,0 +1,450 @@
+{
+  "uid": "your-service-name-slo",
+  "title": "your-service-name / SLOs",
+  "description": "The availability and latency SLOs from the chart's recording rules (monitoring.slo): error ratio per window, burn rate against the alert thresholds, and the 30-day error budget left.",
+  "tags": [
+    "your-service-name"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus"
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(http_requests_total, namespace)",
+        "definition": "label_values(http_requests_total, namespace)",
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "name": "availability_objective",
+        "type": "constant",
+        "query": "99.9",
+        "hide": 2,
+        "description": "Percent; keep equal to monitoring.slo.availability.objective."
+      },
+      {
+        "name": "latency_objective",
+        "type": "constant",
+        "query": "95",
+        "hide": 2,
+        "description": "Percent; keep equal to monitoring.slo.latency.objective."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Availability: error ratio",
+      "description": "Availability SLI error ratio (the share of requests answered 5xx) per window, against the error budget (1 - objective).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 9,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "slo:sli_error:ratio_rate5m{namespace=\"$namespace\", slo=\"availability\"}",
+          "legendFormat": "5m"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "slo:sli_error:ratio_rate1h{namespace=\"$namespace\", slo=\"availability\"}",
+          "legendFormat": "1h"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "C",
+          "expr": "slo:sli_error:ratio_rate6h{namespace=\"$namespace\", slo=\"availability\"}",
+          "legendFormat": "6h"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "D",
+          "expr": "slo:sli_error:ratio_rate1d{namespace=\"$namespace\", slo=\"availability\"}",
+          "legendFormat": "1d"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "E",
+          "expr": "slo:sli_error:ratio_rate3d{namespace=\"$namespace\", slo=\"availability\"}",
+          "legendFormat": "3d"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "F",
+          "expr": "vector(1 - $availability_objective / 100)",
+          "legendFormat": "budget"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Availability: burn rate",
+      "description": "Error ratio / error budget per long window; SLOAvailabilityBurnFast fires over 14.4 (1h) or 6 (6h), SLOAvailabilityBurnSlow over 3 (1d) or 1 (3d), each with its short window too.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 0,
+        "w": 9,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 6
+              },
+              {
+                "color": "dark-red",
+                "value": 14.4
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "slo:sli_error:ratio_rate1h{namespace=\"$namespace\", slo=\"availability\"} / (1 - $availability_objective / 100)",
+          "legendFormat": "1h (alert > 14.4 with 5m)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "slo:sli_error:ratio_rate6h{namespace=\"$namespace\", slo=\"availability\"} / (1 - $availability_objective / 100)",
+          "legendFormat": "6h (alert > 6 with 30m)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "C",
+          "expr": "slo:sli_error:ratio_rate1d{namespace=\"$namespace\", slo=\"availability\"} / (1 - $availability_objective / 100)",
+          "legendFormat": "1d (alert > 3 with 2h)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "D",
+          "expr": "slo:sli_error:ratio_rate3d{namespace=\"$namespace\", slo=\"availability\"} / (1 - $availability_objective / 100)",
+          "legendFormat": "3d (alert > 1 with 6h)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Availability: error budget left (30d)",
+      "description": "1 - the 5m error ratio averaged over 30 days / error budget (time-weighted, not request-weighted; windows without traffic are skipped). Below 0 the budget is spent.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "1 - avg_over_time(slo:sli_error:ratio_rate5m{namespace=\"$namespace\", slo=\"availability\"}[30d]) / (1 - $availability_objective / 100)",
+          "legendFormat": "budget left"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency: error ratio",
+      "description": "Latency SLI error ratio (the share of requests slower than monitoring.slo.latency.thresholdSeconds) per window, against the error budget (1 - objective).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 9,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "slo:sli_error:ratio_rate5m{namespace=\"$namespace\", slo=\"latency\"}",
+          "legendFormat": "5m"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "slo:sli_error:ratio_rate1h{namespace=\"$namespace\", slo=\"latency\"}",
+          "legendFormat": "1h"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "C",
+          "expr": "slo:sli_error:ratio_rate6h{namespace=\"$namespace\", slo=\"latency\"}",
+          "legendFormat": "6h"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "D",
+          "expr": "slo:sli_error:ratio_rate1d{namespace=\"$namespace\", slo=\"latency\"}",
+          "legendFormat": "1d"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "E",
+          "expr": "slo:sli_error:ratio_rate3d{namespace=\"$namespace\", slo=\"latency\"}",
+          "legendFormat": "3d"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "F",
+          "expr": "vector(1 - $latency_objective / 100)",
+          "legendFormat": "budget"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency: burn rate",
+      "description": "Error ratio / error budget per long window; SLOLatencyBurnFast fires over 14.4 (1h) or 6 (6h), SLOLatencyBurnSlow over 3 (1d) or 1 (3d), each with its short window too.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 8,
+        "w": 9,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 6
+              },
+              {
+                "color": "dark-red",
+                "value": 14.4
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "slo:sli_error:ratio_rate1h{namespace=\"$namespace\", slo=\"latency\"} / (1 - $latency_objective / 100)",
+          "legendFormat": "1h (alert > 14.4 with 5m)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "slo:sli_error:ratio_rate6h{namespace=\"$namespace\", slo=\"latency\"} / (1 - $latency_objective / 100)",
+          "legendFormat": "6h (alert > 6 with 30m)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "C",
+          "expr": "slo:sli_error:ratio_rate1d{namespace=\"$namespace\", slo=\"latency\"} / (1 - $latency_objective / 100)",
+          "legendFormat": "1d (alert > 3 with 2h)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "D",
+          "expr": "slo:sli_error:ratio_rate3d{namespace=\"$namespace\", slo=\"latency\"} / (1 - $latency_objective / 100)",
+          "legendFormat": "3d (alert > 1 with 6h)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Latency: error budget left (30d)",
+      "description": "1 - the 5m error ratio averaged over 30 days / error budget (time-weighted, not request-weighted; windows without traffic are skipped). Below 0 the budget is spent.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 8,
+        "w": 6,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "1 - avg_over_time(slo:sli_error:ratio_rate5m{namespace=\"$namespace\", slo=\"latency\"}[30d]) / (1 - $latency_objective / 100)",
+          "legendFormat": "budget left"
+        }
+      ]
+    }
+  ]
+}

@@ -600,6 +600,18 @@
               }
             }
           }
+        },
+        "dashboards": {
+          "description": "Grafana dashboards in one ConfigMap for the dashboard sidecar (wiki/operations-runbook.md#grafana-dashboards).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "label": { "type": "string", "minLength": 1 },
+            "labelValue": { "type": "string" },
+            "folder": { "type": "string" },
+            "namespace": { "type": "string" }
+          }
         }
       }
     }

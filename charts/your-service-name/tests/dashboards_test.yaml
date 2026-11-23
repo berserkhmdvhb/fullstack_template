@@ -1,0 +1,39 @@
+suite: the Grafana dashboards ConfigMap (monitoring.dashboards)
+release:
+  name: svc
+  namespace: app
+templates:
+  - dashboards.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: holds every dashboard file under its file name, with the sidecar's default label
+    set: {monitoring: {dashboards: {enabled: true}}}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: ConfigMap}
+      - equal: {path: metadata.name, value: svc-your-service-name-dashboards}
+      - equal: {path: metadata.namespace, value: app}
+      - equal: {path: 'metadata.labels.grafana_dashboard', value: "1"}
+      - notExists: {path: metadata.annotations}
+      - matchRegex: {path: 'data["service-red.json"]', pattern: '"uid": "your-service-name-red"'}
+      - matchRegex: {path: 'data["database-pool.json"]', pattern: '"uid": "your-service-name-db-pool"'}
+      - matchRegex: {path: 'data["rate-limiting.json"]', pattern: '"uid": "your-service-name-rate-limit"'}
+      - matchRegex: {path: 'data["slo.json"]', pattern: '"uid": "your-service-name-slo"'}
+
+  - it: carries the configured label, folder annotation and namespace
+    set:
+      monitoring:
+        dashboards:
+          enabled: true
+          label: grafana_dashboards
+          labelValue: "yes"
+          folder: Services
+          namespace: monitoring
+    asserts:
+      - equal: {path: metadata.namespace, value: monitoring}
+      - equal: {path: 'metadata.labels.grafana_dashboards', value: "yes"}
+      - notExists: {path: 'metadata.labels.grafana_dashboard'}
+      - equal: {path: 'metadata.annotations.grafana_folder', value: Services}

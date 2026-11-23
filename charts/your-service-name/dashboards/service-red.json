@@ -1,0 +1,275 @@
+{
+  "uid": "your-service-name-red",
+  "title": "your-service-name / Service RED",
+  "description": "Request rate, 5xx error ratio and latency of the backend, the probe and scrape handlers left out as the SLOs leave them out.",
+  "tags": [
+    "your-service-name"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus"
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(http_requests_total, namespace)",
+        "definition": "label_values(http_requests_total, namespace)",
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "name": "exclude_handlers",
+        "type": "constant",
+        "query": ".*/(health|healthz|readyz|livez|metrics)$",
+        "hide": 2,
+        "description": "The handlers left out as not user traffic: keep equal to monitoring.slo.excludeHandlers."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Request rate",
+      "description": "Requests per second, every user-facing handler.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum(rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval]))",
+          "legendFormat": "requests"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Error ratio (5xx)",
+      "description": "The share of requests answered 5xx (HighErrorRate fires above 5% for 10 minutes; it counts the probes too).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "(sum(rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\", status=~\"5..\"}[$__rate_interval])) or vector(0)) / sum(rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval]))",
+          "legendFormat": "5xx"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency",
+      "description": "p50, p95 and p99 over every user-facing handler. From http_request_duration_seconds' buckets (0.05 to 5 s): a quantile is interpolated inside its bucket, and one above 5 s shows as 5 s.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval])))",
+          "legendFormat": "p50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval])))",
+          "legendFormat": "p95"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Request rate by handler",
+      "description": "Requests per second, per handler.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum by (handler) (rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval]))",
+          "legendFormat": "{{handler}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Error ratio by handler (5xx)",
+      "description": "The share of each handler's requests answered 5xx.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 8,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "(sum by (handler) (rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\", status=~\"5..\"}[$__rate_interval])) or on (handler) 0 * sum by (handler) (rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval]))) / sum by (handler) (rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval]))",
+          "legendFormat": "{{handler}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency by handler",
+      "description": "p50, p95 and p99 per handler. From http_request_duration_seconds' buckets (0.05 to 5 s): a quantile is interpolated inside its bucket, and one above 5 s shows as 5 s.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 8,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le, handler) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval])))",
+          "legendFormat": "{{handler}} p50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le, handler) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval])))",
+          "legendFormat": "{{handler}} p95"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le, handler) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval])))",
+          "legendFormat": "{{handler}} p99"
+        }
+      ]
+    }
+  ]
+}

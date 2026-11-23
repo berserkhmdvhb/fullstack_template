@@ -56,6 +56,8 @@ ALL_ON = (
     "monitoring.scrapeAnnotations=true",
     "--set",
     "monitoring.alerts.certificateExpiry.enabled=true",
+    "--set",
+    "monitoring.dashboards.enabled=true",
     # The secret sources are exclusive: the ExternalSecret replaces production's existingSecret, and
     # the in-cluster database (dev, qa, local) then takes its password from its own Secret.
     "--set",

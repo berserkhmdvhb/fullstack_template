@@ -1,0 +1,104 @@
+{
+  "uid": "your-service-name-rate-limit",
+  "title": "your-service-name / Rate limiting",
+  "description": "The default per-IP rate limit: requests it rejects and storage failures it lets through.",
+  "tags": [
+    "your-service-name"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus"
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(http_requests_total, namespace)",
+        "definition": "label_values(http_requests_total, namespace)",
+        "refresh": 2,
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Rejections",
+      "description": "Requests answered 429 by the default per-IP limit (the CSP report limit is not counted).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum(rate(rate_limit_rejections_total{namespace=\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "429"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Storage failures by reason",
+      "description": "Limiter storage failures (error or timeout). The limiter fails open: each failure lets the request through unlimited, so while this is above 0 the limit is not applying.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "sum by (reason) (rate(rate_limit_storage_failures_total{namespace=\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,188 @@
+{
+  "uid": "your-service-name-db-pool",
+  "title": "your-service-name / Database pool",
+  "description": "The SQLAlchemy connection pool of each backend Pod (db_pool_* gauges, read at scrape time; absent for a :memory: or null pool).",
+  "tags": [
+    "your-service-name"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus"
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(db_pool_size, namespace)",
+        "definition": "label_values(db_pool_size, namespace)",
+        "refresh": 2,
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Connections in use",
+      "description": "Checked-out connections per Pod against the pool size and the pool size plus the maximum overflow (the hard cap; none when DB_MAX_OVERFLOW is -1, unlimited).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "db_pool_checked_out{namespace=\"$namespace\"}",
+          "legendFormat": "{{pod}} in use"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "expr": "max(db_pool_size{namespace=\"$namespace\"})",
+          "legendFormat": "pool size"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "C",
+          "expr": "max(db_pool_size{namespace=\"$namespace\"} + (db_pool_max_overflow{namespace=\"$namespace\"} >= 0))",
+          "legendFormat": "pool size + max overflow"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Saturation",
+      "description": "In use divided by (pool size + max overflow), per Pod: at 100% a request waits for a connection (and times out after DB_POOL_TIMEOUT). No series with an unlimited overflow.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "db_pool_checked_out{namespace=\"$namespace\"} / (db_pool_size{namespace=\"$namespace\"} + (db_pool_max_overflow{namespace=\"$namespace\"} >= 0))",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Idle connections",
+      "description": "Connections open and checked in to the pool, per Pod.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "db_pool_checked_in{namespace=\"$namespace\"}",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Overflow in use",
+      "description": "Connections open beyond the pool size, per Pod (db_pool_overflow is signed: it starts at minus the pool size; this shows the part above 0).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "expr": "clamp_min(db_pool_overflow{namespace=\"$namespace\"}, 0)",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    }
+  ]
+}

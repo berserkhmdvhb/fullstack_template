@@ -318,12 +318,38 @@ rule with the pinned `promtool` and runs the unit tests in `charts/your-service-
 
 ### Grafana Dashboards
 
-Access Grafana for pre-built dashboards:
+The chart ships four dashboards as JSON files in `charts/your-service-name/dashboards/`, delivered by one
+ConfigMap for Grafana's dashboard sidecar (kube-prometheus-stack's `grafana.sidecar.dashboards`). Off by
+default; turn it on in `values.<env>.yaml`:
 
-- **Backend Overview** — Request rate, error rate, latency
-- **Frontend Overview** — Build status, bundle size
-- **Database** — Connection pool, query latency
-- **Pod Resources** — CPU/memory usage per pod
+```yaml
+monitoring:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard   # the sidecar's `label` (kube-prometheus-stack default)
+    labelValue: "1"            # the sidecar's `labelValue`
+    folder: ""                 # sets the grafana_folder annotation (the sidecar's folderAnnotation); empty: none
+    namespace: ""              # empty: the release namespace; the sidecar must watch the one you pick
+```
+
+Each dashboard picks its Prometheus data source (`datasource` variable) and the release namespace
+(`namespace` variable). The probe and scrape handlers are left out as the SLOs leave them out, through a
+hidden constant equal to `monitoring.slo.excludeHandlers`; the SLO dashboard's objectives are constants
+equal to `monitoring.slo.*.objective`. The dashboards cannot read the values: when you change those values,
+change the constants too (a test keeps them equal to `values.yaml`). The render fails if the files outgrow
+a ConfigMap (1 MiB).
+
+| Dashboard (uid) | Shows | Explains |
+|---|---|---|
+| Service RED (`your-service-name-red`) | request rate, 5xx error ratio and p50/p95/p99 latency (from `http_request_duration_seconds` buckets), overall and per handler | [HighErrorRate](#higherrorrate), [SLOAvailabilityBurnFast](#sloavailabilityburnfast), [SLOAvailabilityBurnSlow](#sloavailabilityburnslow), [SLOLatencyBurnFast](#slolatencyburnfast), [SLOLatencyBurnSlow](#slolatencyburnslow): which handler fails or is slow |
+| Database pool (`your-service-name-db-pool`) | connections in use per Pod against the pool size and size + max overflow, saturation (in use ÷ (size + max overflow); none when the overflow is unlimited), idle connections, overflow in use | [SLOLatencyBurnFast](#slolatencyburnfast), [SLOLatencyBurnSlow](#slolatencyburnslow): requests waiting for a connection; [PostgreSQLDown](#postgresqldown) |
+| Rate limiting (`your-service-name-rate-limit`) | 429 rejections per second, limiter storage failures by reason (the limiter fails open: requests pass unlimited while they grow) | no alert yet; read it when clients report 429s or the limiter's storage is unhealthy |
+| SLOs (`your-service-name-slo`) | each SLO's error ratio over 5m/1h/6h/1d/3d against its budget, the four burn rates (1h, 6h, 1d, 3d) against 14.4, 6, 3 and 1, the 30-day error budget left | the four SLO alerts above ([Service Level Objectives](#service-level-objectives)) |
+
+The 30-day budget left averages the 5-minute error ratio over 30 days: time-weighted, not
+request-weighted, so it is an estimate. Every query is checked against the series the backend serves
+([Prometheus Metrics](#prometheus-metrics)) and the chart's recording rules, and by the pinned `promtool`
+(`tests/backend/test_chart_dashboards.py`).
 
 ---
 

@@ -1,0 +1,28 @@
+{{/*
+   Grafana dashboards (monitoring.dashboards; wiki/operations-runbook.md#grafana-dashboards): every
+   file in dashboards/ in one ConfigMap, under its file name, labelled for Grafana's dashboard sidecar.
+   Off by default. A ConfigMap holds at most 1 MiB: the render fails before the dashboards outgrow it.
+*/}}
+{{- $d := .Values.monitoring.dashboards }}
+{{- if $d.enabled }}
+{{- $files := .Files.Glob "dashboards/*.json" }}
+{{- $size := 0 }}
+{{- range $path, $_ := $files }}{{ $size = add $size (len ($.Files.Get $path)) }}{{ end }}
+{{- if gt $size 1000000 }}
+{{- fail (printf "%s: the dashboards are %d bytes; a ConfigMap holds at most 1 MiB (split them, or trim)" (include "chart.fullname" .) $size) }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "chart.fullname" . }}-dashboards
+  namespace: {{ $d.namespace | default .Release.Namespace }}
+  labels:
+{{- include "chart.labels" . | nindent 4 }}
+    {{ $d.label }}: {{ $d.labelValue | quote }}
+{{- with $d.folder }}
+  annotations:
+    grafana_folder: {{ . | quote }}
+{{- end }}
+data:
+{{- $files.AsConfig | nindent 2 }}
+{{- end }}

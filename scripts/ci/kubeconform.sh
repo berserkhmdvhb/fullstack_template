@@ -5,7 +5,7 @@
 # (ci/<mode>-values.yaml) x each monitoring flavour, with the monitors and the rules on (the gmp
 # column also renders the cluster-scoped ClusterRules); then each environment with every optional
 # object on (the WAF, the GKE Gateway policies, the ExternalSecret, the Namespaces, the RBAC, the
-# external database stub), with the Cloud SQL Auth Proxy, and the bootstrap
+# external database stub, the Grafana dashboards), with the Cloud SQL Auth Proxy, and the bootstrap
 # (scripts/k8s-bootstrap.sh <env>, and once with its GMP ClusterRules).
 #
 # kubeconform -strict reads local schemas only, never the network: the Kubernetes kinds from
@@ -90,7 +90,8 @@ features=(
   --set namespaces.create=true --set externalDatabase.manageSecret=true
   --set secrets.externalSecret.enabled=true --set secrets.existingSecret=
   --set postgresql.existingSecret=pg-credentials --set observability.tracing.enabled=true
-  --set observability.tracing.endpoint=http://collector.monitoring.svc:4318 "${monitors[@]}"
+  --set observability.tracing.endpoint=http://collector.monitoring.svc:4318
+  --set monitoring.dashboards.enabled=true --set monitoring.dashboards.folder=Services "${monitors[@]}"
 )
 proxy=(
   --set postgresql.enabled=false --set config.DB_SSLMODE=disable --set cloudSqlProxy.enabled=true
