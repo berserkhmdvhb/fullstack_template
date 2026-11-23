@@ -370,6 +370,8 @@ repo_security() {
   soft "Dependabot alerts" PUT "/repos/$REPO/vulnerability-alerts"
   soft "Dependabot security updates" PUT "/repos/$REPO/automated-security-fixes"
   soft "immutable releases" PUT "/repos/$REPO/immutable-releases"
+  # Squash merges only, the pull request title as the commit title: pr-title.yml lints it, release-please reads it.
+  api PATCH "/repos/$REPO" '{"allow_squash_merge": true, "allow_merge_commit": false, "allow_rebase_merge": false, "squash_merge_commit_title": "PR_TITLE", "squash_merge_commit_message": "PR_BODY"}'
   if ((TEMPLATE)); then api PATCH "/repos/$REPO" '{"is_template": true}'; fi
 }
 

@@ -447,6 +447,15 @@ applied_state() {
   [[ "$output" == *"DRY-RUN PUT /repos/o/r/automated-security-fixes"* ]]
 }
 
+@test "merges are squash-only, with the pull request title as the commit title" {
+  run "$SCRIPT" --repo o/r --vars-file "$VARS"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'{"allow_squash_merge":true,"allow_merge_commit":false,"allow_rebase_merge":false,"squash_merge_commit_title":"PR_TITLE","squash_merge_commit_message":"PR_BODY"}'* ]]
+  run "$SCRIPT" --repo o/r --vars-file "$VARS" --apply
+  [ "$status" -eq 0 ]
+  grep -q 'BODY {"allow_squash_merge":true,"allow_merge_commit":false,"allow_rebase_merge":false,"squash_merge_commit_title":"PR_TITLE"' "$LOG"
+}
+
 @test "refused Dependabot settings are skipped, summarised, and exit 3" {
   echo 'PUT /repos/o/r/(vulnerability-alerts|automated-security-fixes)' > "$STUB_DIR/FAIL"
   run "$SCRIPT" --repo o/r --vars-file "$VARS" --apply

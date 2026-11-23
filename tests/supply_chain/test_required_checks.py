@@ -108,7 +108,9 @@ def test_every_blocking_pull_request_job_is_gated() -> None:
     for path in WORKFLOWS.glob("*.yml"):
         doc = load(path)
         # preview.yml deploys a labelled pull request's preview; it is not a check of the code.
-        if "pull_request" not in doc["on"] or path.name == "preview.yml":
+        # pr-title.yml lints the title, which an edit changes without a commit: CI OK (ci.yml does
+        # not run on edits) cannot wait on it, and it reads no code.
+        if "pull_request" not in doc["on"] or path.name in ("preview.yml", "pr-title.yml"):
             continue
         needs = set(doc["jobs"].get("ci-ok", {}).get("needs", []))
         for key, job in doc["jobs"].items():
