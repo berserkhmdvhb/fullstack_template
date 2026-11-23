@@ -108,9 +108,10 @@ if [[ ! -f "$values" ]]; then
       "$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')" "$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')" > "$values" )
 fi
 # The values every install gets on top of the chart's own values.local.yaml, one argument per line: the
-# images built here and the scrape peers (a Pod of the release namespace, so helm test's collector Job
-# proves them). Only what that chart's values.yaml knows, so the base commit's chart is installed with
-# its own values and this run's overrides it understands.
+# images built here, the scrape peers (a Pod of the release namespace, so helm test's collector Job
+# proves them) and, for the release only, a raised rate limit. Only what that chart's values.yaml
+# knows, so the base commit's chart is installed with its own values and this run's overrides it
+# understands.
 kind_args() { # chart dir, namespace
   local chart="$1" ns="$2" id
   for id in "${image_ids[@]}"; do
@@ -122,6 +123,11 @@ kind_args() { # chart dir, namespace
   if yq -e '.networkPolicy | (has("monitoringNamespaceSelector") and has("monitoringPodSelector"))' "$chart/values.yaml" >/dev/null 2>&1; then
     printf '%s\n' --set-string "networkPolicy.monitoringNamespaceSelector.kubernetes\\.io/metadata\\.name=$ns" \
       --set-string "networkPolicy.monitoringPodSelector.metrics-collector=true"
+  fi
+  # The release's per-IP limit, raised: the graceful-shutdown test (make kind-shutdown-test) sends
+  # 20 requests a second from one Pod, and under the default limit most would be answered 429.
+  if [[ "$ns" == "$NS" ]] && yq -e '.config | has("RATE_LIMIT_DEFAULT")' "$chart/values.yaml" >/dev/null 2>&1; then
+    printf '%s\n' --set-string "config.RATE_LIMIT_DEFAULT=100000/minute"
   fi
 }
 

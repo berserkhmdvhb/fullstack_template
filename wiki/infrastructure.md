@@ -356,7 +356,7 @@ chart's that predates the bootstrap: its install and its migration run as cluste
 release was deployed then, and every upgrade after them as the deployer. So the run proves the deployer's Role is enough for `helm upgrade --install --wait`. The database
 password is generated once into `.local/kind/values.yaml` and kept with the cluster. The base
 commit's chart is installed with its own `values.local.yaml`, and only those of this run's overrides
-(the built images, the scrape peers) that its `values.yaml` knows. After the first `helm test` the
+(the built images, the scrape peers, and for the release a raised `config.RATE_LIMIT_DEFAULT`) that its `values.yaml` knows. After the first `helm test` the
 run creates a Job from each backup CronJob, as admin: the backup must write a dump and the verify
 Job must restore that same dump.
 
@@ -427,13 +427,15 @@ stops accepting, waits for open connections (Node closes idle keep-alive ones as
 sleep plus the drain.
 
 **The shutdown proof** (`tests/k8s/test_graceful_shutdown.py`, `make kind-shutdown-test` after
-`make kind-deploy`; the kind job runs it on both legs). For the backend and then the frontend, it
-scales the tier to two ready Pods (the replicas and the HPA floor are restored after), starts a load
-Pod in the release namespace that sends a steady stream of requests, one connection each, to the
-tier's Service (the backend's `tests.apiPath`, the frontend's page), deletes one ready Pod with its
-default grace period, and waits for it to be gone and for its replacement to be ready while the load
-runs. It fails on any 5xx answer, connection error or timeout, on a load that fell short or did not
-span the deletion, or when the Pod was never seen Terminating. The load Pod is the release's
+`make kind-deploy`; the kind job runs it on both legs). For the backend, the frontend
+and the backend behind the WAF, it scales the tier to two ready Pods (the replicas and the HPA
+floor are restored after), starts a load Pod in the release namespace whose clients each hold one
+keep-alive connection, as a proxy's pool does, to the tier's Service (the backend's `tests.apiPath`,
+the frontend's page) or the WAF's, deletes one ready Pod with its default grace period, and waits for
+it to be gone and for its replacement to be ready while the load runs. A connection the server closes
+cleanly is replaced; a refused or reset one, or any 5xx answer or timeout, fails the test, as do a
+load that fell short, was mostly rate-limited (the kind deploy raises `config.RATE_LIMIT_DEFAULT` for
+it) or did not span the deletion, and a Pod never seen Terminating. The load Pod is the release's
 [`helm test`](#local-cluster-kind) Job's Pod (the backend image, restricted), admitted by the same two
 test NetworkPolicies, applied for the test's duration and deleted after. `make test` never collects
 `tests/k8s`. A change to `shutdown.preStopSeconds`, `shutdown.frontendDrainSeconds`,

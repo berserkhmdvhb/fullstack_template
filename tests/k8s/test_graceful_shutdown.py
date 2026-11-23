@@ -7,7 +7,8 @@ Run with ``make kind-shutdown-test`` after ``make kind-up kind-deploy``; ``make 
 collects it (tests/conftest.py ignores tests/k8s). It talks to fst only, through
 .local/kind/kubeconfig, and refuses any other context. The load generator is a Pod built from the
 release's own ``helm test`` Job (its image, the backend's Python, its restricted securityContext
-and labels) and sends its requests to the tier's Service, not a port-forward; the release's two
+and labels) and sends its requests over keep-alive connections to the tier's Service (or the WAF's),
+not a port-forward; the release's two
 test NetworkPolicies (``helm get hooks``) admit it for the test's duration, as they admit the test
 Job during ``helm test``.
 """
@@ -23,6 +24,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 import yaml
@@ -37,52 +39,92 @@ RATE = float(os.environ.get("SHUTDOWN_TEST_RATE", "20"))  # requests per second
 DURATION = float(os.environ.get("SHUTDOWN_TEST_DURATION", "40"))  # seconds
 LEAD = 5.0  # seconds of load before the delete
 TIMEOUT = 5.0  # seconds per request
+CLIENTS = 8  # concurrent keep-alive connections
 REPLICAS = 2  # ready Pods of the tier during the test
 
-# The load generator, standard library only: a new connection per request (so the Service picks a
-# Pod each time), at a fixed rate, then one JSON summary line.
+# The load generator, standard library only. CLIENTS threads, each holding one HTTP/1.1 keep-alive
+# connection to the target (as a proxy's or a client's pool does) and sending its share of RATE.
+# A connection the server closed cleanly (Connection: close, or a FIN seen before the next request)
+# is replaced and is not a failure; a refused or reset connection, a RemoteDisconnected or any other
+# error on a request is. Then one JSON summary line.
 LOAD = r"""
-import http.client, json, os, threading, time, urllib.error, urllib.request
-from concurrent.futures import ThreadPoolExecutor
+import http.client, json, os, select, socket, threading, time, urllib.parse
 
-url, rate = os.environ["TARGET"], float(os.environ["RATE"])
-duration, timeout = float(os.environ["DURATION"]), float(os.environ["TIMEOUT"])
+url = urllib.parse.urlsplit(os.environ["TARGET"])
+rate, duration = float(os.environ["RATE"]), float(os.environ["DURATION"])
+timeout, clients = float(os.environ["TIMEOUT"]), int(os.environ["CLIENTS"])
+path = url.path + (f"?{url.query}" if url.query else "")
 lock = threading.Lock()
-statuses, starts, failures = {}, [], []
-counts = {"connection_errors": 0, "timeouts": 0}
+statuses, starts, served, failures = {}, [], [], []
+counts = {"connection_errors": 0, "timeouts": 0, "connections": 0, "clean_closes": 0}
+expected = int(rate * duration)
 
-def one():
-    start = time.time()
+def closed_by_server(conn):
+    # A FIN (or an RST) already received on an idle connection: what a pool checks before reuse.
+    if conn.sock is None:
+        return True
+    if not select.select([conn.sock], [], [], 0)[0]:
+        return False
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
-            r.read()
-            key = str(r.status)
-    except urllib.error.HTTPError as e:
-        key = str(e.code)
-    except TimeoutError as e:
-        key, err = "timeouts", repr(e)
-    except urllib.error.URLError as e:
-        key = "timeouts" if isinstance(e.reason, TimeoutError) else "connection_errors"
-        err = repr(e.reason)
-    except (OSError, http.client.HTTPException) as e:
-        key, err = "connection_errors", repr(e)
+        return conn.sock.recv(1, socket.MSG_PEEK) == b""
+    except OSError as e:
+        record(time.time(), "connection_errors", f"idle connection: {e!r}")
+        return True
+
+def record(start, key, err=None):
     with lock:
-        starts.append(start)
         if key in counts:
             counts[key] += 1
+        if err is not None:
             failures.append({"at": round(start, 3), "kind": key, "error": err})
-        else:
+        elif key not in counts:
+            starts.append(start)
             statuses[key] = statuses.get(key, 0) + 1
+            if key != "429" and not key.startswith("5"):
+                served.append(round(start, 2))
 
-expected = int(rate * duration)
+def client(c, t0):
+    conn = None
+    for k in range(c, expected, clients):
+        time.sleep(max(0.0, t0 + k / rate - time.time()))
+        if conn is not None and closed_by_server(conn):
+            conn.close()
+            conn = None
+            record(time.time(), "clean_closes")
+        if conn is None:
+            conn = http.client.HTTPConnection(url.hostname, url.port, timeout=timeout)
+            record(time.time(), "connections")
+        start = time.time()
+        try:
+            conn.request("GET", path)
+            r = conn.getresponse()
+            r.read()
+            record(start, str(r.status))
+            if r.will_close:
+                conn.close()
+                conn = None
+                record(start, "clean_closes")
+            continue
+        except TimeoutError as e:
+            key, err = "timeouts", repr(e)
+        except (OSError, http.client.HTTPException) as e:
+            key, err = "connection_errors", repr(e)
+        with lock:
+            starts.append(start)
+        record(start, key, err)
+        conn.close()
+        conn = None
+
 t0 = time.time()
-with ThreadPoolExecutor(max_workers=64) as pool:
-    for i in range(expected):
-        time.sleep(max(0.0, t0 + i / rate - time.time()))
-        pool.submit(one)
+threads = [threading.Thread(target=client, args=(c, t0)) for c in range(clients)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
 print(json.dumps({"expected": expected, "total": len(starts), "statuses": statuses, **counts,
                   "first": min(starts, default=None), "last": max(starts, default=None),
-                  "failures": sorted(failures, key=lambda f: f["at"])[:20]}), flush=True)
+                  "failures": sorted(failures, key=lambda f: f["at"])[:20], "served": served}),
+      flush=True)
 """
 
 
@@ -152,11 +194,17 @@ def test_job(kube: Kube) -> Iterator[dict[str, Any]]:
         kube("delete", "-f", "-", "--ignore-not-found", stdin=manifest, check=False)
 
 
-def _target(job: dict[str, Any], tier: str) -> str:
-    """The URL helm test checks: the backend's API route, or the frontend's page (by Service)."""
+def _target(job: dict[str, Any], tier: str, via: str) -> str:
+    """A URL helm test checks: the backend's API route or the frontend's page, by Service; via the
+    WAF, the API route on the WAF's Service (its upstream pool holds connections to the backend)."""
     env = {e["name"]: e["value"] for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
     checks: dict[str, str] = dict(pair.split("=", 1) for pair in env["CHECK_200"].split())
-    return checks["api-route" if tier == "backend" else "frontend"]
+    if via == "service":
+        return checks["api-route" if tier == "backend" else "frontend"]
+    if "waf-benign" not in checks:
+        pytest.skip("the release has no WAF (kind-deploy turns it on in its last upgrade)")
+    waf, api = urlsplit(checks["waf-benign"]), urlsplit(checks["api-route"])
+    return urlunsplit((waf.scheme, waf.netloc, api.path, api.query, ""))
 
 
 def _ready_pods(kube: Kube, tier: str) -> list[str]:
@@ -208,11 +256,12 @@ def two_ready(kube: Kube, tier: str) -> Iterator[None]:
         kube("rollout", "status", "deployment", name, "--timeout=300s", check=False)
 
 
-def _load_pod(job: dict[str, Any], tier: str, name: str) -> dict[str, Any]:
+def _load_pod(job: dict[str, Any], target: str, name: str) -> dict[str, Any]:
     """The helm test Job's Pod template, renamed, running the load generator instead."""
     template = job["spec"]["template"]
     container = template["spec"]["containers"][0]
-    env = {"TARGET": _target(job, tier), "RATE": RATE, "DURATION": DURATION, "TIMEOUT": TIMEOUT}
+    env = {"TARGET": target, "RATE": RATE, "DURATION": DURATION, "TIMEOUT": TIMEOUT}
+    env["CLIENTS"] = CLIENTS
     load = {
         **container,
         "name": "load",
@@ -231,15 +280,18 @@ def _load_pod(job: dict[str, Any], tier: str, name: str) -> dict[str, Any]:
     }
 
 
-@pytest.mark.parametrize("tier", ["backend", "frontend"])
+@pytest.mark.parametrize(
+    ("tier", "via"), [("backend", "service"), ("frontend", "service"), ("backend", "waf")]
+)
 @pytest.mark.usefixtures("two_ready")
 def test_pod_deletion_under_load_fails_no_request(
-    kube: Kube, test_job: dict[str, Any], tier: str
+    kube: Kube, test_job: dict[str, Any], tier: str, via: str
 ) -> None:
+    target = _target(test_job, tier, via)
     load = f"{RELEASE}-shutdown-load-{uuid.uuid4().hex[:8]}"
     terminating = False
     try:
-        kube("create", "-f", "-", stdin=json.dumps(_load_pod(test_job, tier, load)))
+        kube("create", "-f", "-", stdin=json.dumps(_load_pod(test_job, target, load)))
         kube("wait", "--for=condition=Ready", f"pod/{load}", "--timeout=120s")
         time.sleep(LEAD)
         victim = _ready_pods(kube, tier)[0]
@@ -262,14 +314,22 @@ def test_pod_deletion_under_load_fails_no_request(
     finally:
         kube("delete", "pod", load, "--ignore-not-found", "--wait=false", check=False)
 
+    served = summary.pop("served")
+    before = sum(t < deleted for t in served)
+    after = sum(t > gone_at for t in served)
     times = {"deleted": deleted, "gone": gone_at, "replacement_ready": ready_at}
-    report = json.dumps({"tier": tier, "victim": victim, **times, "summary": summary})
+    spans = {"served_before_delete": before, "served_after_gone": after}
+    report = json.dumps({"target": target, "victim": victim, **times, **spans, "summary": summary})
     print(report)
     errors = sum(n for code, n in summary["statuses"].items() if code.startswith("5"))
     assert errors == 0, f"{errors} 5xx answers: {report}"
     assert summary["connection_errors"] == 0, f"connection errors: {report}"
     assert summary["timeouts"] == 0, f"timeouts: {report}"
     assert summary["total"] >= 0.8 * RATE * DURATION, f"the load fell short: {report}"
+    # Answers other than 429 and 5xx: the load must reach the route, not only the rate limiter.
+    assert len(served) >= 0.8 * RATE * DURATION, f"mostly rate-limited (429): {report}"
+    assert before >= RATE, f"too few answers before the deletion: {report}"
+    assert after >= RATE, f"too few answers after the Pod was gone: {report}"
     assert summary["first"] <= deleted - LEAD / 2, f"no load well before the delete: {report}"
     assert summary["last"] >= max(gone_at, ready_at), f"the load ended too early: {report}"
     assert terminating, f"{victim} was never seen Terminating: {report}"
