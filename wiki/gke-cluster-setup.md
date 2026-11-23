@@ -871,5 +871,5 @@ These come with the GitHub pipeline work, not in this guide:
 - **Closing the public endpoint:** the DNS-based endpoint is already on (8.2). Later, turn the public IP endpoint off. Never allowlist CI addresses on it.
 - **The edge mode:** the template's default `edge.mode` is `gateway`; the platform values use `tunnel`.
 - **Infrastructure as code:** everything in this guide expressed in OpenTofu or Terraform, with state in a locked GCS bucket, so the cluster can be rebuilt from Git.
-- **Backups and recovery:** Backup for GKE, and Cloud SQL point-in-time recovery.
+- **Backups and recovery:** Backup for GKE, and Cloud SQL point-in-time recovery, set up as code. The procedures: [Disaster Recovery](./disaster-recovery.md).
 - **Other services:** each packaged as a Helm chart and deployed to this same cluster.

@@ -544,12 +544,13 @@ kubectl -n your-service-name-db create job your-service-name-manual-backup \
 
 ### Backup Verification
 
-A weekly CronJob restores the latest dump to a throwaway database, confirms the expected tables exist,
-and drops it — so a corrupt or empty backup is caught before you need it (`ON_ERROR_STOP=1` aborts the
-job loudly on any step). It shares the backup PVC and is gated by the same `postgresql.backup.enabled`.
+A weekly CronJob restores the newest dump into a temporary database, checks it and drops it, so a stale,
+corrupt or empty backup is caught before you need it. It shares the backup PVC and is gated by the same
+`postgresql.backup.enabled`. What it checks, and what it does not prove:
+[Disaster Recovery, Drills](./disaster-recovery.md#drills).
 
 ```bash
-# Check the verification CronJob (Sundays 03:00 UTC)
+# Check the verification CronJob (postgresql.backup.verifySchedule)
 kubectl -n your-service-name-db get cronjob your-service-name-pg-backup-verify
 
 # Watch a verification run's logs
@@ -558,21 +559,8 @@ kubectl -n your-service-name-db logs -l app.kubernetes.io/component=backup-verif
 
 ### Restoring from Backup
 
-```bash
-# 1. Stop the application
-kubectl -n your-service-name-<environment> scale deployment/your-service-name-backend --replicas=0
-
-# 2. Restore the database
-kubectl -n your-service-name-db exec <postgres-pod> -- \
-  gunzip -c /backup/your-service-name-<timestamp>.sql.gz | \
-  psql -U <user> -d <database>
-
-# 3. Restart the application
-kubectl -n your-service-name-<environment> scale deployment/your-service-name-backend --replicas=2
-
-```
-
-4. Run migrations (if needed): see [Database Migrations](#database-migrations) for the valid re-run recipe (redeploy).
+The restore of a dump, Cloud SQL point-in-time recovery, Backup for GKE, the recovery targets and the drills:
+[Disaster Recovery](./disaster-recovery.md).
 
 ### Velero Cluster Backup
 

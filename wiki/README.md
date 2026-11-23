@@ -14,7 +14,7 @@ Production-grade template for API-based services with a FastAPI backend, Next.js
 | **Development** | [Developer Guide](./developer-guide.md) · [Code Quality](./code-quality.md) · [Database](./database.md) |
 | **Testing** | [Testing Strategy](./testing.md) |
 | **CI/CD & Deploy** | [CI/CD Pipeline](./ci-cd.md) · [Supply-Chain Security](./supply-chain-security.md) · [Containerization](./containerization.md) · [Frontend Deployment](./frontend-deployment.md) |
-| **Operations** | [Platform Setup](./platform-setup.md) · [GKE Cluster Setup](./gke-cluster-setup.md) · [Cloudflare Setup](./cloudflare-setup.md) · [Operations Runbook](./operations-runbook.md) · [Security](./security.md) · [Admission control](./admission-control.md) · [Vulnerability management](./vulnerability-management.md) · [Versioning](./versioning.md) · [Releasing](./releasing.md) · [Troubleshooting](./troubleshooting.md) |
+| **Operations** | [Platform Setup](./platform-setup.md) · [GKE Cluster Setup](./gke-cluster-setup.md) · [Cloudflare Setup](./cloudflare-setup.md) · [Operations Runbook](./operations-runbook.md) · [Disaster Recovery](./disaster-recovery.md) · [Security](./security.md) · [Admission control](./admission-control.md) · [Vulnerability management](./vulnerability-management.md) · [Versioning](./versioning.md) · [Releasing](./releasing.md) · [Troubleshooting](./troubleshooting.md) |
 | **Reference** | [Changelog](./changelog.md) · [Doc Templates](./doc-templates.md) |
 
 ---

@@ -594,6 +594,8 @@ the chart keeps them deployable on any storage class:
 - The backup shares the database's node and, on a node-local class, its disk: copy dumps off the
   cluster for a real off-site backup.
 
+Restoring a dump, the recovery targets and the drills: [Disaster Recovery](./disaster-recovery.md).
+
 **What is proven where.** The binding at install, the dump and its restore run on every pull request
 in the kind job. kind's `local-path` class ignores `fsGroup`, so write permission on a real CSI class
 (where the volume's root is group-owned) is proven by the render only (a test checks the fsGroup of
