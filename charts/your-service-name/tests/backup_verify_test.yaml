@@ -5,6 +5,7 @@ release:
 templates:
   - pg-backup-verify-cronjob.yaml
   - pg-backup-verify-configmap.yaml
+  - pg-backup-cronjob.yaml
 tests:
   - it: the schedule is postgresql.backup.verifySchedule
     template: pg-backup-verify-cronjob.yaml
@@ -73,3 +74,41 @@ tests:
         template: pg-backup-verify-cronjob.yaml
       - hasDocuments: {count: 0}
         template: pg-backup-verify-configmap.yaml
+  - it: two runs never overlap (they would share the temporary database's name)
+    template: pg-backup-verify-cronjob.yaml
+    asserts:
+      - equal: {path: spec.concurrencyPolicy, value: Forbid}
+  - it: unset, the maximum age follows the BackupTooOld threshold (one source)
+    template: pg-backup-verify-cronjob.yaml
+    set:
+      monitoring: {alerts: {backupMaxAgeHours: 30}}
+    asserts:
+      - contains:
+          path: 'spec.jobTemplate.spec.template.spec.containers[0].env'
+          content: {name: VERIFY_MAX_AGE_HOURS, value: "30"}
+  - it: an empty table list is refused
+    template: pg-backup-verify-cronjob.yaml
+    set:
+      postgresql: {backup: {verifyTables: []}}
+    asserts:
+      - failedTemplate: {}
+  - it: a table name with upper case is refused (information_schema holds lower-case names)
+    template: pg-backup-verify-cronjob.yaml
+    set:
+      postgresql: {backup: {verifyTables: [alembic_version, Items]}}
+    asserts:
+      - failedTemplate: {}
+  - it: the backup writes to a .partial name and renames it only once the dump succeeded
+    template: pg-backup-cronjob.yaml
+    documentSelector: {path: kind, value: CronJob}
+    asserts:
+      - matchRegex:
+          path: 'spec.jobTemplate.spec.template.spec.containers[0].command[2]'
+          pattern: 'gzip > "\$\{BACKUP_FILE\}\.partial"\nmv "\$\{BACKUP_FILE\}\.partial" "\$\{BACKUP_FILE\}"\n'
+  - it: retention removes old .partial files too
+    template: pg-backup-cronjob.yaml
+    documentSelector: {path: kind, value: CronJob}
+    asserts:
+      - matchRegex:
+          path: 'spec.jobTemplate.spec.template.spec.containers[0].command[2]'
+          pattern: 'find /backup \\\( -name "\*\.sql\.gz" -o -name "\*\.sql\.gz\.partial" \\\) -mtime \+30 -delete'

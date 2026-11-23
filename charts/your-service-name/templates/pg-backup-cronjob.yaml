@@ -50,9 +50,11 @@ spec:
                   echo "Starting PostgreSQL backup ..."
                   TIMESTAMP=$(date +%Y%m%d-%H%M%S)
                   BACKUP_FILE="/backup/{{ include "chart.name" . }}-${TIMESTAMP}.sql.gz"
-                  pg_dump -h "${DB_HOST}" -U "${DB_USER}" -d "${DB_NAME}" | gzip > "${BACKUP_FILE}"
+                  # A dump that fails stays a .partial, which the restore check never picks.
+                  pg_dump -h "${DB_HOST}" -U "${DB_USER}" -d "${DB_NAME}" | gzip > "${BACKUP_FILE}.partial"
+                  mv "${BACKUP_FILE}.partial" "${BACKUP_FILE}"
                   echo "Backup created: ${BACKUP_FILE}"
-                  find /backup -name "*.sql.gz" -mtime +{{ .Values.postgresql.backup.retentionDays }} -delete 2>/dev/null || true
+                  find /backup \( -name "*.sql.gz" -o -name "*.sql.gz.partial" \) -mtime +{{ .Values.postgresql.backup.retentionDays }} -delete 2>/dev/null || true
                   echo "Backup and cleanup completed."
               env:
                 - name: DB_HOST

@@ -502,10 +502,11 @@
             "schedule":      { "type": "string" },
             "retentionDays": { "type": "integer" },
             "verifySchedule":    { "type": "string" },
-            "verifyMaxAgeHours": { "type": "integer", "minimum": 1 },
+            "verifyMaxAgeHours": { "type": ["integer", "null"], "minimum": 1 },
             "verifyTables": {
               "type": "array",
-              "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+              "minItems": 1,
+              "items": { "type": "string", "pattern": "^[a-z_][a-z0-9_]*$" }
             },
             "storage": {
               "type": "object",

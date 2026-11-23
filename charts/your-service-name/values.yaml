@@ -570,12 +570,15 @@ postgresql:
     schedule: "0 2 * * *"        # daily 02:00 UTC
     retentionDays: 30
     # The weekly restore check (files/pg-backup-verify.sh): restores the newest dump into a
-    # temporary database and fails when there is no dump, it is older than verifyMaxAgeHours, the
-    # restore fails, public holds no table, a verifyTables table is missing or alembic_version holds
-    # no row. Keep verifyMaxAgeHours with monitoring.alerts.backupMaxAgeHours (BackupTooOld).
-    # wiki/disaster-recovery.md, Drills.
+    # temporary database and fails when there is no dump, it is older than verifyMaxAgeHours or
+    # incomplete, the restore fails, public holds no table, a verifyTables table is missing or
+    # alembic_version holds no row. wiki/disaster-recovery.md, Drills.
+    # Run it more often than monitoring.alerts.backupVerifyMaxAgeHours, or BackupVerifyTooOld
+    # fires for good (a monthly schedule against the default eight days does).
     verifySchedule: "0 3 * * 0"  # Sundays 03:00 UTC
-    verifyMaxAgeHours: 26
+    # Unset (null): monitoring.alerts.backupMaxAgeHours, the BackupTooOld threshold.
+    verifyMaxAgeHours: null
+    # At least one; unqualified, lower-case names of tables in schema public.
     verifyTables: [alembic_version, items, echo_records]
     storage:
       className: standard

@@ -3,17 +3,19 @@
 # pg-backup-verify.sh — the weekly restore check of the in-cluster database, run by the
 # <fullname>-pg-backup-verify CronJob (mounted from a ConfigMap, run by postgresql.clientImage).
 # Restores the newest dump into a temporary database and fails, naming the reason, when there is
-# no dump, the dump is too old, the restore fails, public holds no table, a listed table is missing
-# or alembic_version holds no row. The temporary database is dropped on every exit.
+# no dump, the dump is too old or incomplete, the restore fails, public holds no table, a listed
+# table is missing or alembic_version holds no row. The temporary database is dropped on every
+# exit, and one left by an earlier run (killed before its trap ran) at the start of the next.
 # Env: DB_HOST, DB_USER, DB_NAME, PGPASSWORD, PGPORT (the CronJob's); BACKUP_DIR (/backup);
-# VERIFY_MAX_AGE_HOURS (26); VERIFY_TABLES (comma-separated: alembic_version,items,echo_records).
+# VERIFY_MAX_AGE_HOURS and VERIFY_TABLES (comma-separated), required: the chart's values hold the
+# defaults (postgresql.backup.verifyMaxAgeHours, verifyTables).
 # A failure fires BackupVerifyFailed: wiki/operations-runbook.md#backupverifyfailed.
 # -----------------------------------------------------------------------------
 set -eu
 
 BACKUP_DIR="${BACKUP_DIR:-/backup}"
-MAX_AGE_HOURS="${VERIFY_MAX_AGE_HOURS:-26}"
-TABLES="${VERIFY_TABLES:-alembic_version,items,echo_records}"
+MAX_AGE_HOURS="${VERIFY_MAX_AGE_HOURS:?VERIFY_MAX_AGE_HOURS is required (postgresql.backup.verifyMaxAgeHours)}"
+TABLES="${VERIFY_TABLES:?VERIFY_TABLES is required and must name at least one table (postgresql.backup.verifyTables)}"
 TEMP_DB=""
 
 fail() {
@@ -43,7 +45,7 @@ trap 'exit 1' INT TERM
 TABLE_LIST=$(echo "$TABLES" | tr ',' ' ')
 for t in $TABLE_LIST; do
   case "$t" in
-    '' | [0-9]* | *[!A-Za-z0-9_]*) fail "verifyTables: '$t' is not a plain table name" ;;
+    '' | [0-9]* | *[!a-z0-9_]*) fail "verifyTables: '$t' is not a lower-case table name (an unqualified table in public)" ;;
   esac
 done
 
@@ -58,22 +60,37 @@ if [ "$AGE_HOURS" -ge "$MAX_AGE_HOURS" ]; then
   fail "the newest dump is ${AGE_HOURS} hours old, older than ${MAX_AGE_HOURS} hours (verifyMaxAgeHours): the nightly backup is not running; see BackupTooOld in the runbook"
 fi
 
+gunzip -t "$LATEST_BACKUP" 2>/dev/null || fail "$LATEST_BACKUP is not a readable gzip file"
+# pg_dump writes this trailer last (newer releases add only an \unrestrict line after it):
+# without it the dump was cut short.
+gunzip -c "$LATEST_BACKUP" | tail -n 10 | grep -q '^-- PostgreSQL database dump complete' ||
+  fail "$LATEST_BACKUP is incomplete: it lacks pg_dump's closing '-- PostgreSQL database dump complete'"
+
+# Temporary databases of earlier runs that were killed before their trap ran.
+STALE=$(psql_on "$DB_NAME" -c "SELECT datname FROM pg_database WHERE datname LIKE 'verify\_backup\_%';") ||
+  fail "query failed: listing earlier temporary databases"
+for db in $STALE; do
+  echo "Dropping a temporary database left by an earlier run: $db"
+  psql_on "$DB_NAME" -c "DROP DATABASE IF EXISTS ${db};"
+done
+
 TEMP_DB="verify_backup_$(date +%Y%m%d%H%M%S)"
 psql_on "$DB_NAME" -c "CREATE DATABASE ${TEMP_DB};"
 
-gunzip -t "$LATEST_BACKUP" 2>/dev/null || fail "restore failed: $LATEST_BACKUP is not a readable gzip file"
 gunzip -c "$LATEST_BACKUP" | psql_on "$TEMP_DB" >/dev/null || fail "restore failed: psql stopped on an error restoring $LATEST_BACKUP"
 
-PUBLIC_TABLES=$(psql_on "$TEMP_DB" -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';")
+PUBLIC_TABLES=$(psql_on "$TEMP_DB" -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';") ||
+  fail "query failed: counting the tables in public"
 [ "$PUBLIC_TABLES" -gt 0 ] || fail "the restored database has no table in schema public"
 echo "Tables in public: $PUBLIC_TABLES"
 
 for t in $TABLE_LIST; do
-  found=$(psql_on "$TEMP_DB" -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '$t';")
+  found=$(psql_on "$TEMP_DB" -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '$t';") ||
+    fail "query failed: looking up table $t"
   [ "$found" -eq 1 ] || fail "table $t is missing from the restored database (verifyTables)"
 done
 
-ROWS=$(psql_on "$TEMP_DB" -c "SELECT count(*) FROM alembic_version;")
+ROWS=$(psql_on "$TEMP_DB" -c "SELECT count(*) FROM alembic_version;") || fail "query failed: reading alembic_version"
 [ "$ROWS" -gt 0 ] || fail "alembic_version holds no row: the dump has the schema but no migration revision"
 
 echo "Backup verification completed successfully."

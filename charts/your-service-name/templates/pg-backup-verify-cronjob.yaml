@@ -21,6 +21,8 @@ metadata:
     app.kubernetes.io/component: backup-verification
 spec:
   schedule: {{ .Values.postgresql.backup.verifySchedule | quote }}
+  # Two runs at once would collide on the temporary database's name.
+  concurrencyPolicy: Forbid
   # revisionHistoryLimit is alpha (CronJobExecutionHistory feature gate) and absent
   # from clusters without it — use the GA split fields so SSA never rejects the object.
   successfulJobsHistoryLimit: 3
@@ -57,7 +59,7 @@ spec:
                 - name: VERIFY_TABLES
                   value: {{ join "," .Values.postgresql.backup.verifyTables | quote }}
                 - name: VERIFY_MAX_AGE_HOURS
-                  value: {{ .Values.postgresql.backup.verifyMaxAgeHours | quote }}
+                  value: {{ .Values.postgresql.backup.verifyMaxAgeHours | default .Values.monitoring.alerts.backupMaxAgeHours | quote }}
                 - name: DB_HOST
                   value: {{ include "chart.fullname" . }}-postgresql
                 - name: DB_PORT

@@ -15,12 +15,16 @@ setup() {
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$LOG"
 case "$*" in
-  *"CREATE DATABASE"*|*"DROP DATABASE"*) exit 0 ;;
+  *"FROM pg_database"*) [ -z "${STALE_DB:-}" ] || echo "$STALE_DB"; exit 0 ;;
+  *"CREATE DATABASE"*) exit 0 ;;
+  *"DROP DATABASE"*) [ -z "${DROP_FAIL:-}" ] || { echo 'ERROR:  database is being accessed by other users' >&2; exit 1; }; exit 0 ;;
   *"FROM alembic_version"*) echo "${ALEMBIC_ROWS:-1}"; exit 0 ;;
   *"table_name = '"*)
     all="$*" q="'"; t="${all##*table_name = $q}"; t="${t%%"$q"*}"
     if [ "$t" = "${MISSING_TABLE:-}" ]; then echo 0; else echo 1; fi; exit 0 ;;
-  *"table_schema = 'public'"*) echo "${PUBLIC_TABLES:-3}"; exit 0 ;;
+  *"table_schema = 'public';"*)
+    [ -z "${QUERY_FAIL:-}" ] || { echo 'psql: error: server closed the connection unexpectedly' >&2; exit 2; }
+    echo "${PUBLIC_TABLES:-3}"; exit 0 ;;
   *" -c "*) exit 0 ;;
 esac
 cat > /dev/null
@@ -31,20 +35,28 @@ STUB
   export BACKUP_DIR="$BATS_TEST_TMPDIR/backup"
   mkdir -p "$BACKUP_DIR"
   export DB_HOST=db DB_USER=app DB_NAME=app
-  unset VERIFY_TABLES VERIFY_MAX_AGE_HOURS
-  echo 'SELECT 1;' | gzip > "$BACKUP_DIR/svc-old.sql.gz"
+  export VERIFY_TABLES=alembic_version,items,echo_records VERIFY_MAX_AGE_HOURS=26
+  dump "$BACKUP_DIR/svc-old.sql.gz"
   touch -d '-3 days' "$BACKUP_DIR/svc-old.sql.gz"
-  echo 'SELECT 1;' | gzip > "$BACKUP_DIR/svc-new.sql.gz"
+  dump "$BACKUP_DIR/svc-new.sql.gz"
 }
 
-dropped() { grep -q 'DROP DATABASE IF EXISTS verify_backup_' "$LOG"; }
+# A dump as pg_dump ends it: the trailer marks a complete one (16.10 and later add \unrestrict after it).
+dump() { printf 'SELECT 1;\n--\n-- PostgreSQL database dump complete\n--\n\n\\unrestrict k3y\n\n' | gzip > "$1"; }
+
+# The temporary database this run created was dropped.
+dropped() {
+  name="$(sed -n 's/.*CREATE DATABASE \(verify_backup_[0-9]*\);.*/\1/p' "$LOG")"
+  [ -n "$name" ] && grep -q "DROP DATABASE IF EXISTS $name;" "$LOG"
+}
+
+created_none() { [ "$(grep -c 'CREATE DATABASE' "$LOG")" -eq 0 ]; }
 
 @test "a good restore passes, restores the newest dump and drops the temporary database" {
   run sh "$SCRIPT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"Latest backup: $BACKUP_DIR/svc-new.sql.gz"* ]]
   [[ "$output" == *"Backup verification completed successfully."* ]]
-  grep -q 'CREATE DATABASE verify_backup_' "$LOG"
   for t in alembic_version items echo_records; do grep -q "table_name = '$t'" "$LOG"; done
   dropped
 }
@@ -54,20 +66,45 @@ dropped() { grep -q 'DROP DATABASE IF EXISTS verify_backup_' "$LOG"; }
   run sh "$SCRIPT"
   [ "$status" -ne 0 ]
   [[ "$output" == *"no dump"* ]]
-  [ "$(grep -c 'CREATE DATABASE' "$LOG")" -eq 0 ]
+  created_none
 }
 
-@test "a dump older than the maximum age fails, naming its age" {
+@test "an unfinished dump (.partial) is never the one restored" {
+  dump "$BACKUP_DIR/svc-newer.sql.gz.partial"
+  run sh "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Latest backup: $BACKUP_DIR/svc-new.sql.gz"* ]]
+}
+
+@test "a dump older than the maximum age fails, naming its age, and creates no database" {
   touch -d '-30 hours' "$BACKUP_DIR/svc-new.sql.gz"
   run sh "$SCRIPT"
   [ "$status" -ne 0 ]
   [[ "$output" == *"older than 26 hours"* ]]
+  created_none
 }
 
 @test "VERIFY_MAX_AGE_HOURS sets the maximum age" {
   touch -d '-30 hours' "$BACKUP_DIR/svc-new.sql.gz"
   VERIFY_MAX_AGE_HOURS=48 run sh "$SCRIPT"
   [ "$status" -eq 0 ]
+}
+
+@test "without VERIFY_MAX_AGE_HOURS or VERIFY_TABLES the script refuses to run (the chart's values are the defaults)" {
+  run env -u VERIFY_MAX_AGE_HOURS sh "$SCRIPT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"VERIFY_MAX_AGE_HOURS"* ]]
+  run env -u VERIFY_TABLES sh "$SCRIPT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"VERIFY_TABLES"* ]]
+  created_none
+}
+
+@test "an empty VERIFY_TABLES is refused" {
+  VERIFY_TABLES="" run sh "$SCRIPT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"VERIFY_TABLES"* ]]
+  created_none
 }
 
 @test "a restore error fails and drops the temporary database" {
@@ -77,11 +114,26 @@ dropped() { grep -q 'DROP DATABASE IF EXISTS verify_backup_' "$LOG"; }
   dropped
 }
 
-@test "a corrupt dump fails and drops the temporary database" {
+@test "a corrupt dump fails before any database is created" {
   echo 'not gzip' > "$BACKUP_DIR/svc-new.sql.gz"
   run sh "$SCRIPT"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"restore failed"* ]]
+  [[ "$output" == *"not a readable gzip file"* ]]
+  created_none
+}
+
+@test "a dump without pg_dump's trailer (cut short) fails before any database is created" {
+  printf 'SELECT 1;\n' | gzip > "$BACKUP_DIR/svc-new.sql.gz"
+  run sh "$SCRIPT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"incomplete"* ]]
+  created_none
+}
+
+@test "a failed query fails, naming it, and drops the temporary database" {
+  QUERY_FAIL=1 run sh "$SCRIPT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"query failed"* ]]
   dropped
 }
 
@@ -106,11 +158,13 @@ dropped() { grep -q 'DROP DATABASE IF EXISTS verify_backup_' "$LOG"; }
   [ "$(grep -c "table_name = 'items'" "$LOG")" -eq 0 ]
 }
 
-@test "a table name that is not a plain identifier is refused before any database is created" {
-  VERIFY_TABLES="items;drop" run sh "$SCRIPT"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"not a plain table name"* ]]
-  [ "$(grep -c 'CREATE DATABASE' "$LOG")" -eq 0 ]
+@test "a table name that is not a lower-case identifier is refused before any database is created" {
+  for bad in "items;drop" "Items" "public.items"; do
+    VERIFY_TABLES="alembic_version,$bad" run sh "$SCRIPT"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not a lower-case table name"* ]]
+  done
+  created_none
 }
 
 @test "an empty alembic_version fails and drops the temporary database" {
@@ -118,4 +172,17 @@ dropped() { grep -q 'DROP DATABASE IF EXISTS verify_backup_' "$LOG"; }
   [ "$status" -ne 0 ]
   [[ "$output" == *"alembic_version holds no row"* ]]
   dropped
+}
+
+@test "a failed drop of the temporary database fails the run, naming it" {
+  DROP_FAIL=1 run sh "$SCRIPT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"could not drop the temporary database verify_backup_"* ]]
+}
+
+@test "a temporary database left by an earlier run is dropped first" {
+  STALE_DB=verify_backup_19990101000000 run sh "$SCRIPT"
+  [ "$status" -eq 0 ]
+  grep -q 'DROP DATABASE IF EXISTS verify_backup_19990101000000;' "$LOG"
+  [ "$(grep -n 'verify_backup_19990101000000' "$LOG" | head -n1 | cut -d: -f1)" -lt "$(grep -n 'CREATE DATABASE' "$LOG" | cut -d: -f1)" ]
 }
