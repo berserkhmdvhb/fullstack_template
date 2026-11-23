@@ -73,11 +73,36 @@ the image, and `ImageValidatingPolicy` is the Kyverno type that reads bundles in
   denied.
 - The signature policy's suite proves only that images outside the glob pass untouched and that an
   image inside it is selected for verification. Checking a signature, the identity, the repository
-  claim or the provenance needs a registry. Signed against unsigned images are tested live on a kind
-  cluster in a later phase.
+  claim or the provenance needs a registry: signed against unsigned images are tested on kind, see
+  [Proven on kind](#proven-on-kind).
 - `tests/supply_chain/test_admission_policy.py` pins the whole spec of both policies, and
   `tests/supply_chain/test_admission_render.py` the renderer. Changes under `deploy/` and `wiki/`
   run these tests on pull requests.
+
+## Proven on kind
+
+`make kind-admission-test` ([`tests/k8s/test_admission.py`](../tests/k8s/test_admission.py), after
+`make kind-up`; the kind job runs it on its newest leg, see
+[Local cluster (kind)](./infrastructure.md#local-cluster-kind)) installs the Kyverno release pinned in
+`tools/pins.tsv` (`kyverno-chart`, admission controller only, images by digest:
+[`kyverno-values.yaml`](../deploy/policies/test/kyverno-values.yaml)) and applies the policy's kind
+variant, [`kyverno-verify-images-kind.yaml`](../deploy/policies/test/kyverno-verify-images-kind.yaml).
+A test keeps the variant equal to the policy except for the attestor (an ephemeral cosign key, no
+transparency log), the image glob (the test's registry) and the scope (the test's namespace only).
+The keys are generated in a temporary directory and the images live in a throwaway TLS registry; the
+test removes everything it created.
+
+Proven there, with the policy's own validations:
+
+- A Pod and a Deployment (the autogen rule) whose image is signed and carries a SLSA provenance
+  attestation are admitted and run, and the image is rewritten to the verified digest (`mutateDigest`).
+- Denied, each with the policy's own message: an unsigned image (as a Pod and as a Deployment), a
+  signed image with no provenance attestation, and an image signed and attested with another key.
+- An unsigned image outside the glob is admitted untouched: the scope works, not a deny-all.
+
+Not proven on kind: the keyless identity (the workflow's certificate, the issuer, the repository
+claim), the Rekor entry and GitHub's attestation format. Those need a real OIDC token and the public
+Sigstore services, so only the offline suite and the release workflow's own verification cover them.
 
 ## Version pair
 

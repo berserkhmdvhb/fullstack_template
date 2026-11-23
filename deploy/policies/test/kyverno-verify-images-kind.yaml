@@ -1,0 +1,65 @@
+# Test only: the variant of ../kyverno-verify-images.yaml that tests/k8s/test_admission.py applies on
+# the kind cluster fst. It differs from that policy only where a kind cluster must: the attestor is an
+# ephemeral cosign key (the test writes it over <public-key>) with no transparency log, the images are
+# those of the test's own registry, and only the test's namespace is matched.
+# tests/supply_chain/test_admission_policy.py keeps every other field equal to the production policy.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: verify-signed-images-kind
+  annotations:
+    policies.kyverno.io/title: Verify signed and attested service images
+    policies.kyverno.io/category: Software Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/minversion: 1.20.0
+    policies.kyverno.io/description: >-
+      Requires a keyless cosign signature from this repository's reusable build workflow and a
+      SLSA build provenance attestation signed by the same identity.
+spec:
+  validationActions:
+    - Deny
+  failurePolicy: Fail
+  webhookConfiguration:
+    timeoutSeconds: 30
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: fst-admission
+    resourceRules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pods
+          - pods/ephemeralcontainers
+  matchImageReferences:
+    - glob: fst-registry:5000/fst/*
+  validationConfigurations:
+    mutateDigest: true
+    verifyDigest: true
+    required: true
+  attestors:
+    - name: github
+      cosign:
+        key:
+          data: <public-key>
+        ctlog:
+          insecureIgnoreTlog: true
+          insecureIgnoreSCT: true
+  attestations:
+    - name: provenance
+      intoto:
+        type: https://slsa.dev/provenance/v1
+  variables:
+    - name: allImages
+      expression: images.?containers.orValue([]) + images.?initContainers.orValue([]) + images.?ephemeralContainers.orValue([])
+  validations:
+    - expression: variables.allImages.map(image, verifyImageSignatures(image, [attestors.github])).all(count, count > 0)
+      message: Images must be signed by this repository's build workflow (see wiki/admission-control.md).
+    - expression: variables.allImages.map(image, verifyAttestationSignatures(image, attestations.provenance, [attestors.github])).all(count, count > 0)
+      message: Images must carry a SLSA build provenance attestation from this repository's build workflow.

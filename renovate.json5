@@ -54,6 +54,18 @@
     },
     {
       "customType": "regex",
+      // The Kyverno Helm chart the kind admission test installs (data, like k8s-openapi).
+      "description": "tools/pins.tsv: the Kyverno Helm chart (kyverno.github.io)",
+      "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
+      "matchStrings": [
+        "(?m)^(?<depName>kyverno-chart)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://kyverno\\.github\\.io/kyverno/[^\\t]+)\\t"
+      ],
+      "datasourceTemplate": "helm",
+      "packageNameTemplate": "kyverno",
+      "registryUrlTemplate": "https://kyverno.github.io/kyverno"
+    },
+    {
+      "customType": "regex",
       "description": "tools/pins.tsv: Node.js (nodejs.org)",
       "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
       "matchStrings": [
@@ -170,6 +182,14 @@
       "description": "uv: the pins.tsv row and the backend image tag move together",
       "matchPackageNames": ["astral-sh/uv", "ghcr.io/astral-sh/uv"],
       "groupName": "uv"
+    },
+    {
+      // The Kyverno CLI (the offline policy tests) and the chart the kind admission test installs are one release
+      // (wiki/admission-control.md, Version pair): one pull request moves both, and the chart's image digests in
+      // deploy/policies/test/kyverno-values.yaml with them (a test checks the tags).
+      "description": "Kyverno: the CLI pin and the chart pin move together",
+      "matchPackageNames": ["kyverno/kyverno", "kyverno"],
+      "groupName": "kyverno"
     },
     {
       // The WAF base (Dockerfile.waf) is tagged distroless-vX.Y.Z, which docker versioning cannot read: without this

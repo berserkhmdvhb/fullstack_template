@@ -44,12 +44,12 @@ jobs:
           fetch-depth: 0
       - name: Fetch the base commit
         run: git fetch --no-tags --depth=1 origin "${BASE_SHA}"
-      # kind, ct, Helm, yq, Node and both kubectl pins, checksum-verified; the Gateway API CRDs by their
-      # pinned sha256 (crd-sources). Node derives the release's deployment id and runs Playwright. ct shells out to yamllint and yamale, and the image matrix helper imports
+      # kind, ct, Helm, yq, Node, both kubectl pins, cosign and the Kyverno chart (the admission test),
+      # checksum-verified; the Gateway API CRDs by their pinned sha256 (crd-sources). Node derives the release's deployment id and runs Playwright. ct shells out to yamllint and yamale, and the image matrix helper imports
       # PyYAML: each gets a venv from its hashed lock.
       - name: Install the pinned tools
         run: |
-          scripts/tools.sh install helm4 kubectl kubectl-floor kind ct yq node crd-sources
+          scripts/tools.sh install helm4 kubectl kubectl-floor kind ct yq node crd-sources cosign kyverno-chart
           echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
           for tool in yamllint yamale pyyaml; do
             python3 -m venv "$RUNNER_TEMP/${tool}"
@@ -113,6 +113,17 @@ jobs:
         if: matrix.leg == 'floor'
         timeout-minutes: 30
         run: make kind-migration-test
+      # The image admission policy (tests/k8s/test_admission.py; wiki/admission-control.md, "Proven on
+      # kind"): the pinned Kyverno, ephemeral keys and a throwaway registry, all removed by the test, and
+      # a policy that matches only the test's namespace, so the release above is never judged by it;
+      # it runs after the steps that need that release. Newest leg only (about half a minute on a
+      # workstation once the images are pulled, a minute or two cold): the admission path is
+      # Kyverno's, which the Kubernetes version barely changes, and the floor leg carries the
+      # migration lifecycle.
+      - name: Image admission (pinned Kyverno; signed and attested admitted, unsigned, unattested and other-key denied)
+        if: matrix.leg == 'newest'
+        timeout-minutes: 10
+        run: make kind-admission-test
       # Advisory, last: findings and tool errors warn and never fail the job (continue-on-error and a
       # verdict that exits 0), and its spider uses up the per-client rate limit for a minute, so no
       # blocking step runs after it. infra/security/local/scan-dast.sh with dast.yml's pinned image; the
@@ -155,6 +166,11 @@ jobs:
           "${kubectl_pin}" --kubeconfig .local/kind/kubeconfig get pods -A --no-headers \
             -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name | grep -- '-shutdown-load-' |
             while read -r ns pod; do "${kubectl_pin}" --kubeconfig .local/kind/kubeconfig logs -n "${ns}" "${pod}" || true; done || true
+          # Kyverno's admission controller and the policy status, if the admission test left them (it prints
+          # both itself before its cleanup when one of its tests fails).
+          "${kubectl_pin}" --kubeconfig .local/kind/kubeconfig logs -n fst-kyverno deploy/kyverno-admission-controller \
+            -c kyverno --tail=200 2>/dev/null || true
+          "${kubectl_pin}" --kubeconfig .local/kind/kubeconfig get imagevalidatingpolicies -o yaml 2>/dev/null || true
           # The port-forwards' logs (scripts/ci/kind-forward.sh), one file per Service and run (<name>-<pid>.log).
           for log in "${RUNNER_TEMP}"/kind-forward/*.log; do
             if [[ -f "${log}" ]]; then echo "--- ${log}"; tail -n 100 "${log}"; fi

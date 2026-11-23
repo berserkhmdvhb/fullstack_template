@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 PINS = (ROOT / "tools" / "pins.tsv").read_text(encoding="utf-8")
 CONFIG = (ROOT / "infra" / "security" / "config.yaml").read_text(encoding="utf-8")
 DEPENDABOT = ROOT / ".github" / "dependabot.yml"
-MAX_PINS_MANAGERS = 5
+MAX_PINS_MANAGERS = 6
 
 
 def renovate() -> dict[str, Any]:

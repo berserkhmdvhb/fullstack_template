@@ -201,3 +201,48 @@ def test_repo_job_tool_cache_key_names_the_tool_list() -> None:
     assert len(keys) == len("rs")  # restore and save
     for key in keys:
         assert "-".join(tools.group(1).split()) in key
+
+
+KIND_VARIANT = POLICIES / "test" / "kyverno-verify-images-kind.yaml"
+KIND_VALUES = POLICIES / "test" / "kyverno-values.yaml"
+
+
+def test_the_kind_variant_differs_from_the_policy_only_where_kind_must() -> None:
+    """tests/k8s/test_admission.py proves the variant on kind; this keeps it the same policy."""
+    variant, production = load(KIND_VARIANT), load(VERIFY)
+    assert variant["metadata"].pop("name") == "verify-signed-images-kind"
+    assert production["metadata"].pop("name") == "verify-signed-images"
+    vspec, pspec = variant["spec"], production["spec"]
+    # The scope: the test's namespace only, and the test registry's images.
+    selector = vspec["matchConstraints"].pop("namespaceSelector")
+    assert selector == {"matchLabels": {"kubernetes.io/metadata.name": "fst-admission"}}
+    assert vspec.pop("matchImageReferences") == [{"glob": "fst-registry:5000/fst/*"}]
+    pspec.pop("matchImageReferences")
+    # The attestor: the ephemeral key the test writes in, and no transparency log.
+    key_attestor = {
+        "name": "github",
+        "cosign": {
+            "key": {"data": "<public-key>"},
+            "ctlog": {"insecureIgnoreTlog": True, "insecureIgnoreSCT": True},
+        },
+    }
+    assert vspec.pop("attestors") == [key_attestor]
+    pspec.pop("attestors")
+    # Everything else, both validations (signature and provenance) included, is the policy's own.
+    assert variant == production
+
+
+def test_the_kind_kyverno_is_the_pinned_release_by_digest_with_admission_only() -> None:
+    text = (REPO / "tools" / "pins.tsv").read_text(encoding="utf-8")
+    rows = {r.split("\t")[0]: r.split("\t") for r in text.splitlines() if "\t" in r}
+    cli, chart = rows["kyverno"][1], rows["kyverno-chart"][1]
+    assert chart.startswith("3.")  # the chart's own line (3.10.x is Kyverno 1.20.x)
+    values = load(KIND_VALUES)
+    admission = values["admissionController"]
+    for image in (admission["initContainer"]["image"], admission["container"]["image"]):
+        assert re.fullmatch(rf"v{re.escape(cli)}@sha256:[0-9a-f]{{64}}", image["tag"]), image
+    for controller in ("backgroundController", "cleanupController", "reportsController"):
+        assert values[controller] == {"enabled": False}, controller
+    # The registry's TLS is trusted through the CA the test passes, never by turning checks off.
+    assert "allowInsecure" not in KIND_VALUES.read_text(encoding="utf-8")
+    assert "allowInsecureRegistry" not in KIND_VARIANT.read_text(encoding="utf-8")

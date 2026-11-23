@@ -1,0 +1,33 @@
+# Helm values for the Kyverno that tests/k8s/test_admission.py installs on the kind cluster fst, from
+# the chart pinned in tools/pins.tsv (kyverno-chart). Test only: never a production install.
+# Only the admission controller runs; the image tags are the pinned Kyverno CLI's version
+# (tools/pins.tsv, kyverno) and each is pinned by digest (a test keeps the three in step).
+admissionController:
+  initContainer:
+    image:
+      tag: "v1.20.0@sha256:339067e083430e0c97007541bef9cfdbac89bee13f7228772c77ae8aead14b8b"
+  container:
+    image:
+      tag: "v1.20.0@sha256:9de49c5416ea536f00a205527197ac048abdf32c5a75d633cd9afff8928f359d"
+    extraArgs:
+      # Every admission verifies afresh: the test reapplies the policy and expects the new result.
+      imageVerifyCacheEnabled: false
+# The test needs admission only: no background scans, cleanup policies or reports.
+backgroundController:
+  enabled: false
+cleanupController:
+  enabled: false
+reportsController:
+  enabled: false
+features:
+  admissionReports:
+    enabled: false
+  policyReports:
+    enabled: false
+# Hooks that would pull more images: the legacy-policy check (a fresh cluster has no legacy policies)
+# and the pre-delete webhook cleanup (the test deletes Kyverno's webhook configurations itself).
+upgrade:
+  legacyPolicyCheck:
+    enabled: false
+webhooksCleanup:
+  enabled: false

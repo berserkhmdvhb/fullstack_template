@@ -136,6 +136,7 @@ SOURCES: dict[str, tuple[str, str, str]] = {
     "yq": ("yq-columns", "{dir}/checksums", "https://github.com/mikefarah/yq/releases/download/"),
     "bats": ("archive", "", "https://github.com/bats-core/bats-core/archive/refs/tags/"),
     "k8s-openapi": ("archive", "", "https://raw.githubusercontent.com/kubernetes/kubernetes/"),
+    "kyverno-chart": ("archive", "", "https://kyverno.github.io/kyverno/"),
     "shellcheck": ("gh-digest", "", "https://github.com/koalaman/shellcheck/releases/download/"),
     "node": (
         "sumfile",

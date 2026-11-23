@@ -306,7 +306,7 @@ The chart in a real cluster: [`kind`](https://kind.sigs.k8s.io) with a pinned no
 sequence locally and in CI. The cluster is always named `fst` and its kubeconfig is always
 `.local/kind/kubeconfig` (gitignored): every kind call passes `--name fst` and `--kubeconfig`, so
 nothing writes `~/.kube/config` and no call lists or touches another cluster. Needs docker and the
-pinned tools (`make tools`: kind, ct, Helm, yq, both kubectl pins, the CRD sources).
+pinned tools (`make tools`: kind, ct, Helm, yq, both kubectl pins, the CRD sources; cosign and the Kyverno chart for the admission test).
 
 ```bash
 make kind-up                     # create fst (or reuse it) on the floor node image; KIND_NODE=newest for the other
@@ -314,6 +314,7 @@ make kind-deploy                 # the full sequence below; KIND_BASE=<ref> adds
                                  # (a commit id, branch or tag; no ~ or ^)
 make kind-shutdown-test         # after kind-deploy: Pods deleted under load fail no request (Workloads, below)
 make kind-migration-test        # after kind-deploy: the migration lifecycle on a release of its own (database.md)
+make kind-admission-test        # after kind-up: the image admission policy with its own Kyverno (admission-control.md)
 make kind-live                   # after kind-deploy: the live suites (make test-live) against the release
 make kind-smoke                  # after kind-deploy: the smoke test against the public forward
 make kind-e2e                    # after kind-deploy: the Playwright suite (frontend: npm ci, browsers installed)
@@ -384,7 +385,8 @@ runs, never to the metrics port. Every hook object is deleted after a pass and a
 on both legs: `scripts/kind-up.sh --node <leg>`, then `scripts/kind-deploy.sh --base <the pull
 request's base commit>`, the scripts `make kind-up` and `make kind-deploy` run, then
 `make kind-shutdown-test` ([graceful shutdown](#workloads-rollout-resources-and-shutdown)), and on the floor leg
-`make kind-migration-test` ([the migration lifecycle](./database.md#proven-on-kind)). It always deletes the
+`make kind-migration-test` ([the migration lifecycle](./database.md#proven-on-kind)), and on the newest leg
+`make kind-admission-test` ([the admission policy](./admission-control.md#proven-on-kind)). It always deletes the
 cluster at the end, and on a failure prints the cluster's state with the leg's own kubectl. It is
 blocking, behind `CI OK`.
 

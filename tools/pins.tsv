@@ -68,6 +68,10 @@ squawk	2.72.0	linux-amd64	https://github.com/sbdchd/squawk/releases/download/v2.
 oasdiff	1.37.0	linux-amd64	https://github.com/oasdiff/oasdiff/releases/download/v1.37.0/oasdiff_1.37.0_linux_amd64.tar.gz	eac87307d31d08c36800c58a409c247f1c5db37fbb72e2544402f22a87cbca3c
 cosign	3.1.4	linux-amd64	https://github.com/sigstore/cosign/releases/download/v3.1.4/cosign-linux-amd64	424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa
 kyverno	1.20.0	linux-amd64	https://github.com/kyverno/kyverno/releases/download/v1.20.0/kyverno-cli_v1.20.0_linux_x86_64.tar.gz	06b8f3ca7b5626473be8fb4d343ad54ab84e317142766f72420e7d44b80942e2
+# kyverno-chart is data, not a tool: the Helm chart of the Kyverno release matching the CLI above, which
+# tests/k8s/test_admission.py installs on kind (chart 3.10 is Kyverno 1.20; move the two together). Its sha256 is the
+# digest the chart repository's index.yaml lists, confirmed against the downloaded bytes; hashed on download.
+kyverno-chart	3.10.0	any	https://kyverno.github.io/kyverno/kyverno-3.10.0.tgz	55961392dc0821eb367323f0e9585c061dd4407ef7ada921bd56ea1642c2a301
 yq	4.54.3	linux-amd64	https://github.com/mikefarah/yq/releases/download/v4.54.3/yq_linux_amd64.tar.gz	09a25baa0e136b8633949e03117fc82cb9e50d10910f988ef17a1305539ebce4
 bats	1.14.0	linux-amd64	https://github.com/bats-core/bats-core/archive/refs/tags/v1.14.0.tar.gz	bb537b70b15b732f6d8827dd6578e3d8ce166636ce1f18ea9a074184fcce9177
 shellcheck	0.11.0	linux-amd64	https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz	b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
