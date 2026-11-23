@@ -307,9 +307,20 @@ db_ns="$NS-db"
 run_job() { # name, cronjob, the log line it must print
   kc -n "$db_ns" delete job "$1" --ignore-not-found >/dev/null
   kc -n "$db_ns" create job "$1" --from="cronjob/$2" >/dev/null
-  if ! kc -n "$db_ns" wait --for=condition=complete "job/$1" --timeout=300s >/dev/null; then
-    kc -n "$db_ns" logs "job/$1" --all-containers >&2 || true
-    die "the Job $1 (from $2) did not complete"
+  # Until Complete or Failed (at most 300 s). The Job controller deletes a failed Job's Pod, so
+  # each poll keeps the newest logs (the failed run's, --previous, after a restart in place).
+  local end=$((SECONDS + 300)) state=""
+  while (( SECONDS < end )); do
+    state="$(kc -n "$db_ns" get "job/$1" -o jsonpath='{range .status.conditions[?(@.status=="True")]}{.type} {end}')"
+    kc -n "$db_ns" logs "job/$1" --previous > "$WORK/$1.log.new" 2>/dev/null ||
+      kc -n "$db_ns" logs "job/$1" > "$WORK/$1.log.new" 2>/dev/null || true
+    [[ ! -s "$WORK/$1.log.new" ]] || mv "$WORK/$1.log.new" "$WORK/$1.failed.log"
+    [[ " $state" != *" Complete "* && " $state" != *" Failed "* ]] || break
+    sleep 0.5
+  done
+  if [[ " $state" != *" Complete "* ]]; then
+    cat "$WORK/$1.failed.log" >&2 2>/dev/null || echo "(no log of the Job's Pod was captured)" >&2
+    die "the Job $1 (from $2) did not complete (${state:-no condition after 300 s})"
   fi
   kc -n "$db_ns" logs "job/$1" > "$WORK/$1.log"
   grep -q "$3" "$WORK/$1.log" || die "the Job $1 did not print '$3': $(cat "$WORK/$1.log")"

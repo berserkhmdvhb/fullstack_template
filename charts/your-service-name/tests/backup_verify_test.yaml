@@ -45,7 +45,7 @@ tests:
     asserts:
       - contains:
           path: 'spec.jobTemplate.spec.template.spec.containers[0].env'
-          content: {name: VERIFY_TABLES, value: "alembic_version,items,echo_records"}
+          content: {name: VERIFY_TABLES, value: "alembic_version,items"}
       - contains:
           path: 'spec.jobTemplate.spec.template.spec.containers[0].env'
           content: {name: VERIFY_MAX_AGE_HOURS, value: "26"}

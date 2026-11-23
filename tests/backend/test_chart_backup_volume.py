@@ -8,9 +8,13 @@ from __future__ import annotations
 import os
 
 import pytest
+from sqlalchemy import inspect
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.backend.test_chart_pod_security import VALUES_FILES, pod_specs, render
 from tests.backend.test_chart_production_guard import CHART, find_helm, require_helm
+from your_service_name.backend.db.run_migrations import run_migrations
+from your_service_name.backend.settings import Settings
 
 CLAIM = "svc-your-service-name-pg-backup-pvc"
 
@@ -53,3 +57,27 @@ def test_the_verify_config_map_holds_the_script_byte_for_byte(helm: str) -> None
     assert (
         cm["data"]["pg-backup-verify.sh"] == (CHART / "files" / "pg-backup-verify.sh").read_text()
     )
+
+
+@pytest.mark.parametrize("values", [v for v in VALUES_FILES if v != "values.production.yaml"])
+async def test_every_table_the_restore_check_requires_is_one_the_migrations_create(
+    helm: str, values: str
+) -> None:
+    """VERIFY_TABLES, as the verify CronJob renders it, names only tables a dump of the migrated
+    database holds: a table no migration creates fails every restore check."""
+    (job,) = [
+        d
+        for d in render(helm, values)
+        if d["kind"] == "CronJob"
+        and d["metadata"]["name"] == "svc-your-service-name-pg-backup-verify"
+    ]
+    (container,) = job["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]
+    env = {e["name"]: e.get("value") for e in container["env"]}
+    await run_migrations(Settings())
+    engine = create_async_engine(Settings().database_url)
+    try:
+        async with engine.connect() as conn:
+            tables = set(await conn.run_sync(lambda c: inspect(c).get_table_names()))
+    finally:
+        await engine.dispose()
+    assert set(env["VERIFY_TABLES"].split(",")) <= tables, sorted(tables)

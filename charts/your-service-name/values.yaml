@@ -582,8 +582,9 @@ postgresql:
     verifySchedule: "0 3 * * 0"  # Sundays 03:00 UTC
     # Unset (null): monitoring.alerts.backupMaxAgeHours, the BackupTooOld threshold.
     verifyMaxAgeHours: null
-    # At least one; unqualified, lower-case names of tables in schema public.
-    verifyTables: [alembic_version, items, echo_records]
+    # At least one; unqualified, lower-case names of tables the migrations create in schema public
+    # (a test checks each against them: a table no migration creates fails every restore check).
+    verifyTables: [alembic_version, items]
     # The verify Job's activeDeadlineSeconds: raise it for a dump that takes longer to restore.
     # With the Pod's termination grace period ($grace in templates/pg-backup-verify-cronjob.yaml:
     # the time the script has to drop its temporary database after the deadline's SIGTERM) it
