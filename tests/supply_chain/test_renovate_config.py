@@ -293,3 +293,35 @@ def test_the_kyverno_group_holds_the_cli_the_chart_and_the_images() -> None:
     images = re.findall(r"^\s*# renovate: image=([\w./-]+)$", values, re.MULTILINE)
     assert images
     assert set(rule["matchPackageNames"]) == {"kyverno/kyverno", "kyverno", *images}
+
+
+def _title_pattern() -> re.Pattern[str]:
+    """The Conventional Commit pattern pr-title.yml enforces, taken from its step."""
+    run = yaml.safe_load((ROOT / ".github" / "workflows" / "pr-title.yml").read_text())["jobs"][
+        "title"
+    ]["steps"][0]["run"]
+    types = re.search(r'types="([^"]+)"', run)
+    assert types
+    return re.compile(rf"^({types[1]})(\([a-z0-9][a-z0-9,._/-]*\))?!?: [^ ].*$")
+
+
+def test_renovate_titles_are_always_fix_deps_conventional_commits() -> None:
+    cfg = renovate()
+    assert cfg["semanticCommits"] == "enabled"  # never auto-detected
+    assert (cfg["semanticCommitType"], cfg["semanticCommitScope"]) == ("fix", "deps")
+    assert cfg["lockFileMaintenance"]["semanticCommitType"] == "fix"
+    last = cfg["packageRules"][-1]  # applied after every preset and earlier rule
+    assert last["matchPackageNames"] == ["*"]
+    assert (last["semanticCommitType"], last["semanticCommitScope"]) == ("fix", "deps")
+    others = [r for r in cfg["packageRules"][:-1] if "semanticCommitType" in r]
+    assert not others, [r["description"] for r in others]
+    title = f"{cfg['semanticCommitType']}({cfg['semanticCommitScope']}): update dependency x to v2"
+    assert _title_pattern().match(title)
+
+
+def test_dependabot_security_titles_are_fix_deps_conventional_commits() -> None:
+    for update in yaml.safe_load(DEPENDABOT.read_text(encoding="utf-8"))["updates"]:
+        assert update["commit-message"] == {"prefix": "fix(deps)"}, update["package-ecosystem"]
+        # Dependabot inserts ": " after a prefix that ends in ")".
+        title = f"{update['commit-message']['prefix']}: bump x from 1.0.0 to 1.0.1"
+        assert _title_pattern().match(title)

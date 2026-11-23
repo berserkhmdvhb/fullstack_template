@@ -10,6 +10,14 @@
   "extends": ["config:recommended", "helpers:pinGitHubActionDigests", "docker:pinDigests"],
   "timezone": "UTC",
 
+  // Pull request titles are Conventional Commits (.github/workflows/pr-title.yml), and the squash merge makes the
+  // title the commit release-please reads. Every update is `fix(deps)`, a patch release: what an update changes ships
+  // in the images or the chart, and the weekly group mixes those with CI-only bumps, so one type for all (a CI-only
+  // week then cuts a patch release too, which is harmless). Never left to auto-detection, which may pick none.
+  "semanticCommits": "enabled",
+  "semanticCommitType": "fix",
+  "semanticCommitScope": "deps",
+
   // A release must be 7 days old before a pull request is opened; the pending check blocks any earlier merge.
   "minimumReleaseAge": "7 days",
   "internalChecksFilter": "strict",
@@ -163,6 +171,7 @@
   // [tool.uv] exclude-newer = "7 days" from pyproject.toml, so a refreshed lock also keeps the 7-day rule.
   "lockFileMaintenance": {
     "enabled": true,
+    "semanticCommitType": "fix",
     "schedule": ["before 6am on monday"]
   },
 
@@ -266,6 +275,13 @@
       "matchFileNames": ["tools/pins.tsv"],
       "matchUpdateTypes": ["minor", "major"],
       "enabled": false
+    },
+    {
+      // Last, so it overrides the per-dependency-type types that config:recommended's presets set.
+      "description": "Every update's pull request title is fix(deps)",
+      "matchPackageNames": ["*"],
+      "semanticCommitType": "fix",
+      "semanticCommitScope": "deps"
     }
   ]
 }
