@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import shutil
+import socket
 import ssl
 import subprocess
 import tempfile
@@ -46,10 +48,9 @@ CONTAINER = "fst-registry"
 REGISTRY = f"{CONTAINER}:5000"  # the reference containerd and Kyverno both resolve
 NODE = "fst-control-plane"
 NODE_CERTS = f"/etc/containerd/certs.d/{REGISTRY}"
-REGISTRY_IMAGE = (
-    "docker.io/library/registry:3.1.2"
-    "@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c"
-)
+# renovate: image=docker.io/library/registry  # noqa: ERA001 - an annotation, not code
+REGISTRY_TAG = "3.1.2@sha256:82f6ff4a7f982960c8aa51617fea3aabc485df6e55cce80d22deb1de36f1bc3c"
+REGISTRY_IMAGE = f"docker.io/library/registry:{REGISTRY_TAG}"
 TAG = "test"
 # Repository -> (key that signs it or None, attested): one image, pushed under each.
 IMAGES: dict[str, tuple[str | None, bool]] = {
@@ -83,9 +84,23 @@ def _docker(*args: str, check: bool = True) -> str:
     return _run([_tool("docker"), *args], check=check)
 
 
+def _closed_port() -> int:
+    """A loopback port nothing listens on (bound, then released)."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+# cosign's HTTP goes through a proxy on a closed loopback port, so any call beyond the loopback
+# registry fails the run (Go never proxies loopback; it reaches the registry directly).
+_PROXY = f"http://127.0.0.1:{_closed_port()}"
+NO_EGRESS = {"HTTPS_PROXY": _PROXY, "HTTP_PROXY": _PROXY, "NO_PROXY": "127.0.0.1", "ALL_PROXY": ""}
+
+
 def _cosign(keys: Path, *args: str) -> None:
-    """cosign with the keys' password in its environment only: never in a file or an argument."""
-    env = {**os.environ, "COSIGN_PASSWORD": PASSWORD}
+    """cosign with the keys' password in its environment only (never in a file or an argument),
+    and no way out but the loopback registry (NO_EGRESS)."""
+    env = {**os.environ, **NO_EGRESS, "COSIGN_PASSWORD": PASSWORD}
     done = subprocess.run(
         [_tool("cosign"), *args], cwd=keys, env=env, capture_output=True, text=True, check=False
     )
@@ -351,6 +366,15 @@ def kyverno(request: pytest.FixtureRequest, tls: Path) -> Iterator[Kube]:
                 "5m",
             ]
         )
+        # The controller's own startup line names its version: an image digest left behind by a
+        # tag bump (deploy/policies/test/kyverno-values.yaml) shows here.
+        log = re.sub(
+            r"\x1b\[[0-9;]*m",
+            "",
+            admin("logs", "deploy/kyverno-admission-controller", "-c", "kyverno"),
+        )
+        running = re.findall(r"logger=setup/version\b.*\bversion=(\S+)", log)
+        assert running == [f"v{_pin('kyverno')}"], f"the controller reports {running}"
         yield admin
     finally:
         if request.session.testsfailed:
@@ -387,7 +411,7 @@ def kyverno(request: pytest.FixtureRequest, tls: Path) -> Iterator[Kube]:
 
 
 @pytest.fixture(scope="module")
-def policy(kube: Kube, kyverno: Kube, keys: Path) -> Iterator[str]:
+def policy(request: pytest.FixtureRequest, kube: Kube, kyverno: Kube, keys: Path) -> Iterator[str]:
     """The kind variant trusting the trusted key, ready and denying; its namespace created."""
     doc = yaml.safe_load(VARIANT.read_text())
     assert doc["metadata"]["name"] == POLICY
@@ -395,6 +419,7 @@ def policy(kube: Kube, kyverno: Kube, keys: Path) -> Iterator[str]:
     assert attestor["cosign"]["key"]["data"] == "<public-key>"
     attestor["cosign"]["key"]["data"] = (keys / "trusted.pub").read_text()
     manifest = json.dumps(doc)
+    ready = False
     try:
         kube("create", "namespace", NAMESPACE)
         # Kyverno validates the policy through its own webhook, which may not answer yet.
@@ -414,8 +439,12 @@ def policy(kube: Kube, kyverno: Kube, keys: Path) -> Iterator[str]:
             assert time.time() < end, "the policy never denied the unsigned probe"
             time.sleep(1)
         _assert_denied(done, SIGNATURE_DENIED)
+        ready = True
         yield POLICY
     finally:
+        # Its status, while it still exists: a failed setup, or a failed test.
+        if not ready or request.session.testsfailed:
+            print(kyverno("get", "imagevalidatingpolicy", POLICY, "-o", "yaml", check=False))
         kyverno("delete", "-f", "-", "--ignore-not-found", stdin=manifest, check=False)
         kyverno("delete", "namespace", NAMESPACE, "--ignore-not-found", check=False)
 

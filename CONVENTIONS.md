@@ -89,7 +89,11 @@ ports vary, via the Ingress and the per-env values. Depth:
 and `v*` tags**: they run in the release workflow, **never in a pull request**.
 A PR author can never sign an image or resolve a production digest. A PR job may still build images into
 the local daemon only, to check them: it holds a `contents: read` token and does no push, registry login,
-secret or build cache. New supply-chain logic goes
+secret or build cache. The rule covers the project's registries and its signing identity. A test job
+may push to a throwaway registry on the runner's loopback and sign there with a key the job generates,
+trusted only by a test policy in a cluster deleted when the job ends, with no `id-token`, no registry
+login and no secret, so nothing leaves the runner: the kind admission test does this
+([`wiki/admission-control.md`](wiki/admission-control.md#proven-on-kind)). New supply-chain logic goes
 under `infra/security/local/` — the eight shared `infra/security/*.sh` scripts are **frozen** (`_helpers.sh`, `sbom-generate.sh`,
 `scan-vulnerabilities.sh`, `scan-licenses.sh`, `generate-vex.sh`, `check-ci-hardening.sh`,
 `tools-install.sh`, `verify-image-digest.sh`; see
@@ -98,7 +102,9 @@ under `infra/security/local/` — the eight shared `infra/security/*.sh` scripts
 **Smell → fix.**
 - A new job that pushes/signs/attests an image, or builds one with a login, a secret, a cache or a write token,
   runs on every PR → move it into `release.yml`, or gate
-  it with an `if:` on a push to `main` / a `v*` tag.
+  it with an `if:` on a push to `main` / a `v*` tag. The one exception is the test-only case above
+  (a loopback registry and a job-generated key, trusted only by a test policy in a throwaway cluster,
+  as `make kind-admission-test` does): leave it on pull requests.
 - You edited `infra/security/*.sh` to add a scanner → put the scanner under `infra/security/local/`
   and add a pin in `infra/security/config.yaml` instead.
 - You want to add/extend a supply-chain scanner → use the `add-supply-chain-scanner` skill

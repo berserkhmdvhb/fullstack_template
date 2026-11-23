@@ -140,6 +140,18 @@
         "repository: [\"']?(?<depName>[a-z0-9][\\w./-]*)[\"']?\\n\\s+tag: [\"']?(?<currentValue>[\\w][\\w.-]*)[\"']?(?:\\n\\s*(?:registry|#)[^\\n]*)*\\n\\s+digest: [\"']?(?<currentDigest>sha256:[a-f0-9]{64})[\"']?"
       ],
       "datasourceTemplate": "docker"
+    },
+    {
+      // The kind admission test's images, each under a `# renovate: image=<name>` line: the Kyverno images in
+      // deploy/policies/test/kyverno-values.yaml (the chart takes `tag: <tag>@<digest>`) and the throwaway
+      // registry in tests/k8s/test_admission.py.
+      "customType": "regex",
+      "description": "Annotated image tags and digests of the kind admission test",
+      "managerFilePatterns": ["/^deploy/policies/test/kyverno-values\\.yaml$/", "/^tests/k8s/test_admission\\.py$/"],
+      "matchStrings": [
+        "# renovate: image=(?<depName>[^\\s]+)[^\\n]*\\n\\s*(?:tag: |REGISTRY_TAG = )\"(?<currentValue>[^@\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker"
     }
   ],
 
@@ -184,11 +196,12 @@
       "groupName": "uv"
     },
     {
-      // The Kyverno CLI (the offline policy tests) and the chart the kind admission test installs are one release
-      // (wiki/admission-control.md, Version pair): one pull request moves both, and the chart's image digests in
-      // deploy/policies/test/kyverno-values.yaml with them (a test checks the tags).
-      "description": "Kyverno: the CLI pin and the chart pin move together",
-      "matchPackageNames": ["kyverno/kyverno", "kyverno"],
+      // The Kyverno CLI (the offline policy tests), the chart the kind admission test installs and that chart's
+      // two images are one release (wiki/admission-control.md, Version pair): one pull request moves the CLI and
+      // chart rows of tools/pins.tsv and the image tags and digests in deploy/policies/test/kyverno-values.yaml.
+      // The pins.tsv checksums still come from make pins-refresh.
+      "description": "Kyverno: the CLI pin, the chart pin and the chart's images move together",
+      "matchPackageNames": ["kyverno/kyverno", "kyverno", "reg.kyverno.io/kyverno/kyverno", "reg.kyverno.io/kyverno/kyvernopre"],
       "groupName": "kyverno"
     },
     {

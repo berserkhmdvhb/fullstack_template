@@ -285,3 +285,25 @@ def test_the_admission_test_runs_on_the_newest_leg_after_the_shutdown_check() ->
     install = _step("Install the pinned tools")["run"]
     assert " cosign " in install
     assert "kyverno-chart" in install
+
+
+def test_the_admission_tests_signing_has_no_identity_login_or_secret() -> None:
+    """The test-only exception to the image-ops rule (CONVENTIONS.md, 5): the step signs with a key
+    the job generates, so it needs no OIDC token, no registry login and no secret."""
+    job = _kind()
+    assert "id-token" not in job["permissions"]
+    step = _step(next(n for n in _names() if n.startswith("Image admission")))
+    assert set(step) <= {"name", "if", "timeout-minutes", "run"}, step  # no env, no action
+    test = (REPO / "tests" / "k8s" / "test_admission.py").read_text(encoding="utf-8")
+    for word in (
+        "docker login",
+        '"login"',
+        "id-token",
+        "ACTIONS_ID_TOKEN",
+        "${{",  # no workflow expression (a secret, a token)
+        "GITHUB_TOKEN",
+    ):
+        assert word not in test, word
+    assert "127.0.0.1" in test  # pushes and signs through the loopback only
+    rules = (REPO / "CONVENTIONS.md").read_text(encoding="utf-8")
+    assert "wiki/admission-control.md#proven-on-kind" in rules

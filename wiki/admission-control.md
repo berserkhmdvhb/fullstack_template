@@ -101,8 +101,14 @@ Proven there, with the policy's own validations:
 - An unsigned image outside the glob is admitted untouched: the scope works, not a deny-all.
 
 Not proven on kind: the keyless identity (the workflow's certificate, the issuer, the repository
-claim), the Rekor entry and GitHub's attestation format. Those need a real OIDC token and the public
-Sigstore services, so only the offline suite and the release workflow's own verification cover them.
+claim), the Rekor entry and GitHub's provenance bundle, which need a real OIDC token and the public
+Sigstore services. What covers them instead is narrower:
+
+- The offline suite and `tests/supply_chain/test_admission_policy.py` pin those fields of the policy
+  as text; neither checks a signature.
+- The build workflow's `cosign verify` step (`reusable-build.yml`, right after signing) checks the
+  signature's certificate identity, issuer, repository claim and commit, and its Rekor entry.
+- No automated check verifies GitHub's provenance bundle against this policy.
 
 ## Version pair
 

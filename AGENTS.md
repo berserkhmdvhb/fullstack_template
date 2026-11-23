@@ -39,7 +39,8 @@ Adapt the placeholder before running the app for real:
    [`CONVENTIONS.md`](./CONVENTIONS.md#4-config-driven-not-hard-coded)
 5. **Image ops (push/sign/attest/digest-resolve) run on `main` and `v*` tags only, never in a pull request.** A PR
    author must not be able to forge the supply-chain chain. (A PR job may build into the local daemon only: `contents: read`, no
-   push, login, secret or cache.) [`CONVENTIONS.md`](./CONVENTIONS.md#5-image-level-ops-run-on-main-and-release-tags-only)
+   push, login, secret or cache. The one exception, the kind admission test, pushes to a loopback throwaway registry and
+   signs with a job-generated key trusted only by a test policy; nothing leaves the runner.) [`CONVENTIONS.md`](./CONVENTIONS.md#5-image-level-ops-run-on-main-and-release-tags-only)
 6. **Never edit the eight frozen `infra/security/*.sh` scripts** — `_helpers.sh`, `sbom-generate.sh`,
    `scan-vulnerabilities.sh`, `scan-licenses.sh`, `generate-vex.sh`, `check-ci-hardening.sh`,
    `tools-install.sh`, `verify-image-digest.sh` — new supply-chain logic goes under

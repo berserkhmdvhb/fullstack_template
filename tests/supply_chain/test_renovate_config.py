@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -242,3 +243,42 @@ def test_every_crd_source_row_is_seen_once_and_its_url_follows_the_version() -> 
 def test_the_drift_note_covers_the_crd_sources() -> None:
     rule = next(r for r in renovate()["packageRules"] if "prBodyNotes" in r)
     assert "charts/your-service-name/ci/crds/sources.tsv" in rule["matchFileNames"]
+
+
+ADMISSION_IMAGE_FILES = ("deploy/policies/test/kyverno-values.yaml", "tests/k8s/test_admission.py")
+
+
+def _file_managers(rel: str) -> list[dict[str, Any]]:
+    """The managers whose file patterns (JavaScript regexes between slashes) match the path."""
+    return [
+        m
+        for m in renovate()["customManagers"]
+        if any(re.search(p.strip("/"), rel) for p in m["managerFilePatterns"])
+    ]
+
+
+@pytest.mark.parametrize("rel", ADMISSION_IMAGE_FILES)
+def test_every_image_digest_of_the_kind_admission_test_is_seen_by_one_manager(rel: str) -> None:
+    """Each pinned digest is matched once, with its tag, so a tag never moves without its digest."""
+    text = (ROOT / rel).read_text(encoding="utf-8")
+    digests = re.findall(r"sha256:[a-f0-9]{64}", text)
+    assert digests, rel
+    matches = [
+        m
+        for mgr in _file_managers(rel)
+        for ms in mgr["matchStrings"]
+        for m in _compile(ms).finditer(text)
+        if "currentDigest" in m.groupdict()
+    ]
+    assert sorted(m.group("currentDigest") for m in matches) == sorted(digests), rel
+    for match in matches:
+        assert match.group("currentValue"), match.group(0)
+        assert "/" in match.group("depName"), match.group(0)
+
+
+def test_the_kyverno_group_holds_the_cli_the_chart_and_the_images() -> None:
+    rule = next(r for r in renovate()["packageRules"] if r.get("groupName") == "kyverno")
+    values = (ROOT / ADMISSION_IMAGE_FILES[0]).read_text(encoding="utf-8")
+    images = re.findall(r"^\s*# renovate: image=([\w./-]+)$", values, re.MULTILINE)
+    assert images
+    assert set(rule["matchPackageNames"]) == {"kyverno/kyverno", "kyverno", *images}
