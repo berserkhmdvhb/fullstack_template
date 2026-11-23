@@ -232,6 +232,18 @@ tests:
       waf: {resources: {requests: {cpu: 100m, memory: 1Gi}}}
     asserts:
       - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'max_heap_size_bytes: 858993459\s'}
+  - it: with cspReporting the report route alone takes the two report formats, its body uninspected, set before CRS
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      cspReporting: {enabled: true}
+    asserts:
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'Include @crs-setup-conf.+id:900200.+SecRule REQUEST_FILENAME \\+"@streq /api/v1/csp-report\\+" \\+"id:900221,phase:1,pass,t:none,nolog,setvar:''tx.allowed_request_content_type=\|application/csp-report\| \|application/reports\+json\|'',ctl:requestBodyAccess=Off\\+".+Include @owasp_crs/\*\.conf'}
+  - it: without cspReporting the report route gets no exception
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - notMatchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: '900221|csp-report'}
   - it: no extra Coraza directives by default
     template: waf-proxy.yaml
     documentSelector: {path: kind, value: Deployment}

@@ -22,7 +22,17 @@
 {{- /* waf.allowedMethods replaces CRS's default tx.allowed_methods (crs-setup's rule 900200), set
        after crs-setup and before the rules read it. */}}
 {{- $methods := printf "SecAction \"id:900200,phase:1,pass,t:none,nolog,setvar:'tx.allowed_methods=%s'\"" (join " " .Values.waf.allowedMethods) }}
-{{- $directives = concat $directives (list "Include @crs-setup-conf" $methods "Include @owasp_crs/*.conf") }}
+{{- $setup := list "Include @crs-setup-conf" $methods }}
+{{- /* cspReporting: on the report route alone, the browser's two report formats are the only
+       allowed content types (CRS's own list has neither: rule 920420 refuses them), and the body is
+       not inspected: a report quotes the page's policy and URLs (data:, http://...), which CRS
+       scores as XSS and SSRF and blocks. The backend reads it as hostile input (capped, sanitised,
+       wiki/security.md). Set before CRS's initialization, which keeps a value already set. */}}
+{{- if .Values.cspReporting.enabled }}
+{{- $report := printf "/api/%s/csp-report" .Values.config.API_VERSION }}
+{{- $setup = append $setup (printf "SecRule REQUEST_FILENAME \"@streq %s\" \"id:900221,phase:1,pass,t:none,nolog,setvar:'tx.allowed_request_content_type=|application/csp-report| |application/reports+json|',ctl:requestBodyAccess=Off\"" $report) }}
+{{- end }}
+{{- $directives = concat $directives $setup (list "Include @owasp_crs/*.conf") }}
 {{- end }}
 {{- /* An adopter's own directives (rule exclusions such as SecRuleRemoveById), after CRS. */}}
 {{- $directives = concat $directives (.Values.waf.extraDirectives | default list) }}
