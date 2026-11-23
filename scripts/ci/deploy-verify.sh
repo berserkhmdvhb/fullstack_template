@@ -4,7 +4,9 @@
 # Checks (the first failure exits 1):
 #   1. the release is `deployed` (its newest Helm release Secret has status=deployed)
 #   2. the migration Job named in the release manifest (one per revision), if it still exists, completed
-#   3. every pod of the service is Running (or Succeeded)
+#   3. every pod of the service is Running (or Succeeded), a Job's Pods aside: check 2 judges this
+#      revision's migration Job, and an earlier revision's Failed Job keeps its Failed Pods (resource-
+#      policy keep, until its TTL), which would otherwise fail every deploy after a failed migration
 #   4. every pod of each component runs the expected image DIGEST (the pod's imageID)
 #   5. the backend and frontend health routes answer: each Pod is asked over a port-forward with the
 #      runner's curl, so no command runs inside a Pod and no ingress is needed
@@ -76,7 +78,7 @@ else
 fi
 
 echo "== Check 3: Pod status =="
-pods="$("${K[@]}" get pods -l "app.kubernetes.io/name=${SERVICE_NAME}" \
+pods="$("${K[@]}" get pods -l "app.kubernetes.io/name=${SERVICE_NAME},!batch.kubernetes.io/job-name" \
   -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.status.phase}{"|"}{.metadata.deletionTimestamp}{"\n"}{end}')"
 live=0
 while IFS='|' read -r name phase deleting; do

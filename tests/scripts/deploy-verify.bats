@@ -322,3 +322,9 @@ STUB
     [ "$status" -ne 0 ]
   done
 }
+
+@test "check 3 leaves out Job Pods: an earlier revision's Failed migration Pod does not fail it" {
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  grep -qF -- "get pods -l app.kubernetes.io/name=svc,!batch.kubernetes.io/job-name -o jsonpath" "$STUB_LOG"
+}
