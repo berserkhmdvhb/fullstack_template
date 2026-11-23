@@ -21,9 +21,10 @@ jobs:
     runs-on: ubuntu-24.04
     # The floor leg's steps take about 23 minutes on a workstation (the cluster
     # and the base-to-HEAD deploy 5, the shutdown check 4 with its limit upgrade and rollback, the
-    # migration lifecycle 15), so 60 leaves more than twice that for a slower runner, its cold tool,
-    # image and environment installs. The newest leg runs the browser, tracing, Redis, admission and
-    # ZAP steps instead of the migration lifecycle: about 21 minutes by those steps' own times.
+    # migration lifecycle 14 to 15), so 60 leaves more than twice that for a slower runner, its cold
+    # tool, image and environment installs. The newest leg runs the browser, CSP (1, with its upgrade
+    # and rollback), tracing and Redis (2), admission (1) and ZAP (1) steps instead of the migration
+    # lifecycle: about 14 minutes by those steps' own times, plus the frontend and browser installs.
     timeout-minutes: 60
     permissions:
       contents: read
@@ -80,10 +81,12 @@ jobs:
       # (frontend, WAF, backend). What each proves: wiki/infrastructure.md, "In CI". Live and smoke are the
       # API and the edge on each Kubernetes version (the port-forward path is version behaviour), so both
       # legs run them (under a minute); Playwright and ZAP exercise the app's browser and HTTP surface, which
-      # the version does not change, so only the newest leg runs them (about 3 and 3 minutes).
+      # the version does not change, so only the newest leg runs them (about a minute each on a workstation).
       - name: Live suites (backend and public forwards)
+        timeout-minutes: 10
         run: make kind-live
       - name: Smoke test (public forward)
+        timeout-minutes: 5
         run: make kind-smoke
       - name: Install the frontend dependencies
         if: matrix.leg == 'newest'
@@ -99,10 +102,12 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Frontend live suite (Playwright, public forward)
         if: matrix.leg == 'newest'
+        timeout-minutes: 10
         run: make kind-e2e
-      # A real browser's CSP violation on the release (kind-deploy turns cspReporting on) reaches the
-      # backend's log through the frontend and the WAF (tests/k8s/test_csp_report.py; wiki/security.md,
-      # CSP Violation Reports). Newest leg, with Playwright: a few seconds once the browser is installed.
+      # A real browser's CSP violation reaches the backend's log through the frontend and the WAF, and
+      # the WAF's report-route exception stays narrow (tests/k8s/test_csp_report.py; wiki/security.md,
+      # CSP Violation Reports). It turns cspReporting on with an upgrade and rolls the release back,
+      # so the steps after it see the release as deployed. Newest leg, with Playwright.
       - name: CSP reports (a browser violation reaches the backend's log, public forward)
         if: matrix.leg == 'newest'
         timeout-minutes: 5
@@ -113,6 +118,7 @@ jobs:
       # four minutes each (its rate-limit upgrade and rollback included), so a flaky run has two
       # chances to fail the job.
       - name: Graceful shutdown (backend, frontend and backend-behind-WAF Pods deleted under load, no request fails)
+        timeout-minutes: 20
         run: make kind-shutdown-test
       # The migration lifecycle (tests/k8s/test_migrations.py; wiki/database.md, "Proven on kind") on a
       # release and namespaces of its own, created and removed by the test, so it never touches the

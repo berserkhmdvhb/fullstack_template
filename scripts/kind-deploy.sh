@@ -19,8 +19,7 @@
 #      app's Role (scripts/ci/chart-predates-bootstrap.sh) is installed as cluster admin, its own
 #      model, and moved with scripts/migrate-to-bootstrap.sh before the deployer's upgrade; any other
 #      gets the release namespace's bootstrap first. Then helm test, and a backup and its verification.
-#   5. The WAF on (an upgrade), its Pod checked against the restricted profile, helm test again. The same
-#      upgrade turns cspReporting on, for the browser's CSP reports (make kind-csp-report-test).
+#   5. The WAF on (an upgrade), its Pod checked against the restricted profile, helm test again.
 #   6. The deploy-ops checks of the deployer identity.
 # Every install, upgrade, test and status runs as the bootstrap's deployer (helm --kube-as-user /
 # --kube-as-group), except a base chart's that predates the bootstrap: that install and its move
@@ -345,8 +344,8 @@ kc -n "$db_ns" delete job kind-backup kind-backup-verify >/dev/null
 ok "backup Job wrote $dump; the verify Job restored it"
 
 # ---- 5. The WAF ---------------------------------------------------------------------------------
-step "the WAF and CSP reporting on (an upgrade, as the deployer)"
-deploy "$CHART" --set waf.enabled=true --set cspReporting.enabled=true
+step "the WAF on (an upgrade, as the deployer)"
+deploy "$CHART" --set waf.enabled=true
 [[ "$(kc get namespace "$NS" -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}')" == restricted ]] ||
   die "$NS does not enforce the restricted profile"
 waf="$(kc -n "$NS" get pods -l app.kubernetes.io/component=waf -o json | jq '.items[0]')"

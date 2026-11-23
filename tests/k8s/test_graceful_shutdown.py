@@ -31,11 +31,10 @@ from tests.k8s._kube import (
     KUBECONFIG,
     NAMESPACE,
     RELEASE,
-    ROOT,
     Kube,
     _run,
     _tool,
-    helm_as_deployer,
+    upgraded,
 )
 
 RATE = float(os.environ.get("SHUTDOWN_TEST_RATE", "20"))  # requests per second
@@ -181,19 +180,9 @@ def kube() -> Kube:
 
 @pytest.fixture(scope="module")
 def raised_limit(kube: Kube) -> Iterator[None]:  # noqa: ARG001 - its context guard runs first
-    """RATE_LIMIT_DEFAULT raised for the module (an upgrade as the deployer, --reuse-values), then
-    the release rolled back to the revision it had."""
-    helm = helm_as_deployer()
-    history = json.loads(_run([*helm, "history", RELEASE, "-n", NAMESPACE, "-o", "json"]))
-    revision = str(history[-1]["revision"])
-    chart = str(ROOT / "charts" / "your-service-name")
-    wait = ["--wait", "--wait-for-jobs", "--timeout", "10m"]
-    limit = ["--set-string", f"config.RATE_LIMIT_DEFAULT={RATE_LIMIT}"]
-    try:
-        _run([*helm, "upgrade", RELEASE, chart, "-n", NAMESPACE, "--reuse-values", *limit, *wait])
+    """RATE_LIMIT_DEFAULT raised for the module, then the release rolled back (_kube.upgraded)."""
+    with upgraded("--set-string", f"config.RATE_LIMIT_DEFAULT={RATE_LIMIT}"):
         yield
-    finally:
-        _run([*helm, "rollback", RELEASE, revision, "-n", NAMESPACE, *wait])
 
 
 @pytest.fixture(scope="module")
@@ -443,6 +432,8 @@ def test_pod_deletion_under_load_fails_no_request(
     # Each failure names its write and whether the backend stored it anyway (the summary's
     # failures): a 5xx or a reset is a failure either way, as the client cannot tell.
     assert writes["failed"] == 0, f"failed writes (5xx, connection errors, timeouts): {report}"
+    # Every write was created: a 4xx (401, 405, 422, 429) would mean none reached the create path.
+    assert set(writes["summary"]["statuses"]) == {"201"}, f"writes not created: {report}"
     expected = WRITE_RATE * DURATION
     assert writes["summary"]["total"] >= 0.8 * expected, f"the writes fell short: {report}"
     assert writes["answered_before_delete"] >= WRITE_RATE, f"too few writes before: {report}"

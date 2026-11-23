@@ -384,13 +384,18 @@ not API: it is not in the OpenAPI document, takes no authentication (browsers se
   script. Off, they carry the plain CSP.
 - **Through the WAF.** CRS refuses both report content types (rule 920420) and scores a report's body
   (the page's policy and URLs: `data:`, `http://...`) as XSS and SSRF, so with the WAF on every report
-  was a 403. With `cspReporting.enabled` the WAF's report route alone accepts exactly those two content
-  types and does not inspect the body (`templates/waf-proxy.yaml`); the backend reads it as hostile
-  input (above).
+  was a 403. With `cspReporting.enabled` a `POST` to the report route whose `Content-Type` is one of
+  those two (rule 900221 checks the path, the method and the type) gets exactly those two as its
+  allowed content types and its body uninspected (`templates/waf-proxy.yaml`); the URI, the query and
+  the headers stay inspected, and any other method, type or path is inspected as everywhere, so a
+  removed 920420 (`extraDirectives`) does not widen it. The backend reads the body as hostile input
+  (above).
 - **Proven on kind.** `make kind-csp-report-test` (`tests/k8s/test_csp_report.py`, the kind job's newest
-  leg; `make kind-deploy` turns `cspReporting.enabled` on) has Chromium load a page of the built frontend,
-  injects an inline script without the nonce, and finds the backend's warning for that violation, sent
-  through the frontend and the WAF. Chromium under Playwright never delivered `report-to` reports (they
+  leg; it turns `cspReporting.enabled` on for its run and rolls the release back) has Chromium load a page
+  of the built frontend, injects an inline script without the nonce, and finds the backend's warning for
+  that violation, sent through the frontend and the WAF. Through the same edge the WAF answers `403` to a
+  JSON body with a script on the report route, a script in the report route's query, the report type on
+  the sample route and a script in a JSON body there. Chromium under Playwright never delivered `report-to` reports (they
   stayed queued), so the spec (`frontend/e2e/csp-report.spec.ts`) drops `report-to` from the page's
   response in the browser after checking the release sent it, and the report goes through `report-uri`;
   the `report-to` delivery is not proven.

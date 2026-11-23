@@ -405,8 +405,9 @@ and the frontend is the edge that serves the pages and proxies the API through t
 - `make kind-smoke`, both legs: [the smoke test](../scripts/smoke-test.sh) of the API through the public edge.
 - `make kind-e2e`, newest leg only: the frontend's Playwright suite in a browser, through the public edge.
 - `make kind-csp-report-test`, newest leg only: a browser's CSP violation report reaches the backend's log
-  through the public edge ([CSP Violation Reports](./security.md#csp-violation-reports)); the deploy's WAF
-  upgrade turns `cspReporting.enabled` on for it.
+  through the public edge, and the WAF's report-route exception stays narrow
+  ([CSP Violation Reports](./security.md#csp-violation-reports)). It turns `cspReporting.enabled` on with an
+  upgrade for its run and rolls the release back, so the steps after it see the release as deployed.
 - `make kind-zap`, newest leg only, advisory, after the shutdown check: a ZAP baseline of the public edge
   ([Security](./security.md#runtime-application-protection-dast--waf)). Findings and tool errors warn, the
   report is the `kind-dast` artifact, and it runs last because its spider uses up the per-client rate limit
@@ -473,7 +474,8 @@ cleanly is replaced; a refused or reset one, a 5xx answer or a timeout fails the
 answers (every answer below 500 counts, 429 included) before the delete or after the Pod was gone,
 and a Pod never seen Terminating. Through the WAF the load Pod also sends `POST`s (5 a second, each a new
 item with a unique name, over two keep-alive connections) to the API route, which the WAF sends to its writes
-cluster (`upstream_writes`): a write answered with a 5xx, reset or timed out fails the test, and the failure
+cluster (`upstream_writes`): every write must be answered `201` (a `401`, `405`, `422` or `429` would mean
+none reached the create path), a write answered with a 5xx, reset or timed out fails the test, and the failure
 names the write and whether the backend stored it anyway (looked up by name after the load). For its run
 the test raises the backend's `RATE_LIMIT_DEFAULT` (`SHUTDOWN_TEST_RATE_LIMIT`, `100000/minute`) with a
 `helm upgrade --reuse-values` as the deployer and rolls the release back after; the shipped values keep the

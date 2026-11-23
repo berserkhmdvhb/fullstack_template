@@ -8,6 +8,8 @@ import json
 import os
 import shutil
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +55,23 @@ def helm_as_deployer() -> list[str]:
     """helm on fst as the deployer, as kind-deploy.sh's helm_as."""
     helm = [_tool("helm"), "--kubeconfig", str(KUBECONFIG), "--kube-context", CONTEXT]
     return [*helm, "--kube-as-user", deployer(), "--kube-as-group", GROUP]
+
+
+@contextmanager
+def upgraded(*flags: str) -> Iterator[None]:
+    """The main release upgraded as the deployer (``--reuse-values`` plus these flags) for the
+    block, then rolled back to the revision it had, on every exit path, so later steps see it
+    unchanged."""
+    helm = helm_as_deployer()
+    history = json.loads(_run([*helm, "history", RELEASE, "-n", NAMESPACE, "-o", "json"]))
+    revision = str(next(h for h in reversed(history) if h["status"] == "deployed")["revision"])
+    chart = str(ROOT / "charts" / "your-service-name")
+    wait = ["--wait", "--wait-for-jobs", "--timeout", "10m"]
+    try:
+        _run([*helm, "upgrade", RELEASE, chart, "-n", NAMESPACE, "--reuse-values", *flags, *wait])
+        yield
+    finally:
+        _run([*helm, "rollback", RELEASE, revision, "-n", NAMESPACE, *wait])
 
 
 class Kube:

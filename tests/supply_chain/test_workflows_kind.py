@@ -324,8 +324,20 @@ def test_the_csp_report_test_runs_after_playwright_is_installed_with_its_own_tim
     assert names.index("Install the Playwright browser") < names.index(name)
     assert "timeout-minutes" in _step(name)
     assert "tests/k8s/test_csp_report.py" in _recipe("kind-csp-report-test")
+    # The main release stays as the kind values configure it (the live suites pin its exact CSP):
+    # the test turns cspReporting on for its own run and rolls the release back.
     script = (REPO / "scripts" / "kind-deploy.sh").read_text(encoding="utf-8")
-    assert 'deploy "$CHART" --set waf.enabled=true --set cspReporting.enabled=true' in script
+    assert "cspReporting" not in script
+    module = (REPO / "tests" / "k8s" / "test_csp_report.py").read_text(encoding="utf-8")
+    assert 'upgraded("--set", "cspReporting.enabled=true")' in module
+
+
+def test_every_kind_make_step_has_its_own_timeout() -> None:
+    steps = [s for s in _kind()["steps"] if s.get("run", "").startswith("make kind-")]
+    assert len(steps) >= 9, [s["name"] for s in steps]  # noqa: PLR2004
+    for step in steps:
+        assert isinstance(step.get("timeout-minutes"), int), step["name"]
+        assert step["timeout-minutes"] < _kind()["timeout-minutes"], step["name"]
 
 
 def test_the_tracing_and_redis_test_runs_on_the_newest_leg_after_the_shutdown_check() -> None:
