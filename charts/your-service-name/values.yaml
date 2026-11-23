@@ -633,8 +633,9 @@ monitoring:
     latency:
       # Percent of requests answered within thresholdSeconds ("p95 under the threshold").
       objective: 95
-      # Must be a bucket bound of http_request_duration_seconds (the backend's LATENCY_BUCKETS:
-      # 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5); the render fails otherwise.
+      # Must be a bucket bound of http_request_duration_seconds (chart.latencyBuckets in
+      # templates/_helpers.tpl; the list is in wiki/operations-runbook.md#prometheus-metrics); the
+      # render fails otherwise.
       thresholdSeconds: 0.5
     # Handlers left out of both SLIs (a PromQL regex on the handler label): probes and scrapes are
     # not user traffic. /api/v1/health is the readiness probe, /api/v1/healthz the liveness probe.

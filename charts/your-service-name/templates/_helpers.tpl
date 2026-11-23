@@ -725,7 +725,7 @@ key: password
       (dict "name" "Fast" "severity" "critical" "pairs" (list (list "1h" "5m" "14.4") (list "6h" "30m" "6"))
         "text" "at least 14.4x the sustainable rate over 1h and 5m, or 6x over 6h and 30m: at 14.4x a 30-day budget is gone in about 2 days. Act now.")
       (dict "name" "Slow" "severity" "warning" "pairs" (list (list "1d" "2h" "3") (list "3d" "6h" "1"))
-        "text" "at least 3x the sustainable rate over 1d and 2h, or 1x over 3d and 6h: at that pace the 30-day budget is spent by the end of the period. Fix it within working hours.") }}
+        "text" "at least 3x the sustainable rate over 1d and 2h (the 30-day budget is gone in about 10 days), or 1x over 3d and 6h (gone by the end of the period). Fix it within working hours.") }}
 {{- range $s := $slis }}
 {{- $o := (get $slo $s.slo).objective }}
 {{- $r := printf "{namespace=%q, slo=%q}" $.Release.Namespace $s.slo }}

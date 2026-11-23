@@ -82,4 +82,4 @@ tests:
     set: {monitoring: {slo: {availability: {objective: "99.9"}}}}
     template: validate-values.yaml
     asserts:
-      - failedTemplate: {}
+      - failedTemplate: {errorPattern: "/monitoring/slo/availability/objective': got string, want number"}

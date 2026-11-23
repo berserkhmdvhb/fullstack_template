@@ -174,3 +174,85 @@ tests:
     alert_rule_test:
       - {eval_time: 30m, alertname: SLOAvailabilityBurnFast, exp_alerts: []}
       - {eval_time: 30m, alertname: SLOLatencyBurnFast, exp_alerts: []}
+
+  # Each pair needs both windows: the long window over with the short one under (recovered), and
+  # the short window over with the long one under (a blip), must both stay quiet.
+  - name: availability recovered from 20x (1h over, 5m clean) stays quiet (the 5m window is needed)
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0 10000+10000x359 3609800+9800x69 4296000+10000x5'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0 0+0x359 200+200x69 14000+0x5'
+    alert_rule_test:
+      - {eval_time: 436m, alertname: SLOAvailabilityBurnFast, exp_alerts: []}
+
+  - name: availability recovered from 8x (6h over, 30m clean) stays quiet (the 30m window is needed)
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0 9920+9920x369 3680400+10000x30'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0 80+80x369 29600+0x30'
+    alert_rule_test:
+      - {eval_time: 401m, alertname: SLOAvailabilityBurnFast, exp_alerts: []}
+
+  - name: availability blip of 6m at 20x after 6h clean (5m over, 1h under) stays quiet (the 1h window is needed)
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0 10000+10000x359 3609800+9800x5'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0 0+0x359 200+200x5'
+    alert_rule_test:
+      - {eval_time: 366m, alertname: SLOAvailabilityBurnFast, exp_alerts: []}
+
+  - name: availability blip of 30m at 10x after 6h clean (30m over, 6h under) stays quiet (the 6h window is needed)
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0 10000+10000x359 3609900+9900x29'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0 0+0x359 100+100x29'
+    alert_rule_test:
+      - {eval_time: 390m, alertname: SLOAvailabilityBurnFast, exp_alerts: []}
+
+  - name: latency recovered from 20x (1h over, 5m clean) stays quiet (the 5m window is needed)
+    interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0 1000+1000x359 360000+0x69 361000+1000x5'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0 1000+1000x359 361000+1000x69 431000+1000x5'
+    alert_rule_test:
+      - {eval_time: 436m, alertname: SLOLatencyBurnFast, exp_alerts: []}
+
+  - name: latency recovered from 8x (6h over, 30m clean) stays quiet (the 30m window is needed)
+    interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0 600+600x369 223000+1000x30'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0 1000+1000x369 371000+1000x30'
+    alert_rule_test:
+      - {eval_time: 401m, alertname: SLOLatencyBurnFast, exp_alerts: []}
+
+  - name: latency blip of 6m at 20x after 6h clean (5m over, 1h under) stays quiet (the 1h window is needed)
+    interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0 1000+1000x359 360000+0x5'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0 1000+1000x359 361000+1000x5'
+    alert_rule_test:
+      - {eval_time: 366m, alertname: SLOLatencyBurnFast, exp_alerts: []}
+
+  - name: latency blip of 30m at 10x after 6h clean (30m over, 6h under) stays quiet (the 6h window is needed)
+    interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0 1000+1000x359 360500+500x29'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0 1000+1000x359 361000+1000x29'
+    alert_rule_test:
+      - {eval_time: 390m, alertname: SLOLatencyBurnFast, exp_alerts: []}

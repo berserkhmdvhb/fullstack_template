@@ -22,7 +22,7 @@ tests:
           - exp_labels: {severity: warning, namespace: app, slo: availability}
             exp_annotations:
               summary: "Availability SLO error budget burning slow (0.11% of requests answered 5xx)"
-              description: &availability_slow "The 99.9% availability objective's error budget is burning at least 3x the sustainable rate over 1d and 2h, or 1x over 3d and 6h: at that pace the 30-day budget is spent by the end of the period. Fix it within working hours."
+              description: &availability_slow "The 99.9% availability objective's error budget is burning at least 3x the sustainable rate over 1d and 2h (the 30-day budget is gone in about 10 days), or 1x over 3d and 6h (gone by the end of the period). Fix it within working hours."
 
   - name: availability at 0.9x (constant) stays quiet
     interval: 5m
@@ -78,7 +78,7 @@ tests:
           - exp_labels: {severity: warning, namespace: app, slo: latency}
             exp_annotations:
               summary: "Latency SLO error budget burning slow (5.5% of requests slower than 0.5s)"
-              description: &latency_slow "The 95% latency objective's error budget is burning at least 3x the sustainable rate over 1d and 2h, or 1x over 3d and 6h: at that pace the 30-day budget is spent by the end of the period. Fix it within working hours."
+              description: &latency_slow "The 95% latency objective's error budget is burning at least 3x the sustainable rate over 1d and 2h (the 30-day budget is gone in about 10 days), or 1x over 3d and 6h (gone by the end of the period). Fix it within working hours."
 
   - name: latency at 0.9x (constant) stays quiet
     interval: 5m
@@ -119,3 +119,85 @@ tests:
       - eval_time: 74h
         alertname: SLOLatencyBurnSlow
         exp_alerts: []
+
+  # Each pair needs both windows: the long window over with the short one under (recovered), and
+  # the short window over with the long one under (a blip), must both stay quiet.
+  - name: availability recovered from 4x after heavy clean traffic (1d over, 2h clean) stays quiet (the 2h window is needed)
+    interval: 5m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0 500000+500000x575 288049800+49800x311 303587600+50000x25'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0 0+0x575 200+200x311 62400+0x25'
+    alert_rule_test:
+      - {eval_time: 4570m, alertname: SLOAvailabilityBurnSlow, exp_alerts: []}
+
+  - name: availability recovered from 2x (3d over, 6h clean) stays quiet (the 6h window is needed)
+    interval: 5m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0 49900+49900x287 14421200+50000x73'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0 100+100x287 28800+0x73'
+    alert_rule_test:
+      - {eval_time: 1810m, alertname: SLOAvailabilityBurnSlow, exp_alerts: []}
+
+  - name: availability blip of 2h at 10x after 3d clean (2h over, 1d under) stays quiet (the 1d window is needed)
+    interval: 5m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0 50000+50000x863 43249500+49500x23'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0 0+0x863 500+500x23'
+    alert_rule_test:
+      - {eval_time: 4440m, alertname: SLOAvailabilityBurnSlow, exp_alerts: []}
+
+  - name: availability blip of 6h at 2x after 3d clean (6h over, 3d under) stays quiet (the 3d window is needed)
+    interval: 5m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0 50000+50000x863 43249900+49900x71'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="5xx"}'
+        values: '0 0+0x863 100+100x71'
+    alert_rule_test:
+      - {eval_time: 4680m, alertname: SLOAvailabilityBurnSlow, exp_alerts: []}
+
+  - name: latency recovered from 4x after heavy clean traffic (1d over, 2h clean) stays quiet (the 2h window is needed)
+    interval: 5m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0 50000+50000x575 28804000+4000x311 30053000+5000x25'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0 50000+50000x575 28805000+5000x311 30365000+5000x25'
+    alert_rule_test:
+      - {eval_time: 4570m, alertname: SLOLatencyBurnSlow, exp_alerts: []}
+
+  - name: latency recovered from 2x (3d over, 6h clean) stays quiet (the 6h window is needed)
+    interval: 5m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0 4500+4500x287 1301000+5000x73'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0 5000+5000x287 1445000+5000x73'
+    alert_rule_test:
+      - {eval_time: 1810m, alertname: SLOLatencyBurnSlow, exp_alerts: []}
+
+  - name: latency blip of 2h at 10x after 3d clean (2h over, 1d under) stays quiet (the 1d window is needed)
+    interval: 5m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0 5000+5000x863 4322500+2500x23'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0 5000+5000x863 4325000+5000x23'
+    alert_rule_test:
+      - {eval_time: 4440m, alertname: SLOLatencyBurnSlow, exp_alerts: []}
+
+  - name: latency blip of 6h at 2x after 3d clean (6h over, 3d under) stays quiet (the 3d window is needed)
+    interval: 5m
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{namespace="app", handler="/api/v1/items", method="GET", le="0.5"}'
+        values: '0 5000+5000x863 4324500+4500x71'
+      - series: 'http_request_duration_seconds_count{namespace="app", handler="/api/v1/items", method="GET"}'
+        values: '0 5000+5000x863 4325000+5000x71'
+    alert_rule_test:
+      - {eval_time: 4680m, alertname: SLOLatencyBurnSlow, exp_alerts: []}

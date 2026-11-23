@@ -60,8 +60,20 @@ jobs:
       # crd-sources: the pinned CRD sources (sha256-checked, cached in .tools) the CRD schema test reads.
       # node: its verified tarball is kept in .tools/downloads, which the Node install test reinstalls offline.
       # promtool: tests/supply_chain/test_rules_test.py proves make rules-test fails on a broken rule.
+      # The three legs install the same tools, so they share one cache (restored everywhere, saved only from a
+      # push to main); the install still checks every pin and skips what the cache already holds.
+      - id: tools-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: tools-unit-helm4-yq-node-promtool-crd-sources-${{ runner.os }}-${{ hashFiles('tools/pins.tsv', 'charts/your-service-name/ci/crds/sources.tsv') }}
       - name: Install the pinned Helm, yq, Node, promtool and the CRD sources
         run: scripts/tools.sh install helm4 yq node promtool crd-sources
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.tools-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: tools-unit-helm4-yq-node-promtool-crd-sources-${{ runner.os }}-${{ hashFiles('tools/pins.tsv', 'charts/your-service-name/ci/crds/sources.tsv') }}
       # The coverage floor (85 percent) is set in pyproject.toml, under [tool.coverage.report].
       - name: Unit tests with coverage
         run: make test-unit

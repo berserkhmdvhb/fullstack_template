@@ -308,7 +308,7 @@ an alert clears soon after the problem stops.
 | Alert | Fires when | Severity |
 |---|---|---|
 | `SLOAvailabilityBurnFast`, `SLOLatencyBurnFast` | burn rate > 14.4 over 1h and 5m, or > 6 over 6h and 30m (at 14.4 the budget is gone in about 2 days) | `critical`: page, act now |
-| `SLOAvailabilityBurnSlow`, `SLOLatencyBurnSlow` | burn rate > 3 over 1d and 2h, or > 1 over 3d and 6h (the budget runs out within the period) | `warning`: a ticket, fix within working hours |
+| `SLOAvailabilityBurnSlow`, `SLOLatencyBurnSlow` | burn rate > 3 over 1d and 2h (the budget is gone in about 10 days), or > 1 over 3d and 6h (gone by the end of the 30 days) | `warning`: a ticket, fix within working hours |
 
 `HighErrorRate` (5xx above 5% for 10 minutes) is the older single-threshold alert and stays as a
 backstop: when it fires with an SLO alert, act on the SLO alert first. `make rules-test` checks every
