@@ -587,7 +587,7 @@
                 "thresholdSeconds": { "type": "number" }
               }
             },
-            "excludeHandlers": { "type": "string" }
+            "excludeHandlers": { "type": "string", "pattern": "^[^`]*$", "description": "A regex of handlers the SLOs, HighErrorRate and the dashboards leave out; no backtick (the dashboards quote it as a PromQL raw string)." }
           }
         },
         "runbookUrl": { "type": "string", "minLength": 1 },

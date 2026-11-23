@@ -9,6 +9,12 @@ tests:
     asserts:
       - hasDocuments: {count: 0}
 
+  - it: refuses a backtick in monitoring.slo.excludeHandlers (it would end the queries' PromQL raw string)
+    set: {monitoring: {dashboards: {enabled: true}, slo: {excludeHandlers: '.*/(health|`x)$'}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'excludeHandlers'
+
   - it: holds every dashboard file under its file name, with the sidecar's default label
     set: {monitoring: {dashboards: {enabled: true}}}
     asserts:
