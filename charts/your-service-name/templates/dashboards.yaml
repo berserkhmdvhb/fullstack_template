@@ -1,13 +1,22 @@
 {{/*
    Grafana dashboards (monitoring.dashboards; wiki/operations-runbook.md#grafana-dashboards): every
-   file in dashboards/ in one ConfigMap, under its file name, labelled for Grafana's dashboard sidecar.
-   Off by default. A ConfigMap holds at most 1 MiB: the render fails before the dashboards outgrow it.
+   file in dashboards/ in one ConfigMap, labelled for Grafana's dashboard sidecar. Off by default.
+   Each key is <chart>-<file>: the sidecar writes every key into one folder, where bare file names of
+   two services (or two releases) would overwrite each other. `@exclude_handlers@` becomes
+   monitoring.slo.excludeHandlers, JSON-escaped (inside a PromQL raw string, so PromQL reads it as
+   written); not `tpl`, which would read the `{{pod}}` legends. A ConfigMap holds at most 1 MiB: the
+   render fails before the dashboards, as rendered, outgrow it.
 */}}
 {{- $d := .Values.monitoring.dashboards }}
 {{- if $d.enabled }}
-{{- $files := .Files.Glob "dashboards/*.json" }}
+{{- $regex := .Values.monitoring.slo.excludeHandlers | toJson | trimPrefix "\"" | trimSuffix "\"" }}
+{{- $data := dict }}
 {{- $size := 0 }}
-{{- range $path, $_ := $files }}{{ $size = add $size (len ($.Files.Get $path)) }}{{ end }}
+{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+{{- $text := $.Files.Get $path | replace "@exclude_handlers@" $regex }}
+{{- $_ := set $data (printf "%s-%s" $.Chart.Name (base $path)) $text }}
+{{- $size = add $size (len $text) }}
+{{- end }}
 {{- if gt $size 1000000 }}
 {{- fail (printf "%s: the dashboards are %d bytes; a ConfigMap holds at most 1 MiB (split them, or trim)" (include "chart.fullname" .) $size) }}
 {{- end }}
@@ -24,5 +33,5 @@ metadata:
     grafana_folder: {{ . | quote }}
 {{- end }}
 data:
-{{- $files.AsConfig | nindent 2 }}
+{{- toYaml $data | nindent 2 }}
 {{- end }}

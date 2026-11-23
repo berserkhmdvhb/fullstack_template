@@ -813,6 +813,15 @@ key: password
           (sum by (namespace) (rate(http_request_duration_seconds_count{{ "{" }}{{ $f }}}[{{ $w }}])) > 0)
         )
 {{- end }}
+{{- /* Each objective as a ratio (Sloth's slo:objective:ratio), so a dashboard divides by the
+       release's own budget: 1 - slo:objective:ratio. */}}
+{{- range $s := list "availability" "latency" }}
+    - record: slo:objective:ratio
+      labels:
+        namespace: {{ $.Release.Namespace }}
+        slo: {{ $s }}
+      expr: vector({{ (get $slo $s).objective }} / 100)
+{{- end }}
 - name: slo-alerts
   rules:
 {{- $slis := list

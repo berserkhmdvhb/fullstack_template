@@ -1,0 +1,24 @@
+# promtool unit tests for the SLO objective recordings (see slo-fast.test.yaml): each objective as a
+# ratio, in the release namespace, with or without traffic, so the dashboards divide by the budget
+# the alerts use (monitoring.slo.<slo>.objective / 100).
+rule_files: [rules.yaml]
+evaluation_interval: 1m
+
+tests:
+  - name: each objective is recorded as a ratio, with no traffic at all
+    interval: 1m
+    input_series: []
+    # 99.9 / 100 is 0.9990000000000001 in floating point: compare within 1e-9.
+    promql_expr_test:
+      - expr: 'abs(slo:objective:ratio{slo="availability"} - 0.999) < bool 1e-9'
+        eval_time: 5m
+        exp_samples:
+          - {labels: '{namespace="app", slo="availability"}', value: 1}
+      - expr: 'abs(slo:objective:ratio{slo="latency"} - 0.95) < bool 1e-9'
+        eval_time: 5m
+        exp_samples:
+          - {labels: '{namespace="app", slo="latency"}', value: 1}
+      - expr: 'count(slo:objective:ratio)'
+        eval_time: 5m
+        exp_samples:
+          - {labels: '{}', value: 2}

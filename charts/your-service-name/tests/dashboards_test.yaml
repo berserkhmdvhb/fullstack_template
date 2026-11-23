@@ -18,10 +18,10 @@ tests:
       - equal: {path: metadata.namespace, value: app}
       - equal: {path: 'metadata.labels.grafana_dashboard', value: "1"}
       - notExists: {path: metadata.annotations}
-      - matchRegex: {path: 'data["service-red.json"]', pattern: '"uid": "your-service-name-red"'}
-      - matchRegex: {path: 'data["database-pool.json"]', pattern: '"uid": "your-service-name-db-pool"'}
-      - matchRegex: {path: 'data["rate-limiting.json"]', pattern: '"uid": "your-service-name-rate-limit"'}
-      - matchRegex: {path: 'data["slo.json"]', pattern: '"uid": "your-service-name-slo"'}
+      - matchRegex: {path: 'data["your-service-name-service-red.json"]', pattern: '"uid": "your-service-name-red"'}
+      - matchRegex: {path: 'data["your-service-name-database-pool.json"]', pattern: '"uid": "your-service-name-db"'}
+      - matchRegex: {path: 'data["your-service-name-rate-limiting.json"]', pattern: '"uid": "your-service-name-rate"'}
+      - matchRegex: {path: 'data["your-service-name-slo.json"]', pattern: '"uid": "your-service-name-slo"'}
 
   - it: carries the configured label, folder annotation and namespace
     set:

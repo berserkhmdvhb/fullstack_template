@@ -1,5 +1,5 @@
 {
-  "uid": "your-service-name-rate-limit",
+  "uid": "your-service-name-rate",
   "title": "your-service-name / Rate limiting",
   "description": "The default per-IP rate limit: requests it rejects and storage failures it lets through.",
   "tags": [
@@ -21,6 +21,26 @@
         "query": "prometheus"
       },
       {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(http_requests_total{job=~\".*your-service-name.*\"}, cluster)",
+        "definition": "label_values(http_requests_total{job=~\".*your-service-name.*\"}, cluster)",
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "description": "Every cluster by default; a series without a cluster label matches All too."
+      },
+      {
         "name": "namespace",
         "label": "Namespace",
         "type": "query",
@@ -28,8 +48,8 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "query": "label_values(http_requests_total, namespace)",
-        "definition": "label_values(http_requests_total, namespace)",
+        "query": "label_values(http_requests_total{job=~\".*your-service-name.*\", cluster=~\"$cluster\"}, namespace)",
+        "definition": "label_values(http_requests_total{job=~\".*your-service-name.*\", cluster=~\"$cluster\"}, namespace)",
         "refresh": 2,
         "sort": 1
       }
@@ -63,7 +83,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "sum(rate(rate_limit_rejections_total{namespace=\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum(rate(rate_limit_rejections_total{cluster=~\"$cluster\", namespace=\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "429"
         }
       ]
@@ -95,7 +115,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "sum by (reason) (rate(rate_limit_storage_failures_total{namespace=\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (reason) (rate(rate_limit_storage_failures_total{cluster=~\"$cluster\", namespace=\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{reason}}"
         }
       ]

@@ -326,30 +326,42 @@ default; turn it on in `values.<env>.yaml`:
 monitoring:
   dashboards:
     enabled: true
-    label: grafana_dashboard   # the sidecar's `label` (kube-prometheus-stack default)
-    labelValue: "1"            # the sidecar's `labelValue`
-    folder: ""                 # sets the grafana_folder annotation (the sidecar's folderAnnotation); empty: none
-    namespace: ""              # empty: the release namespace; the sidecar must watch the one you pick
 ```
 
-Each dashboard picks its Prometheus data source (`datasource` variable) and the release namespace
-(`namespace` variable). The probe and scrape handlers are left out as the SLOs leave them out, through a
-hidden constant equal to `monitoring.slo.excludeHandlers`; the SLO dashboard's objectives are constants
-equal to `monitoring.slo.*.objective`. The dashboards cannot read the values: when you change those values,
-change the constants too (a test keeps them equal to `values.yaml`). The render fails if the files outgrow
-a ConfigMap (1 MiB).
+The sidecar label, the folder annotation (`grafana_folder`, read when the sidecar sets
+`folderAnnotation: grafana_folder`) and the target namespace are the other `monitoring.dashboards`
+keys, documented with their defaults in [`values.yaml`](../charts/your-service-name/values.yaml).
+
+- **One release per Grafana.** Each ConfigMap key is `<chart>-<file>` (`your-service-name-slo.json`), so two
+  services never collide, but two environments of one service do: the sidecar writes every key into one
+  folder, and uninstalling one release removes the files the other's dashboards were loaded from. Enable
+  the dashboards in one release per Grafana (the `namespace` variable reaches the others), or give each
+  environment its own `folder` with the sidecar's `enableUniqueFilenames`.
+- **Another namespace needs a Role.** The deployer's Role is namespace-scoped (the admin bootstrap): with
+  `monitoring.dashboards.namespace` set to Grafana's namespace, grant the deployer `configmaps` there, or
+  the deploy fails with "configmaps is forbidden".
+- **Variables.** `datasource` (a Prometheus data source), `cluster` (All by default; a series without a
+  `cluster` label matches All, so GMP's multi-cluster data is not summed when you pick one) and
+  `namespace` (the namespaces with series of a scrape job whose name contains the service name: the
+  ServiceMonitor's and the PodMonitoring's jobs do; a scrape by annotations must name its job so too).
+- **What the chart fills in.** The probe and scrape handlers are left out as the SLOs leave them out: the
+  render writes `monitoring.slo.excludeHandlers` into the queries. The SLO dashboard divides by the
+  release's own objective, recorded as `slo:objective:ratio{namespace, slo}`, so it is right in every
+  namespace; it needs the SLO rules (`monitoring.prometheusRule`, either flavour, with
+  `monitoring.slo.enabled`). The render fails if the dashboards outgrow a ConfigMap (1 MiB).
 
 | Dashboard (uid) | Shows | Explains |
 |---|---|---|
 | Service RED (`your-service-name-red`) | request rate, 5xx error ratio and p50/p95/p99 latency (from `http_request_duration_seconds` buckets), overall and per handler | [HighErrorRate](#higherrorrate), [SLOAvailabilityBurnFast](#sloavailabilityburnfast), [SLOAvailabilityBurnSlow](#sloavailabilityburnslow), [SLOLatencyBurnFast](#slolatencyburnfast), [SLOLatencyBurnSlow](#slolatencyburnslow): which handler fails or is slow |
-| Database pool (`your-service-name-db-pool`) | connections in use per Pod against the pool size and size + max overflow, saturation (in use ÷ (size + max overflow); none when the overflow is unlimited), idle connections, overflow in use | [SLOLatencyBurnFast](#slolatencyburnfast), [SLOLatencyBurnSlow](#slolatencyburnslow): requests waiting for a connection; [PostgreSQLDown](#postgresqldown) |
-| Rate limiting (`your-service-name-rate-limit`) | 429 rejections per second, limiter storage failures by reason (the limiter fails open: requests pass unlimited while they grow) | no alert yet; read it when clients report 429s or the limiter's storage is unhealthy |
-| SLOs (`your-service-name-slo`) | each SLO's error ratio over 5m/1h/6h/1d/3d against its budget, the four burn rates (1h, 6h, 1d, 3d) against 14.4, 6, 3 and 1, the 30-day error budget left | the four SLO alerts above ([Service Level Objectives](#service-level-objectives)) |
+| Database pool (`your-service-name-db`) | connections in use per Pod against the pool size and size + max overflow, saturation (in use ÷ (size + max overflow); none when the overflow is unlimited), idle connections, overflow in use | [SLOLatencyBurnFast](#slolatencyburnfast), [SLOLatencyBurnSlow](#slolatencyburnslow): requests waiting for a connection; [PostgreSQLDown](#postgresqldown) |
+| Rate limiting (`your-service-name-rate`) | 429 rejections per second, limiter storage failures by reason (the limiter fails open: requests pass unlimited while they grow) | no alert yet; read it when clients report 429s or the limiter's storage is unhealthy |
+| SLOs (`your-service-name-slo`) | each SLO's error ratio over 5m/1h/6h/1d/3d against its budget, the burn rate of each alert's long window against its threshold ([Service Level Objectives](#service-level-objectives)), the 30-day error budget left | the four SLO alerts above |
 
 The 30-day budget left averages the 5-minute error ratio over 30 days: time-weighted, not
-request-weighted, so it is an estimate. Every query is checked against the series the backend serves
-([Prometheus Metrics](#prometheus-metrics)) and the chart's recording rules, and by the pinned `promtool`
-(`tests/backend/test_chart_dashboards.py`).
+request-weighted, so it is an estimate, and it needs 30 days of Prometheus retention (kube-prometheus-stack
+keeps 10 days by default; with less, it covers what is kept). Every query is checked against the series the
+backend serves ([Prometheus Metrics](#prometheus-metrics)) and the chart's recording rules, and by the
+pinned `promtool` (`tests/backend/test_chart_dashboards.py`).
 
 ---
 

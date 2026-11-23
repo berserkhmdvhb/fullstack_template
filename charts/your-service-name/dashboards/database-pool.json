@@ -1,5 +1,5 @@
 {
-  "uid": "your-service-name-db-pool",
+  "uid": "your-service-name-db",
   "title": "your-service-name / Database pool",
   "description": "The SQLAlchemy connection pool of each backend Pod (db_pool_* gauges, read at scrape time; absent for a :memory: or null pool).",
   "tags": [
@@ -21,6 +21,26 @@
         "query": "prometheus"
       },
       {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(db_pool_size{job=~\".*your-service-name.*\"}, cluster)",
+        "definition": "label_values(db_pool_size{job=~\".*your-service-name.*\"}, cluster)",
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "description": "Every cluster by default; a series without a cluster label matches All too."
+      },
+      {
         "name": "namespace",
         "label": "Namespace",
         "type": "query",
@@ -28,8 +48,8 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "query": "label_values(db_pool_size, namespace)",
-        "definition": "label_values(db_pool_size, namespace)",
+        "query": "label_values(db_pool_size{job=~\".*your-service-name.*\", cluster=~\"$cluster\"}, namespace)",
+        "definition": "label_values(db_pool_size{job=~\".*your-service-name.*\", cluster=~\"$cluster\"}, namespace)",
         "refresh": 2,
         "sort": 1
       }
@@ -63,7 +83,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "db_pool_checked_out{namespace=\"$namespace\"}",
+          "expr": "db_pool_checked_out{cluster=~\"$cluster\", namespace=\"$namespace\"}",
           "legendFormat": "{{pod}} in use"
         },
         {
@@ -72,7 +92,7 @@
             "uid": "${datasource}"
           },
           "refId": "B",
-          "expr": "max(db_pool_size{namespace=\"$namespace\"})",
+          "expr": "max(db_pool_size{cluster=~\"$cluster\", namespace=\"$namespace\"})",
           "legendFormat": "pool size"
         },
         {
@@ -81,7 +101,7 @@
             "uid": "${datasource}"
           },
           "refId": "C",
-          "expr": "max(db_pool_size{namespace=\"$namespace\"} + (db_pool_max_overflow{namespace=\"$namespace\"} >= 0))",
+          "expr": "max(db_pool_size{cluster=~\"$cluster\", namespace=\"$namespace\"} + (db_pool_max_overflow{cluster=~\"$cluster\", namespace=\"$namespace\"} >= 0))",
           "legendFormat": "pool size + max overflow"
         }
       ]
@@ -115,7 +135,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "db_pool_checked_out{namespace=\"$namespace\"} / (db_pool_size{namespace=\"$namespace\"} + (db_pool_max_overflow{namespace=\"$namespace\"} >= 0))",
+          "expr": "db_pool_checked_out{cluster=~\"$cluster\", namespace=\"$namespace\"} / (db_pool_size{cluster=~\"$cluster\", namespace=\"$namespace\"} + (db_pool_max_overflow{cluster=~\"$cluster\", namespace=\"$namespace\"} >= 0))",
           "legendFormat": "{{pod}}"
         }
       ]
@@ -147,7 +167,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "db_pool_checked_in{namespace=\"$namespace\"}",
+          "expr": "db_pool_checked_in{cluster=~\"$cluster\", namespace=\"$namespace\"}",
           "legendFormat": "{{pod}}"
         }
       ]
@@ -179,7 +199,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "clamp_min(db_pool_overflow{namespace=\"$namespace\"}, 0)",
+          "expr": "clamp_min(db_pool_overflow{cluster=~\"$cluster\", namespace=\"$namespace\"}, 0)",
           "legendFormat": "{{pod}}"
         }
       ]

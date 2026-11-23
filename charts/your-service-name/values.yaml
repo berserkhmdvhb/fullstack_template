@@ -673,7 +673,10 @@ monitoring:
   # `label` and `labelValue`; kube-prometheus-stack's defaults: grafana_dashboard, "1"). `folder`
   # sets the sidecar's grafana_folder annotation (empty: none; the sidecar needs folderAnnotation:
   # grafana_folder). `namespace` puts the ConfigMap in another namespace, for example Grafana's
-  # (empty: the release namespace; the sidecar must watch it). What each shows:
+  # (empty: the release namespace; the sidecar must watch it). The deployer's Role is
+  # namespace-scoped (infra/k8s/bootstrap): another namespace needs a Role there with rights on
+  # configmaps, or the deploy fails with "configmaps is forbidden". Enable it in one release per
+  # Grafana (the namespace variable covers the others). What each shows:
   # wiki/operations-runbook.md#grafana-dashboards.
   dashboards:
     enabled: false

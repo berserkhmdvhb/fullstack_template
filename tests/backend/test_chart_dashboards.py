@@ -3,8 +3,9 @@
 
 Each parses, has a stable unique uid, takes its datasource from the `datasource` variable, carries
 no exported-dashboard noise, and queries only series the backend serves (the runbook's "Prometheus
-Metrics" list) or the chart records (the rendered recording rules). Every expression, with the
-Grafana variables substituted, must pass the pinned `promtool check rules`.
+Metrics" list) or the chart records (the rendered recording rules), each selector scoped to the
+cluster and namespace variables. Every rendered expression, with the Grafana variables substituted,
+must pass the pinned `promtool check rules`.
 """
 
 from __future__ import annotations
@@ -28,35 +29,37 @@ DASHBOARDS = CHART / "dashboards"
 RUNBOOK = ROOT / "wiki" / "operations-runbook.md"
 PROMTOOL = ROOT / ".tools" / "bin" / "promtool"
 UIDS = {
-    "database-pool.json": "your-service-name-db-pool",
-    "rate-limiting.json": "your-service-name-rate-limit",
+    "database-pool.json": "your-service-name-db",
+    "rate-limiting.json": "your-service-name-rate",
     "service-red.json": "your-service-name-red",
     "slo.json": "your-service-name-slo",
 }
+# The render guard in templates/dashboards.yaml (under 1 MiB, with room for the metadata).
+GUARD_BYTES = 1_000_000
+# Grafana's limit on a dashboard uid.
+UID_MAX = 40
 DATASOURCE = {"type": "prometheus", "uid": "${datasource}"}
 NOISE = {"id", "version", "iteration"}
 KEYWORDS = {"and", "or", "unless", "bool", "offset", "group_left", "group_right", "inf", "nan"}
 GROUPING = r"\b(?:by|without|on|ignoring|group_left|group_right)\s*\([^)]*\)"
-
-
-def _slo() -> dict[str, Any]:
-    values = yaml.safe_load((CHART / "values.yaml").read_text(encoding="utf-8"))
-    slo: dict[str, Any] = values["monitoring"]["slo"]
-    return slo
-
-
-def _grafana_vars() -> dict[str, str]:
-    """What each Grafana variable becomes for promtool; the constants come from values.yaml."""
-    slo = _slo()
-    return {
-        "__rate_interval": "5m",
-        "__interval": "1m",
-        "__range": "1h",
-        "namespace": "app",
-        "exclude_handlers": slo["excludeHandlers"],
-        "availability_objective": str(slo["availability"]["objective"]),
-        "latency_objective": str(slo["latency"]["objective"]),
-    }
+STRINGS = r'"(?:[^"\\]|\\.)*"|`[^`]*`'
+SELECTOR = r"([a-zA-Z_:][\w:]*)\{([^}]*)\}"
+SCOPE = ('cluster=~"$cluster"', 'namespace="$namespace"')
+# The chart replaces this with monitoring.slo.excludeHandlers (templates/dashboards.yaml).
+EXCLUDE = "handler!~`@exclude_handlers@`"
+# What each Grafana variable becomes for promtool.
+GRAFANA_VARS = {
+    "__rate_interval": "5m",
+    "__interval": "1m",
+    "__range": "1h",
+    "__range_s": "3600",
+    "namespace": "app",
+    "cluster": ".*",
+}
+# A regex with a backslash: the replacement must escape it for JSON, and PromQL must read it back.
+BACKSLASH_EXCLUDE = r".*/(health|healthz|readyz|livez|metrics)$|^/static/.*\.map$"
+# --set reads a backslash as an escape: pass the value as JSON.
+BACKSLASH_ARGS = ("--set-json", f"monitoring.slo.excludeHandlers={json.dumps(BACKSLASH_EXCLUDE)}")
 
 
 def _load(directory: Path) -> dict[str, dict[str, Any]]:
@@ -71,24 +74,32 @@ def _panels(dashboard: dict[str, Any]) -> Iterator[dict[str, Any]]:
         yield from p.get("panels", [])
 
 
+def _variables(dashboard: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {v["name"]: v for v in dashboard["templating"]["list"]}
+
+
 def _exprs(dashboards: dict[str, dict[str, Any]]) -> list[tuple[str, str]]:
-    return [
+    """Every panel expression, and each query variable's series selector."""
+    out = [
         (f"{name}: {p['title']}", t["expr"])
         for name, d in dashboards.items()
         for p in _panels(d)
         for t in p.get("targets", [])
     ]
-
-
-def _variables(dashboard: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {v["name"]: v for v in dashboard["templating"]["list"]}
+    for name, d in dashboards.items():
+        for var in _variables(d).values():
+            found = re.fullmatch(r"label_values\((.+), *\w+\)", str(var.get("query", "")))
+            if var["type"] == "query" and found:
+                out.append((f"{name}: variable {var['name']}", found.group(1)))
+    return out
 
 
 def _substitute(expr: str) -> str:
-    out = expr
-    for name, value in sorted(_grafana_vars().items(), key=lambda kv: -len(kv[0])):
-        out = out.replace("${" + name + "}", value).replace("$" + name, value)
-    return out
+    return re.sub(
+        r"\$\{(\w+)\}|\$(\w+)",
+        lambda m: GRAFANA_VARS.get(m.group(1) or m.group(2), m.group(0)),
+        expr,
+    )
 
 
 def _allowed() -> tuple[set[str], tuple[str, ...]]:
@@ -114,9 +125,40 @@ def _allowed() -> tuple[set[str], tuple[str, ...]]:
     return names, tuple(prefixes)
 
 
-def _recorded(helm: str) -> set[str]:
-    docs = render(helm, "values.yaml", "--set", "monitoring.prometheusRule=true")
-    return {
+def _metric_list(expr: str) -> list[str]:
+    bare = re.sub(STRINGS, '""', expr)
+    bare = re.sub(r"\{[^}]*\}|\[[^\]]*\]", " ", bare)
+    bare = re.sub(GROUPING, " ", bare)
+    found = re.findall(r"(?<![\w:.$])([a-zA-Z_:][\w:]*)(?![\w:]|\s*\()", bare)
+    return [n for n in found if n.lower() not in KEYWORDS]
+
+
+def metric_names(expr: str) -> set[str]:
+    """The metric and recording-rule names a PromQL expression selects."""
+    return set(_metric_list(expr))
+
+
+def _rendered(chart: Path, helm: str, *args: str) -> tuple[dict[str, str], set[str]]:
+    """The dashboards ConfigMap's data and the recorded rule names, from one render of ``chart``."""
+    result = subprocess.run(
+        [
+            *(helm, "template", "svc", str(chart), "-n", "app"),
+            *(
+                "--set",
+                "monitoring.dashboards.enabled=true",
+                "--set",
+                "monitoring.prometheusRule=true",
+            ),
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    docs = [d for d in yaml.safe_load_all(result.stdout) if d]
+    (cm,) = [d for d in docs if d["metadata"]["name"].endswith("-dashboards")]
+    recorded = {
         r["record"]
         for d in docs
         if d["kind"] == "PrometheusRule"
@@ -124,35 +166,25 @@ def _recorded(helm: str) -> set[str]:
         for r in g["rules"]
         if "record" in r
     }
+    return cm["data"], recorded
 
 
-def metric_names(expr: str) -> set[str]:
-    """The metric and recording-rule names a PromQL expression selects."""
-    bare = re.sub(r'"(?:[^"\\]|\\.)*"', '""', expr)
-    bare = re.sub(r"\{[^}]*\}|\[[^\]]*\]", " ", bare)
-    bare = re.sub(GROUPING, " ", bare)
-    found = re.findall(r"(?<![\w:.$])([a-zA-Z_:][\w:]*)(?![\w:]|\s*\()", bare)
-    return {n for n in found if n.lower() not in KEYWORDS}
-
-
-def check(directory: Path, helm: str, work: Path) -> list[str]:
-    """Every problem with the dashboards in ``directory``: unknown names, then promtool's."""
-    dashboards = _load(directory)
+def check(chart: Path, helm: str, work: Path, *args: str) -> list[str]:
+    """Every problem with the dashboards ``chart`` renders: unknown names, then promtool's."""
+    data, recorded = _rendered(chart, helm, *args)
+    exprs = _exprs({k: json.loads(v) for k, v in data.items()})
     served, prefixes = _allowed()
-    known = served | _recorded(helm)
     errors = []
-    exprs = _exprs(dashboards)
-    for name, d in dashboards.items():
-        query = str(_variables(d).get("namespace", {}).get("query", ""))
-        exprs += [
-            (f"{name}: namespace variable", m) for m in re.findall(r"label_values\((\w+)", query)
-        ]
     for where, expr in exprs:
-        unknown = {n for n in metric_names(expr) if n not in known and not n.startswith(prefixes)}
+        unknown = {
+            n
+            for n in metric_names(expr)
+            if n not in served | recorded and not n.startswith(prefixes)
+        }
         if unknown:
             errors.append(f"{where}: neither served nor recorded: {sorted(unknown)}")
-        if re.search(r"\$\{?\w", _substitute(expr)):
-            errors.append(f"{where}: an unknown Grafana variable in {expr!r}")
+        if re.search(r"\$\{?\w", re.sub(STRINGS, "", _substitute(expr))) or "@" in expr:
+            errors.append(f"{where}: an unknown variable or placeholder in {expr!r}")
     rules = {
         "groups": [
             {
@@ -174,6 +206,21 @@ def check(directory: Path, helm: str, work: Path) -> list[str]:
     return errors
 
 
+def selector_problems(expr: str) -> list[str]:
+    """Selectors in ``expr`` without the cluster and namespace scope (an ``http_*`` one without the
+    handler exclusion), and series named without a selector."""
+    selectors = re.findall(SELECTOR, expr)
+    bad = [
+        f"{name}{{{matchers}}}"
+        for name, matchers in selectors
+        if not all(s in matchers for s in SCOPE)
+        or (name.startswith("http_") and EXCLUDE not in matchers)
+    ]
+    if len(selectors) != len(_metric_list(expr)):
+        bad.append(f"a series without a selector in {expr!r}")
+    return bad
+
+
 @pytest.fixture(scope="module")
 def helm() -> str:
     return require_helm(find_helm(), ci=bool(os.environ.get("CI")))
@@ -192,6 +239,8 @@ def test_the_dashboards_parse_with_their_stable_uids() -> None:
     dashboards = _load(DASHBOARDS)
     assert {n: d["uid"] for n, d in dashboards.items()} == UIDS
     for name, d in dashboards.items():
+        # Runs after adaptation too: an adopter's long service name fails here, not in Grafana.
+        assert len(d["uid"]) <= UID_MAX, f"{name}: uid {d['uid']!r} is over {UID_MAX} characters"
         assert d["title"].startswith("your-service-name / "), name
 
 
@@ -210,9 +259,16 @@ def test_each_dashboard_is_hand_readable_and_takes_the_datasource_variable(name:
     d = _load(DASHBOARDS)[name]
     assert not NOISE & set(_keys(d)), f"exported-dashboard noise: {NOISE & set(_keys(d))}"
     variables = _variables(d)
+    # No constant: a copied objective or regex would be wrong in any release that overrides it.
+    assert list(variables) == ["datasource", "cluster", "namespace"]
     assert variables["datasource"]["type"] == "datasource"
     assert variables["datasource"]["query"] == "prometheus"
-    assert variables["namespace"]["datasource"] == DATASOURCE
+    assert variables["cluster"]["includeAll"] is True
+    assert variables["cluster"]["allValue"] == ".*"
+    for var in ("cluster", "namespace"):
+        assert variables[var]["datasource"] == DATASOURCE
+        assert 'job=~".*your-service-name.*"' in variables[var]["query"], var
+    assert 'cluster=~"$cluster"' in variables["namespace"]["query"]
     panels = list(_panels(d))
     assert panels
     for p in panels:
@@ -222,21 +278,35 @@ def test_each_dashboard_is_hand_readable_and_takes_the_datasource_variable(name:
         assert p["targets"], p["title"]
         for t in p["targets"]:
             assert t["datasource"] == DATASOURCE, p["title"]
-            assert 'namespace="$namespace"' in t["expr"] or not metric_names(t["expr"]), t["expr"]
+            assert selector_problems(t["expr"]) == [], p["title"]
             # A rate's window is Grafana's; only the 30-day budget averages a fixed range.
-            for window in re.findall(r"\[([^\]]+)\]", t["expr"]):
+            for window in re.findall(r"\[([^\]]+)\]", re.sub(STRINGS, '""', t["expr"])):
                 assert window == "$__rate_interval" or (
                     window == "30d" and "avg_over_time" in t["expr"]
                 )
+            assert "/ 100" not in t["expr"], "an objective constant: use slo:objective:ratio"
 
 
-def test_the_constants_match_the_charts_slo_values() -> None:
-    """The dashboards cannot read values.yaml: their constants must say what the chart does."""
-    expected = _grafana_vars()
-    for name, d in _load(DASHBOARDS).items():
-        for var in _variables(d).values():
-            if var["type"] == "constant":
-                assert var["query"] == expected[var["name"]], f"{name}: {var['name']}"
+def test_the_slo_budget_comes_from_the_objective_recording() -> None:
+    budgets = [
+        t["expr"]
+        for p in _panels(_load(DASHBOARDS)["slo.json"])
+        for t in p["targets"]
+        if "budget" in t["legendFormat"] or "burn rate" in p["title"]
+    ]
+    assert budgets
+    for expr in budgets:
+        assert "1 - slo:objective:ratio{" in expr, expr
+
+
+def test_the_30_day_budget_panels_are_instant_with_thresholds() -> None:
+    panels = [p for p in _panels(_load(DASHBOARDS)["slo.json"]) if "30d" in p["title"]]
+    assert [p["title"].split(":")[0] for p in panels] == ["Availability", "Latency"]
+    for p in panels:
+        assert all(t.get("instant") is True for t in p["targets"]), p["title"]
+        steps = p["fieldConfig"]["defaults"]["thresholds"]["steps"]
+        assert [s["color"] for s in steps] == ["red", "orange", "green"], p["title"]
+        assert steps[1]["value"] == 0, p["title"]
 
 
 def test_metric_names_extracts_the_selected_series_only() -> None:
@@ -247,40 +317,73 @@ def test_metric_names_extracts_the_selected_series_only() -> None:
     assert metric_names(expr) == {"a_bucket", "b", "slo:c:d"}
 
 
+def test_selector_problems_reads_every_selector() -> None:
+    scoped = 'cluster=~"$cluster", namespace="$namespace"'
+    good = f'a{{{scoped}}} / http_x{{{scoped}, {EXCLUDE}, status=~"[45].."}}'
+    assert selector_problems(good) == []
+    assert selector_problems(f'a{{{scoped}}} / b{{namespace="$namespace"}}') == [
+        'b{namespace="$namespace"}'
+    ]
+    assert selector_problems(f"http_x{{{scoped}}}") == [f"http_x{{{scoped}}}"]
+    assert selector_problems(f"a{{{scoped}}} / b") == [
+        f"a series without a selector in 'a{{{scoped}}} / b'"
+    ]
+
+
+def test_substitute_replaces_whole_variable_names() -> None:
+    assert _substitute("[$__range] $__range_s ${__range_s} $__rate_interval") == (
+        "[1h] 3600 3600 5m"
+    )
+
+
 @pytest.mark.usefixtures("promtool")
 def test_every_query_is_served_or_recorded_and_valid_promql(helm: str, tmp_path: Path) -> None:
-    assert _exprs(_load(DASHBOARDS))
-    assert check(DASHBOARDS, helm, tmp_path) == []
+    assert check(CHART, helm, tmp_path) == []
+    # A backslash in the regex: JSON-escaped by the chart, read back by PromQL.
+    assert check(CHART, helm, tmp_path, *BACKSLASH_ARGS) == []
+
+
+def test_the_exclusion_regex_reaches_promql_unchanged(helm: str) -> None:
+    data, _ = _rendered(CHART, helm, *BACKSLASH_ARGS)
+    red = json.loads(data["your-service-name-service-red.json"])
+    exprs = [t["expr"] for p in _panels(red) for t in p["targets"]]
+    assert exprs
+    assert all(f"handler!~`{BACKSLASH_EXCLUDE}`" in e for e in exprs)
 
 
 def _broken(tmp: Path, old: str, new: str) -> Path:
-    copy = tmp / "dashboards"
-    shutil.copytree(DASHBOARDS, copy)
-    red = copy / "service-red.json"
+    chart = tmp / "chart"
+    shutil.copytree(CHART, chart)
+    red = chart / "dashboards" / "service-red.json"
     text = red.read_text(encoding="utf-8")
     assert old in text
     red.write_text(text.replace(old, new, 1), encoding="utf-8")
-    return copy
+    return chart
 
 
 @pytest.mark.usefixtures("promtool")
 def test_a_syntax_error_fails_promtool(helm: str, tmp_path: Path) -> None:
-    copy = _broken(tmp_path, "sum(rate(", "sum(rate((")
-    errors = check(copy, helm, tmp_path)
+    chart = _broken(tmp_path, "sum(rate(", "sum(rate((")
+    errors = check(chart, helm, tmp_path)
     assert any(e.startswith("promtool check rules") for e in errors), errors
 
 
 @pytest.mark.usefixtures("promtool")
 def test_a_metric_the_backend_does_not_serve_fails(helm: str, tmp_path: Path) -> None:
-    copy = _broken(tmp_path, "http_requests_total{", "http_request_total{")
-    errors = check(copy, helm, tmp_path)
+    chart = _broken(tmp_path, "http_requests_total{", "http_request_total{")
+    errors = check(chart, helm, tmp_path)
     assert any("http_request_total" in e for e in errors), errors
 
 
-def test_the_configmap_refuses_dashboards_over_the_size_limit(helm: str, tmp_path: Path) -> None:
+def test_the_size_guard_measures_the_dashboards_after_the_replacement(
+    helm: str, tmp_path: Path
+) -> None:
+    """Under the limit as files, over it once the regex replaces each placeholder: refused."""
     chart = tmp_path / "chart"
     shutil.copytree(CHART, chart)
-    (chart / "dashboards" / "huge.json").write_text("{}" + " " * (1024 * 1024), encoding="utf-8")
+    huge = '"' + "@exclude_handlers@" * 40_000 + '"\n'
+    (chart / "dashboards" / "huge.json").write_text(huge, encoding="utf-8")
+    assert sum(p.stat().st_size for p in (chart / "dashboards").glob("*.json")) < GUARD_BYTES
     result = subprocess.run(
         [helm, "template", "svc", str(chart), "--set", "monitoring.dashboards.enabled=true"],
         capture_output=True,
@@ -291,8 +394,18 @@ def test_the_configmap_refuses_dashboards_over_the_size_limit(helm: str, tmp_pat
     assert "1 MiB" in result.stderr
 
 
-def test_the_configmap_holds_every_dashboard_file_verbatim(helm: str) -> None:
+def test_the_configmap_holds_every_dashboard_with_the_regex_in_place(helm: str) -> None:
+    """Keyed <chart>-<file> (the sidecar writes every key into one folder: bare names collide)."""
     docs = render(helm, "values.yaml", "--set", "monitoring.dashboards.enabled=true")
     (cm,) = [d for d in docs if d["metadata"]["name"].endswith("-dashboards")]
-    files = {p.name: p.read_text(encoding="utf-8") for p in DASHBOARDS.glob("*")}
+    regex = yaml.safe_load((CHART / "values.yaml").read_text(encoding="utf-8"))["monitoring"][
+        "slo"
+    ]["excludeHandlers"]
+    escaped = json.dumps(regex)[1:-1]
+    files = {
+        f"your-service-name-{p.name}": p.read_text(encoding="utf-8").replace(
+            "@exclude_handlers@", escaped
+        )
+        for p in DASHBOARDS.glob("*.json")
+    }
     assert cm["data"] == files

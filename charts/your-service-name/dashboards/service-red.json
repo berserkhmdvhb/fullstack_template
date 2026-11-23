@@ -21,6 +21,26 @@
         "query": "prometheus"
       },
       {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(http_requests_total{job=~\".*your-service-name.*\"}, cluster)",
+        "definition": "label_values(http_requests_total{job=~\".*your-service-name.*\"}, cluster)",
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "description": "Every cluster by default; a series without a cluster label matches All too."
+      },
+      {
         "name": "namespace",
         "label": "Namespace",
         "type": "query",
@@ -28,17 +48,10 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "query": "label_values(http_requests_total, namespace)",
-        "definition": "label_values(http_requests_total, namespace)",
+        "query": "label_values(http_requests_total{job=~\".*your-service-name.*\", cluster=~\"$cluster\"}, namespace)",
+        "definition": "label_values(http_requests_total{job=~\".*your-service-name.*\", cluster=~\"$cluster\"}, namespace)",
         "refresh": 2,
         "sort": 1
-      },
-      {
-        "name": "exclude_handlers",
-        "type": "constant",
-        "query": ".*/(health|healthz|readyz|livez|metrics)$",
-        "hide": 2,
-        "description": "The handlers left out as not user traffic: keep equal to monitoring.slo.excludeHandlers."
       }
     ]
   },
@@ -70,7 +83,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "sum(rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval]))",
+          "expr": "sum(rate(http_requests_total{cluster=~\"$cluster\", namespace=\"$namespace\", handler!~`@exclude_handlers@`}[$__rate_interval]))",
           "legendFormat": "requests"
         }
       ]
@@ -102,7 +115,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "(sum(rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\", status=~\"5..\"}[$__rate_interval])) or vector(0)) / sum(rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval]))",
+          "expr": "(sum(rate(http_requests_total{cluster=~\"$cluster\", namespace=\"$namespace\", handler!~`@exclude_handlers@`, status=~\"5..\"}[$__rate_interval])) or vector(0)) / sum(rate(http_requests_total{cluster=~\"$cluster\", namespace=\"$namespace\", handler!~`@exclude_handlers@`}[$__rate_interval]))",
           "legendFormat": "5xx"
         }
       ]
@@ -134,7 +147,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_request_duration_seconds_bucket{cluster=~\"$cluster\", namespace=\"$namespace\", handler!~`@exclude_handlers@`}[$__rate_interval])))",
           "legendFormat": "p50"
         },
         {
@@ -143,7 +156,7 @@
             "uid": "${datasource}"
           },
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{cluster=~\"$cluster\", namespace=\"$namespace\", handler!~`@exclude_handlers@`}[$__rate_interval])))",
           "legendFormat": "p95"
         },
         {
@@ -152,7 +165,7 @@
             "uid": "${datasource}"
           },
           "refId": "C",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{cluster=~\"$cluster\", namespace=\"$namespace\", handler!~`@exclude_handlers@`}[$__rate_interval])))",
           "legendFormat": "p99"
         }
       ]
@@ -184,7 +197,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "sum by (handler) (rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval]))",
+          "expr": "sum by (handler) (rate(http_requests_total{cluster=~\"$cluster\", namespace=\"$namespace\", handler!~`@exclude_handlers@`}[$__rate_interval]))",
           "legendFormat": "{{handler}}"
         }
       ]
@@ -216,7 +229,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "(sum by (handler) (rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\", status=~\"5..\"}[$__rate_interval])) or on (handler) 0 * sum by (handler) (rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval]))) / sum by (handler) (rate(http_requests_total{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval]))",
+          "expr": "(sum by (handler) (rate(http_requests_total{cluster=~\"$cluster\", namespace=\"$namespace\", handler!~`@exclude_handlers@`, status=~\"5..\"}[$__rate_interval])) or on (handler) 0 * sum by (handler) (rate(http_requests_total{cluster=~\"$cluster\", namespace=\"$namespace\", handler!~`@exclude_handlers@`}[$__rate_interval]))) / sum by (handler) (rate(http_requests_total{cluster=~\"$cluster\", namespace=\"$namespace\", handler!~`@exclude_handlers@`}[$__rate_interval]))",
           "legendFormat": "{{handler}}"
         }
       ]
@@ -248,7 +261,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le, handler) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le, handler) (rate(http_request_duration_seconds_bucket{cluster=~\"$cluster\", namespace=\"$namespace\", handler!~`@exclude_handlers@`}[$__rate_interval])))",
           "legendFormat": "{{handler}} p50"
         },
         {
@@ -257,7 +270,7 @@
             "uid": "${datasource}"
           },
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le, handler) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, handler) (rate(http_request_duration_seconds_bucket{cluster=~\"$cluster\", namespace=\"$namespace\", handler!~`@exclude_handlers@`}[$__rate_interval])))",
           "legendFormat": "{{handler}} p95"
         },
         {
@@ -266,7 +279,7 @@
             "uid": "${datasource}"
           },
           "refId": "C",
-          "expr": "histogram_quantile(0.99, sum by (le, handler) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", handler!~\"$exclude_handlers\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le, handler) (rate(http_request_duration_seconds_bucket{cluster=~\"$cluster\", namespace=\"$namespace\", handler!~`@exclude_handlers@`}[$__rate_interval])))",
           "legendFormat": "{{handler}} p99"
         }
       ]

@@ -13,11 +13,16 @@ tests:
     asserts:
       - equal: {path: 'spec.groups[4].name', value: app-health}
       - equal: {path: 'spec.groups[5].name', value: slo-recording}
-      - lengthEqual: {path: 'spec.groups[5].rules', count: 14}
+      - lengthEqual: {path: 'spec.groups[5].rules', count: 16}
       - equal: {path: 'spec.groups[5].rules[0].record', value: 'slo:sli_error:ratio_rate5m'}
       - equal: {path: 'spec.groups[5].rules[0].labels.slo', value: availability}
       - matchRegex: {path: 'spec.groups[5].rules[0].expr', pattern: 'http_requests_total\{namespace="app", handler!~"\.\*/\(health\|healthz\|readyz\|livez\|metrics\)\$", status=~"5\.\."\}\[5m\]'}
       - equal: {path: 'spec.groups[5].rules[13].record', value: 'slo:sli_error:ratio_rate3d'}
+      - equal: {path: 'spec.groups[5].rules[14].record', value: 'slo:objective:ratio'}
+      - equal: {path: 'spec.groups[5].rules[14].labels', value: {namespace: app, slo: availability}}
+      - equal: {path: 'spec.groups[5].rules[14].expr', value: 'vector(99.9 / 100)'}
+      - equal: {path: 'spec.groups[5].rules[15].labels', value: {namespace: app, slo: latency}}
+      - equal: {path: 'spec.groups[5].rules[15].expr', value: 'vector(95 / 100)'}
       - equal: {path: 'spec.groups[5].rules[13].labels.slo', value: latency}
       - matchRegex: {path: 'spec.groups[5].rules[13].expr', pattern: 'http_request_duration_seconds_bucket\{namespace="app", handler!~"[^"]+", le="0\.5"\}\[3d\]'}
       - equal: {path: 'spec.groups[6].name', value: slo-alerts}
@@ -39,7 +44,7 @@ tests:
       - equal: {path: 'spec.groups[0].name', value: app-health}
       - equal: {path: 'spec.groups[1].name', value: slo-recording}
       - equal: {path: 'spec.groups[2].name', value: slo-alerts}
-      - lengthEqual: {path: 'spec.groups[1].rules', count: 14}
+      - lengthEqual: {path: 'spec.groups[1].rules', count: 16}
       - lengthEqual: {path: 'spec.groups[2].rules', count: 4}
 
   - it: monitoring.slo.enabled false renders no SLO group, in either flavour

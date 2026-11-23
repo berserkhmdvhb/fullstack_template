@@ -21,6 +21,26 @@
         "query": "prometheus"
       },
       {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(http_requests_total{job=~\".*your-service-name.*\"}, cluster)",
+        "definition": "label_values(http_requests_total{job=~\".*your-service-name.*\"}, cluster)",
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "description": "Every cluster by default; a series without a cluster label matches All too."
+      },
+      {
         "name": "namespace",
         "label": "Namespace",
         "type": "query",
@@ -28,24 +48,10 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "query": "label_values(http_requests_total, namespace)",
-        "definition": "label_values(http_requests_total, namespace)",
+        "query": "label_values(http_requests_total{job=~\".*your-service-name.*\", cluster=~\"$cluster\"}, namespace)",
+        "definition": "label_values(http_requests_total{job=~\".*your-service-name.*\", cluster=~\"$cluster\"}, namespace)",
         "refresh": 2,
         "sort": 1
-      },
-      {
-        "name": "availability_objective",
-        "type": "constant",
-        "query": "99.9",
-        "hide": 2,
-        "description": "Percent; keep equal to monitoring.slo.availability.objective."
-      },
-      {
-        "name": "latency_objective",
-        "type": "constant",
-        "query": "95",
-        "hide": 2,
-        "description": "Percent; keep equal to monitoring.slo.latency.objective."
       }
     ]
   },
@@ -77,7 +83,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "slo:sli_error:ratio_rate5m{namespace=\"$namespace\", slo=\"availability\"}",
+          "expr": "slo:sli_error:ratio_rate5m{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"}",
           "legendFormat": "5m"
         },
         {
@@ -86,7 +92,7 @@
             "uid": "${datasource}"
           },
           "refId": "B",
-          "expr": "slo:sli_error:ratio_rate1h{namespace=\"$namespace\", slo=\"availability\"}",
+          "expr": "slo:sli_error:ratio_rate1h{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"}",
           "legendFormat": "1h"
         },
         {
@@ -95,7 +101,7 @@
             "uid": "${datasource}"
           },
           "refId": "C",
-          "expr": "slo:sli_error:ratio_rate6h{namespace=\"$namespace\", slo=\"availability\"}",
+          "expr": "slo:sli_error:ratio_rate6h{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"}",
           "legendFormat": "6h"
         },
         {
@@ -104,7 +110,7 @@
             "uid": "${datasource}"
           },
           "refId": "D",
-          "expr": "slo:sli_error:ratio_rate1d{namespace=\"$namespace\", slo=\"availability\"}",
+          "expr": "slo:sli_error:ratio_rate1d{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"}",
           "legendFormat": "1d"
         },
         {
@@ -113,7 +119,7 @@
             "uid": "${datasource}"
           },
           "refId": "E",
-          "expr": "slo:sli_error:ratio_rate3d{namespace=\"$namespace\", slo=\"availability\"}",
+          "expr": "slo:sli_error:ratio_rate3d{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"}",
           "legendFormat": "3d"
         },
         {
@@ -122,7 +128,7 @@
             "uid": "${datasource}"
           },
           "refId": "F",
-          "expr": "vector(1 - $availability_objective / 100)",
+          "expr": "1 - slo:objective:ratio{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"}",
           "legendFormat": "budget"
         }
       ]
@@ -184,7 +190,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "slo:sli_error:ratio_rate1h{namespace=\"$namespace\", slo=\"availability\"} / (1 - $availability_objective / 100)",
+          "expr": "slo:sli_error:ratio_rate1h{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"} / on (cluster, namespace, slo) (1 - slo:objective:ratio{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"})",
           "legendFormat": "1h (alert > 14.4 with 5m)"
         },
         {
@@ -193,7 +199,7 @@
             "uid": "${datasource}"
           },
           "refId": "B",
-          "expr": "slo:sli_error:ratio_rate6h{namespace=\"$namespace\", slo=\"availability\"} / (1 - $availability_objective / 100)",
+          "expr": "slo:sli_error:ratio_rate6h{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"} / on (cluster, namespace, slo) (1 - slo:objective:ratio{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"})",
           "legendFormat": "6h (alert > 6 with 30m)"
         },
         {
@@ -202,7 +208,7 @@
             "uid": "${datasource}"
           },
           "refId": "C",
-          "expr": "slo:sli_error:ratio_rate1d{namespace=\"$namespace\", slo=\"availability\"} / (1 - $availability_objective / 100)",
+          "expr": "slo:sli_error:ratio_rate1d{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"} / on (cluster, namespace, slo) (1 - slo:objective:ratio{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"})",
           "legendFormat": "1d (alert > 3 with 2h)"
         },
         {
@@ -211,7 +217,7 @@
             "uid": "${datasource}"
           },
           "refId": "D",
-          "expr": "slo:sli_error:ratio_rate3d{namespace=\"$namespace\", slo=\"availability\"} / (1 - $availability_objective / 100)",
+          "expr": "slo:sli_error:ratio_rate3d{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"} / on (cluster, namespace, slo) (1 - slo:objective:ratio{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"})",
           "legendFormat": "3d (alert > 1 with 6h)"
         }
       ]
@@ -219,7 +225,7 @@
     {
       "type": "stat",
       "title": "Availability: error budget left (30d)",
-      "description": "1 - the 5m error ratio averaged over 30 days / error budget (time-weighted, not request-weighted; windows without traffic are skipped). Below 0 the budget is spent.",
+      "description": "1 - the 5m error ratio averaged over 30 days / error budget (time-weighted, not request-weighted; windows without traffic are skipped). Red: the budget is spent; amber: under a quarter left. Needs 30 days of Prometheus retention.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -232,7 +238,24 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 0.25
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -243,8 +266,9 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "1 - avg_over_time(slo:sli_error:ratio_rate5m{namespace=\"$namespace\", slo=\"availability\"}[30d]) / (1 - $availability_objective / 100)",
-          "legendFormat": "budget left"
+          "expr": "1 - avg_over_time(slo:sli_error:ratio_rate5m{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"}[30d]) / on (cluster, namespace, slo) (1 - slo:objective:ratio{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"availability\"})",
+          "legendFormat": "budget left",
+          "instant": true
         }
       ]
     },
@@ -275,7 +299,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "slo:sli_error:ratio_rate5m{namespace=\"$namespace\", slo=\"latency\"}",
+          "expr": "slo:sli_error:ratio_rate5m{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"}",
           "legendFormat": "5m"
         },
         {
@@ -284,7 +308,7 @@
             "uid": "${datasource}"
           },
           "refId": "B",
-          "expr": "slo:sli_error:ratio_rate1h{namespace=\"$namespace\", slo=\"latency\"}",
+          "expr": "slo:sli_error:ratio_rate1h{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"}",
           "legendFormat": "1h"
         },
         {
@@ -293,7 +317,7 @@
             "uid": "${datasource}"
           },
           "refId": "C",
-          "expr": "slo:sli_error:ratio_rate6h{namespace=\"$namespace\", slo=\"latency\"}",
+          "expr": "slo:sli_error:ratio_rate6h{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"}",
           "legendFormat": "6h"
         },
         {
@@ -302,7 +326,7 @@
             "uid": "${datasource}"
           },
           "refId": "D",
-          "expr": "slo:sli_error:ratio_rate1d{namespace=\"$namespace\", slo=\"latency\"}",
+          "expr": "slo:sli_error:ratio_rate1d{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"}",
           "legendFormat": "1d"
         },
         {
@@ -311,7 +335,7 @@
             "uid": "${datasource}"
           },
           "refId": "E",
-          "expr": "slo:sli_error:ratio_rate3d{namespace=\"$namespace\", slo=\"latency\"}",
+          "expr": "slo:sli_error:ratio_rate3d{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"}",
           "legendFormat": "3d"
         },
         {
@@ -320,7 +344,7 @@
             "uid": "${datasource}"
           },
           "refId": "F",
-          "expr": "vector(1 - $latency_objective / 100)",
+          "expr": "1 - slo:objective:ratio{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"}",
           "legendFormat": "budget"
         }
       ]
@@ -382,7 +406,7 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "slo:sli_error:ratio_rate1h{namespace=\"$namespace\", slo=\"latency\"} / (1 - $latency_objective / 100)",
+          "expr": "slo:sli_error:ratio_rate1h{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"} / on (cluster, namespace, slo) (1 - slo:objective:ratio{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"})",
           "legendFormat": "1h (alert > 14.4 with 5m)"
         },
         {
@@ -391,7 +415,7 @@
             "uid": "${datasource}"
           },
           "refId": "B",
-          "expr": "slo:sli_error:ratio_rate6h{namespace=\"$namespace\", slo=\"latency\"} / (1 - $latency_objective / 100)",
+          "expr": "slo:sli_error:ratio_rate6h{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"} / on (cluster, namespace, slo) (1 - slo:objective:ratio{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"})",
           "legendFormat": "6h (alert > 6 with 30m)"
         },
         {
@@ -400,7 +424,7 @@
             "uid": "${datasource}"
           },
           "refId": "C",
-          "expr": "slo:sli_error:ratio_rate1d{namespace=\"$namespace\", slo=\"latency\"} / (1 - $latency_objective / 100)",
+          "expr": "slo:sli_error:ratio_rate1d{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"} / on (cluster, namespace, slo) (1 - slo:objective:ratio{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"})",
           "legendFormat": "1d (alert > 3 with 2h)"
         },
         {
@@ -409,7 +433,7 @@
             "uid": "${datasource}"
           },
           "refId": "D",
-          "expr": "slo:sli_error:ratio_rate3d{namespace=\"$namespace\", slo=\"latency\"} / (1 - $latency_objective / 100)",
+          "expr": "slo:sli_error:ratio_rate3d{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"} / on (cluster, namespace, slo) (1 - slo:objective:ratio{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"})",
           "legendFormat": "3d (alert > 1 with 6h)"
         }
       ]
@@ -417,7 +441,7 @@
     {
       "type": "stat",
       "title": "Latency: error budget left (30d)",
-      "description": "1 - the 5m error ratio averaged over 30 days / error budget (time-weighted, not request-weighted; windows without traffic are skipped). Below 0 the budget is spent.",
+      "description": "1 - the 5m error ratio averaged over 30 days / error budget (time-weighted, not request-weighted; windows without traffic are skipped). Red: the budget is spent; amber: under a quarter left. Needs 30 days of Prometheus retention.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -430,7 +454,24 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 0.25
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -441,8 +482,9 @@
             "uid": "${datasource}"
           },
           "refId": "A",
-          "expr": "1 - avg_over_time(slo:sli_error:ratio_rate5m{namespace=\"$namespace\", slo=\"latency\"}[30d]) / (1 - $latency_objective / 100)",
-          "legendFormat": "budget left"
+          "expr": "1 - avg_over_time(slo:sli_error:ratio_rate5m{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"}[30d]) / on (cluster, namespace, slo) (1 - slo:objective:ratio{cluster=~\"$cluster\", namespace=\"$namespace\", slo=\"latency\"})",
+          "legendFormat": "budget left",
+          "instant": true
         }
       ]
     }
