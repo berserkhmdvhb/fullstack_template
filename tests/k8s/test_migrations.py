@@ -38,9 +38,9 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.k8s.test_graceful_shutdown import CONTEXT, KUBECONFIG, ROOT, Kube, _run, _tool
-from tests.k8s.test_graceful_shutdown import NAMESPACE as MAIN_NAMESPACE
-from tests.k8s.test_graceful_shutdown import RELEASE as MAIN_RELEASE
+from tests.k8s._kube import CONTEXT, KUBECONFIG, ROOT, Kube, _run, _tool
+from tests.k8s._kube import NAMESPACE as MAIN_NAMESPACE
+from tests.k8s._kube import RELEASE as MAIN_RELEASE
 from your_service_name.backend.db import schema
 
 CHART = ROOT / "charts" / "your-service-name"
