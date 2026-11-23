@@ -182,6 +182,7 @@ def test_only_wif_and_signing_jobs_hold_id_token() -> None:
         ("release.yml", "images"),  # the union grant for reusable-build.yml
         ("reusable-build.yml", "sign-attest"),  # keyless signing, no cloud login
         ("reusable-build.yml", "attest-sbom"),  # keyless SBOM attestation, no cloud login
+        ("reusable-build.yml", "chart"),  # keyless chart signing (v* tags), no cloud login
         ("deploy.yml", "deploy-dev"),
         ("deploy.yml", "deploy-qa"),
         ("deploy.yml", "deploy-production"),

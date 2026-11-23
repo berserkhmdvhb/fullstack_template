@@ -36,8 +36,9 @@ import yaml
 USAGE_ERROR = 2
 REUSABLE_BUILD = ".github/workflows/reusable-build.yml"
 SIGNING_JOB = "sign-attest"
-# The per-platform SBOM attestation runs in its own matrix job, so it holds the same keyless grants.
-ATTESTING_JOBS = (SIGNING_JOB, "attest-sbom")
+# The per-platform SBOM attestation runs in its own matrix job, and the chart (v* tags) in its
+# own job, so each holds the same keyless grants.
+ATTESTING_JOBS = (SIGNING_JOB, "attest-sbom", "chart")
 # Publishing Scorecard results needs id-token: write (OIDC) and no cloud credential; the action's
 # workflow restrictions allow no environment-free job but this one.
 SCORECARD_WORKFLOW = ".github/workflows/scorecard.yml"

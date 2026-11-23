@@ -85,6 +85,7 @@ def test_job_order_is_build_merge_sbom_gate_sign() -> None:
         "image-checks",
         "sign-attest",
         "attest-sbom",
+        "chart",
     ]
     assert "needs" not in jobs["build"]
     assert jobs["merge"]["needs"] == "build"
@@ -95,6 +96,7 @@ def test_job_order_is_build_merge_sbom_gate_sign() -> None:
     # The SBOM attestation waits for exactly what signing waits for, including the merge: no
     # attestation lands on platform manifests that no signed index points to.
     assert set(jobs["attest-sbom"]["needs"]) == set(jobs["sign-attest"]["needs"])
+    assert jobs["chart"]["needs"] == "sign-attest"  # no chart for images that failed the gate
 
 
 def test_per_platform_jobs_use_the_platform_matrix_and_per_image_jobs_the_image_matrix() -> None:
@@ -224,7 +226,7 @@ def test_only_the_signing_job_holds_packages_write_with_id_token_write() -> None
         if j["permissions"].get("packages") == "write"
         and j["permissions"].get("id-token") == "write"
     }
-    assert both == {"sign-attest", "attest-sbom"}
+    assert both == {"sign-attest", "attest-sbom", "chart"}
     for name in both:
         assert _jobs()[name]["permissions"] == {
             "contents": "read",
@@ -458,7 +460,7 @@ def test_login_token_goes_through_with_not_run() -> None:
             assert step["with"]["username"] == "${{ github.actor }}"
             assert step["with"]["password"] == "${{ secrets.GITHUB_TOKEN }}"  # noqa: S105 — a workflow expression, not a credential
         assert not re.search(r"secrets\.|GITHUB_TOKEN|docker login", _runs(job)), name
-    assert seen == 6  # noqa: PLR2004 — build, merge, sbom, image-checks, sign-attest, attest-sbom
+    assert seen == 7  # noqa: PLR2004 — build, merge, sbom, image-checks, sign-attest, attest-sbom, chart
 
 
 def test_digest_verify_stops_the_job_on_a_mismatch() -> None:
@@ -528,9 +530,12 @@ PUSH_GUARD = (
 )
 
 
+TAG_PUSH_GUARD = "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+
+
 def test_every_job_refuses_to_run_outside_a_push_to_main_or_a_v_tag() -> None:
     for name, job in _jobs().items():
-        assert _expr({"if": job["if"]}) == PUSH_GUARD, name
+        assert _expr({"if": job["if"]}) == (TAG_PUSH_GUARD if name == "chart" else PUSH_GUARD), name
 
 
 def test_the_per_platform_artifacts_are_named_by_image_and_platform() -> None:

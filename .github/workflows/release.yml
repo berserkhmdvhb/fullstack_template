@@ -235,7 +235,8 @@ jobs:
       immutable: ${{ needs.plan.outputs.immutable }}
       digests: ${{ needs.digests.outputs.digests }}
 
-  # A v* tag only: the SBOMs, the OpenVEX document, the licence report and the image digests go to a draft GitHub Release.
+  # A v* tag only: the SBOMs, the OpenVEX document, the licence report, the image and chart digests and provenance.md
+  # (the signed digests and how to verify them) go to the draft GitHub Release.
   # The digests (image-digests.env, scan.env) outlive the workflow artifact; the weekly re-scan reads them.
   # The release is never published here; immutable releases reject assets added after publication.
   release-assets:
@@ -267,6 +268,10 @@ jobs:
         with:
           name: image-digests
           path: assets/digests
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chart
+          path: assets/chart
       - name: Collect the assets
         run: |
           mkdir release-assets
@@ -278,7 +283,28 @@ jobs:
           done
           cp assets/vex/openvex.json assets/grant/*.license.grant.json release-assets/
           cp assets/grant/summary.json release-assets/licence-summary.json
-          cp assets/digests/image-digests.env assets/digests/scan.env release-assets/
+          cp assets/digests/image-digests.env assets/digests/scan.env assets/chart/chart.env release-assets/
+          # provenance.md: every signed digest (each image's index, the chart) and how to verify it.
+          workflow="${GH_REPO}/.github/workflows/reusable-build.yml"
+          {
+            echo "# Provenance of ${TAG}"
+            echo
+            echo "Signed keyless and attested by \`${workflow}@refs/tags/${TAG}\`. All attestations: https://github.com/${GH_REPO}/attestations"
+            echo
+            while IFS='=' read -r key digest; do
+              ref="$(sed -n "s/^${key%_DIGEST}=//p" assets/digests/scan.env)"
+              echo "- image \`${ref%:*}@${digest}\`"
+            done < assets/digests/image-digests.env
+            echo "- chart \`$(sed -n 's/^CHART=//p' assets/chart/chart.env)@$(sed -n 's/^CHART_DIGEST=//p' assets/chart/chart.env)\` (version $(sed -n 's/^CHART_VERSION=//p' assets/chart/chart.env))"
+            echo
+            echo "Verify any of them (replace REF with a reference above):"
+            echo
+            echo '```'
+            echo "gh attestation verify oci://REF --repo ${GH_REPO} --signer-workflow ${workflow}"
+            echo "cosign verify REF --certificate-identity https://github.com/${workflow}@refs/tags/${TAG} --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-github-workflow-repository ${GH_REPO}"
+            echo '```'
+          } > release-assets/provenance.md
+          echo "- provenance.md lists $(grep -c '^- ' release-assets/provenance.md) signed digest(s)" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload to the draft release
         run: |
           set -euo pipefail

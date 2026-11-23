@@ -1,6 +1,6 @@
 name: Build, scan, sign
 
-# The only workflow that pushes, signs or attests images. release.yml calls it on a push to main
+# The only workflow that pushes, signs or attests images (and, on a v* tag, the chart). release.yml calls it on a push to main
 # or a v* tag, never on a pull request. Order: build and push each platform by digest on its native
 # runner (never under emulation), merge the platform digests into one index per image, SBOM, the
 # blocking vulnerability gate and the image checks per platform, then keyless signing and
@@ -484,3 +484,104 @@ jobs:
         env:
           DIGEST: ${{ steps.ref.outputs.digest }}
         run: echo "- SBOM of \`${REPOSITORY}@${DIGEST}\` (${SLUG}) attested, or skipped when attestations are off (see sign-attest)" >> "$GITHUB_STEP_SUMMARY"
+
+  # A v* tag only, after every image is signed: the chart as an OCI artifact in ghcr.io/<owner>/charts, its version
+  # and appVersion the tag's (never the committed Chart.yaml literals). Signed and attested by digest here, so its
+  # certificate names this workflow, like the images. A push to main publishes no chart: deploys use the
+  # checked-out chart, so a chart per commit would only fill the registry.
+  chart:
+    name: Chart (package, push, sign)
+    needs: sign-attest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write  # push the chart and attach its signature and attestation in ghcr.io
+      id-token: write  # the GitHub OIDC token that Sigstore turns into a signing certificate
+      attestations: write  # record the chart's build provenance
+    env:
+      CHART_DIR: charts/your-service-name
+      REGISTRY: ghcr.io
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # cosign, the attestation push and helm push (through HELM_REGISTRY_CONFIG) all read this one login.
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install the pinned Helm and cosign
+        run: |
+          scripts/tools.sh install helm4 cosign
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - name: Package the chart at the tag's version
+        id: package
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p "${RUNNER_TEMP}/chart"
+          helm package "${CHART_DIR}" --version "${version}" --app-version "${version}" --destination "${RUNNER_TEMP}/chart"
+          pkg="$(find "${RUNNER_TEMP}/chart" -name '*.tgz')"
+          name="$(basename "${pkg}" "-${version}.tgz")"
+          {
+            echo "package=${pkg}"
+            echo "version=${version}"
+            echo "repository=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/charts/${name}"
+          } >> "$GITHUB_OUTPUT"
+          echo "- chart \`${name}\` packaged at version \`${version}\`" >> "$GITHUB_STEP_SUMMARY"
+      - name: Push the chart
+        id: push
+        env:
+          PACKAGE: ${{ steps.package.outputs.package }}
+        run: |
+          set -euo pipefail
+          export HELM_REGISTRY_CONFIG="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+          out="$(helm push "${PACKAGE}" "oci://${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/charts" 2>&1)"
+          echo "${out}"
+          digest="$(sed -n 's/^Digest: //p' <<<"${out}")"
+          if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::helm push reported no valid digest: ${digest}"
+            exit 1
+          fi
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+      - name: Sign the chart digest (keyless)
+        env:
+          REPOSITORY: ${{ steps.package.outputs.repository }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: cosign sign --yes "${REPOSITORY}@${DIGEST}"
+      - name: Verify the signature
+        env:
+          REPOSITORY: ${{ steps.package.outputs.repository }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          cosign verify "${REPOSITORY}@${DIGEST}" \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/reusable-build.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-github-workflow-repository "${GITHUB_REPOSITORY}" \
+            --certificate-github-workflow-sha "${GITHUB_SHA}" > /dev/null
+      # The same guard as the images' attestations (see sign-attest, which also warns when they are off).
+      - name: Attest the chart's build provenance
+        if: ${{ github.event.repository.visibility == 'public' || vars.ATTESTATIONS_ENABLED == 'true' }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.package.outputs.repository }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      # chart.env goes on the draft release (release.yml, release-assets).
+      - name: Record the chart reference
+        env:
+          REPOSITORY: ${{ steps.package.outputs.repository }}
+          VERSION: ${{ steps.package.outputs.version }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p chart
+          printf 'CHART=%s\nCHART_VERSION=%s\nCHART_DIGEST=%s\n' "${REPOSITORY}" "${VERSION}" "${DIGEST}" > chart/chart.env
+          echo "- chart \`${REPOSITORY}:${VERSION}\` pushed, signed and verified, digest \`${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chart
+          path: chart/chart.env
+          retention-days: 90

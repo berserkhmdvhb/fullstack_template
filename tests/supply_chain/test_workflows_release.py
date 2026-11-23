@@ -180,11 +180,11 @@ def test_release_assets_upload_the_sbom_vex_licence_report_and_the_digests() -> 
         s["with"].get("name") or s["with"].get("pattern")
         for s in _uses(job, "actions/download-artifact@")
     }
-    assert names == {"sbom-*", "vex", "grant-report", "image-digests"}
+    assert names == {"sbom-*", "vex", "grant-report", "image-digests", "chart"}
     text = _runs(job)
     # The digests and image references outlive the 90-day artifact; the weekly re-scan reads them.
     needles = ("cdx.json", "openvex.json", "license.grant.json", "licence-summary.json")
-    for needle in (*needles, "image-digests.env", "scan.env"):
+    for needle in (*needles, "image-digests.env", "scan.env", "chart.env", "provenance.md"):
         assert needle in text, needle
 
 
@@ -392,11 +392,13 @@ def _gather(job: str, tmp_path: Path) -> list[str]:
         "assets/grant/summary.json",
         "assets/digests/image-digests.env",
         "assets/digests/scan.env",
+        "assets/chart/chart.env",
     ):
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / rel).write_text("x")
     run = step["run"].replace("${SEC_OUTPUT_DIR}", "out/security")
-    subprocess.run([BASH, "-c", run], cwd=tmp_path, check=True, capture_output=True)
+    env = {**os.environ, "GITHUB_STEP_SUMMARY": str(tmp_path / "summary")}
+    subprocess.run([BASH, "-c", run], cwd=tmp_path, env=env, check=True, capture_output=True)
     where = tmp_path / ("out/security/sbom" if job == "grant" else "release-assets")
     names = sorted(p.name for p in where.glob("*.cdx.json"))
     for name in names:  # each file is the image SBOM of its own platform, never overwritten
@@ -422,3 +424,51 @@ def test_vex_merges_the_per_platform_grype_reports_per_image() -> None:
     assert "merge-multiple" not in down["with"]
     runs = _runs(job)
     assert runs.index("unique_by") < runs.index("generate-vex.sh")
+
+
+def test_provenance_md_lists_every_signed_digest_and_how_to_verify_it(tmp_path: Path) -> None:
+    step = next(s for s in _assets()["steps"] if s.get("name") == "Collect the assets")
+    files = {
+        "assets/sbom/sbom-backend.linux-amd64/backend.image.sbom.cdx.json": "{}",
+        "assets/vex/openvex.json": "{}",
+        "assets/grant/summary.json": "{}",
+        "assets/digests/image-digests.env": (
+            f"BACKEND_IMAGE_DIGEST={D1}\nFRONTEND_IMAGE_DIGEST={D2}\n"
+        ),
+        "assets/digests/scan.env": (
+            "BACKEND_IMAGE=ghcr.io/o/r/backend:1.0.0-prod-abc1234\n"
+            "FRONTEND_IMAGE=ghcr.io/o/r/frontend:1.0.0-prod-abc1234\n"
+        ),
+        "assets/chart/chart.env": (
+            f"CHART=ghcr.io/o/charts/c\nCHART_VERSION=1.0.0\nCHART_DIGEST={D3}\n"
+        ),
+    }
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text)
+    (tmp_path / "assets/grant/backend.license.grant.json").write_text("{}")
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "GH_REPO": "o/r",
+        "TAG": "v1.0.0",
+        "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
+    }
+    subprocess.run(
+        [BASH, "-e", "-c", step["run"]], cwd=tmp_path, env=env, check=True, capture_output=True
+    )
+    text = (tmp_path / "release-assets/provenance.md").read_text()
+    assert f"- image `ghcr.io/o/r/backend@{D1}`" in text
+    assert f"- image `ghcr.io/o/r/frontend@{D2}`" in text
+    assert f"- chart `ghcr.io/o/charts/c@{D3}` (version 1.0.0)" in text
+    assert "https://github.com/o/r/attestations" in text
+    assert "--signer-workflow o/r/.github/workflows/reusable-build.yml" in text
+    assert (
+        "--certificate-identity https://github.com/o/r/.github/workflows/reusable-build.yml@refs/tags/v1.0.0"
+        in text
+    )
+    assert "--certificate-github-workflow-repository o/r" in text
+    assert (tmp_path / "release-assets/chart.env").exists()
+    assert "3 signed digest(s)" in (tmp_path / "summary").read_text()
+
+
+D1, D2, D3 = ("sha256:" + c * 64 for c in "123")
