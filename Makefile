@@ -15,7 +15,7 @@
     dev-tools-list dev-tools-outdated dev-tools-upgrade version-check- \
     k8s-apply k8s-delete k8s-build k8s-status k8s-pods k8s-services k8s-port-forward \
     k8s-wait k8s-logs k8s-port-forward-all deploy rebuild-and-roll smoke-test \
-    kind-up kind-deploy kind-down \
+    kind-up kind-deploy kind-down kind-shutdown-test \
     secrets db-backup certs \
     security-local security-build security-tools \
     security-sbom security-vuln security-license security-malware security-iac security-k8s security-dast security-vex security-audit \
@@ -144,6 +144,7 @@ help::
 	@echo "  kind-up                  Create (or reuse) the local kind cluster fst (KIND_NODE=floor|newest)"
 	@echo "  kind-deploy              The kind job: images, bootstrap, ct, the release, helm test (KIND_BASE=<ref>)"
 	@echo "  kind-down                Delete the kind cluster fst and .local/kind"
+	@echo "  kind-shutdown-test       Delete a backend and a frontend Pod under load on fst: no request may fail"
 	@echo ""
 	@echo "Supply-chain security (wraps infra/security/local/devsec.sh; extra flags via SEC_ARGS=...):"
 	@echo "  security-local           Run the full chain (bootstrap + build + all)"
@@ -611,6 +612,10 @@ kind-deploy:
 
 kind-down:
 	scripts/kind-up.sh --delete
+
+# After kind-deploy: tests/k8s/test_graceful_shutdown.py (make test never collects tests/k8s).
+kind-shutdown-test:
+	$(PYTHON) -m pytest tests/k8s -o addopts="" -v -s
 
 certs:
 	@echo "Wiring local self-signed TLS for $(HELM_ENV) (cert-manager)…"

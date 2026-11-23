@@ -20,6 +20,9 @@ from your_service_name.backend.settings import Settings
 
 TEST_BASE_URL: Final[str] = "http://test"
 
+# tests/k8s runs against the kind cluster, only when named (make kind-shutdown-test).
+collect_ignore = ["k8s"]
+
 
 # A PostgreSQL URL in the caller's environment selects PostgreSQL for the integration, e2e and
 # contract layers (CI's service container, or a local server: see wiki/testing.md). Unit tests
