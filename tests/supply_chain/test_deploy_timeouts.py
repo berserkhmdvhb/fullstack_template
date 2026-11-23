@@ -34,16 +34,21 @@ def _seconds(duration: str) -> int:
 
 def _waits() -> list[tuple[str, str]]:
     """(where, duration) of every Helm wait of a deploy path: the workflows' HELM_TIMEOUT defaults
-    (deploy-env.sh's upgrade and rollback, deploy-ops.yml's rollback), and each literal --timeout of
+    (deploy-env.sh's upgrade and rollback, deploy-ops.yml's rollback, preview.yml's deploy and
+    preview-cleanup.sh's uninstall), preview-cleanup.sh's own default, and each literal --timeout of
     an install, upgrade or rollback in the kind deploy, the bootstrap migration and the kind tests,
     and a kind-test helper's default `timeout: str = "<d>"` (a `helm test`, which deploys nothing,
     is not one)."""
     found = []
-    for wf in ("deploy.yml", "deploy-ops.yml"):
+    for wf in ("deploy.yml", "deploy-ops.yml", "preview.yml"):
         text = (ROOT / ".github" / "workflows" / wf).read_text()
         defaults = re.findall(r"vars\.HELM_TIMEOUT \|\| '([^']+)'", text)
         assert defaults, wf
         found += [(wf, d) for d in defaults]
+    cleanup = (ROOT / "scripts/ci/preview-cleanup.sh").read_text()
+    found += [
+        ("preview-cleanup.sh", d) for d in re.findall(rf"HELM_TIMEOUT:-({DURATION})\}}", cleanup)
+    ]
     bootstrap = (ROOT / "scripts/migrate-to-bootstrap.sh").read_text()
     found += [
         ("migrate-to-bootstrap.sh", d) for d in re.findall(rf"timeout=({DURATION}) ", bootstrap)
@@ -63,7 +68,8 @@ def _waits() -> list[tuple[str, str]]:
 
 def test_the_waits_are_found() -> None:
     where = {w for w, _ in _waits()}
-    assert {"deploy.yml", "deploy-ops.yml", "kind-deploy.sh", "migrate-to-bootstrap.sh"} <= where
+    assert {"deploy.yml", "deploy-ops.yml", "preview.yml", "preview-cleanup.sh"} <= where
+    assert {"kind-deploy.sh", "migrate-to-bootstrap.sh"} <= where
     assert "_kube.py" in where
 
 

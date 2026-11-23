@@ -326,5 +326,14 @@ STUB
 @test "check 3 leaves out Job Pods: an earlier revision's Failed migration Pod does not fail it" {
   run bash "$SCRIPT"
   [ "$status" -eq 0 ]
-  grep -qF -- "get pods -l app.kubernetes.io/name=svc,!batch.kubernetes.io/job-name -o jsonpath" "$STUB_LOG"
+  grep -qF -- "get pods -l app.kubernetes.io/name=svc,app.kubernetes.io/instance=rel,!batch.kubernetes.io/job-name -o jsonpath" "$STUB_LOG"
+}
+
+@test "checks 3 to 5 select this release's Pods only: another release in the namespace is never seen" {
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  pods="$(grep -E '(^| )get pods ' "$STUB_LOG")"
+  [ "$(wc -l <<<"$pods")" -ge 5 ]
+  run grep -v -- '-l [^ ]*app.kubernetes.io/instance=rel[,! ]' <<<"$pods"
+  [ -z "$output" ]
 }

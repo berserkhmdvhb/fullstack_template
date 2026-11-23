@@ -107,7 +107,8 @@ def test_every_blocking_pull_request_job_is_gated() -> None:
     required = set(_listed("Required status checks"))
     for path in WORKFLOWS.glob("*.yml"):
         doc = load(path)
-        if "pull_request" not in doc["on"]:
+        # preview.yml deploys a labelled pull request's preview; it is not a check of the code.
+        if "pull_request" not in doc["on"] or path.name == "preview.yml":
             continue
         needs = set(doc["jobs"].get("ci-ok", {}).get("needs", []))
         for key, job in doc["jobs"].items():
@@ -183,7 +184,11 @@ def test_script_variable_lists_match_the_platform_setup_table() -> None:
     table = _table()
     repo_vars, env_vars = _script_list("REPO_VARS"), _script_list("ENV_VARS")
     repo_scoped = {n for n, scope in table.items() if "repository" in scope}
-    env_scoped = {n for n, scope in table.items() if "environment" in scope}
+    # The opt-in `preview` environment is created by hand, not by the script (not one of its ENVS).
+    env_scoped = {
+        n for n, scope in table.items() if "environment" in scope and "`preview`" not in scope
+    }
+    assert "PREVIEW_DOMAIN" in set(table) - env_scoped
     assert repo_scoped <= repo_vars
     assert env_scoped <= env_vars
     assert repo_vars - {"RELEASE_APP_ID"} <= set(table)

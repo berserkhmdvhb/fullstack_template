@@ -2,6 +2,8 @@
 """Find the image digests to re-scan: what runs in each environment, and the latest release.
 
 Usage: rescan_collect.py OUTDIR       (env: GH_REPO, GH_TOKEN; reads the GitHub API only)
+       rescan_collect.py --deployed ENV  print what ENV runs: the JSON object of <ID>_IMAGE_DIGEST
+                                         keys the deploy takes (preview.yml deploys what dev runs)
 
 For each environment (dev, qa, production) take the newest deployment whose latest status is
 `success` and follow that status's job URL to the job, and so the workflow run, that created it.
@@ -259,14 +261,35 @@ def write(out: Path, images: dict[str, dict[str, Any]], bad: list[dict[str, str]
     (out / "digests.json").write_text(json.dumps({"images": rows, "unscannable": bad}, indent=2))
 
 
+def deployed_digests(gh: Gh, repo: str, env: str) -> dict[str, str]:
+    """What an environment runs, as the deploy's DIGESTS object; LookupError when it is unknown."""
+    try:
+        found = deployed(gh, repo, env)
+    except ValueError as err:
+        raise LookupError(str(err)) from None
+    if not found:
+        msg = f"no successful release deployment of {env}"
+        raise LookupError(msg)
+    return {f"{name.upper()}_IMAGE_DIGEST": digest for name, (digest, _) in sorted(found.items())}
+
+
 def main(argv: list[str], gh: Gh = run_gh) -> int:
-    if len(argv) != ARGS:
+    deployed_mode = len(argv) == ARGS + 1 and argv[1] == "--deployed"
+    if len(argv) != ARGS and not deployed_mode:
         sys.stderr.write(str(__doc__))
         return 2
     repo = os.environ.get("GH_REPO", "")
     if not repo:
         sys.stderr.write("GH_REPO is required\n")
         return 2
+    if deployed_mode:
+        try:
+            digests = deployed_digests(gh, repo, argv[2])
+        except LookupError as err:
+            sys.stderr.write(f"{argv[2]}: {err}\n")
+            return 1
+        sys.stdout.write(json.dumps(digests) + "\n")
+        return 0
     images, bad, notes = collect(gh, repo)
     write(Path(argv[1]), images, bad)
     lines = ["### Re-scan: digests found", ""]

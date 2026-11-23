@@ -11,7 +11,7 @@
 #    through a port-forward
 # 5. when verify or smoke fails: helm rollback to the recorded revision, then exit 1
 #
-# Env (all required unless a default is shown): SERVICE_NAME DEPLOY_ENV (dev|qa|production) CHART_DIR
+# Env (all required unless a default is shown): SERVICE_NAME DEPLOY_ENV (dev|qa|production|preview) CHART_DIR
 # DEPLOY_IMAGES (comma list of image ids) DIGESTS (JSON of <ID>_IMAGE_DIGEST) IMAGE_TAG HELM_TIMEOUT
 # BACKEND_PORT API_VERSION; FRONTEND_PORT (3000); WORK_DIR (RUNNER_TEMP); SMOKE_WAIT_TRIES (30), SMOKE_WAIT_SLEEP (2).
 # MATRIX_CMD (the matrix helper command; deploy.yml points it at a PyYAML venv) and, for tests only,
@@ -20,6 +20,15 @@
 # only with DEPLOY_ENV_KIND_TEST=1 and a kubeconfig whose one context is kind-fst; it is refused
 # otherwise, and no workflow sets it. It takes values.local.yaml, then each file of KIND_VALUES
 # (a colon list), instead of values.<env>.yaml; the namespace is <SERVICE_NAME>-kind.
+# Pull request previews (.github/workflows/preview.yml): DEPLOY_ENV=preview with PREVIEW_PR=<N> deploys
+# the release <SERVICE_NAME>-pr-<N> into the one preview namespace <SERVICE_NAME>-preview, with
+# values.preview.yaml and per-release hosts: <release>.<PREVIEW_DOMAIN>, <release>-api.<..> and
+# <release>-app.<..>, or the never-resolving domain `invalid` when PREVIEW_DOMAIN is unset. With
+# PREVIEW_DOMAIN the smoke test also runs through the public URL https://<release>.<PREVIEW_DOMAIN>,
+# with the Cloudflare Access service token (CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET, both required
+# then) as headers from a file, never on a command line; the URL goes to GITHUB_OUTPUT as `url`.
+# PREVIEW_PR is refused with dev, qa and production; the test-only kind seam takes it too (the same
+# release and namespace names, the kind values instead of values.preview.yaml).
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -31,7 +40,10 @@ for v in SERVICE_NAME DEPLOY_ENV CHART_DIR DEPLOY_IMAGES DIGESTS IMAGE_TAG HELM_
   [[ -n "${!v:-}" ]] || fail "$v is required"
 done
 env_values=(-f "$CHART_DIR/values.${DEPLOY_ENV}.yaml")
-case "$DEPLOY_ENV" in dev|qa|production) ;;
+PREVIEW_PR="${PREVIEW_PR:-}"
+case "$DEPLOY_ENV" in
+  dev|qa|production) [[ -z "$PREVIEW_PR" ]] || fail "PREVIEW_PR is for DEPLOY_ENV=preview only" ;;
+  preview) [[ -n "$PREVIEW_PR" ]] || fail "DEPLOY_ENV=preview needs PREVIEW_PR (the pull request number)" ;;
   kind)
     [[ "${DEPLOY_ENV_KIND_TEST:-}" == 1 ]] || fail "DEPLOY_ENV=kind is test-only: it needs DEPLOY_ENV_KIND_TEST=1"
     [[ -z "${HELM_KUBEAPISERVER:-}${HELM_KUBETOKEN:-}" && "${HELM_KUBECONTEXT:-kind-fst}" == kind-fst ]] ||
@@ -42,17 +54,32 @@ case "$DEPLOY_ENV" in dev|qa|production) ;;
     env_values=(-f "$CHART_DIR/values.local.yaml")
     IFS=: read -ra kind_files <<<"${KIND_VALUES:-}"
     for f in "${kind_files[@]}"; do env_values+=(-f "$f"); done ;;
-  *) fail "DEPLOY_ENV must be dev, qa or production" ;;
+  *) fail "DEPLOY_ENV must be dev, qa, production or preview" ;;
 esac
 WORK_DIR="${WORK_DIR:-${RUNNER_TEMP:-}}"
 [[ -n "$WORK_DIR" ]] || fail "WORK_DIR or RUNNER_TEMP is required"
 MATRIX_CMD="${MATRIX_CMD:-python3 $ROOT/.github/scripts/container_matrix.py}"
 VERIFY_SCRIPT="${VERIFY_SCRIPT:-$ROOT/scripts/ci/deploy-verify.sh}"
 SMOKE_SCRIPT="${SMOKE_SCRIPT:-$ROOT/scripts/smoke-test.sh}"
-NAMESPACE="${SERVICE_NAME}-${DEPLOY_ENV}"
+RELEASE="$SERVICE_NAME" NAMESPACE="${SERVICE_NAME}-${DEPLOY_ENV}" PUBLIC_URL=""
+if [[ -n "$PREVIEW_PR" ]]; then
+  [[ "$PREVIEW_PR" =~ ^[1-9][0-9]{0,9}$ ]] || fail "PREVIEW_PR must be a pull request number"
+  RELEASE="${SERVICE_NAME}-pr-${PREVIEW_PR}" NAMESPACE="${SERVICE_NAME}-preview"
+  domain="${PREVIEW_DOMAIN:-invalid}"
+  [[ "$domain" =~ ^([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)*[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]] ||
+    fail "PREVIEW_DOMAIN must be a lower-case DNS name"
+  jq -n --arg r "$RELEASE" --arg d "$domain" \
+    '{edge: {hosts: {root: "\($r).\($d)", api: "\($r)-api.\($d)", app: "\($r)-app.\($d)"}}}' > "$WORK_DIR/preview-hosts.json"
+  env_values+=(-f "$WORK_DIR/preview-hosts.json")
+  if [[ -n "${PREVIEW_DOMAIN:-}" ]]; then
+    [[ -n "${CF_ACCESS_CLIENT_ID:-}" && -n "${CF_ACCESS_CLIENT_SECRET:-}" ]] ||
+      fail "PREVIEW_DOMAIN needs CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET (the Access service token)"
+    PUBLIC_URL="https://${RELEASE}.${domain}"
+  fi
+fi
 # The backend Service. The port-forwarded checks send its name as Host, as the frontend does
 # in-cluster: the backend refuses a Host that is not in the ALLOWED_HOSTS the chart renders.
-BACKEND_SERVICE="${SERVICE_NAME}-backend"
+BACKEND_SERVICE="${RELEASE}-backend"
 VALUES="$WORK_DIR/image-values.json"
 # Helm keeps this many release revisions (Secrets in the namespace). 5 is enough to roll back past a
 # few bad deploys, and it bounds the Secrets the namespace quota must allow (infra/k8s/bootstrap,
@@ -79,7 +106,7 @@ jq -n --argjson m "$matrix" --argjson d "$DIGESTS" --arg tag "$IMAGE_TAG" '
 # Gateway, digests and auth settings.
 discovery_values=("${env_values[@]}" -f "$VALUES")
 release_values=("${discovery_values[@]}" --set guards.rejectPlaceholders=true)
-manifest="$(helm template "$SERVICE_NAME" "$CHART_DIR" "${discovery_values[@]}" --namespace "$NAMESPACE")" || fail "cannot render ${SERVICE_NAME} for ${DEPLOY_ENV}"
+manifest="$(helm template "$RELEASE" "$CHART_DIR" "${discovery_values[@]}" --namespace "$NAMESPACE")" || fail "cannot render ${RELEASE} for ${DEPLOY_ENV}"
 # An image is used when a rendered container runs its repository, by tag or by digest (a values file
 # may already hold one, such as the placeholder), whatever the component label; its component is
 # checked when a Pod carries the id as label.
@@ -92,9 +119,9 @@ used() {
 # deploy-verify.sh finds the Pods by their app.kubernetes.io/name, the chart's name (the label above
 # the release's app.kubernetes.io/instance), which differs from the release name when that only
 # contains the chart's.
-app_name="$(awk -v rel="$SERVICE_NAME" '/^[[:space:]]*app\.kubernetes\.io\/name:/ { n = $2; next }
+app_name="$(awk -v rel="$RELEASE" '/^[[:space:]]*app\.kubernetes\.io\/name:/ { n = $2; next }
   /^[[:space:]]*app\.kubernetes\.io\/instance:/ && n != "" && $2 == rel { print n } { n = "" }' <<<"$manifest" | tr -d '"' | sort -u)"
-[[ -n "$app_name" && "$app_name" != *$'\n'* ]] || fail "cannot tell the app.kubernetes.io/name of ${SERVICE_NAME} from its render"
+[[ -n "$app_name" && "$app_name" != *$'\n'* ]] || fail "cannot tell the app.kubernetes.io/name of ${RELEASE} from its render"
 renders() { grep -qE "^[[:space:]]*app\.kubernetes\.io/component: \"?${1}\"?[[:space:]]*$" <<<"$manifest"; }
 components=()
 for id in ${DEPLOY_IMAGES//,/ }; do
@@ -116,34 +143,36 @@ for id in ${DEPLOY_IMAGES//,/ }; do
 done
 
 # 2. the revision to return to
-history="$(helm history "$SERVICE_NAME" -n "$NAMESPACE" -o json 2>/dev/null || echo '[]')"
+history="$(helm history "$RELEASE" -n "$NAMESPACE" -o json 2>/dev/null || echo '[]')"
 recorded="$(jq -r '[.[] | select(.status == "deployed")] | last | .revision // empty' <<<"$history")"
 echo "last deployed revision before this deploy: ${recorded:-none (first install)}"
 
 # 2b. A failed FIRST install is uninstalled and the retry is revision 1 again, with the same Job name;
 # Helm would adopt the kept, Failed Job and fail at once. Remove this release's Failed migration Jobs.
 if [[ -z "$recorded" ]]; then
-  migration_job_purge_failed "$NAMESPACE" "$SERVICE_NAME" || echo "warning: could not clear old migration Jobs" >&2
+  migration_job_purge_failed "$NAMESPACE" "$RELEASE" || echo "warning: could not clear old migration Jobs" >&2
 fi
 
 # 3. deploy. The migration Job carries helm.sh/resource-policy keep, so Helm's own rollback leaves
 # a failed Job (and its Pods) in place: print its status and logs before failing.
 helm_rc=0
-helm upgrade --install "$SERVICE_NAME" "$CHART_DIR" "${release_values[@]}" \
+helm upgrade --install "$RELEASE" "$CHART_DIR" "${release_values[@]}" \
   --namespace "$NAMESPACE" \
   --rollback-on-failure --wait --wait-for-jobs --timeout "$HELM_TIMEOUT" \
   --history-max "$HELM_HISTORY_MAX" || helm_rc=$?
 if (( helm_rc != 0 )); then
-  echo "::group::migration Job of ${SERVICE_NAME} in ${DEPLOY_ENV} (the deploy failed)"
-  migration_job_report_newest "$NAMESPACE" "$SERVICE_NAME" || true
+  echo "::group::migration Job of ${RELEASE} in ${DEPLOY_ENV} (the deploy failed)"
+  migration_job_report_newest "$NAMESPACE" "$RELEASE" || true
   echo "::endgroup::"
   exit "$helm_rc"
 fi
-helm history "$SERVICE_NAME" -n "$NAMESPACE" --max 5
+helm history "$RELEASE" -n "$NAMESPACE" --max 5
+# A preview's public URL, for the deployment record (preview.yml's environment url).
+[[ -z "$PUBLIC_URL" ]] || echo "url=${PUBLIC_URL}" >> "${GITHUB_OUTPUT:-/dev/null}"
 
 # 4. verify and smoke
 checks() {
-  RELEASE="$SERVICE_NAME" NAMESPACE="$NAMESPACE" COMPONENTS="${components[*]}" bash "$VERIFY_SCRIPT" --name "$app_name" || return 1
+  RELEASE="$RELEASE" NAMESPACE="$NAMESPACE" COMPONENTS="${components[*]}" bash "$VERIFY_SCRIPT" --name "$app_name" || return 1
   local pf rc=0
   kubectl -n "$NAMESPACE" port-forward "svc/${BACKEND_SERVICE}" "${BACKEND_PORT}:${BACKEND_PORT}" >"$WORK_DIR/pf.log" 2>&1 &
   pf=$!
@@ -154,6 +183,24 @@ checks() {
   bash "$SMOKE_SCRIPT" --base-url "http://127.0.0.1:${BACKEND_PORT}" --host "${BACKEND_SERVICE}" --path "/api/${API_VERSION}" \
     --format junit --out "$WORK_DIR/smoke-${DEPLOY_ENV}.xml" || rc=1
   kill "$pf" 2>/dev/null || true
+  (( rc == 0 )) || return 1
+  [[ -z "$PUBLIC_URL" ]] || public_smoke
+}
+
+# A preview with PREVIEW_DOMAIN: the smoke test again, through Cloudflare (the tunnel, Access and the
+# Gateway) to the release's own hostname. The Access service token goes in a header file that only
+# this user can read, removed on return; it is never on a command line or in the output.
+public_smoke() {
+  local hdr rc=1
+  hdr="$(umask 077 && mktemp "$WORK_DIR/access-headers.XXXXXX")"
+  printf 'CF-Access-Client-Id: %s\nCF-Access-Client-Secret: %s\n' "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET" > "$hdr"
+  for _ in $(seq 1 "${SMOKE_WAIT_TRIES:-30}"); do
+    curl -fsS --max-time 5 -H "@${hdr}" "${PUBLIC_URL}/api/${API_VERSION}/health" >/dev/null 2>&1 && break
+    sleep "${SMOKE_WAIT_SLEEP:-2}"
+  done
+  bash "$SMOKE_SCRIPT" --base-url "$PUBLIC_URL" --header-file "$hdr" --path "/api/${API_VERSION}" \
+    --format junit --out "$WORK_DIR/smoke-${DEPLOY_ENV}-public.xml" && rc=0
+  rm -f "$hdr"
   return "$rc"
 }
 
@@ -162,9 +209,9 @@ if ! checks; then
   if [[ -z "$recorded" ]]; then
     fail "verify or smoke failed in ${DEPLOY_ENV}, and there is no earlier deployed revision to roll back to"
   fi
-  helm rollback "$SERVICE_NAME" "$recorded" -n "$NAMESPACE" --wait --timeout "$HELM_TIMEOUT" \
+  helm rollback "$RELEASE" "$recorded" -n "$NAMESPACE" --wait --timeout "$HELM_TIMEOUT" \
     --history-max "$HELM_HISTORY_MAX"
-  echo "- Rolled $SERVICE_NAME back to revision $recorded in ${DEPLOY_ENV} after a failed verify or smoke" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-  fail "verify or smoke failed; rolled ${SERVICE_NAME} back to revision ${recorded} in ${DEPLOY_ENV}"
+  echo "- Rolled $RELEASE back to revision $recorded in ${DEPLOY_ENV} after a failed verify or smoke" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  fail "verify or smoke failed; rolled ${RELEASE} back to revision ${recorded} in ${DEPLOY_ENV}"
 fi
-echo "Deployed, verified and smoke tested: ${SERVICE_NAME} in ${DEPLOY_ENV}"
+echo "Deployed, verified and smoke tested: ${RELEASE} in ${DEPLOY_ENV}"

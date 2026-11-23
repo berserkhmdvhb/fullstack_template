@@ -24,8 +24,11 @@ def test_label_events_trigger_the_whole_workflow() -> None:
 
 
 def test_no_job_is_conditioned_on_the_event_action_or_a_label() -> None:
-    """A label event must run every job, or `CI OK` could pass over failing tests."""
+    """A label event must run every job, or `CI OK` could pass over failing tests. preview.yml is
+    no check (CI OK never needs it): its `preview` label is what turns a preview on and off."""
     for path in sorted(WORKFLOWS.glob("*.yml")):
+        if path.name == "preview.yml":
+            continue
         for name, j in load(path).get("jobs", {}).items():
             condition = str(j.get("if", ""))
             assert not re.search(r"event\.action|labeled|label", condition), f"{path.name}:{name}"

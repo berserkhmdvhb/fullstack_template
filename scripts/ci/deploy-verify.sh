@@ -11,7 +11,9 @@
 #   5. the backend and frontend health routes answer: each Pod is asked over a port-forward with the
 #      runner's curl, so no command runs inside a Pod and no ingress is needed
 # Pods being deleted (deletionTimestamp set) are skipped in checks 3 to 5: after `helm --wait` the old
-# ReplicaSet's pods can still be draining with the old image.
+# ReplicaSet's pods can still be draining with the old image. Checks 3 to 5 select this release's Pods
+# only (app.kubernetes.io/instance=RELEASE): the preview namespace holds one release per pull request,
+# and another release's Pods must neither fail nor pass this one's checks.
 #
 # Inputs, flags win over env (a missing or malformed one exits 2):
 #   --release R        RELEASE        Helm release name
@@ -78,7 +80,7 @@ else
 fi
 
 echo "== Check 3: Pod status =="
-pods="$("${K[@]}" get pods -l "app.kubernetes.io/name=${SERVICE_NAME},!batch.kubernetes.io/job-name" \
+pods="$("${K[@]}" get pods -l "app.kubernetes.io/name=${SERVICE_NAME},app.kubernetes.io/instance=${RELEASE},!batch.kubernetes.io/job-name" \
   -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.status.phase}{"|"}{.metadata.deletionTimestamp}{"\n"}{end}')"
 live=0
 while IFS='|' read -r name phase deleting; do
@@ -92,7 +94,7 @@ echo "all pods Running"
 
 echo "== Check 4: Image digests =="
 for c in $COMPONENTS; do
-  lines="$("${K[@]}" get pods -l "app.kubernetes.io/component=${c}" \
+  lines="$("${K[@]}" get pods -l "app.kubernetes.io/component=${c},app.kubernetes.io/instance=${RELEASE}" \
     -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.metadata.deletionTimestamp}{"|"}{range .status.containerStatuses[*]}{.imageID}{" "}{end}{"\n"}{end}')"
   seen=0
   while IFS='|' read -r pod deleting ids; do
@@ -116,7 +118,7 @@ http_ok() {
 # Forward a random local port to one live Pod of the component, ask it, then stop the forward.
 health() {
   local comp="$1" port="$2" path="$3" pod log pf local_port="" ok=1 i
-  pod="$("${K[@]}" get pods -l "app.kubernetes.io/component=${comp}" \
+  pod="$("${K[@]}" get pods -l "app.kubernetes.io/component=${comp},app.kubernetes.io/instance=${RELEASE}" \
     -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.metadata.deletionTimestamp}{"\n"}{end}' \
     | awk -F'|' '$1 != "" && $2 == "" && !n++ {print $1}')"
   [[ -n "$pod" ]] || fail "no $comp pod to check"

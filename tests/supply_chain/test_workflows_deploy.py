@@ -15,7 +15,7 @@ from tests.supply_chain._workflows import ACTIONS, REPO, WORKFLOWS, load, steps_
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-DEPLOY_ENVIRONMENT_JOBS = 4  # jobs that log in to the cluster
+DEPLOY_ENVIRONMENT_JOBS = 7  # cluster logins: deploy.yml 3, deploy-ops.yml 1, preview.yml 3
 SHA256_HEX_LENGTH = 64
 COMPOSITE = "./.github/actions/cluster-access"
 DEPLOY_JOBS = ("deploy-dev", "deploy-qa", "deploy-production")
@@ -186,6 +186,10 @@ def test_only_wif_and_signing_jobs_hold_id_token() -> None:
         ("deploy.yml", "deploy-qa"),
         ("deploy.yml", "deploy-production"),
         ("deploy-ops.yml", "ops"),
+        # The pull request previews' cluster logins, each behind the preview environment.
+        ("preview.yml", "deploy"),
+        ("preview.yml", "cleanup"),
+        ("preview.yml", "sweep"),
         ("scorecard.yml", "analysis"),  # OIDC token for the published Scorecard results
     }
 
@@ -272,21 +276,21 @@ def test_the_script_deploys_by_digest_and_rolls_back_to_the_recorded_revision() 
     # The one --set is the placeholder guard; every other value comes from a values file.
     assert SCRIPT.count("--set") == 1
     assert 'select(.status == "deployed")' in SCRIPT
-    assert 'helm rollback "$SERVICE_NAME" "$recorded"' in SCRIPT
+    assert 'helm rollback "$RELEASE" "$recorded"' in SCRIPT
     assert "helm rollback" in SCRIPT
     assert (
         SCRIPT.index('recorded="$(')
-        < SCRIPT.index('helm upgrade --install "$SERVICE_NAME"')
+        < SCRIPT.index('helm upgrade --install "$RELEASE"')
         < SCRIPT.index("if ! checks")
-        < SCRIPT.index('helm rollback "$SERVICE_NAME"')
+        < SCRIPT.index('helm rollback "$RELEASE"')
     )
     assert "no earlier deployed revision" in SCRIPT
-    assert 'case "$DEPLOY_ENV" in dev|qa|production' in SCRIPT
+    assert 'case "$DEPLOY_ENV" in\n  dev|qa|production)' in SCRIPT
 
 
 def test_the_deploy_refuses_placeholder_values() -> None:
     """Only the real deploy turns the chart's placeholder guard on; CI renders leave it off."""
-    upgrade = SCRIPT[SCRIPT.index('helm upgrade --install "$SERVICE_NAME"') :]
+    upgrade = SCRIPT[SCRIPT.index('helm upgrade --install "$RELEASE"') :]
     upgrade = upgrade[: upgrade.index("|| helm_rc=$?")]
     # The upgrade takes the discovery render's values plus the guard. The discovery render runs
     # before the release digests are set, so it leaves the guard off (it is not a deploy).
@@ -297,7 +301,7 @@ def test_the_deploy_refuses_placeholder_values() -> None:
     discovery = re.search(r"^discovery_values=\((.*)\)$", SCRIPT, re.MULTILINE)
     assert discovery
     assert "rejectPlaceholders" not in discovery.group(1)
-    assert 'helm template "$SERVICE_NAME" "$CHART_DIR" "${discovery_values[@]}"' in SCRIPT
+    assert 'helm template "$RELEASE" "$CHART_DIR" "${discovery_values[@]}"' in SCRIPT
     chart_ci = (WORKFLOWS / "reusable-chart.yml").read_text(encoding="utf-8")
     assert "rejectPlaceholders" not in chart_ci
 

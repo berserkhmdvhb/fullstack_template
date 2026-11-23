@@ -370,3 +370,34 @@ def test_main_writes_digests_json(
     assert m.main(["x", str(tmp_path)], api) == 0
     (img,) = json.loads((tmp_path / "digests.json").read_text())["images"]
     assert img["short"] == "1" * 12
+
+
+def test_deployed_prints_what_dev_runs_as_the_deploys_digests(
+    api: Api, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """preview.yml's source of the main-built digests: dev's newest release deployment."""
+    m = _mod()
+    api.deploy("dev", (7, "main", "aaa", f"{URL}/100/job/1001"))
+    api.run(100, RELEASE_PATH)
+    api.artifact(100, 1000, _digests(D1))
+    monkeypatch.setenv("GH_REPO", REPO)
+    assert m.main(["x", "--deployed", "dev"], api) == 0
+    assert json.loads(capsys.readouterr().out) == {"BACKEND_IMAGE_DIGEST": D1}
+
+
+@pytest.mark.parametrize("path", [OPS_PATH, ".github/workflows/preview.yml", None])
+def test_deployed_fails_when_what_dev_runs_is_unknown(
+    api: Api, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], path: str | None
+) -> None:
+    """A rollback, a run of another workflow (a pull request's own, say) or no deployment at all:
+    no digests, and a non-zero exit, never a guess."""
+    m = _mod()
+    if path:
+        api.deploy("dev", (7, "main", "aaa", f"{URL}/100/job/1001"))
+        api.run(100, path)
+        api.artifact(100, 1000, _digests(D1))
+    monkeypatch.setenv("GH_REPO", REPO)
+    assert m.main(["x", "--deployed", "dev"], api) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("dev: ")

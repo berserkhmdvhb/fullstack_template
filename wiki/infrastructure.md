@@ -160,7 +160,9 @@ the deployer needs no cluster-scoped rights and no RBAC rights at all.
 - the app's own Role and RoleBinding (its ServiceAccount reads ConfigMaps), rendered from the chart's
   `templates/rbac.yaml` with `helm template --show-only`, so their rules have one source.
 
-**Render and apply it,** per environment (`dev`, `qa`, `production`, or `local` for a local cluster):
+**Pull request previews** (optional, off by default; [CI/CD](./ci-cd.md#pull-request-previews)) are the environment `preview`, rendered only when you ask for it (`scripts/k8s-bootstrap.sh preview`, on the dev cluster): one namespace `<release>-preview` for every preview release, its database namespace, a quota sized for three previews (`quotaReleases`), a deployer of its own, and the ServiceAccount the releases share (`sharedServiceAccount`; the chart there runs with `serviceAccount.create: false`). Its app namespace's `tier` is `preview-app` (`appTier`, equal to the chart's `namespaces.appTier`; a test keeps them equal), so the other environments' databases, which admit `app-ns`, never admit a preview's Pods.
+
+**Render and apply it,** per environment (`dev`, `qa`, `production`, `preview`, or `local` for a local cluster):
 
 ```bash
 scripts/k8s-bootstrap.sh dev > bootstrap-dev.yaml      # prints YAML; never contacts a cluster
@@ -315,6 +317,7 @@ make kind-deploy                 # the full sequence below; KIND_BASE=<ref> adds
 make kind-shutdown-test         # after kind-deploy: Pods deleted under load fail no request (Workloads, below)
 make kind-migration-test        # after kind-deploy: the migration lifecycle on a release of its own (database.md)
 make kind-deploy-env-test       # after kind-deploy: scripts/ci/deploy-env.sh itself on a release of its own (ci-cd.md)
+make kind-preview-test          # after kind-deploy: pull request previews in namespaces of their own (ci-cd.md)
 make kind-admission-test        # after kind-up: the image admission policy with its own Kyverno (admission-control.md)
 make kind-live                   # after kind-deploy: the live suites (make test-live) against the release
 make kind-smoke                  # after kind-deploy: the smoke test against the public forward
@@ -388,6 +391,7 @@ request's base commit>`, the scripts `make kind-up` and `make kind-deploy` run, 
 `make kind-shutdown-test` ([graceful shutdown](#workloads-rollout-resources-and-shutdown)), and on the floor leg
 `make kind-migration-test` ([the migration lifecycle](./database.md#proven-on-kind)), and on the newest leg
 `make kind-deploy-env-test` ([the deploy script](./ci-cd.md#proven-on-kind)),
+`make kind-preview-test` ([pull request previews](./ci-cd.md#previews-proven-on-kind)),
 `make kind-admission-test` ([the admission policy](./admission-control.md#proven-on-kind)) and
 `make kind-tracing-redis-test` ([tracing](./backend-architecture.md#tracing) and
 [the Redis rate limit](./security.md#backend-rate-limiting), on a release of its own). It always deletes the

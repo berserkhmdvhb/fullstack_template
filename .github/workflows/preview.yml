@@ -1,0 +1,244 @@
+name: Preview
+
+# Optional pull request previews on the dev cluster, off unless the repository variable
+# PREVIEWS_ENABLED is 'true' (wiki/ci-cd.md, Pull request previews). A same-repository pull request
+# (never a fork) with the `preview` label deploys its chart and values as the Helm release
+# <SERVICE_NAME>-pr-<N> in the one preview namespace, with the images dev runs (main-built, signed,
+# by digest; never an image built from the pull request). Closing the pull request or removing the
+# label uninstalls it, and a daily sweep removes the previews of closed pull requests and those older
+# than vars.PREVIEW_TTL_DAYS (default 7). The pull_request trigger only, never the base-context one:
+# the jobs run the pull request's own code, so the gate is the `preview` environment (its protection
+# rules, the Workload Identity condition on its subject) and the preview deployer's namespace-scoped
+# rights.
+# Environment `preview`: the cluster variables of deploy.yml (DEPLOY_MODE, GCP_WIF_PROVIDER,
+# GCP_DEPLOYER_SA, GCP_PROJECT_ID, GKE_CLUSTER, GKE_LOCATION; the secret KUBECONFIG_B64), PREVIEW_DOMAIN
+# (optional: the public hostnames, see scripts/ci/deploy-env.sh) and, with it, the Access service
+# token secrets CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.
+on:
+  pull_request:
+    types: [labeled, unlabeled, synchronize, reopened, closed]
+  schedule:
+    - cron: "23 4 * * *"
+
+permissions: {}
+
+# One run at a time per pull request (a deploy and its cleanup never overlap), one sweep at a time.
+concurrency:
+  group: preview-${{ github.event.pull_request.number || 'sweep' }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SERVICE_NAME: ${{ vars.SERVICE_NAME || 'your-service-name' }}
+  CHART_DIR: charts/your-service-name
+  # deploy.yml's images and ports (the release builds these; the WAF's renders only with waf.enabled).
+  DEPLOY_IMAGES: backend,frontend,waf
+  BACKEND_PORT: "8000"
+  FRONTEND_PORT: "3000"
+  API_VERSION: v1
+
+jobs:
+  # What dev runs, from its deployment record: the release workflow's digests, so only main-built
+  # (or v* tag) images, which the admission policy admits by their signature.
+  digests:
+    name: Digests dev runs
+    if: >-
+      vars.PREVIEWS_ENABLED == 'true' && github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
+      && github.event.action != 'closed' && github.event.action != 'unlabeled'
+      && contains(github.event.pull_request.labels.*.name, 'preview')
+      && (github.event.action != 'labeled' || github.event.label.name == 'preview')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read # the release run's image-digests artifact
+      deployments: read # dev's latest successful deployment
+    outputs:
+      digests: ${{ steps.dev.outputs.digests }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read the digests dev runs
+        id: dev
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          digests="$(python3 scripts/rescan_collect.py --deployed dev)"
+          echo "digests=${digests}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy the preview
+    needs: [digests]
+    if: >-
+      vars.PREVIEWS_ENABLED == 'true' && github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
+      && github.event.action != 'closed' && github.event.action != 'unlabeled'
+      && contains(github.event.pull_request.labels.*.name, 'preview')
+      && (github.event.action != 'labeled' || github.event.label.name == 'preview')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # The deployment record links the preview's public URL (empty without PREVIEW_DOMAIN).
+    environment:
+      name: preview
+      url: ${{ steps.deploy.outputs.url }}
+    permissions:
+      contents: read
+      id-token: write  # Workload Identity Federation (OIDC token for the cloud login)
+    env:
+      DEPLOY_ENV: preview
+      PREVIEW_PR: ${{ github.event.pull_request.number }}
+      HELM_TIMEOUT: ${{ vars.HELM_TIMEOUT || '5m' }}
+      # The digests decide what runs; the tag is a label (dev's, whose images these are).
+      IMAGE_TAG: dev
+      DIGESTS: ${{ needs.digests.outputs.digests }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Helm and kubectl
+        run: |
+          scripts/tools.sh install helm4 kubectl
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cluster-access
+        with:
+          mode: ${{ vars.DEPLOY_MODE || 'gke' }}
+          wif_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_LOCATION }}
+          kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
+      # container_matrix.py imports PyYAML; this job has no setup-python, so a hashed venv supplies it.
+      - name: Install PyYAML for the matrix helper
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pyyaml"
+          "$RUNNER_TEMP/pyyaml/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pyyaml.txt
+      # Digest-pinned upgrade, verify, smoke (and, with PREVIEW_DOMAIN, through Cloudflare Access), and
+      # rollback to the recorded revision: all in the script.
+      - name: Deploy, verify and smoke test
+        id: deploy
+        env:
+          MATRIX_CMD: ${{ runner.temp }}/pyyaml/bin/python ${{ github.workspace }}/.github/scripts/container_matrix.py
+          PREVIEW_DOMAIN: ${{ vars.PREVIEW_DOMAIN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: bash scripts/ci/deploy-env.sh
+      - name: Upload the smoke reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: smoke-preview-pr-${{ github.event.pull_request.number }}
+          path: ${{ runner.temp }}/smoke-preview*.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove the kubeconfig
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/kubeconfig"
+
+  # Closed, or the label removed: the release goes (scripts/ci/preview-cleanup.sh --pr).
+  cleanup:
+    name: Remove the preview
+    if: >-
+      vars.PREVIEWS_ENABLED == 'true' && github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
+      && ((github.event.action == 'closed' && contains(github.event.pull_request.labels.*.name, 'preview'))
+      || (github.event.action == 'unlabeled' && github.event.label.name == 'preview'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: preview
+    permissions:
+      contents: read
+      id-token: write  # Workload Identity Federation (OIDC token for the cloud login)
+    env:
+      HELM_TIMEOUT: ${{ vars.HELM_TIMEOUT || '5m' }}
+      PREVIEW_PR: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Helm and kubectl
+        run: |
+          scripts/tools.sh install helm4 kubectl
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cluster-access
+        with:
+          mode: ${{ vars.DEPLOY_MODE || 'gke' }}
+          wif_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_LOCATION }}
+          kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
+      - name: Uninstall the release
+        run: bash scripts/ci/preview-cleanup.sh --pr "${PREVIEW_PR}"
+      - name: Remove the kubeconfig
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/kubeconfig"
+
+  # The daily sweep's input: the open pull requests (the default branch's workflow, on schedule).
+  open-prs:
+    name: Open pull requests
+    if: vars.PREVIEWS_ENABLED == 'true' && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # the open pull request numbers
+    outputs:
+      numbers: ${{ steps.list.outputs.numbers }}
+    steps:
+      - name: List the open pull requests
+        id: list
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          numbers="$(gh pr list --state open --limit 1000 --json number --jq '[.[].number] | join(" ")')"
+          echo "numbers=${numbers}" >> "$GITHUB_OUTPUT"
+
+  sweep:
+    name: Sweep the previews
+    needs: [open-prs]
+    if: vars.PREVIEWS_ENABLED == 'true' && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: preview
+    permissions:
+      contents: read
+      id-token: write  # Workload Identity Federation (OIDC token for the cloud login)
+    env:
+      HELM_TIMEOUT: ${{ vars.HELM_TIMEOUT || '5m' }}
+      OPEN_PRS: ${{ needs.open-prs.outputs.numbers }}
+      PREVIEW_TTL_DAYS: ${{ vars.PREVIEW_TTL_DAYS || '7' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned Helm and kubectl
+        run: |
+          scripts/tools.sh install helm4 kubectl
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cluster-access
+        with:
+          mode: ${{ vars.DEPLOY_MODE || 'gke' }}
+          wif_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_LOCATION }}
+          kubeconfig_b64: ${{ secrets.KUBECONFIG_B64 }}
+      - name: Remove closed and expired previews
+        run: bash scripts/ci/preview-cleanup.sh --sweep
+      - name: Remove the kubeconfig
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/kubeconfig"

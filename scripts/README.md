@@ -286,6 +286,8 @@ or JUnit (for CI). Exit code is non-zero on any failure.
 # a release whose backend checks the Host header (dev, qa, production; the local values allow
 # localhost): send the backend Service name as Host, as the frontend does in-cluster
 ./scripts/smoke-test.sh --base-url http://localhost:8000 --host <release>-backend
+# behind Cloudflare Access: the service token's two headers from a file only you can read
+./scripts/smoke-test.sh --base-url https://<host> --header-file <file>
 ```
 
 Checks: `GET /health`, `GET /healthz`, `POST /echo` round-trip,

@@ -310,14 +310,23 @@ def test_the_registry_tests_have_no_identity_login_or_secret() -> None:
     login or a secret."""
     job = _kind()
     assert "id-token" not in job["permissions"]
-    for prefix in ("Image admission", "Deploy script", "Migration lifecycle"):
+    for prefix in (
+        "Image admission",
+        "Deploy script",
+        "Pull request previews",
+        "Migration lifecycle",
+    ):
         step = _step(next(n for n in _names() if n.startswith(prefix)))
         assert set(step) <= {"name", "if", "timeout-minutes", "run"}, step  # no env, no action
         assert "${{" not in step["run"], step  # no secret or token reaches it
     pushers = _registry_pushers()
-    assert {"_kube.py", "test_admission.py", "test_deploy_env.py", "test_migrations.py"} <= {
-        p.name for p in pushers
-    }
+    assert {
+        "_kube.py",
+        "test_admission.py",
+        "test_deploy_env.py",
+        "test_migrations.py",
+        "test_previews.py",
+    } <= {p.name for p in pushers}
     for path in pushers:
         test = path.read_text(encoding="utf-8")
         for word in (
@@ -393,3 +402,18 @@ def test_the_deploy_script_test_runs_on_the_newest_leg_after_the_shutdown_check(
     assert set(step) <= {"name", "if", "timeout-minutes", "run"}, step
     assert names.index(SHUTDOWN) < names.index(name) < names.index(ZAP)
     assert "tests/k8s/test_deploy_env.py" in _recipe("kind-deploy-env-test")
+
+
+def test_the_preview_test_runs_on_the_newest_leg_after_the_deploy_script_test() -> None:
+    """Blocking, after the deploy script test (the path it shares) and the steps that check the main
+    release, before ZAP; its own make target and timeout, no env, action or secret."""
+    names = _names()
+    name = next(n for n in names if n.startswith("Pull request previews"))
+    step = _step(name)
+    assert step["run"] == "make kind-preview-test"
+    assert step["if"] == "matrix.leg == 'newest'"
+    assert "continue-on-error" not in step
+    assert set(step) <= {"name", "if", "timeout-minutes", "run"}, step
+    deploy_script = next(n for n in names if n.startswith("Deploy script"))
+    assert names.index(SHUTDOWN) < names.index(deploy_script) < names.index(name) < names.index(ZAP)
+    assert "tests/k8s/test_previews.py" in _recipe("kind-preview-test")

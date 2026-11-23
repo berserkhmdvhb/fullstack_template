@@ -36,3 +36,26 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$output" == *"--host NAME"* ]]
 }
+
+@test "--header-file sends the file's headers on every request, never their values on a command line" {
+  printf 'CF-Access-Client-Id: an-id\nCF-Access-Client-Secret: a-secret\n' > "$BATS_TEST_TMPDIR/h"
+  run bash "$SCRIPT" --base-url https://pr.example.org --header-file "$BATS_TEST_TMPDIR/h"
+  calls="$(grep -c -- '%{http_code}' "$LOG")"
+  [ "$calls" -ge 6 ]
+  [ "$(grep -c -- "-H @$BATS_TEST_TMPDIR/h" "$LOG")" -eq "$calls" ]
+  run grep -c -e a-secret -e an-id "$LOG"
+  [ "$output" = "0" ]
+  [[ "$(bash "$SCRIPT" --base-url https://pr.example.org --header-file "$BATS_TEST_TMPDIR/h" --dry-run 2>&1)" != *a-secret* ]]
+}
+
+@test "--header-file refuses a missing file before any request" {
+  run bash "$SCRIPT" --base-url https://pr.example.org --header-file "$BATS_TEST_TMPDIR/none"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not a readable file"* ]]
+  [ ! -s "$LOG" ]
+}
+
+@test "the usage text documents --header-file" {
+  run bash "$SCRIPT" --help
+  [[ "$output" == *"--header-file FILE"* ]]
+}

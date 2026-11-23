@@ -22,16 +22,17 @@ case "$1" in
     echo "$STUB_HISTORY" ;;
   upgrade) exit "${STUB_UPGRADE_RC:-0}" ;;
   template|get) [[ "$1" == template || -z "${STUB_NO_RELEASE-}" ]] || { echo "Error: release: not found" >&2; exit 1; }
+       rel="$2"; [[ "$1" == template ]] || rel="$3"  # the release: helm template REL, helm get manifest REL
        printf -- '---\nkind: Job\nmetadata:\n  name: svc-migrate-r2\n  labels:\n    app.kubernetes.io/component: migration\n'
        # Each entry is <component label>[=<image id>]: a Deployment with that label running that image,
        # by tag, or by digest with STUB_REF=digest (a values file that already pins one).
        ref=":t1"; [[ "${STUB_REF-}" != digest ]] || ref="@sha256:$(printf '0%.0s' {1..64})"
        for e in ${STUB_RENDERED-backend frontend web-ui}; do
          c="${e%%=*}" i="${e#*=}"
-         printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-%s\n  labels:\n    app.kubernetes.io/name: '"${STUB_NAME-svc-chart}"'\n    app.kubernetes.io/instance: svc\n    app.kubernetes.io/component: %s\nspec:\n  template:\n    spec:\n      containers:\n        - name: %s\n          image: ghcr.io/o/r/%s%s\n' "$c" "$c" "$c" "$i" "$ref"
+         printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-%s\n  labels:\n    app.kubernetes.io/name: '"${STUB_NAME-svc-chart}"'\n    app.kubernetes.io/instance: %s\n    app.kubernetes.io/component: %s\nspec:\n  template:\n    spec:\n      containers:\n        - name: %s\n          image: ghcr.io/o/r/%s%s\n' "$c" "$rel" "$c" "$c" "$i" "$ref"
        done
        # STUB_EXTRA_NAME: one more Deployment of this release under another app.kubernetes.io/name.
-       [[ -z "${STUB_EXTRA_NAME-}" ]] || printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-extra\n  labels:\n    app.kubernetes.io/name: %s\n    app.kubernetes.io/instance: svc\n' "$STUB_EXTRA_NAME" ;;
+       [[ -z "${STUB_EXTRA_NAME-}" ]] || printf -- '---\nkind: Deployment\nmetadata:\n  name: svc-extra\n  labels:\n    app.kubernetes.io/name: %s\n    app.kubernetes.io/instance: %s\n' "$STUB_EXTRA_NAME" "$rel" ;;
 esac
 STUB
   cat > "$B/kubectl" <<'STUB'
@@ -65,6 +66,14 @@ STUB
   cat > "$BATS_TEST_TMPDIR/smoke.sh" <<'STUB'
 #!/usr/bin/env bash
 echo "smoke $*" >> "$LOG"
+# A header file: its mode and lines, as the smoke test would send them.
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == --header-file ]]; then
+    echo "header-file mode $(stat -c %a "$2")" >> "$LOG"
+    sed 's/^/header-file: /' "$2" >> "$LOG"
+  fi
+  shift
+done
 exit "${STUB_SMOKE_RC:-0}"
 STUB
   chmod +x "$B"/* "$BATS_TEST_TMPDIR"/*.sh
@@ -357,4 +366,114 @@ STUB
   run grep -q "values.kind.yaml" "$LOG"
   [ "$status" -ne 0 ]
   grep -q "^verify .*NAMESPACE=svc-kind" "$LOG"
+}
+
+# ---- DEPLOY_ENV=preview: a pull request's release in the one preview namespace ----------------
+
+@test "preview: the release <service>-pr-<N> in <service>-preview, values.preview.yaml, its own hosts, the guard on" {
+  DEPLOY_ENV=preview PREVIEW_PR=42 run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  grep "^helm upgrade --install svc-pr-42 charts/x" "$LOG" |
+    grep -qF -- "-f charts/x/values.preview.yaml -f $WORK_DIR/preview-hosts.json -f $WORK_DIR/image-values.json --set guards.rejectPlaceholders=true --namespace svc-preview"
+  [ "$(jq -c .edge.hosts "$WORK_DIR/preview-hosts.json")" = '{"root":"svc-pr-42.invalid","api":"svc-pr-42-api.invalid","app":"svc-pr-42-app.invalid"}' ]
+  grep -q "^helm template svc-pr-42 charts/x" "$LOG"
+  grep -q "^helm history svc-pr-42 -n svc-preview" "$LOG"
+  grep -q "^verify .*RELEASE=svc-pr-42 NAMESPACE=svc-preview ARGS=--name svc-chart$" "$LOG"
+  grep -q "port-forward svc/svc-pr-42-backend 8000:8000" "$LOG"
+  grep -q "^smoke --base-url http://127.0.0.1:8000 --host svc-pr-42-backend " "$LOG"
+  run grep -q -- "--header-file" "$LOG"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"url="* ]]
+}
+
+@test "preview: a failed check rolls the pull request's release back, in the preview namespace" {
+  DEPLOY_ENV=preview PREVIEW_PR=42 STUB_VERIFY_RC=1 run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  grep -q "helm rollback svc-pr-42 2 -n svc-preview --wait --timeout 5m" "$LOG"
+}
+
+@test "preview with PREVIEW_DOMAIN: the public hosts, the URL output, and the smoke through Access from a private header file" {
+  export GITHUB_OUTPUT="$BATS_TEST_TMPDIR/out"
+  DEPLOY_ENV=preview PREVIEW_PR=7 PREVIEW_DOMAIN=preview.example.org \
+    CF_ACCESS_CLIENT_ID=id-123.access CF_ACCESS_CLIENT_SECRET=s3cr3t-value run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ "$(jq -r .edge.hosts.root "$WORK_DIR/preview-hosts.json")" = svc-pr-7.preview.example.org ]
+  [ "$(jq -r .edge.hosts.api "$WORK_DIR/preview-hosts.json")" = svc-pr-7-api.preview.example.org ]
+  grep -qx "url=https://svc-pr-7.preview.example.org" "$GITHUB_OUTPUT"
+  grep -q "^smoke --base-url https://svc-pr-7.preview.example.org --header-file $WORK_DIR/access-headers\.[^ ]* --path /api/v1 --format junit --out $WORK_DIR/smoke-preview-public.xml$" "$LOG"
+  grep -qx "header-file mode 600" "$LOG"
+  grep -qx "header-file: CF-Access-Client-Id: id-123.access" "$LOG"
+  grep -qx "header-file: CF-Access-Client-Secret: s3cr3t-value" "$LOG"
+  # The secret is on no command line and in no output, and the header file is gone.
+  run grep -c "s3cr3t-value" "$LOG"
+  [ "$output" = 1 ]
+  [[ "$(bash -c 'cat "$1"' _ "$LOG" | grep -v '^header-file: ')" != *s3cr3t-value* ]]
+  run bash -c 'ls "$1"/access-headers.* 2>/dev/null' _ "$WORK_DIR"
+  [ -z "$output" ]
+}
+
+@test "preview with PREVIEW_DOMAIN: a failed public smoke fails the checks and rolls back" {
+  cat > "$BATS_TEST_TMPDIR/smoke.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "smoke $*" >> "$LOG"
+[[ "$*" != *--header-file* ]]
+STUB
+  DEPLOY_ENV=preview PREVIEW_PR=7 PREVIEW_DOMAIN=preview.example.org \
+    CF_ACCESS_CLIENT_ID=i CF_ACCESS_CLIENT_SECRET=s run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  grep -q "helm rollback svc-pr-7 2 -n svc-preview" "$LOG"
+  run bash -c 'ls "$1"/access-headers.* 2>/dev/null' _ "$WORK_DIR"
+  [ -z "$output" ]
+}
+
+@test "preview with PREVIEW_DOMAIN but without the Access service token is refused before any call" {
+  for v in CF_ACCESS_CLIENT_ID=i CF_ACCESS_CLIENT_SECRET=s; do
+    : > "$LOG"
+    run env "$v" DEPLOY_ENV=preview PREVIEW_PR=7 PREVIEW_DOMAIN=preview.example.org bash "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET"* ]]
+    [ ! -s "$LOG" ]
+  done
+}
+
+@test "preview is refused without PREVIEW_PR, and PREVIEW_PR without preview (or kind)" {
+  DEPLOY_ENV=preview run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"needs PREVIEW_PR"* ]]
+  for e in dev qa production; do
+    DEPLOY_ENV="$e" PREVIEW_PR=7 run bash "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"PREVIEW_PR is for DEPLOY_ENV=preview only"* ]]
+  done
+  [ ! -s "$LOG" ]
+}
+
+@test "preview refuses a PREVIEW_PR that is not a pull request number, and a bad PREVIEW_DOMAIN" {
+  for pr in 0 07 -1 "7,x=1" "7 8" abc; do
+    DEPLOY_ENV=preview PREVIEW_PR="$pr" run bash "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"PREVIEW_PR must be a pull request number"* ]]
+  done
+  for d in "Example.org" "a..b" "x/y" "-a.org" "a.org,edge.mode=x"; do
+    DEPLOY_ENV=preview PREVIEW_PR=7 PREVIEW_DOMAIN="$d" CF_ACCESS_CLIENT_ID=i CF_ACCESS_CLIENT_SECRET=s run bash "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"PREVIEW_DOMAIN must be a lower-case DNS name"* ]]
+  done
+  [ ! -s "$LOG" ]
+}
+
+@test "kind with PREVIEW_PR: the preview's release and namespace, the kind values (the test-only seam)" {
+  DEPLOY_ENV=kind DEPLOY_ENV_KIND_TEST=1 KIND_VALUES="/k/a.yaml" PREVIEW_PR=3 run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  grep "^helm upgrade --install svc-pr-3 charts/x" "$LOG" |
+    grep -qF -- "-f charts/x/values.local.yaml -f /k/a.yaml -f $WORK_DIR/preview-hosts.json -f $WORK_DIR/image-values.json --set guards.rejectPlaceholders=true --namespace svc-preview"
+  run grep -q "values.preview.yaml" "$LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "kind with PREVIEW_PR is still refused without the flag" {
+  DEPLOY_ENV=kind PREVIEW_PR=3 run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"test-only"* ]]
+  [ ! -s "$LOG" ]
 }

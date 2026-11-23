@@ -14,7 +14,7 @@ from tests.backend.test_chart_request_limits import ENVS, rendered_config
 
 # script -> the variable that names the release, as the script defines it
 SCRIPTS = {
-    "scripts/ci/deploy-env.sh": "SERVICE_NAME",
+    "scripts/ci/deploy-env.sh": "RELEASE",
     "scripts/e2e.sh": "HELM_RELEASE",
 }
 RELEASE = "your-service-name"

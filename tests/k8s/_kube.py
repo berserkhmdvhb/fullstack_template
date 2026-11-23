@@ -62,11 +62,12 @@ def _tool(name: str) -> str:
     return path
 
 
-def deployer() -> str:
-    """The bootstrap's deployer (infra/k8s/bootstrap, the local env), as kind-deploy.sh reads it."""
+def deployer(env: str = "local") -> str:
+    """The bootstrap's deployer (infra/k8s/bootstrap, the local env by default), as kind-deploy.sh
+    reads it."""
     boot = ROOT / "infra" / "k8s" / "bootstrap"
     name = ""
-    for f in ("values.yaml", "values.local.yaml"):
+    for f in ("values.yaml", f"values.{env}.yaml"):
         name = (yaml.safe_load((boot / f).read_text()) or {}).get("deployer", {}).get("name", name)
     assert name, "no deployer name in infra/k8s/bootstrap"
     return name
@@ -277,48 +278,61 @@ def push_release_images(host: str, tls: Path, prefix: str) -> Pushed:
     return Pushed(tag, {"include": include}, digests)
 
 
-def deployer_kubectl(bin_dir: Path, kubectl: str) -> Path:
-    """A kubectl on fst as the deployer (the deploy path's kubectl), first on the PATH it gets."""
+def deployer_kubectl(bin_dir: Path, kubectl: str, user: str = "") -> Path:
+    """A kubectl on fst as the deployer (the deploy path's kubectl; ``user``, else the local
+    deployer), first on the PATH it gets."""
     bin_dir.mkdir(exist_ok=True)
     wrapper = bin_dir / "kubectl"
     wrapper.write_text(
         "#!/usr/bin/env bash\n"
         f'exec "{kubectl}" --kubeconfig "{KUBECONFIG}" --context {CONTEXT} '
-        f'--as "{deployer()}" --as-group {GROUP} "$@"\n'
+        f'--as "{user or deployer()}" --as-group {GROUP} "$@"\n'
     )
     wrapper.chmod(0o755)
     return bin_dir
 
 
-def deploy_env(
+def deployer_env(work: Path, user: str = "") -> dict[str, str]:
+    """The environment of a deploy-path script on fst: fst's kubeconfig, helm as the deployer
+    (``user``, else the local deployer), and the deployer kubectl in ``work``/bin first on the PATH
+    (deployer_kubectl writes it); no other helm context, no GitHub variable."""
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("HELM_KUBE", "GITHUB_")) and k != "RUNNER_TEMP"
+    }
+    return env | {
+        "KUBECONFIG": str(KUBECONFIG),
+        "PATH": f"{work / 'bin'}:{env['PATH']}",
+        "HELM_KUBECONTEXT": CONTEXT,
+        "HELM_KUBEASUSER": user or deployer(),
+        "HELM_KUBEASGROUPS": GROUP,
+    }
+
+
+def deploy_env(  # noqa: PLR0913 - the script's inputs, each optional but the first three
     release: str,
     work: Path,
     pushed: Pushed,
     *values: Path,
     timeout: str = "",
     verify: Path | None = None,
+    user: str = "",
+    preview_pr: int = 0,
 ) -> tuple[int, str]:
     """scripts/ci/deploy-env.sh as deploy.yml runs it, with DEPLOY_ENV=kind: helm and kubectl as
-    the deployer on fst, the pushed images by digest, the deploy workflow's default HELM_TIMEOUT,
-    KIND_VALUES the secrets, the kind values and these files. ``verify`` replaces deploy-verify.sh
-    (VERIFY_SCRIPT). Returns the exit code and the script's output."""
+    the deployer on fst (``user``, else the local deployer), the pushed images by digest, the
+    deploy workflow's default HELM_TIMEOUT, KIND_VALUES the secrets, the kind values and these
+    files. ``verify`` replaces deploy-verify.sh (VERIFY_SCRIPT); ``preview_pr`` deploys that pull
+    request's preview release (PREVIEW_PR). Returns the exit code and the script's output."""
     run = work / "run"
     run.mkdir(exist_ok=True)
     matrix = work / "matrix.sh"
     matrix.write_text(f"#!/usr/bin/env bash\necho '{json.dumps(pushed.matrix)}'\n")
     matrix.chmod(0o755)
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith(("HELM_KUBE", "GITHUB_")) and k != "RUNNER_TEMP"
-    }
+    env = deployer_env(work, user)
     config = yaml.safe_load((CHART / "values.yaml").read_text())["config"]
     env |= {
-        "KUBECONFIG": str(KUBECONFIG),
-        "PATH": f"{work / 'bin'}:{env['PATH']}",
-        "HELM_KUBECONTEXT": CONTEXT,
-        "HELM_KUBEASUSER": deployer(),
-        "HELM_KUBEASGROUPS": GROUP,
         "DEPLOY_ENV": "kind",
         "DEPLOY_ENV_KIND_TEST": "1",
         "KIND_VALUES": ":".join(str(f) for f in (SECRETS, KIND_VALUES, *values)),
@@ -336,6 +350,8 @@ def deploy_env(
     }
     if verify:
         env["VERIFY_SCRIPT"] = str(verify)
+    if preview_pr:
+        env["PREVIEW_PR"] = str(preview_pr)
     cmd = ["bash", str(DEPLOY_ENV)]
     done = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
     return done.returncode, done.stdout + done.stderr

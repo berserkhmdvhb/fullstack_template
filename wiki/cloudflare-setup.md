@@ -99,6 +99,9 @@ Decide these now. The rest of the guide uses them.
 | `preview.<domain>` | your site's previews, behind Access | now |
 | `hello.<domain>` | a temporary test service for this guide | deleted at the end of section 9 |
 | `app-dev.<domain>`, `api-dev.<domain>` | the template app's dev environment, behind Access | when the pipeline deploys it |
+| `<service>-pr-<N>.<preview-zone>` (and `-api`, `-app`) | optional pull request previews of the template app, behind Access | only if you turn previews on ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews)) |
+
+Your site's `preview.<domain>` and the app's pull request previews are different things. The app's previews need one hostname per pull request, each one label under a zone: the free Universal SSL certificate covers `<zone>` and `*.<zone>`, never a second level such as `*.preview.<domain>`.
 
 Buying the domain now just reserves the name. Pointing the apex at a live site is the publish step.
 

@@ -25,6 +25,9 @@
 #   -b, --base-url URL      base URL to test (default: http://localhost:8000)
 #       --host NAME         send "Host: NAME" on every request (a port-forward reaches the backend
 #                           as 127.0.0.1, which its ALLOWED_HOSTS refuses; send the Service name)
+#       --header-file FILE  send each "Name: value" line of FILE as a header (curl -H @FILE), for
+#                           secrets such as a Cloudflare Access service token: they stay off the
+#                           command line and out of the output, --dry-run's included
 #       --format txt|json|junit   report format (default: txt)
 #       --out FILE          write the report to FILE (in addition to stdout)
 #   -k, --insecure          allow insecure TLS (self-signed local certs)
@@ -49,6 +52,7 @@ INSECURE="false"
 TIMEOUT="10"
 PREFIX="/api/v1"
 HOST_HEADER=""
+HEADER_FILE=""
 DRY_RUN="${DRY_RUN:-false}"
 
 # Results accumulators
@@ -63,6 +67,8 @@ Options:
   -b, --base-url URL      base URL to test (default: http://localhost:8000)
       --host NAME         send "Host: NAME" on every request (a port-forward reaches the backend
                           as 127.0.0.1, which its ALLOWED_HOSTS refuses; send the Service name)
+      --header-file FILE  send each "Name: value" line of FILE as a header (curl -H @FILE);
+                          for secrets, which then stay off the command line and out of the output
       --format txt|json|junit   report format (default: txt)
       --out FILE          write the report to FILE (in addition to stdout)
   -k, --insecure          allow insecure TLS (self-signed local certs)
@@ -88,6 +94,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -b|--base-url)   BASE_URL="$2"; shift 2 ;;
     --host)          HOST_HEADER="$2"; shift 2 ;;
+    --header-file)   HEADER_FILE="$2"; shift 2 ;;
     --format)        FORMAT="$2"; shift 2 ;;
     --out)           OUT_FILE="$2"; shift 2 ;;
     -k|--insecure)   INSECURE="true"; shift ;;
@@ -104,6 +111,10 @@ BASE_URL="${BASE_URL%/}"   # strip trailing slash
 CURL_OPTS=(-sS --max-time "${TIMEOUT}" -o - -w $'\n%{http_code}')
 [ "${INSECURE}" = "true" ] && CURL_OPTS+=(-k)
 [ -n "${HOST_HEADER}" ] && CURL_OPTS+=(-H "Host: ${HOST_HEADER}")
+if [ -n "${HEADER_FILE}" ]; then
+  [ -r "${HEADER_FILE}" ] || die "--header-file ${HEADER_FILE} is not a readable file"
+  CURL_OPTS+=(-H "@${HEADER_FILE}")
+fi
 
 # curl that returns "body\n<status>" — body may be multi-line, status is last line.
 api() {                           # $1 method  $2 path  [$3 data]

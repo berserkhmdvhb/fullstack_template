@@ -42,7 +42,7 @@ Step 2 needs step 1, because the Tunnel runs inside the cluster. Steps 1 and 2 e
 
 > The repository variables and environments are set by [scripts/github-settings.sh](../scripts/github-settings.sh); see [GitHub repository settings](./github-repository-settings.md).
 
-This is the single list. Every `vars.*` and `secrets.*` that a template workflow reads is here, and the GKE guide links to it rather than repeating it. "Environment" means a GitHub environment (`dev`, `qa`, `production`); "repository" means a repository-wide variable.
+This is the single list. Every `vars.*` and `secrets.*` that a template workflow reads is here, and the GKE guide links to it rather than repeating it. "Environment" means a GitHub environment (`dev`, `qa`, `production`, and `preview` if you turn the pull request previews on: it takes the same cluster variables, with its own deployer and provider); "repository" means a repository-wide variable.
 
 | Name | Kind | Scope | Purpose | Comes from |
 |---|---|---|---|---|
@@ -60,6 +60,10 @@ This is the single list. Every `vars.*` and `secrets.*` that a template workflow
 | `BUILD_ARM64` | variable | repository | optional: `true` also builds each image for linux/arm64, on a native arm runner, and merges it with amd64 into one index; unset builds linux/amd64 only. On a private repository the arm minutes are billed ([details](./github-repository-settings.md#the-vars-file)) | you |
 | `SCORECARD_ENABLED` | variable | repository | optional: set to `false` on a private copy to skip the OpenSSF Scorecard job (it is meant for public repositories); unset by default, which runs it | you |
 | `CODE_SECURITY` | variable | repository | optional: set to `off` only on a private copy without GitHub code security (CodeQL and dependency review skip); unset by default, which runs them | you |
+| `PREVIEWS_ENABLED` | variable | repository | optional: `true` turns on the pull request previews ([CI/CD](./ci-cd.md#pull-request-previews)); unset (the default) skips every preview job | you |
+| `PREVIEW_TTL_DAYS` | variable | repository | optional: the daily sweep removes a preview last deployed this many days ago (default `7`) | you |
+| `PREVIEW_DOMAIN` | variable | environment `preview` | optional: the zone of the previews' hostnames (`<SERVICE_NAME>-pr-<N>.<PREVIEW_DOMAIN>`); unset, previews get no public URL | you |
+| `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | **secret** | environment `preview`, with `PREVIEW_DOMAIN` | the Cloudflare Access service token the smoke test sends through the preview's URL | [Cloudflare §9](./cloudflare-setup.md#9-keep-previews-private-with-cloudflare-access) |
 | `GITHUB_TOKEN` | secret | automatic | the workflow token; you set nothing | GitHub |
 
 Google Cloud needs no secret at all: GitHub Actions logs in with a short-lived token through Workload Identity Federation. The environment variables above aren't sensitive; a job reads its environment's values only after the environment's branch policy (and, for `production`, its approval) has passed.
