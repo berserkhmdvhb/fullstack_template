@@ -52,7 +52,7 @@
 #                    required: an upgrade without the secret values would empty the app's Secrets)
 #   --allow-missing  an object the release holds that was deleted on purpose, as the refusal names
 #                    it (Namespace/-/NAME, Secret/NS/NAME): go on without it (repeatable)
-#   --timeout        each upgrade's --wait (default 10m)
+#   --timeout        each upgrade's --wait (default 9m)
 #   --dry-run        check everything and print the steps and the objects it would keep; change nothing
 #   --yes            no confirmation (needed without a terminal)
 # Needs helm, kubectl, jq and the pinned yq (tools/pins.tsv), and cluster-admin rights in that context.
@@ -74,7 +74,7 @@ case "$1" in
   dev|qa|production|local) ENV_NAME="$1"; shift ;;
   *) die "unknown environment '$1' (dev, qa, production or local)" 2 ;;
 esac
-release=your-service-name namespace="" context="" timeout=10m dry_run=false yes=false env_only=false
+release=your-service-name namespace="" context="" timeout=9m dry_run=false yes=false env_only=false
 values=(-f "$CHART/values.$ENV_NAME.yaml")
 allow_missing=() boot_extra=()
 while [[ $# -gt 0 ]]; do

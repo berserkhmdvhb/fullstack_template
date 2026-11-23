@@ -174,7 +174,7 @@ mapfile -t ct_set < <(kind_args "$CHART" "$CT_NS")
 # --debug prints each helm call ct makes, so the run checks that ct's own helm install, test and
 # uninstall carry the deployer's identity (--helm-extra-args reaches every one of them).
 ct install --config .github/ct.yaml --charts "$CHART" --namespace "$CT_NS" --debug \
-  --helm-extra-args "--timeout 600s --kube-as-user $deployer --kube-as-group $GROUP" \
+  --helm-extra-args "--timeout 540s --kube-as-user $deployer --kube-as-group $GROUP" \
   --helm-extra-set-args "--values=$CHART/values.local.yaml --values=$values ${ct_set[*]}" 2>&1 | tee "$WORK/ct.log"
 ct_tests="$(grep -E "^(>>> )?helm test " "$WORK/ct.log" || true)"
 [[ "$(wc -l <<<"$ct_tests")" -ge 3 && -n "$ct_tests" ]] || die "ct ran fewer helm tests than its three ci/ values files"
@@ -192,7 +192,7 @@ deploy() { # chart dir, extra helm args...
   local rc=0
   mapfile -t args < <(kind_args "$chart" "$NS")
   helm_as upgrade --install "$RELEASE" "$chart" -n "$NS" -f "$chart/values.local.yaml" -f "$values" \
-    "${args[@]}" --history-max 5 --wait --wait-for-jobs --timeout 10m "$@" \
+    "${args[@]}" --history-max 5 --wait --wait-for-jobs --timeout 9m "$@" \
     2>&1 | tee "$WORK/helm.log" || rc=$?
   ! grep -qi forbidden "$WORK/helm.log" || die "the deployer was refused: $(grep -i forbidden "$WORK/helm.log")"
   if (( rc != 0 )); then
@@ -271,7 +271,7 @@ if [[ -n "$base" ]]; then
     mapfile -t base_args < <(kind_args "$base_chart" "$NS")
     helm --kube-context "$CONTEXT" upgrade --install "$RELEASE" "$base_chart" -n "$NS" --create-namespace \
       -f "$base_chart/values.local.yaml" -f "$values" "${base_args[@]}" "${base_extra[@]}" \
-      --wait --wait-for-jobs --timeout 10m
+      --wait --wait-for-jobs --timeout 9m
   else
     step "install the chart of the base commit $base, as the deployer"
     bootstrap "$NS"
