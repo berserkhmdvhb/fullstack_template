@@ -101,6 +101,15 @@ jobs:
       # each, so a flaky run has two chances to fail the job.
       - name: Graceful shutdown (backend, frontend and backend-behind-WAF Pods deleted under load, no request fails)
         run: make kind-shutdown-test
+      # The migration lifecycle (tests/k8s/test_migrations.py; wiki/database.md, "Proven on kind") on a
+      # release and namespaces of its own, created and removed by the test, so it never touches the
+      # release the steps above check, and it runs after them. Floor leg only: about 15 minutes, and
+      # what it proves is Helm's and the Job controller's behaviour at the chart's oldest supported
+      # Kubernetes; the newest leg already carries Playwright and ZAP, so the legs stay about even.
+      - name: Migration lifecycle (own release; install, upgrades, rollbacks, failures, slow migration, timeouts, TLS, autogenerate)
+        if: matrix.leg == 'floor'
+        timeout-minutes: 30
+        run: make kind-migration-test
       # Advisory, last: findings and tool errors warn and never fail the job (continue-on-error and a
       # verdict that exits 0), and its spider uses up the per-client rate limit for a minute, so no
       # blocking step runs after it. infra/security/local/scan-dast.sh with dast.yml's pinned image; the

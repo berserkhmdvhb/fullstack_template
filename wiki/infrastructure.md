@@ -313,6 +313,7 @@ make kind-up                     # create fst (or reuse it) on the floor node im
 make kind-deploy                 # the full sequence below; KIND_BASE=<ref> adds the upgrade test from that commit
                                  # (a commit id, branch or tag; no ~ or ^)
 make kind-shutdown-test         # after kind-deploy: Pods deleted under load fail no request (Workloads, below)
+make kind-migration-test        # after kind-deploy: the migration lifecycle on a release of its own (database.md)
 make kind-live                   # after kind-deploy: the live suites (make test-live) against the release
 make kind-smoke                  # after kind-deploy: the smoke test against the public forward
 make kind-e2e                    # after kind-deploy: the Playwright suite (frontend: npm ci, browsers installed)
@@ -382,7 +383,8 @@ runs, never to the metrics port. Every hook object is deleted after a pass and a
 **In CI** `reusable-kind.yml`, called by `ci.yml` on pull requests behind its path filter, runs this
 on both legs: `scripts/kind-up.sh --node <leg>`, then `scripts/kind-deploy.sh --base <the pull
 request's base commit>`, the scripts `make kind-up` and `make kind-deploy` run, then
-`make kind-shutdown-test` ([graceful shutdown](#workloads-rollout-resources-and-shutdown)). It always deletes the
+`make kind-shutdown-test` ([graceful shutdown](#workloads-rollout-resources-and-shutdown)), and on the floor leg
+`make kind-migration-test` ([the migration lifecycle](./database.md#proven-on-kind)). It always deletes the
 cluster at the end, and on a failure prints the cluster's state with the leg's own kubectl. It is
 blocking, behind `CI OK`.
 

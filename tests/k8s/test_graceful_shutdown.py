@@ -149,9 +149,9 @@ def _tool(name: str) -> str:
 
 
 class Kube:
-    """kubectl on fst's namespace, with the kubectl pin of tools/kind-nodes.tsv for the server."""
+    """kubectl on one namespace of fst (the release's by default), pinned for the server."""
 
-    def __init__(self) -> None:
+    def __init__(self, namespace: str = NAMESPACE) -> None:
         any_kubectl = _tool("kubectl")
         config = [any_kubectl, "--kubeconfig", str(KUBECONFIG), "config"]
         current = _run([*config, "current-context"]).strip()
@@ -164,7 +164,7 @@ class Kube:
         pins = [r.split("\t")[1] for r in rows if not r.startswith("#") and f":v1.{minor}." in r]
         assert pins, f"no kubectl pin for a 1.{minor} server in tools/kind-nodes.tsv"
         self.base = [_tool(pins[0]), "--kubeconfig", str(KUBECONFIG), "--context", CONTEXT]
-        self.base += ["-n", NAMESPACE]
+        self.base += ["-n", namespace]
 
     def __call__(self, *args: str, stdin: str | None = None, check: bool = True) -> str:
         return _run([*self.base, *args], stdin, check=check)

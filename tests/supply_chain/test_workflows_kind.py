@@ -248,3 +248,19 @@ def test_zap_is_advisory_last_and_always_reports() -> None:
 
 def test_the_failure_dump_prints_the_forwards_logs() -> None:
     assert '"${RUNNER_TEMP}"/kind-forward/*.log' in _step("Show the cluster state")["run"]
+
+
+def test_the_migration_lifecycle_runs_on_the_floor_leg_after_the_shutdown_check() -> None:
+    """Blocking, on the floor leg, after the steps that check the main release (it has its own)."""
+    names = _names()
+    name = next(n for n in names if n.startswith("Migration lifecycle"))
+    step = _step(name)
+    assert step["run"] == "make kind-migration-test"
+    assert step["if"] == "matrix.leg == 'floor'"
+    assert "continue-on-error" not in step
+    assert names.index(SHUTDOWN) < names.index(name) < names.index(ZAP)
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+    recipe = makefile.split("\nkind-migration-test:\n", 1)[1].split("\n\n", 1)[0]
+    assert "tests/k8s/test_migrations.py" in recipe
+    shutdown = makefile.split("\nkind-shutdown-test:\n", 1)[1].split("\n\n", 1)[0]
+    assert "tests/k8s/test_graceful_shutdown.py" in shutdown  # not the whole directory

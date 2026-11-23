@@ -240,6 +240,41 @@ when the real `ENV` is production, runs only the database checks (`Settings.data
 URL are refused, and so are `DB_SSLMODE` `disable` or `require` to a remote host, **before any connection**. A
 loopback host with `disable` (the Auth Proxy) passes, as in the app.
 
+### Proven on kind
+
+`tests/k8s/test_migrations.py` runs the whole lifecycle on the local kind cluster, on a release and namespaces of its own
+(created by the test and removed at the end), deployed as the bootstrap's deployer the way `scripts/kind-deploy.sh`
+deploys (`--wait --wait-for-jobs`). After `make kind-up kind-deploy`, run it with `make kind-migration-test` (it stops
+at the first failure; about 15 minutes); CI runs it on the kind job's floor leg
+([Local cluster (kind)](./infrastructure.md#local-cluster-kind)). In order, it proves:
+
+| Case | What it shows |
+|------|---------------|
+| First install, in-cluster PostgreSQL | the Job completes in one attempt, no container restarts anywhere, the Job is in the release manifest and not among `helm get hooks` (only `helm test`'s hooks are), the schema is at head |
+| No-op upgrade (a config change rolls the backend) | a new revision's Job runs and finds the database at head; the backend Service's ready endpoints, polled every 0.5 s, are never empty |
+| Rollback within the TTL | the rollback renders the older revision's kept Job unchanged; Helm takes it over without re-running it (same uid, one Pod), and the newer Job stays (resource-policy keep) |
+| Rollback after the TTL | the TTL controller removed the Job (its mutable TTL lowered to 1 s); with the database stamped with a revision the code does not know, the rollback recreates the Job, which logs "database is ahead of this release; nothing to do" and exits 0; the Pods count that as ready |
+| Failed upgrade | the migration fails on purpose, Helm (4) fails the upgrade as soon as the Job is Failed, the running Pods keep serving (endpoints never empty), and the deploy path's report prints the failed Job's logs |
+| A migration over 150 s | with the schema dropped, a migration that sleeps 160 s first: the backend stays unready the whole time, becomes ready after the Job, and nothing restarts (the startup and liveness probes do not check the schema) |
+| Timeouts | through the backend's own settings: `DB_STATEMENT_TIMEOUT_MS` cancels a slow query, `DB_CONNECT_TIMEOUT_SECONDS` ends a connect the network drops, `DB_MIGRATION_LOCK_TIMEOUT_MS` ends a wait on a locked table; the Job gets the same values |
+| TLS modes | against the shipped PostgreSQL (no TLS) `disable` connects in plaintext and every other mode refuses rather than fall back; with TLS turned on there by the test (a test CA): `require` encrypts, `verify-ca` accepts a name not in the certificate, `verify-full` refuses it, a wrong CA or the system trust store is refused, and the chart's path (`verify-full` with `database.tls.caSecret`) migrates and serves over TLS |
+| Autogenerate | `alembic check` against the migrated database finds no change: the models and the migrations agree |
+| Failed first install, then a retry | on a wiped release the first install's migration fails and the install fails; the same deploy without the failure then succeeds, with nothing removed in between (see below) |
+
+**A failed first install ends only at Helm's `--timeout`.** The Job is Failed within about two minutes, but
+the backend cannot become ready without the schema, so Helm keeps waiting for it (a failed upgrade, whose running
+Pods stay ready, fails as soon as the Job does). When that timeout reaches the backend's `rollout.progressDeadlineSeconds`
+(600 s; `scripts/kind-deploy.sh` waits 10m), the Deployment is marked `ProgressDeadlineExceeded` and Helm fails an
+immediate retry on it, although the Pod becomes ready seconds after the retry's Job. The test therefore gives that
+install 5m. `scripts/ci/deploy-env.sh` should not be affected (not run on kind): `--rollback-on-failure` uninstalls a failed
+first install, so its retry starts fresh.
+
+The slow and failed migrations come from a test-only hook: `tests.migration.delaySeconds` and `tests.migration.fail`
+(off by default) give the Job `MIGRATION_TEST_DELAY_SECONDS` and `MIGRATION_TEST_FAIL`, only with `tests.enabled`,
+which a production render refuses; the runner refuses both in production too. What kind cannot show: a managed
+database's own CA and certificate rotation, and a migration that really changes the schema across two image versions
+(both images are the same build here, so a failed upgrade's new Pods would be ready).
+
 ### Expand/contract policy
 
 A migration must stay compatible with the **previous release's code**: add before you use (a new nullable
