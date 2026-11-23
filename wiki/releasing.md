@@ -83,7 +83,19 @@ flowchart TB
 | **Image tags** | immutable `<version>-main-<sha>` | immutable `<version>-prod-<sha>` plus `latest` |
 | **Deploy** | `dev`, then `qa` (when `DEPLOY_ENABLED` is `true`) | + `production`, behind the environment's reviewer |
 
-On a `v*` tag, `release-assets` creates the GitHub Release for the tag as a **draft** and uploads the SBOMs, the OpenVEX document, the licence report and the image digests (`image-digests.env`, `scan.env`; the weekly re-scan reads them) to it. The workflow never publishes it: edit the notes and publish by hand once the run is green (immutable releases reject assets added after publication, so the draft must be complete first; if the release is already published the job fails with a message). To check a released image, see [Verifying an image](./security.md#verifying-an-image).
+On a `v*` tag, `release-assets` creates the GitHub Release for the tag as a **draft** (or reuses the one draft that already exists for it) and uploads the SBOMs, the OpenVEX document, the licence report, the image digests (`image-digests.env`, `scan.env`; the weekly re-scan reads them), the chart's reference (`chart.env`) and `provenance.md` (each signed digest, a link to the repository's attestations and the verify commands) to it. The workflow never publishes it: edit the notes and publish by hand once the run is green (immutable releases reject assets added after publication, so the draft must be complete first; if the release is already published the job fails with a message). To check a released image, see [Verifying an image](./security.md#verifying-an-image).
+
+### The chart
+
+On a `v*` tag only, the `chart` job of [`reusable-build.yml`](../.github/workflows/reusable-build.yml) runs after every image is signed: `helm package` with `version` and `appVersion` set to the tag without its `v` (the `Chart.yaml` literals never ship), `helm push` to `oci://ghcr.io/<owner>/charts` with the job's token, then a keyless signature and a provenance attestation by digest, with the images' identity rules. Its reference and digest are `chart.env` on the draft release. A push to `main` publishes no chart: deploys use the checked-out chart, so a chart per commit would only fill the registry. Install it by version or digest, then verify it as in [Verifying the chart](./security.md#verifying-the-chart):
+
+```bash
+helm install <release> oci://ghcr.io/<owner>/charts/your-service-name --version 1.2.3
+```
+
+### Pull request titles
+
+The repository merges by squash only, with the pull request title as the commit title ([GitHub repository settings](./github-repository-settings.md#what-the-script-sets)), so the title is what lands on `main`. [`pr-title.yml`](../.github/workflows/pr-title.yml) checks it is a Conventional Commit, `type(scope)!: subject` with the scope and `!` optional; the allowed types are the `types` list in that workflow (`build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`). It is not a required check: an owner merging over a red title lands a commit message that release tooling cannot classify.
 
 A pull request never reaches `release.yml`: no image is built, pushed, signed or deployed from one.
 

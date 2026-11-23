@@ -611,6 +611,22 @@ summary line say so. Signing always runs. Keyless signing also writes the reposi
 workflow ref and the commit to the public Rekor transparency log, so a private repository's name
 becomes visible there. See [What a private repository needs](./platform-setup.md#what-a-private-repository-needs).
 
+### Verifying the chart
+
+A release tag also publishes the chart, `ghcr.io/<owner>/charts/<chart>` ([The chart](./releasing.md#the-chart)), signed and attested by digest in the same reusable workflow, so the identity, issuer and repository claim are the images' ones above. The digest is in the release's `chart.env` and `provenance.md`. Verify the chart before installing it, by digest:
+
+```bash
+cosign verify ghcr.io/<owner>/charts/<chart>@sha256:<digest> \
+  --certificate-identity "https://github.com/<owner>/<repo>/.github/workflows/reusable-build.yml@refs/tags/v1.2.3" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-github-workflow-repository <owner>/<repo>
+gh attestation verify oci://ghcr.io/<owner>/charts/<chart>@sha256:<digest> \
+  --repo <owner>/<repo> \
+  --signer-workflow <owner>/<repo>/.github/workflows/reusable-build.yml
+```
+
+Nothing verifies the chart for you. The admission policy checks images, not charts; `helm install --verify` checks a PGP provenance file, not a cosign signature; and the deploy workflow installs the checked-out chart, not the published one. Whoever installs the published chart, by hand or through a GitOps tool, runs the check above first (Argo CD, for one, does not verify cosign signatures on Helm charts).
+
 ---
 
 ## Container Security
