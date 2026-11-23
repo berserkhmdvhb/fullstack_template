@@ -120,7 +120,7 @@ SUPPORTED_VERSIONS = {
 
 ## Version Computation (CI)
 
-The `plan` job of [`release.yml`](../.github/workflows/release.yml) runs `.github/scripts/container_matrix.py`, which computes the version metadata. It reads the Git ref from the GitHub environment and the committed `VERSION` file (`0.0.0` when absent) as the baseline.
+The `plan` job of [`release.yml`](../.github/workflows/release.yml) runs `.github/scripts/container_matrix.py`, which computes the version metadata. It reads the Git ref from the GitHub environment and the committed `VERSION` file (`0.0.0` when absent) as the baseline. The template commits no `VERSION`, and release-please writes its version to `.release-please-version`, which nothing reads ([`release-please-config.json`](../release-please-config.json)): a release never moves the baseline, so a `main` image after a release is still `0.0.0-main-<sha>` and never carries the release's version label.
 
 ### Inputs
 

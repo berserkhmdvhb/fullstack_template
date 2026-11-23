@@ -6,7 +6,7 @@
   "draft": true,
   "force-tag-creation": true,
   "skip-changelog": true,
-  "version-file": "VERSION",
+  "version-file": ".release-please-version",
   "packages": {
     ".": {}
   }

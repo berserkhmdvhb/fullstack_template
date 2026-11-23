@@ -57,6 +57,9 @@ dev = [
   "PyYAML>=6",
   "ruff",
   "psycopg2-binary",
+  # The release-tag test runs setuptools_scm itself; held at the build-constraint pins below.
+  "setuptools-scm==10.3.4",
+  "vcs-versioning==2.6.0",
 ]
 
 # The 7-day rule for uv.lock: a locked release must be at least 7 days old. A relative span is stored
