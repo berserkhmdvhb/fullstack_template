@@ -14,11 +14,13 @@
 #   - the app namespace's ResourceQuota and LimitRange;
 #   - per namespace, the deployer's Role and RoleBinding (least privilege, namespace-scoped, no RBAC);
 #   - the app's own Role and RoleBinding, rendered from the chart's templates/rbac.yaml (one source);
+#   - with sharedServiceAccount: true (preview), the app's ServiceAccount, rendered from the chart's
+#     templates/serviceaccount.yaml: the preview namespace's releases share it;
 #   - with gmpClusterRules: true, the chart's ClusterRules (Google Managed Prometheus; cluster-scoped).
 # The app chart then runs with namespaces.create=false and rbac.create=false (its defaults).
 # See wiki/infrastructure.md.
 #
-# Usage: k8s-bootstrap.sh <dev|qa|production|local> [--release NAME] [--namespace NS] [--db|--no-db]
+# Usage: k8s-bootstrap.sh <dev|qa|production|local|preview> [--release NAME] [--namespace NS] [--db|--no-db]
 #                         [--values FILE]... [--chart-values FILE]...
 #                         [--chart-set K=V]... [--chart-set-string K=V]...
 #   --release NAME   the Helm release name (SERVICE_NAME; default your-service-name)
@@ -46,8 +48,8 @@ label() { [[ "$2" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]] || die "$1 must be 
 [[ $# -ge 1 ]] || { usage >&2; exit 2; }
 case "$1" in
   -h|--help) usage; exit 0 ;;
-  dev|qa|production|local) ENV_NAME="$1"; shift ;;
-  *) die "unknown environment '$1' (dev, qa, production or local)" ;;
+  dev|qa|production|local|preview) ENV_NAME="$1"; shift ;;
+  *) die "unknown environment '$1' (dev, qa, production, local or preview)" ;;
 esac
 
 args=() files=("$DIR/values.yaml" "$DIR/values.${ENV_NAME}.yaml") release="" namespace=""
@@ -107,6 +109,12 @@ fi
 boot="$(helm template bootstrap "$DIR" -f "$DIR/values.${ENV_NAME}.yaml" "${args[@]}" \
   --set-string "release=$release" --set-string "namespace=$namespace")"
 app_rbac="$(helm template "$release" "$CHART" "${chart_args[@]}" --show-only templates/rbac.yaml)"
+# sharedServiceAccount (preview): the ServiceAccount the namespace's releases share; the app's
+# RoleBinding above binds it. The chart there runs with serviceAccount.create false.
+if [[ "$(conf sharedServiceAccount)" == "true" ]]; then
+  app_rbac+=$'\n'"$(helm template "$release" "$CHART" "${chart_args[@]}" --set serviceAccount.create=true \
+    --show-only templates/serviceaccount.yaml)"
+fi
 # gmpClusterRules: the chart's cluster-scoped ClusterRules (Google Managed Prometheus), which the
 # deployer cannot apply. Same pattern as the app's Role: rendered from the chart, applied here.
 cluster_rules=""

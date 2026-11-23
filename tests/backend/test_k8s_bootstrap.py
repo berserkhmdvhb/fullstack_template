@@ -26,6 +26,8 @@ from tests.backend.test_chart_production_guard import CHART, ROOT, find_helm, re
 SCRIPT = ROOT / "scripts" / "k8s-bootstrap.sh"
 BOOTSTRAP = ROOT / "infra" / "k8s" / "bootstrap"
 ENVS = ["dev", "qa", "production", "local"]
+# The pull request previews' environment too (one namespace, a release per pull request).
+BOOTSTRAP_ENVS = [*ENVS, "preview"]
 PSS_LABELS = {
     f"pod-security.kubernetes.io/{mode}{suffix}": value
     for mode in ("enforce", "audit", "warn")
@@ -167,7 +169,7 @@ def test_values_and_schema_carry_no_quota_or_limitrange_and_create_defaults_fals
 # ---- The bootstrap render ----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("env", ENVS)
+@pytest.mark.parametrize("env", BOOTSTRAP_ENVS)
 def test_the_bootstrap_renders_restricted_namespaces(helm: str, env: str) -> None:
     docs = bootstrap(helm, env)
     namespaces = {
@@ -179,8 +181,8 @@ def test_the_bootstrap_renders_restricted_namespaces(helm: str, env: str) -> Non
     for labels in namespaces.values():
         assert PSS_LABELS.items() <= labels.items()
         assert labels["environment"] == env
-    # db-network-policy.yaml selects the app namespace by this label.
-    assert namespaces[app]["tier"] == "app-ns"
+    # db-network-policy.yaml selects the app namespace by this label: app-ns, or the preview's own.
+    assert namespaces[app]["tier"] == ("preview-app" if env == "preview" else "app-ns")
     if in_cluster_db:
         assert namespaces[f"{app}-db"]["tier"] == "db"
     for d in docs:
@@ -341,7 +343,7 @@ def test_the_deployer_role_covers_exactly_what_the_chart_renders(helm: str, rele
         assert _rules(_deployer(docs, namespace)) == expected, where
 
 
-@pytest.mark.parametrize("env", ENVS)
+@pytest.mark.parametrize("env", BOOTSTRAP_ENVS)
 def test_the_deployer_never_gets_wildcards_escalation_rbac_or_namespace_rights(
     helm: str, env: str
 ) -> None:
@@ -366,7 +368,7 @@ def _norm(doc: dict[str, Any]) -> dict[str, Any]:
     return {**doc, "metadata": meta}
 
 
-@pytest.mark.parametrize("env", ENVS)
+@pytest.mark.parametrize("env", BOOTSTRAP_ENVS)
 def test_the_bootstraps_app_rbac_is_the_charts_own_render(helm: str, env: str) -> None:
     docs = bootstrap(helm, env)
     app = f"your-service-name-{env}"
@@ -414,7 +416,7 @@ def test_with_rbac_create_false_the_chart_renders_no_role(helm: str, values: str
     assert yaml.safe_load((CHART / "values.yaml").read_text())["rbac"]["create"] is False
 
 
-@pytest.mark.parametrize("env", ENVS)
+@pytest.mark.parametrize("env", BOOTSTRAP_ENVS)
 def test_each_namespace_binds_the_configured_deployer(helm: str, env: str) -> None:
     docs = bootstrap(helm, env)
     config = _merged(BOOTSTRAP / "values.yaml", BOOTSTRAP / f"values.{env}.yaml")["deployer"]
@@ -456,7 +458,7 @@ def test_a_service_account_subject_carries_its_namespace(helm: str) -> None:
         assert b["subjects"] == [{"kind": "ServiceAccount", "name": "ci", "namespace": "ops"}]
 
 
-@pytest.mark.parametrize("env", ENVS)
+@pytest.mark.parametrize("env", BOOTSTRAP_ENVS)
 def test_the_deploy_ops_rights_hold_no_exec(helm: str, env: str) -> None:
     for rights in DEPLOY_CHECKS.values():
         assert not [r for _, r in rights if "exec" in r or "attach" in r]
@@ -471,7 +473,7 @@ def _history_max(text: str, pattern: str) -> set[int]:
     return found
 
 
-@pytest.mark.parametrize("env", ENVS)
+@pytest.mark.parametrize("env", BOOTSTRAP_ENVS)
 def test_the_secrets_quota_covers_the_helm_history_the_chart_and_headroom(
     helm: str, env: str
 ) -> None:
@@ -504,8 +506,10 @@ def test_the_secrets_quota_covers_the_helm_history_the_chart_and_headroom(
         )
     )
     quota = int(_one(bootstrap(helm, env), "ResourceQuota")["spec"]["hard"]["secrets"])
-    # One more release Secret exists while an upgrade runs, before Helm prunes the oldest.
-    assert quota >= history_max + 1 + chart_secrets + SECRET_HEADROOM
+    releases = _merged(BOOTSTRAP / "values.yaml", BOOTSTRAP / f"values.{env}.yaml")["quotaReleases"]
+    # One more release Secret exists while an upgrade runs, before Helm prunes the oldest; the
+    # preview namespace holds that for each of its releases.
+    assert quota >= releases * (history_max + 1 + chart_secrets) + SECRET_HEADROOM
 
 
 def _extra(tmp_path: Path, config: dict[str, Any]) -> str:
@@ -547,7 +551,7 @@ def test_the_bootstrap_names_the_charts_rbac_like_the_chart(
     assert values["nameOverride"] == ""
 
 
-@pytest.mark.parametrize("env", ENVS)
+@pytest.mark.parametrize("env", BOOTSTRAP_ENVS)
 def test_the_db_namespace_follows_the_charts_in_cluster_database(env: str) -> None:
     boot = _merged(BOOTSTRAP / "values.yaml", BOOTSTRAP / f"values.{env}.yaml")
     app = _merged(CHART / "values.yaml", CHART / f"values.{env}.yaml")
@@ -732,3 +736,52 @@ def test_the_bootstrap_renders_the_charts_clusterrules_when_asked(
 def test_the_deployer_role_has_no_cluster_scoped_rights(helm: str) -> None:
     for d in bootstrap(helm, "dev"):
         assert d["kind"] != "ClusterRole"
+
+
+# ---- The pull request previews' environment ---------------------------------------------------
+
+
+@pytest.mark.parametrize("env", BOOTSTRAP_ENVS)
+def test_the_app_namespace_tier_is_the_one_the_charts_database_policy_admits(env: str) -> None:
+    boot = _merged(BOOTSTRAP / "values.yaml", BOOTSTRAP / f"values.{env}.yaml")
+    app = _merged(CHART / "values.yaml", CHART / f"values.{env}.yaml")
+    assert boot["appTier"] == app["namespaces"]["appTier"], env
+    # Only the preview namespace differs, so no preview Pod reaches another environment's database.
+    assert (boot["appTier"] == "app-ns") == (env != "preview")
+
+
+def test_the_preview_bootstrap_creates_the_service_account_its_releases_share(helm: str) -> None:
+    ns = "your-service-name-preview"
+    docs = bootstrap(helm, "preview")
+    (sa,) = [d for d in docs if d["kind"] == "ServiceAccount"]
+    want = chart(
+        helm,
+        "-f",
+        str(CHART / "values.preview.yaml"),
+        "--set",
+        "serviceAccount.create=true",
+        "--show-only",
+        "templates/serviceaccount.yaml",
+        release="your-service-name",
+        ns=ns,
+    )
+    assert [_norm(sa)] == [_norm(d) for d in want]
+    binding = _one([d for d in docs if d["metadata"]["name"] != BOOTSTRAP_NAME], "RoleBinding")
+    assert binding["subjects"] == [
+        {"kind": "ServiceAccount", "name": sa["metadata"]["name"], "namespace": ns}
+    ]
+    # Each preview release then renders none: two releases cannot own one object.
+    release = chart(helm, "-f", str(CHART / "values.preview.yaml"), release="svc-pr-1", ns=ns)
+    assert "ServiceAccount" not in {d["kind"] for d in release}
+    for env in ENVS:
+        assert "ServiceAccount" not in {d["kind"] for d in bootstrap(helm, env)}, env
+
+
+def test_the_preview_deployer_is_its_own_identity() -> None:
+    names = {
+        env: _merged(BOOTSTRAP / "values.yaml", BOOTSTRAP / f"values.{env}.yaml")["deployer"][
+            "name"
+        ]
+        for env in BOOTSTRAP_ENVS
+    }
+    assert names["preview"] not in {n for e, n in names.items() if e != "preview"}

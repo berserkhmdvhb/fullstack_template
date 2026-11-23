@@ -14,6 +14,12 @@ environment: dev
 # "" => <release>-<environment>. The database namespace is <namespace>-<dbSuffix>, as the chart derives it.
 namespace: ""
 dbSuffix: db
+# The app namespace's `tier` label, which the chart's database NetworkPolicy admits: the chart's
+# namespaces.appTier for this environment (a test keeps the two equal).
+appTier: app-ns
+# true: also create the app's ServiceAccount, rendered from the chart's templates/serviceaccount.yaml
+# (the preview namespace: its releases share one, and the chart there runs with serviceAccount.create false).
+sharedServiceAccount: false
 # The Kubernetes version of the Pod Security rules the namespaces enforce (restricted): the chart's
 # kubeVersion floor (a test keeps them equal).
 podSecurityVersion: v1.34
@@ -45,6 +51,9 @@ deployer:
 # that test fails. The database namespace has none. There is no limits.cpu: CPU limits are off by default (they throttle),
 # and a CPU-limit quota would refuse every Pod without one. The memory request and limit of each
 # container are equal (the chart enforces it), so the two memory caps track each other.
+# quotaReleases: how many releases of the chart the quota is sized for (the test multiplies the worst
+# case by it); 1 but in the preview namespace, which holds one release per pull request.
+quotaReleases: 1
 quota:
   hard:
     requests.cpu: "6"

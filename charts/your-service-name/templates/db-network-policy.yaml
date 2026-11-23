@@ -1,7 +1,7 @@
 {{/*
    Restricts ingress to the PostgreSQL pods: backend + migration pods from the app
    namespace. The app namespace is selected by its STABLE `tier: app-ns` label
-   (stamped on the app Namespace resource), NOT by a hard-coded name — so the
+   (stamped on the app Namespace resource; namespaces.appTier), NOT by a hard-coded name — so the
    policy keeps working as the release namespace changes per environment.
 */}}
 {{- if .Values.postgresql.enabled }}
@@ -23,7 +23,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              tier: app-ns
+              tier: {{ .Values.namespaces.appTier }}
           podSelector:
             matchLabels:
               app.kubernetes.io/component: backend
@@ -34,7 +34,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              tier: app-ns
+              tier: {{ .Values.namespaces.appTier }}
           podSelector:
             matchLabels:
               app.kubernetes.io/component: migration

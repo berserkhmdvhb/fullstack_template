@@ -1,0 +1,31 @@
+# Pull request previews on the dev cluster (wiki/ci-cd.md, Pull request previews). Off by default:
+# nothing renders this environment unless an admin runs scripts/k8s-bootstrap.sh preview, and the
+# preview workflow does nothing unless the repository variable PREVIEWS_ENABLED is 'true'.
+# One namespace, <release>-preview, with one Helm release per pull request (<release>-pr-<N>), and
+# its database namespace. Not a namespace per pull request: Kubernetes RBAC cannot limit namespace
+# creation by name, so that would give the preview deployer cluster-wide namespaces/create.
+environment: preview
+# Not the other environments' app-ns: their databases admit only app-ns, so no preview Pod reaches
+# them, whatever chart a pull request ships (the chart's values.preview.yaml sets the same tier).
+appTier: preview-app
+sharedServiceAccount: true
+# Its own identity, bound in the two preview namespaces only (on GKE, the preview environment's
+# Google service account email; wiki/infrastructure.md, Namespace bootstrap).
+deployer:
+  name: your-deployer-preview
+# Three previews at once, each at the chart's values.preview.yaml (one Pod per component, its rollout
+# surge and terminating wave, the migration Job), with 20% headroom (tests/backend/test_chart_quota.py).
+# A pull request that asks for more is refused by the quota.
+quotaReleases: 3
+quota:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 24Gi
+    limits.memory: 24Gi
+    pods: "30"
+    services: "12"
+    persistentvolumeclaims: "5"
+    configmaps: "15"
+    # Each release's Helm history (5, plus one during an upgrade) and the chart's Secrets, three
+    # times, and the headroom. A test recomputes it.
+    secrets: "30"

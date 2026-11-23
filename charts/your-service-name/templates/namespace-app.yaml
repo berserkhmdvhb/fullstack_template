@@ -1,8 +1,8 @@
 {{/*
    App namespace, rendered only with namespaces.create=true. By default the chart assumes it exists:
    the admin bootstrap (scripts/k8s-bootstrap.sh) creates it with the same labels, so the deployer
-   needs no cluster-scoped rights. Equals .Release.Namespace. Carries the stable `tier: app-ns`
-   label that db-network-policy.yaml selects on, plus Pod Security "restricted".
+   needs no cluster-scoped rights. Equals .Release.Namespace. Carries the stable `tier` label
+   (namespaces.appTier) that db-network-policy.yaml selects on, plus Pod Security "restricted".
    resource-policy keep: switching namespaces.create off later must not make Helm delete the
    namespace and everything in it.
 */}}
@@ -18,7 +18,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     environment: {{ .Values.environment }}
-    tier: app-ns
+    tier: {{ .Values.namespaces.appTier }}
     team: sds
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/enforce-version: v1.34

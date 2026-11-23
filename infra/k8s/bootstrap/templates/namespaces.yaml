@@ -1,7 +1,7 @@
 {{/*
    The namespaces, on the restricted Pod Security profile (enforce, audit and warn). Every workload of
    the chart meets it (tests/backend/test_chart_pod_security.py). `tier` is what the chart's
-   NetworkPolicies select on: db-network-policy.yaml admits the app namespace by `tier: app-ns`.
+   NetworkPolicies select on: db-network-policy.yaml admits the app namespace by its `tier` (appTier).
 */}}
 {{- range (include "bootstrap.namespaces" . | fromJsonArray) }}
 ---
@@ -11,7 +11,7 @@ metadata:
   name: {{ .name }}
   labels:
 {{- include "bootstrap.labels" $ | nindent 4 }}
-    tier: {{ if eq .role "app" }}app-ns{{ else }}db{{ end }}
+    tier: {{ if eq .role "app" }}{{ $.Values.appTier }}{{ else }}db{{ end }}
 {{- if eq .role "db" }}
     component: database
 {{- end }}

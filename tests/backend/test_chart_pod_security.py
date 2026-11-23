@@ -354,6 +354,7 @@ NOT_ALL_ON = {
     "guards.rejectPlaceholders": "on, it refuses the placeholder hosts every CI render uses",
     "namespaces.create": "admin-only objects (the single-tenant path); never the deployer's",
     "rbac.create": "admin-only objects: the bootstrap renders the app's Role and RoleBinding",
+    "serviceAccount.create": "on by default; off only where the bootstrap creates it (preview)",
     "serviceAccount.automountServiceAccountToken": "a Pod field, not a kind; true only weakens",
     "postgresql.enabled": "a database path, not an option: the values files render both",
     "externalDatabase.enabled": "a database path, not an option: the values files render both",

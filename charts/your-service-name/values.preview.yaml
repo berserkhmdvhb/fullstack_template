@@ -1,0 +1,50 @@
+# Pull request previews on the dev cluster (.github/workflows/preview.yml; off unless the repository
+# variable PREVIEWS_ENABLED is 'true'). One namespace, <release>-preview, made once by the bootstrap
+# (scripts/k8s-bootstrap.sh preview), holds one release per pull request, <release>-pr-<N>, each with
+# its own in-cluster database. The images are the ones dev runs, by digest: a preview shows the pull
+# request's chart and values, never its application code (wiki/ci-cd.md, Pull request previews).
+environment: preview
+
+imagePullPolicy: Always
+
+images:
+  backend: {repository: your-service-name-backend, tag: dev, registry: registry.your-domain.example}
+  frontend: {repository: your-service-name-frontend, tag: dev, registry: registry.your-domain.example}
+  waf: {repository: your-service-name-waf, tag: dev, registry: registry.your-domain.example}
+
+# The bootstrap stamps this tier on the preview namespace (infra/k8s/bootstrap/values.preview.yaml),
+# so only the preview namespace's Pods reach a preview database, and never another environment's.
+namespaces:
+  appTier: preview-app
+
+# The releases share the namespace's ServiceAccount, which the bootstrap creates.
+serviceAccount:
+  create: false
+
+# One Pod each, no scale-out: the namespace quota is sized for a few previews at once.
+replicas:
+  backend: 1
+  frontend: 1
+
+hpa:
+  backend: {enabled: false, minReplicas: 1}
+  frontend: {enabled: false, minReplicas: 1}
+
+pdb:
+  backend: {minAvailable: 0}
+  frontend: {minAvailable: 0}
+
+config:
+  ENV: development
+  NEXT_PUBLIC_API_URL: "/api/v1"
+
+# The hosts are set per release by scripts/ci/deploy-env.sh (<release>.<PREVIEW_DOMAIN>, and -api and
+# -app under the same domain), so the releases' routes never share a hostname.
+
+# A throwaway database per preview: small, and no backups (the TTL cleanup deletes it with its volume).
+postgresql:
+  enabled: true
+  storage:
+    size: 1Gi
+  backup:
+    enabled: false

@@ -16,10 +16,11 @@ import os
 from typing import Any
 
 import pytest
+import yaml
 
 from tests.backend.test_chart_pod_security import ALL_ON, PROXY_ON, render
 from tests.backend.test_chart_production_guard import find_helm, require_helm
-from tests.backend.test_k8s_bootstrap import ENVS, _one, bootstrap
+from tests.backend.test_k8s_bootstrap import BOOTSTRAP, ENVS, _one, bootstrap
 
 HEADROOM = 1.2
 APP_NAMESPACE = "svc-ns"  # the namespace render() installs into
@@ -119,6 +120,25 @@ def test_the_bootstrap_quota_covers_the_charts_worst_case_with_headroom(
         if quantity(hard[key]) < HEADROOM * need
     }
     assert short == {}, f"raise the quota in infra/k8s/bootstrap/values.yaml (have, need): {short}"
+
+
+def test_the_preview_quota_covers_its_releases_at_the_preview_values_with_headroom(
+    helm: str,
+) -> None:
+    """The preview namespace holds a release per pull request at values.preview.yaml (no option
+    turned on: what a pull request turns on beyond that, the quota refuses). It is sized for
+    quotaReleases of them."""
+    worst = worst_case(render(helm, "values.preview.yaml"))
+    boot = yaml.safe_load((BOOTSTRAP / "values.preview.yaml").read_text())
+    releases = boot["quotaReleases"]
+    assert releases > 1
+    hard = _one(bootstrap(helm, "preview"), "ResourceQuota")["spec"]["hard"]
+    short = {
+        key: (quantity(hard[key]), round(HEADROOM * releases * need, 3))
+        for key, need in worst.items()
+        if quantity(hard[key]) < HEADROOM * releases * need
+    }
+    assert short == {}, f"raise the quota in infra/k8s/bootstrap/values.preview.yaml: {short}"
 
 
 def test_the_computation_counts_init_containers_and_sidecars_the_way_quota_does() -> None:

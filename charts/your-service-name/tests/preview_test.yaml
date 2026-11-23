@@ -1,0 +1,42 @@
+suite: pull request previews (values.preview.yaml) share a namespace and keep their database to themselves
+release:
+  name: svc-pr-7
+  namespace: svc-preview
+templates:
+  - serviceaccount.yaml
+  - db-network-policy.yaml
+  - namespace-app.yaml
+tests:
+  - it: renders the ServiceAccount by default
+    template: serviceaccount.yaml
+    asserts:
+      - hasDocuments: {count: 1}
+      - equal: {path: metadata.name, value: your-service-name}
+  - it: serviceAccount.create false renders none (the preview namespace's releases share the bootstrap's)
+    template: serviceaccount.yaml
+    values: [../values.preview.yaml]
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: the database admits the app-ns tier by default
+    template: db-network-policy.yaml
+    asserts:
+      - equal: {path: 'spec.ingress[0].from[0].namespaceSelector.matchLabels', value: {tier: app-ns}}
+      - equal: {path: 'spec.ingress[1].from[0].namespaceSelector.matchLabels', value: {tier: app-ns}}
+  - it: a preview's database admits only the preview tier, never another environment's app namespace
+    template: db-network-policy.yaml
+    values: [../values.preview.yaml]
+    asserts:
+      - equal: {path: metadata.namespace, value: svc-preview-db}
+      - equal: {path: 'spec.ingress[0].from[0].namespaceSelector.matchLabels', value: {tier: preview-app}}
+      - equal: {path: 'spec.ingress[1].from[0].namespaceSelector.matchLabels', value: {tier: preview-app}}
+  - it: the chart's own app namespace (namespaces.create) carries the same tier
+    template: namespace-app.yaml
+    values: [../values.preview.yaml]
+    set: {namespaces: {create: true}}
+    asserts:
+      - equal: {path: metadata.labels.tier, value: preview-app}
+  - it: the app namespace keeps app-ns by default
+    template: namespace-app.yaml
+    set: {namespaces: {create: true}}
+    asserts:
+      - equal: {path: metadata.labels.tier, value: app-ns}

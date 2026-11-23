@@ -35,6 +35,11 @@ namespaces:
   # App namespace is .Release.Namespace; the db namespace is derived:
   #   db namespace = <.Release.Namespace>-<dbSuffix> (e.g. your-service-name-dev-db)
   dbSuffix: db
+  # The app namespace's `tier` label, which the database's NetworkPolicy admits
+  # (db-network-policy.yaml). The bootstrap stamps the same value (infra/k8s/bootstrap, appTier; a
+  # test keeps them equal). The preview namespace has its own, so a preview's Pods are never
+  # admitted to another environment's database.
+  appTier: app-ns
   # false (the default): the chart assumes both namespaces exist. A cluster admin creates them once,
   # with the restricted Pod Security labels, the ResourceQuota, the LimitRange and the deployer's
   # RBAC: scripts/k8s-bootstrap.sh <env> | kubectl apply -f - (wiki/infrastructure.md). The deployer
@@ -48,6 +53,9 @@ rbac:
   create: false
 
 serviceAccount:
+  # false: the ServiceAccount exists already (the preview namespace's: the bootstrap creates it,
+  # and the namespace's releases share it).
+  create: true
   name: your-service-name
   automountServiceAccountToken: false
 

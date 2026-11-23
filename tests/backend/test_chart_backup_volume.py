@@ -23,6 +23,11 @@ from your_service_name.backend.db.run_migrations import run_migrations
 from your_service_name.backend.settings import Settings
 
 CLAIM = "svc-your-service-name-pg-backup-pvc"
+# The values files that run the backups: production's database is managed, and a preview's is a
+# throwaway one (values.preview.yaml turns the backups off).
+BACKUP_VALUES = [
+    v for v in VALUES_FILES if v not in {"values.production.yaml", "values.preview.yaml"}
+]
 
 
 @pytest.fixture(scope="module")
@@ -30,7 +35,7 @@ def helm() -> str:
     return require_helm(find_helm(), ci=bool(os.environ.get("CI")))
 
 
-@pytest.mark.parametrize("values", [v for v in VALUES_FILES if v != "values.production.yaml"])
+@pytest.mark.parametrize("values", BACKUP_VALUES)
 def test_every_pod_mounting_the_backup_volume_has_one_fs_group(helm: str, values: str) -> None:
     mounting = {
         name: spec["securityContext"]
@@ -65,7 +70,7 @@ def test_the_verify_config_map_holds_the_script_byte_for_byte(helm: str) -> None
     )
 
 
-@pytest.mark.parametrize("values", [v for v in VALUES_FILES if v != "values.production.yaml"])
+@pytest.mark.parametrize("values", BACKUP_VALUES)
 async def test_every_table_the_restore_check_requires_is_one_the_migrations_create(
     helm: str, values: str
 ) -> None:
