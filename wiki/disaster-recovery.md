@@ -6,7 +6,7 @@ day-to-day backup checks and the alerts are in the [Operations Runbook](./operat
 Names in angle brackets are placeholders: `<release>` is the Helm release and `<fullname>` its full name,
 `<name>` the chart's name (the dumps' prefix), `<app-ns>` and `<db-ns>` its namespaces, `<instance>` the Cloud SQL
 instance, `<app>` a short name for the Backup for GKE plans, `<target-cluster>` the cluster a restore goes to and
-`<backup>` one backup's name. The `gcloud` commands read `PROJECT_ID`, `REGION` and `CLUSTER`
+`<backup>` one backup's name, `<active-job>` a running Job. The `gcloud` commands read `PROJECT_ID`, `REGION` and `CLUSTER`
 from [GKE cluster setup, Set your variables once](./gke-cluster-setup.md#3-set-your-variables-once). Cloud CLIs
 change: check each command's `--help` before you rely on it.
 
@@ -25,13 +25,16 @@ The template's defaults. An adopter sets its own and changes the settings they r
 
 | Environment | RPO (data you may lose) | RTO (time to serve again) |
 |---|---|---|
-| Production, Cloud SQL with point-in-time recovery | minutes | about 1 hour |
+| Production, Cloud SQL with point-in-time recovery | the writes from the chosen point to the stop of writes: up to about 1 hour after the decision | about 1 hour |
 | The in-cluster database (dev, kind) | 24 hours | about 30 minutes |
 
-- **Cloud SQL, RPO of minutes.** Point-in-time recovery replays the transaction log to any second within its
-  retention (the log retention days below), so the loss is the writes from the point you choose to the cutover,
-  when writes to the live instance stop ([Recovery procedure](#recovery-procedure), step 5): stop them early and the
-  loss is small but the service is down for longer. The log is shipped continuously, not nightly.
+- **Cloud SQL, RPO: from the chosen point to the stop of writes.** Point-in-time recovery replays the transaction
+  log (shipped continuously, not nightly) to any second within its retention (the log retention days below), so the
+  clone can start at any point. What it lacks is every write from that point to the moment writes to the live
+  instance stop. The [Recovery procedure](#recovery-procedure) stops them in step 5, after the clone, its check and
+  the production deploy path, so up to about an hour after the decision; those writes stay in the old instance, to
+  reconcile by hand. Stopping the instance at the decision instead (step 5's command, first) cuts that loss to the
+  time from the chosen point to the decision, and keeps the service down for the whole hour.
 - **Cloud SQL, RTO about 1 hour.** A clone of the instance (its time grows with the database's size; minutes for a
   small one), checking it, then the production deploy path: a pull request with the new database values, a `v*` tag,
   the release build and an approval ([Deployment with CI/CD](./operations-runbook.md#deployment-with-cicd)), then the
@@ -111,9 +114,11 @@ The template has no maintenance mode: writes stop when the backend loses its dat
    gcloud sql instances patch <instance> --project "$PROJECT_ID" --activation-policy=NEVER
    ```
 
-   The old backend Pods lose their database and turn unready, so no request reaches them; the deploy's new Pods
-   start on the clone, stay unready (`schema_behind`) until the migration Job finishes, and the deploy's checks then
-   prove the service ([Database, Readiness and liveness](./database.md#readiness-and-liveness)). The service is down
+   The old backend Pods lose their database and turn unready, so no request reaches them: their readiness probe
+   checks the database ([API reference, `GET /api/v1/health`](./api-reference.md#get-apiv1health), answering
+   `database_unreachable`). The deploy's new Pods start on the clone, stay unready (`schema_behind`) until the
+   migration Job finishes, and the deploy's checks then prove the service
+   ([Database, Readiness and liveness](./database.md#readiness-and-liveness)). The service is down
    from the stop to the first ready Pod. Writes between the chosen point and the stop are only in the old instance:
    if they matter, start it again (`--activation-policy=ALWAYS`) and reconcile them into the clone by hand.
 6. **Keep the old instance**, stopped, until the incident is closed (it is the evidence), then delete it. Check that
@@ -200,6 +205,12 @@ for c in pg-backup pg-backup-verify; do
   kubectl -n <db-ns> patch cronjob <fullname>-$c -p '{"spec":{"suspend":true}}'
 done
 
+#    Suspending stops new runs only: a backup or verify Job already running keeps its connection
+#    (step 4 then fails with "being accessed by other users"). Wait until no Job is ACTIVE, or
+#    delete the active one:
+kubectl -n <db-ns> get jobs
+kubectl -n <db-ns> delete job <active-job>        # only if you will not wait for it
+
 # 2. Stop the application (nothing may stay connected to the database for step 4)
 kubectl -n <app-ns> scale deployment/<fullname>-backend --replicas=0
 
@@ -259,9 +270,9 @@ kubectl -n <db-ns> exec <fullname>-postgresql-0 -- sh -c \
 database only) restores the newest dump into a temporary database and fails when there is no dump, the dump is older
 than `postgresql.backup.verifyMaxAgeHours` or lacks pg_dump's closing trailer (cut short), the restore fails,
 `public` holds no table, a table in `postgresql.backup.verifyTables` is missing, or `alembic_version` holds no row;
-it drops the temporary database either way, and one left by a killed run at its next start. A failure fires
-[BackupVerifyFailed](./operations-runbook.md#backupverifyfailed), and a check that stops succeeding fires
-[BackupVerifyTooOld](./operations-runbook.md#backupverifytooold). Its age limit is the in-Pod complement of
+it drops the temporary database either way, and one of its own left by a killed run (over a day old) at a later
+start. A failure fires [BackupVerifyFailed](./operations-runbook.md#backupverifyfailed), and a check that stops
+succeeding fires [BackupVerifyTooOld](./operations-runbook.md#backupverifytooold). Its age limit is the in-Pod complement of
 [BackupTooOld](./operations-runbook.md#backuptooold) and takes that alert's threshold unless set.
 
 It proves that the newest dump is recent, is complete SQL that restores without an error, and holds the schema and a

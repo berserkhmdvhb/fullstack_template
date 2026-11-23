@@ -9,27 +9,16 @@ from pathlib import Path
 
 import pytest
 
-from tests.utils.markdown_headings import anchors
+from tests.utils.markdown_headings import anchors, links, prose_lines
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = sorted((ROOT / "wiki").glob("*.md"))
-LINK = re.compile(r"\]\(([^)\s]+)\)")
-
-
-def _links(doc: Path) -> list[tuple[int, str]]:
-    out, fenced = [], False
-    for n, line in enumerate(doc.read_text(encoding="utf-8").splitlines(), 1):
-        if line.startswith("```"):
-            fenced = not fenced
-        elif not fenced:
-            out += [(n, u) for u in LINK.findall(re.sub(r"`[^`]*`", "", line))]
-    return out
 
 
 @pytest.mark.parametrize("doc", DOCS, ids=lambda p: p.name)
 def test_every_relative_link_resolves(doc: Path) -> None:
     broken = []
-    for n, url in _links(doc):
+    for n, url in [(n, u) for n, line in prose_lines(doc) for u in links(line)]:
         if re.match(r"[a-z][a-z0-9+.-]*:", url):  # https:, mailto: ...
             continue
         path, _, anchor = url.partition("#")

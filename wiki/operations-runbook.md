@@ -689,7 +689,8 @@ namespace and `<db-ns>` the database namespace (`<ns>-db`).
 - **Impact:** the newest backup may not restore; treat the backups as unproven until a check passes.
 - **First checks:** the verify Job's logs (`kubectl -n <db-ns> logs -l app.kubernetes.io/component=backup-verification`).
 - **Fix:** [Backup Verification](#backup-verification); fix the backup (or the check), take a backup and
-  run the check again under a name this alert watches:
+  run the check again under a name this alert watches, once `kubectl -n <db-ns> get jobs` shows no verify Job
+  active (two runs restore into the same server at once):
   `kubectl -n <db-ns> create job <fullname>-pg-backup-verify-$(date +%s) --from=cronjob/<fullname>-pg-backup-verify`.
   A finished verify Job is deleted after 24 hours (`ttlSecondsAfterFinished`), so the alert clears by
   then; delete the failed Job to clear it sooner (`kubectl -n <db-ns> delete job <failed-job-name>`).
@@ -710,7 +711,8 @@ namespace and `<db-ns>` the database namespace (`<ns>-db`).
 - **Impact:** the backups have not been proven restorable for over a week. A `postgresql.backup.verifySchedule`
   that runs less often than this threshold keeps it firing.
 - **First checks:** `kubectl -n <db-ns> get cronjob <fullname>-pg-backup-verify` and its Jobs.
-- **Fix:** [Backup Verification](#backup-verification); run the check by hand.
+- **Fix:** [Backup Verification](#backup-verification); run the check by hand (as in
+  [BackupVerifyFailed](#backupverifyfailed)), once `kubectl -n <db-ns> get jobs` shows no verify Job active.
 
 ### CertificateExpiringSoon
 

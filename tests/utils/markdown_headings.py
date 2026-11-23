@@ -1,25 +1,45 @@
-"""Markdown headings and the anchors GitHub gives them, for the doc tests."""
+"""Markdown as GitHub reads it, for the doc tests: the lines outside fenced code, the headings,
+the anchors GitHub gives them and the link targets of a line. Enough CommonMark for the wiki."""
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
+# A fence opens with 3+ backticks or tildes, at any indent (a list item's content is indented), and
+# closes with the same character, at least as many, and nothing else on the line.
+_FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
+_HEADING = re.compile(r"^(#{1,6})\s+(.+?)(?:\s+#+)?\s*$")
+_CODE_SPAN = re.compile(r"(`+)(.+?)\1")
+_LINK_TEXT = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+
+
+def prose_lines(doc: Path) -> list[tuple[int, str]]:
+    """The (line number, text) of every line outside fenced code, without the fences' own lines."""
+    out: list[tuple[int, str]] = []
+    fence = ""
+    for n, line in enumerate(doc.read_text(encoding="utf-8").splitlines(), 1):
+        m = _FENCE.match(line)
+        if fence:
+            if m and m[1][0] == fence[0] and len(m[1]) >= len(fence) and not line.strip(" `~"):
+                fence = ""
+        elif m:
+            fence = m[1]
+        else:
+            out.append((n, line))
+    return out
+
 
 def slug(heading: str) -> str:
-    """GitHub's heading anchor: lower case, punctuation dropped, spaces to hyphens."""
-    return re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-")
+    """GitHub's heading anchor: the heading's text (a link counts as its text, code as its content),
+    lower case, punctuation dropped, spaces to hyphens."""
+    text = _LINK_TEXT.sub(r"\1", re.sub(r"\s+#+\s*$", "", heading))
+    return re.sub(r"[^\w\- ]", "", text.strip().lower()).replace(" ", "-")
 
 
 def headings(doc: Path) -> list[tuple[int, str]]:
-    """The document's headings (level, text), skipping fenced code."""
-    out, fenced = [], False
-    for line in doc.read_text(encoding="utf-8").splitlines():
-        if line.startswith("```"):
-            fenced = not fenced
-        elif not fenced and (m := re.match(r"(#{1,6}) (.+)$", line)):
-            out.append((len(m[1]), m[2]))
-    return out
+    """The document's headings (level, text), outside fenced code."""
+    return [(len(m[1]), m[2]) for _, line in prose_lines(doc) if (m := _HEADING.match(line))]
 
 
 def anchors(doc: Path) -> set[str]:
@@ -32,3 +52,28 @@ def anchors(doc: Path) -> set[str]:
         seen[s] = n + 1
         out.add(f"{s}-{n}" if n else s)
     return out
+
+
+def _destination(text: str, i: int) -> str | None:
+    """The link destination starting at text[i] (just after "]("): <...>, or up to the first space
+    or unbalanced ")"; an optional title after it is skipped."""
+    if text.startswith("<", i):
+        end = text.find(">", i)
+        return text[i + 1 : end] if end != -1 else None
+    depth, j = 0, i
+    while j < len(text) and not text[j].isspace():
+        if text[j] == "(":
+            depth += 1
+        elif text[j] == ")":
+            if depth == 0:
+                break
+            depth -= 1
+        j += 1
+    return text[i:j] or None
+
+
+def links(line: str) -> list[str]:
+    """The destinations of the inline links and images on a line, outside code spans."""
+    text = _CODE_SPAN.sub("", line)
+    found = (_destination(text, m.end()) for m in re.finditer(r"\]\(", text))
+    return [d for d in found if d is not None]
