@@ -23,14 +23,18 @@
        after crs-setup and before the rules read it. */}}
 {{- $methods := printf "SecAction \"id:900200,phase:1,pass,t:none,nolog,setvar:'tx.allowed_methods=%s'\"" (join " " .Values.waf.allowedMethods) }}
 {{- $setup := list "Include @crs-setup-conf" $methods }}
-{{- /* cspReporting: on the report route alone, the browser's two report formats are the only
-       allowed content types (CRS's own list has neither: rule 920420 refuses them), and the body is
-       not inspected: a report quotes the page's policy and URLs (data:, http://...), which CRS
-       scores as XSS and SSRF and blocks. The backend reads it as hostile input (capped, sanitised,
+{{- /* cspReporting: a POST to the report route whose Content-Type is one of the browser's two
+       report formats (a "; charset=..." suffix allowed) gets those two as the only allowed content
+       types (CRS's own list has neither: rule 920420 refuses them), and its body is not inspected: a
+       report quotes the page's policy and URLs (data:, http://...), which CRS scores as XSS and SSRF
+       and blocks. The URI, the query and the headers stay inspected, and any other method, content
+       type or path is inspected as everywhere, so removing 920420 (extraDirectives) cannot widen
+       the exemption. The backend reads the body as hostile input (capped, sanitised,
        wiki/security.md). Set before CRS's initialization, which keeps a value already set. */}}
 {{- if .Values.cspReporting.enabled }}
 {{- $report := printf "/api/%s/csp-report" .Values.config.API_VERSION }}
-{{- $setup = append $setup (printf "SecRule REQUEST_FILENAME \"@streq %s\" \"id:900221,phase:1,pass,t:none,nolog,setvar:'tx.allowed_request_content_type=|application/csp-report| |application/reports+json|',ctl:requestBodyAccess=Off\"" $report) }}
+{{- $reportRule := list (printf "SecRule REQUEST_FILENAME \"@streq %s\" \"id:900221,phase:1,pass,t:none,nolog,chain\"" $report) "SecRule REQUEST_METHOD \"@streq POST\" \"chain\"" "SecRule REQUEST_HEADERS:Content-Type \"@rx ^application/(?:csp-report|reports[+]json) *(?:;.*)?$\" \"t:lowercase,setvar:'tx.allowed_request_content_type=|application/csp-report| |application/reports+json|',ctl:requestBodyAccess=Off\"" }}
+{{- $setup = append $setup (join "\n" $reportRule) }}
 {{- end }}
 {{- $directives = concat $directives $setup (list "Include @owasp_crs/*.conf") }}
 {{- end }}

@@ -232,13 +232,21 @@ tests:
       waf: {resources: {requests: {cpu: 100m, memory: 1Gi}}}
     asserts:
       - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'max_heap_size_bytes: 858993459\s'}
-  - it: with cspReporting the report route alone takes the two report formats, its body uninspected, set before CRS
+  - it: with cspReporting a POST of a report type to the report route alone takes the two report formats, its body uninspected, set before CRS
     template: waf-proxy.yaml
     documentSelector: {path: kind, value: Deployment}
     set:
       cspReporting: {enabled: true}
     asserts:
-      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'Include @crs-setup-conf.+id:900200.+SecRule REQUEST_FILENAME \\+"@streq /api/v1/csp-report\\+" \\+"id:900221,phase:1,pass,t:none,nolog,setvar:''tx.allowed_request_content_type=\|application/csp-report\| \|application/reports\+json\|'',ctl:requestBodyAccess=Off\\+".+Include @owasp_crs/\*\.conf'}
+      - matchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: 'Include @crs-setup-conf.+id:900200.+SecRule REQUEST_FILENAME \\+"@streq /api/v1/csp-report\\+" \\+"id:900221,phase:1,pass,t:none,nolog,chain\\+"\\+nSecRule REQUEST_METHOD \\+"@streq POST\\+" \\+"chain\\+"\\+nSecRule REQUEST_HEADERS:Content-Type \\+"@rx \^application/\(\?:csp-report\|reports\[\+\]json\) \*\(\?:;\.\*\)\?\$\\+" \\+"t:lowercase,setvar:''tx.allowed_request_content_type=\|application/csp-report\| \|application/reports\+json\|'',ctl:requestBodyAccess=Off\\+".+Include @owasp_crs/\*\.conf'}
+  - it: with cspReporting but without CRS there is no report-route rule
+    template: waf-proxy.yaml
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      cspReporting: {enabled: true}
+      waf: {owaspCrs: false}
+    asserts:
+      - notMatchRegex: {path: 'spec.template.spec.containers[0].args[1]', pattern: '900221|csp-report'}
   - it: without cspReporting the report route gets no exception
     template: waf-proxy.yaml
     documentSelector: {path: kind, value: Deployment}
