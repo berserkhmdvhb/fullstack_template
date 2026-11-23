@@ -549,10 +549,13 @@ corrupt or empty backup is caught before you need it. It shares the backup PVC a
 `postgresql.backup.enabled`. What it checks, and what it does not prove:
 [Disaster Recovery, Drills](./disaster-recovery.md#drills).
 
-Each run first drops temporary databases (`verify_backup_*`) left by killed runs. A drop that fails is only a
-warning in the verify Job's log (`WARNING: could not drop ...`), not a failure and not an alert, so a database
-that keeps failing to drop leaks unnoticed: look for that line in the logs below, and drop it by hand once no
-verify Job is active.
+A run drops its temporary database on every exit, also when the Job's deadline ends it: the Pod gets SIGTERM,
+and the script stops waiting for the restore and drops the database (`WITH (FORCE)`) within the Pod's
+termination grace period. Only a run killed (SIGKILL: the grace period ran out, or the node was lost) before
+that drop finished leaves its database. Each run first drops such leftovers (`verify_backup_*`). A drop that
+fails is only a warning in the verify Job's log (`WARNING: could not drop ...`), not a failure and not an alert,
+so a database that keeps failing to drop leaks unnoticed: look for that line in the logs below, and drop it by
+hand once no verify Job is active.
 
 ```bash
 # Check the verification CronJob (postgresql.backup.verifySchedule)
@@ -682,8 +685,10 @@ namespace and `<db-ns>` the database namespace (`<ns>-db`).
 - **Means:** a Job of the daily backup CronJob (`<fullname>-pg-backup`) has failed (held 1 hour).
 - **Impact:** no fresh backup: a restore would lose more data.
 - **First checks:** `kubectl -n <db-ns> get jobs` and the failed Job's logs (credentials, disk space on the
-  backup PVC).
-- **Fix:** [PostgreSQL Backup](#postgresql-backup). Once fixed, run a backup under a name this alert
+  backup PVC); `kubectl -n <db-ns> describe job <failed-job-name>` shows the reason.
+- **Fix:** [PostgreSQL Backup](#postgresql-backup). A `DeadlineExceeded` reason means the dump took longer than
+  the Job may run: raise `postgresql.backup.deadlineSeconds`
+  ([Database Backup CronJob](./database.md#database-backup-cronjob)) and deploy. Once fixed, run a backup under a name this alert
   watches: `kubectl -n <db-ns> create job <fullname>-pg-backup-$(date +%s) --from=cronjob/<fullname>-pg-backup`.
   The failed Job is kept (the CronJob keeps its last 3 failed Jobs, with no TTL), so the alert keeps
   firing until you delete it: `kubectl -n <db-ns> delete job <failed-job-name>`.

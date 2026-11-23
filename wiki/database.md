@@ -593,6 +593,12 @@ the chart keeps them deployable on any storage class:
     class (both then bind in the database Pod's zone), before the first deploy.
 - The backup shares the database's node and, on a node-local class, its disk: copy dumps off the
   cluster for a real off-site backup.
+- **A deadline bounds each run.** `postgresql.backup.deadlineSeconds` is the backup Job's
+  `activeDeadlineSeconds` (the default is in `values.yaml`): a hung `pg_dump` fails the Job instead of
+  blocking it. It bounds the whole run (the dump, gzip and the write to the volume), so raise it for a
+  database whose dump takes longer; otherwise the backup fails every night
+  ([BackupJobFailed](./operations-runbook.md#backupjobfailed)). `postgresql.backup.verifyDeadlineSeconds`
+  bounds the restore check the same way.
 
 Restoring a dump, the recovery targets and the drills: [Disaster Recovery](./disaster-recovery.md).
 
