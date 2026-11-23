@@ -260,7 +260,7 @@ The backend serves these on the metrics port (`METRICS_PORT`, default registry, 
 - `db_pool_size` — configured pool size.
 - `db_pool_checked_out` — pool connections in use.
 - `db_pool_checked_in` — idle connections in the pool.
-- `db_pool_overflow` — SQLAlchemy's signed overflow: open connections minus the pool size. It starts at `-DB_POOL_SIZE` (an idle Pod shows that); above 0, overflow connections are open.
+- `db_pool_overflow` — SQLAlchemy's signed overflow: open connections minus the pool size. It starts at minus the pool's size (`DB_POOL_SIZE` on PostgreSQL), which an idle Pod shows; above 0, overflow connections are open.
 - `db_pool_max_overflow` — configured maximum overflow (`DB_MAX_OVERFLOW`; -1 is unlimited).
 
 The `db_pool_*` gauges come from the live pool at scrape time; the file-SQLite fallback and PostgreSQL use a queue pool and report all five, a `:memory:` or null pool has none of them and all five are absent.
