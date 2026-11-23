@@ -195,6 +195,17 @@ def manifest_digest(host: str, repository: str, tag: str, tls: Path) -> str:
         return str(answer.headers["Docker-Content-Digest"])
 
 
+# The OCI architecture of each `uname -m` a kind node reports (its images are the host's).
+OCI_ARCH = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
+
+
+def oci_platform(machine: str) -> str:
+    """The OCI platform (linux/<arch>) for a node's `uname -m`."""
+    arch = OCI_ARCH.get(machine.strip())
+    assert arch, f"no OCI architecture for the node's machine {machine.strip()!r}"
+    return f"linux/{arch}"
+
+
 def push_from_node(image: str, ref: str) -> None:
     """An image the node's containerd holds (one kind loaded) pushed to fst-registry as ``ref``
     (127.0.0.1:<port>/<repository>:<tag>), with a label of its own: the node then holds nothing
@@ -203,7 +214,8 @@ def push_from_node(image: str, ref: str) -> None:
     and the committed container's are removed; nothing leaves the loopback."""
     ctr = f"{_tool('docker')} exec {NODE} ctr -n k8s.io images"
     load = f"{_tool('docker')} load --quiet"
-    _run(["bash", "-c", f"set -o pipefail; {ctr} export --platform linux/amd64 - {image} | {load}"])
+    platform = oci_platform(docker("exec", NODE, "uname", "-m"))
+    _run(["bash", "-c", f"set -o pipefail; {ctr} export --platform {platform} - {image} | {load}"])
     container = f"fst-push-{ref.rsplit('/', 1)[-1].replace(':', '-')}"
     docker("rm", "-f", container, check=False)
     try:
