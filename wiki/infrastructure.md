@@ -313,6 +313,10 @@ make kind-up                     # create fst (or reuse it) on the floor node im
 make kind-deploy                 # the full sequence below; KIND_BASE=<ref> adds the upgrade test from that commit
                                  # (a commit id, branch or tag; no ~ or ^)
 make kind-shutdown-test         # after kind-deploy: Pods deleted under load fail no request (Workloads, below)
+make kind-live                   # after kind-deploy: the live suites (make test-live) against the release
+make kind-smoke                  # after kind-deploy: the smoke test against the public forward
+make kind-e2e                    # after kind-deploy: the Playwright suite (frontend: npm ci, browsers installed)
+make kind-zap                    # after kind-deploy: an advisory ZAP baseline (pulls the pinned ZAP image)
 make kind-down                   # delete fst and .local/kind
 ```
 
@@ -381,6 +385,26 @@ request's base commit>`, the scripts `make kind-up` and `make kind-deploy` run, 
 `make kind-shutdown-test` ([graceful shutdown](#workloads-rollout-resources-and-shutdown)). It always deletes the
 cluster at the end, and on a failure prints the cluster's state with the leg's own kubectl. It is
 blocking, behind `CI OK`.
+
+**The suites against the release.** Between the deploy and the shutdown check, so they see the release as
+deployed, the job runs the repository's own suites through `scripts/ci/kind-forward.sh`. As the deployer
+(its port-forward right, step 6), it forwards to the backend and frontend Services on loopback ports kubectl
+picks, waits until both answer, exports the URLs and runs one command; the forwards stop on every exit, and
+their logs are in the failure dump. *Public* on kind is the frontend Service: there is no Gateway controller,
+and the frontend is the edge that serves the pages and proxies the API through the WAF to the backend.
+`NEXT_DEPLOYMENT_ID` comes from the labels of the frontend image that runs (the script's header says how).
+- `make kind-live`, both legs: [the live suites](./testing.md#live-tests) against the backend forward and the
+  public edge, on each Kubernetes version. `tests/live/test_static_files.py` skips (`LIVE_TARGET=deployed`):
+  it starts its own server from a local build.
+- `make kind-smoke`, both legs: [the smoke test](../scripts/smoke-test.sh) of the API through the public edge.
+- `make kind-e2e`, newest leg only: the frontend's Playwright suite in a browser, through the public edge.
+- `make kind-zap`, newest leg only, advisory, after the shutdown check: a ZAP baseline of the public edge
+  ([Security](./security.md#runtime-application-protection-dast--waf)). Findings and tool errors warn, the
+  report is the `kind-dast` artifact, and it runs last because its spider uses up the per-client rate limit
+  for a minute.
+
+Playwright and ZAP test the app's browser and HTTP surface, which the Kubernetes version does not change,
+so one leg runs them.
 
 **The kind directory** is always the repository's `.local/kind` (`scripts/_kind.sh`): an exported
 `KIND_DIR` is never read, and the tests' override, `FST_KIND_DIR`, is refused unless it resolves under

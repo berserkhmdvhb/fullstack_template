@@ -18,3 +18,5 @@ if [[ -n "${FST_KIND_DIR:-}" ]]; then
   fi
   KIND_DIR="$_kind_dir"
 fi
+# The pinned kubectl (tools/kind-nodes.tsv) of the leg whose node image has the server minor $1; empty if none.
+kind_kubectl_pin() { awk -F'\t' -v m="$1" '!/^#/ && $3 ~ ("^kindest/node:v1\\." m "\\.") {print $2}' "$KIND_ROOT/tools/kind-nodes.tsv"; }

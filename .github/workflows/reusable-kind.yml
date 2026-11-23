@@ -41,12 +41,12 @@ jobs:
           fetch-depth: 0
       - name: Fetch the base commit
         run: git fetch --no-tags --depth=1 origin "${BASE_SHA}"
-      # kind, ct, Helm, yq and both kubectl pins, checksum-verified; the Gateway API CRDs by their pinned
-      # sha256 (crd-sources). ct shells out to yamllint and yamale, and the image matrix helper imports
+      # kind, ct, Helm, yq, Node and both kubectl pins, checksum-verified; the Gateway API CRDs by their
+      # pinned sha256 (crd-sources). Node derives the release's deployment id and runs Playwright. ct shells out to yamllint and yamale, and the image matrix helper imports
       # PyYAML: each gets a venv from its hashed lock.
       - name: Install the pinned tools
         run: |
-          scripts/tools.sh install helm4 kubectl kubectl-floor kind ct yq crd-sources
+          scripts/tools.sh install helm4 kubectl kubectl-floor kind ct yq node crd-sources
           echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
           for tool in yamllint yamale pyyaml; do
             python3 -m venv "$RUNNER_TEMP/${tool}"
@@ -70,12 +70,67 @@ jobs:
         run: |
           scripts/tools.sh install uv
           .tools/bin/uv sync --locked --python "$(command -v python3)"
+      # The suites against the release as deployed (before the shutdown check deletes and scales its Pods),
+      # through scripts/ci/kind-forward.sh: port-forwards as the deployer, public = the frontend Service
+      # (frontend, WAF, backend). What each proves: wiki/infrastructure.md, "In CI". Live and smoke are the
+      # API and the edge on each Kubernetes version (the port-forward path is version behaviour), so both
+      # legs run them (under a minute); Playwright and ZAP exercise the app's browser and HTTP surface, which
+      # the version does not change, so only the newest leg runs them (about 3 and 3 minutes).
+      - name: Live suites (backend and public forwards)
+        run: make kind-live
+      - name: Smoke test (public forward)
+        run: make kind-smoke
+      - name: Install the frontend dependencies
+        if: matrix.leg == 'newest'
+        working-directory: frontend
+        run: |
+          node scripts/check-npm-version.mjs
+          npm ci --ignore-scripts
+      # As reusable-live.yml installs it: the version comes from the lockfile because npx runs the
+      # locally installed Playwright.
+      - name: Install the Playwright browser
+        if: matrix.leg == 'newest'
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Frontend live suite (Playwright, public forward)
+        if: matrix.leg == 'newest'
+        run: make kind-e2e
       # What it proves: a Pod deletion under load fails no request, through the Service and through the
       # WAF, on each Kubernetes version (what the legs differ in). Not that the shutdown settings are
       # needed: see wiki/infrastructure.md, "The shutdown check". Every leg runs it, about three minutes
       # each, so a flaky run has two chances to fail the job.
       - name: Graceful shutdown (backend, frontend and backend-behind-WAF Pods deleted under load, no request fails)
         run: make kind-shutdown-test
+      # Advisory, last: findings and tool errors warn and never fail the job (continue-on-error and a
+      # verdict that exits 0), and its spider uses up the per-client rate limit for a minute, so no
+      # blocking step runs after it. infra/security/local/scan-dast.sh with dast.yml's pinned image; the
+      # ZAP container (host network: it reaches the forward on the runner's loopback) is named fst-zap-*.
+      - name: ZAP baseline (advisory, public forward)
+        id: zap
+        if: matrix.leg == 'newest'
+        continue-on-error: true
+        run: make kind-zap
+      - name: ZAP verdict (advisory)
+        if: ${{ !cancelled() && steps.zap.outcome != 'skipped' }}
+        run: |
+          status="$(jq -r '.status' output/security/dast/report.json 2>/dev/null || echo ERROR)"
+          case "${status}" in
+            GREEN) echo "- ZAP baseline on kind: no findings" >> "$GITHUB_STEP_SUMMARY" ;;
+            RED)
+              echo "::warning title=ZAP baseline (advisory)::findings on the kind release; see the kind-dast artifact"
+              echo "- ZAP baseline on kind: findings (advisory), see the kind-dast artifact" >> "$GITHUB_STEP_SUMMARY" ;;
+            *)
+              echo "::warning title=ZAP baseline (advisory)::status ${status} (a tool error or a skip, not a finding); see the log"
+              echo "- ZAP baseline on kind: ${status} (advisory)" >> "$GITHUB_STEP_SUMMARY" ;;
+          esac
+      - name: Upload the ZAP report
+        if: ${{ !cancelled() && steps.zap.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kind-dast
+          path: output/security/dast/
+          if-no-files-found: warn
+          retention-days: 90
       - name: Show the cluster state
         if: failure()
         run: |
@@ -87,6 +142,10 @@ jobs:
           "${kubectl_pin}" --kubeconfig .local/kind/kubeconfig get pods -A --no-headers \
             -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name | grep -- '-shutdown-load-' |
             while read -r ns pod; do "${kubectl_pin}" --kubeconfig .local/kind/kubeconfig logs -n "${ns}" "${pod}" || true; done || true
+          # The port-forwards' logs (scripts/ci/kind-forward.sh), one file per Service, every run appended.
+          for log in "${RUNNER_TEMP}"/kind-forward/*.log; do
+            if [[ -f "${log}" ]]; then echo "--- ${log}"; tail -n 100 "${log}"; fi
+          done
       - name: Delete the cluster
         if: always()
         run: scripts/kind-up.sh --delete

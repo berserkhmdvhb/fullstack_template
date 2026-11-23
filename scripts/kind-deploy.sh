@@ -69,7 +69,7 @@ contexts="$(kubectl config get-contexts -o name)"
 minor() { jq -r ".$1.minor" <<<"$2" | tr -cd '0-9'; }
 # Any kubectl reads the server's version (its skew warning is moot here: the leg's own is picked next).
 server="$(minor serverVersion "$(kubectl version -o json 2>/dev/null)")"
-pin="$(awk -F'\t' -v m="$server" '!/^#/ && $3 ~ ("^kindest/node:v1\\." m "\\.") {print $2}' "$ROOT/tools/kind-nodes.tsv")"
+pin="$(kind_kubectl_pin "$server")"
 [[ -n "$pin" ]] || die "no pinned kubectl for a 1.$server server (tools/kind-nodes.tsv)"
 WORK="$(mktemp -d)"
 pf_pid=""

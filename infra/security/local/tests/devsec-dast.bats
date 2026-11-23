@@ -289,3 +289,35 @@ _repo() {
   [ "$(jq -r '.status' "$SEC_OUTPUT_DIR/dast/report.json")" = "GREEN" ]
   [ ! -s "$DOCKER_ARGV" ]
 }
+
+@test "DAST_TARGET_RUNNING=true scans the running target: no app container, no image needed, health-checked" {
+  SEC_OUTPUT_DIR="$BATS_TEST_TMPDIR/out"
+  _stubs 0 2
+  root="$(_repo)"
+  DAST_TARGET_RUNNING=true DAST_TARGET_IMAGE="" DAST_TARGET_URL="http://127.0.0.1:41234" \
+    run bash "$SCRIPT" "$SEC_OUTPUT_DIR" "$root"
+  [ "$status" -eq 0 ]
+  grep -qF 'http://127.0.0.1:41234/api/v1/healthz' "$CURL_ARGV"
+  grep -qF -- '-t http://127.0.0.1:41234' "$DOCKER_ARGV"
+  grep -qE -- '^run -d|^rm -f' "$DOCKER_ARGV" && return 1 || true
+  [ "$(yq -r '.status' "$SEC_OUTPUT_DIR/dast/report.json")" = "RED" ]
+}
+
+@test "DAST_ZAP_CONTAINER names the ZAP container and removes it by that name, also on a tool error" {
+  SEC_OUTPUT_DIR="$BATS_TEST_TMPDIR/out"
+  _stubs 0 3
+  root="$(_repo)"
+  DAST_ZAP_CONTAINER=fst-zap-bats DAST_TARGET_RUNNING=true run bash "$SCRIPT" "$SEC_OUTPUT_DIR" "$root"
+  [ "$status" -eq 1 ]
+  grep -qF -- 'run --rm --name fst-zap-bats --network host' "$DOCKER_ARGV"
+  [ "$(tail -n 1 "$DOCKER_ARGV")" = "rm -f fst-zap-bats" ]
+}
+
+@test "without DAST_ZAP_CONTAINER the ZAP container stays unnamed (the dast workflow's run)" {
+  SEC_OUTPUT_DIR="$BATS_TEST_TMPDIR/out"
+  _stubs 0 0
+  root="$(_repo)"
+  run bash "$SCRIPT" "$SEC_OUTPUT_DIR" "$root"
+  [ "$status" -eq 0 ]
+  grep -qF -- 'run --rm --network host' "$DOCKER_ARGV"
+}

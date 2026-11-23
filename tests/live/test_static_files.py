@@ -81,6 +81,11 @@ def _unavailable(reason: str) -> NoReturn:
 
 @pytest.fixture(scope="module")
 def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[httpx.Client]:
+    if os.getenv("LIVE_TARGET") == "deployed":
+        pytest.skip(
+            "starts its own server from a local frontend build with temporary public/ files; "
+            "a deployed release (LIVE_TARGET=deployed) has neither"
+        )
     bundle = _ROOT / ".next" / "standalone"
     if not (bundle / "server.js").is_file():
         _unavailable(f"{bundle}/server.js is missing: run `npm run build` in the frontend first")

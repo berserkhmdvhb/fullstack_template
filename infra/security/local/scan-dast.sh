@@ -14,6 +14,9 @@
 # This is the SINGLE SOURCE OF TRUTH for the DAST scan: the dast workflow and
 # the local `devsec.sh dast` command both call it.
 #
+# DAST_TARGET_RUNNING=true scans a target that is already up (the kind job's release behind a
+# port-forward) instead of starting one; DAST_ZAP_CONTAINER names the ZAP container, removed by name.
+#
 # Advisory (exit 0): a finding (ZAP exit 1/2) is reported, not a hard gate. Any other
 # ZAP/docker exit, or a missing report, is a tool error: status ERROR, exit 1.
 #
@@ -77,6 +80,13 @@ DAST_TARGET_URL="${DAST_TARGET_URL:-http://localhost:8000}"
 DAST_HEALTH_PATH="${DAST_HEALTH_PATH:-$(cfg '.dast.health_path')}"
 DAST_PORT="${DAST_PORT:-8000}"
 DAST_CONTAINER="${DAST_CONTAINER:-dast-target}"
+# A target that is already running (the kind job's release behind a port-forward): no app container is
+# started, only DAST_TARGET_URL is health-checked and scanned. Default false: start DAST_TARGET_IMAGE.
+DAST_TARGET_RUNNING="${DAST_TARGET_RUNNING:-false}"
+# A name for the ZAP container, removed by that name on every exit path; empty: an unnamed --rm container.
+DAST_ZAP_CONTAINER="${DAST_ZAP_CONTAINER:-}"
+zap_name=()
+[[ -z "$DAST_ZAP_CONTAINER" ]] || zap_name=(--name "$DAST_ZAP_CONTAINER")
 # Bounded health-poll: never hang on a not-ready app. Overridable (small in tests).
 DAST_HEALTH_RETRIES="${DAST_HEALTH_RETRIES:-30}"
 DAST_HEALTH_DELAY="${DAST_HEALTH_DELAY:-2}"
@@ -102,6 +112,11 @@ cleanup() {
     # shellcheck disable=SC2317  # reachable via the EXIT trap below (the teardown command)
     run "$DOCKER_BIN" rm -f "$DAST_CONTAINER" >/dev/null 2>&1 || warn "failed to remove container $DAST_CONTAINER"
   fi
+  # shellcheck disable=SC2317  # reachable via the EXIT trap below
+  if [[ -n "$DAST_ZAP_CONTAINER" ]]; then
+    # shellcheck disable=SC2317  # reachable via the EXIT trap below (the teardown command)
+    run "$DOCKER_BIN" rm -f "$DAST_ZAP_CONTAINER" >/dev/null 2>&1 || true
+  fi
 }
 trap 'cleanup' EXIT
 
@@ -116,19 +131,23 @@ fi
 
 # A real run needs the app image to scan. Without it there is nothing to start —
 # say so as an actionable SKIPPED rather than failing obscurely.
-if [[ "$DRY_RUN" != "true" && -z "$DAST_TARGET_IMAGE" ]]; then
+if [[ "$DRY_RUN" != "true" && "$DAST_TARGET_RUNNING" != "true" && -z "$DAST_TARGET_IMAGE" ]]; then
   _skipped_scan "$OUT_DIR" "OWASP ZAP" \
     "no DAST_TARGET_IMAGE set — point it at the built app image (CI sets it; locally: DAST_TARGET_IMAGE=<repo>:<tag> devsec.sh dast)"
   exit 0
 fi
 
 # ---------- Start the target app (ephemeral container) -----------------------
-DAST_STARTED=1
-_show_run "$DOCKER_BIN" run -d --name "$DAST_CONTAINER" \
-  -p "${DAST_PORT}:8000" "$DAST_TARGET_IMAGE"
-if ! run "$DOCKER_BIN" run -d --name "$DAST_CONTAINER" \
-            -p "${DAST_PORT}:8000" "$DAST_TARGET_IMAGE" >/dev/null; then
-  warn "target app failed to start (container $DAST_CONTAINER) — the scan degrades to SKIPPED"
+if [[ "$DAST_TARGET_RUNNING" == "true" ]]; then
+  log "DAST_TARGET_RUNNING=true: scanning the running ${DAST_TARGET_URL}; no app container is started"
+else
+  DAST_STARTED=1
+  _show_run "$DOCKER_BIN" run -d --name "$DAST_CONTAINER" \
+    -p "${DAST_PORT}:8000" "$DAST_TARGET_IMAGE"
+  if ! run "$DOCKER_BIN" run -d --name "$DAST_CONTAINER" \
+              -p "${DAST_PORT}:8000" "$DAST_TARGET_IMAGE" >/dev/null; then
+    warn "target app failed to start (container $DAST_CONTAINER) — the scan degrades to SKIPPED"
+  fi
 fi
 
 # ---------- Bounded health-poll (never hang on a not-ready app) --------------
@@ -162,10 +181,10 @@ report="${OUT_DIR}/report.json"
 # network as the app's published port, so the target URL resolves the same way
 # on a native daemon and on the CI docker:dind runner (Linux; --network host is
 # not portable to macOS/Windows Docker Desktop — a documented local caveat).
-_show_run "$DOCKER_BIN" run --rm --network host -v "$OUT_DIR":/zap/wrk:rw "$DAST_ZAP_IMAGE" \
+_show_run "$DOCKER_BIN" run --rm "${zap_name[@]}" --network host -v "$OUT_DIR":/zap/wrk:rw "$DAST_ZAP_IMAGE" \
   zap-baseline.py -t "$DAST_TARGET_URL" \
   -J "$(basename "$zap_json")"
-if run "$DOCKER_BIN" run --rm --network host -v "$OUT_DIR":/zap/wrk:rw "$DAST_ZAP_IMAGE" \
+if run "$DOCKER_BIN" run --rm "${zap_name[@]}" --network host -v "$OUT_DIR":/zap/wrk:rw "$DAST_ZAP_IMAGE" \
       zap-baseline.py -t "$DAST_TARGET_URL" \
       -J "$(basename "$zap_json")"; then
   zap_rc=0

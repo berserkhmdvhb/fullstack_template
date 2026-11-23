@@ -77,10 +77,37 @@ def test_the_job_is_hardened() -> None:
     ):
         assert word not in text, word
     for step in job["steps"]:
-        if "uses" in step:
-            assert re.fullmatch(r"[\w./-]+@[0-9a-f]{40}", step["uses"]), step["uses"]
-            assert step["with"]["persist-credentials"] is False
-        assert "${{" not in step.get("run", ""), step.get("name")
+        assert _hardened_step(step), step.get("name", step.get("uses"))
+
+
+def _hardened_step(step: dict[str, Any]) -> bool:
+    """A SHA-pinned action, a checkout that keeps no token, and no expression inside a script."""
+    if "uses" in step:
+        if not re.fullmatch(r"[\w./-]+@[0-9a-f]{40}", step["uses"]):
+            return False
+        # persist-credentials is a checkout input: every checkout must set it to false.
+        if step["uses"].startswith("actions/checkout@") and (
+            step.get("with", {}).get("persist-credentials") is not False
+        ):
+            return False
+    return "${{" not in step.get("run", "")
+
+
+def test_a_checkout_that_keeps_its_token_is_not_hardened() -> None:
+    checkout = next(
+        s for s in _kind()["steps"] if s.get("uses", "").startswith("actions/checkout@")
+    )
+    assert _hardened_step(checkout)
+    assert not _hardened_step({**checkout, "with": {"fetch-depth": 0}})
+    assert not _hardened_step({**checkout, "with": {"persist-credentials": True}})
+    assert not _hardened_step(
+        {"uses": "actions/checkout@v7", "with": {"persist-credentials": False}}
+    )
+    upload = next(
+        s for s in _kind()["steps"] if s.get("uses", "").startswith("actions/upload-artifact@")
+    )
+    assert _hardened_step(upload)
+    assert "persist-credentials" not in upload["with"]
 
 
 def test_one_leg_per_pinned_node_image() -> None:
@@ -143,3 +170,80 @@ def test_the_diagnostics_use_the_legs_own_kubectl() -> None:
         "a bare kubectl skips the leg's pin"
     )
     assert '"${kubectl_pin}" --kubeconfig .local/kind/kubeconfig' in step["run"]
+
+
+def _step(name: str) -> dict[str, Any]:
+    return next(s for s in _kind()["steps"] if s.get("name") == name)
+
+
+def _names() -> list[str]:
+    return [s.get("name", s.get("uses", "")) for s in _kind()["steps"]]
+
+
+SUITES = {
+    "Live suites (backend and public forwards)": ("make kind-live", None),
+    "Smoke test (public forward)": ("make kind-smoke", None),
+    "Frontend live suite (Playwright, public forward)": ("make kind-e2e", "matrix.leg == 'newest'"),
+}
+ZAP = "ZAP baseline (advisory, public forward)"
+SHUTDOWN = next(n for n in _names() if n.startswith("Graceful shutdown"))
+
+
+def test_the_suites_run_against_the_release_blocking_before_the_shutdown_check() -> None:
+    names = _names()
+    deploy = next(i for i, n in enumerate(names) if n.startswith("Deploy and test"))
+    for name, (run, cond) in SUITES.items():
+        step = _step(name)
+        assert step["run"] == run
+        assert step.get("if") == cond, name
+        assert "continue-on-error" not in step, name
+        assert deploy < names.index(name) < names.index(SHUTDOWN), name
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+    for target in ("kind-live", "kind-smoke", "kind-e2e", "kind-zap"):
+        recipe = makefile.split(f"\n{target}:\n", 1)[1].split("\n\n", 1)[0]
+        assert "scripts/ci/kind-forward.sh" in recipe, target
+
+
+def test_playwright_is_installed_as_the_live_workflow_installs_it() -> None:
+    step = _step("Install the Playwright browser")
+    live = workflow("reusable-live.yml")["jobs"]["live"]["steps"]
+    theirs = next(s for s in live if s.get("name") == "Install the Playwright browser")
+    assert step["run"] == theirs["run"]
+    assert step["working-directory"] == theirs["working-directory"] == "frontend"
+    assert "node" in next(ln for ln in _runs().splitlines() if "scripts/tools.sh install" in ln)
+
+
+def test_zap_is_advisory_last_and_always_reports() -> None:
+    names = _names()
+    zap = _step(ZAP)
+    assert zap["id"] == "zap"
+    assert zap["continue-on-error"] is True
+    assert zap["if"] == "matrix.leg == 'newest'"
+    assert zap["run"] == "make kind-zap"
+    assert names.index(SHUTDOWN) < names.index(ZAP)
+    after = _kind()["steps"][names.index(ZAP) + 1 :]
+    reported = "${{ !cancelled() && steps.zap.outcome != 'skipped' }}"
+    verdict = _step("ZAP verdict (advisory)")
+    assert verdict["if"] == reported
+    assert "exit 1" not in verdict["run"]
+    assert "::warning" in verdict["run"]
+    upload = _step("Upload the ZAP report")
+    assert upload["if"] == reported
+    assert upload["uses"].startswith("actions/upload-artifact@")
+    assert upload["with"]["path"] == "output/security/dast/"
+    # Nothing blocking runs after ZAP: only its report, the failure dump and the cluster delete.
+    assert [s.get("name") for s in after] == [
+        "ZAP verdict (advisory)",
+        "Upload the ZAP report",
+        "Show the cluster state",
+        "Delete the cluster",
+    ]
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+    recipe = makefile.split("\nkind-zap:\n", 1)[1].split("\n\n", 1)[0]
+    assert "DAST_TARGET_RUNNING=true" in recipe
+    assert 'DAST_ZAP_CONTAINER="fst-zap-' in recipe
+    assert "infra/security/local/scan-dast.sh" in recipe
+
+
+def test_the_failure_dump_prints_the_forwards_logs() -> None:
+    assert '"${RUNNER_TEMP}"/kind-forward/*.log' in _step("Show the cluster state")["run"]
