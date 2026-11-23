@@ -297,7 +297,7 @@ def test_each_dashboard_is_hand_readable_and_takes_the_datasource_variable(name:
 def test_no_dashboard_query_or_variable_selects_on_job(name: str) -> None:
     """The job name follows the release's name, so a selector on it breaks with an override."""
     text = (DASHBOARDS / name).read_text(encoding="utf-8")
-    assert not re.search(r'[{,]\s*job\s*(=~|!~|!=|=)', text.replace('\\"', '"')), name
+    assert not re.search(r"[{,]\s*job\s*(=~|!~|!=|=)", text.replace('\\"', '"')), name
 
 
 def test_the_slo_budget_comes_from_the_objective_recording() -> None:
