@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.utils.markdown_headings import anchors, links, prose_lines, slug
+from tests.utils.markdown_headings import anchors, links, prose_lines, slug, unclosed_fence
 
 
 def _doc(tmp_path: Path, text: str) -> Path:
@@ -20,6 +20,12 @@ def test_an_indented_fence_hides_its_contents(tmp_path: Path) -> None:
     )
     assert [text for _, text in prose_lines(doc)] == ["1. Step", "", "", "## After"]
     assert anchors(doc) == {"after"}
+
+
+def test_an_unclosed_fence_is_reported(tmp_path: Path) -> None:
+    doc = _doc(tmp_path, "# A\n\n```bash\nx\n```\n\n   ~~~\n## hidden\n")
+    assert unclosed_fence(doc) == 7  # noqa: PLR2004 - the line of the open ~~~
+    assert unclosed_fence(_doc(tmp_path, "# A\n```\nx\n```\n")) is None
 
 
 def test_tilde_and_longer_fences_close_only_on_their_own_kind(tmp_path: Path) -> None:

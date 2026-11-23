@@ -14,20 +14,30 @@ _CODE_SPAN = re.compile(r"(`+)(.+?)\1")
 _LINK_TEXT = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
 
 
-def prose_lines(doc: Path) -> list[tuple[int, str]]:
-    """The (line number, text) of every line outside fenced code, without the fences' own lines."""
+def _scan(doc: Path) -> tuple[list[tuple[int, str]], int | None]:
+    """The lines outside fenced code, and the line of a fence left open at the end (or None)."""
     out: list[tuple[int, str]] = []
-    fence = ""
+    fence, opened = "", 0
     for n, line in enumerate(doc.read_text(encoding="utf-8").splitlines(), 1):
         m = _FENCE.match(line)
         if fence:
             if m and m[1][0] == fence[0] and len(m[1]) >= len(fence) and not line.strip(" `~"):
                 fence = ""
         elif m:
-            fence = m[1]
+            fence, opened = m[1], n
         else:
             out.append((n, line))
-    return out
+    return out, (opened if fence else None)
+
+
+def prose_lines(doc: Path) -> list[tuple[int, str]]:
+    """The (line number, text) of every line outside fenced code, without the fences' own lines."""
+    return _scan(doc)[0]
+
+
+def unclosed_fence(doc: Path) -> int | None:
+    """The line of a fence that never closes (it would hide the rest of the document), or None."""
+    return _scan(doc)[1]
 
 
 def slug(heading: str) -> str:

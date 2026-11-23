@@ -270,8 +270,8 @@ kubectl -n <db-ns> exec <fullname>-postgresql-0 -- sh -c \
 database only) restores the newest dump into a temporary database and fails when there is no dump, the dump is older
 than `postgresql.backup.verifyMaxAgeHours` or lacks pg_dump's closing trailer (cut short), the restore fails,
 `public` holds no table, a table in `postgresql.backup.verifyTables` is missing, or `alembic_version` holds no row;
-it drops the temporary database either way, and one of its own left by a killed run (over a day old) at a later
-start. A failure fires [BackupVerifyFailed](./operations-runbook.md#backupverifyfailed), and a check that stops
+it drops the temporary database either way, and one of its own left by a killed run (with no session, and older than
+any run may last) at a later start. A failure fires [BackupVerifyFailed](./operations-runbook.md#backupverifyfailed), and a check that stops
 succeeding fires [BackupVerifyTooOld](./operations-runbook.md#backupverifytooold). Its age limit is the in-Pod complement of
 [BackupTooOld](./operations-runbook.md#backuptooold) and takes that alert's threshold unless set.
 

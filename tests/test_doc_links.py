@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.utils.markdown_headings import anchors, links, prose_lines
+from tests.utils.markdown_headings import anchors, links, prose_lines, unclosed_fence
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = sorted((ROOT / "wiki").glob("*.md"))
@@ -28,3 +28,9 @@ def test_every_relative_link_resolves(doc: Path) -> None:
         elif anchor and target.suffix == ".md" and anchor not in anchors(target):
             broken.append(f"{doc.name}:{n}: {url} (no such heading)")
     assert not broken, "\n".join(broken)
+
+
+@pytest.mark.parametrize("doc", DOCS, ids=lambda p: p.name)
+def test_every_fence_closes(doc: Path) -> None:
+    """An unclosed fence hides the rest of the document from the link check."""
+    assert unclosed_fence(doc) is None, f"{doc.name}: the fence opened on this line never closes"

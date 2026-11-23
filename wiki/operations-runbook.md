@@ -549,6 +549,11 @@ corrupt or empty backup is caught before you need it. It shares the backup PVC a
 `postgresql.backup.enabled`. What it checks, and what it does not prove:
 [Disaster Recovery, Drills](./disaster-recovery.md#drills).
 
+Each run first drops temporary databases (`verify_backup_*`) left by killed runs. A drop that fails is only a
+warning in the verify Job's log (`WARNING: could not drop ...`), not a failure and not an alert, so a database
+that keeps failing to drop leaks unnoticed: look for that line in the logs below, and drop it by hand once no
+verify Job is active.
+
 ```bash
 # Check the verification CronJob (postgresql.backup.verifySchedule)
 kubectl -n your-service-name-db get cronjob your-service-name-pg-backup-verify
