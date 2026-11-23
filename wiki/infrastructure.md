@@ -356,7 +356,7 @@ chart's that predates the bootstrap: its install and its migration run as cluste
 release was deployed then, and every upgrade after them as the deployer. So the run proves the deployer's Role is enough for `helm upgrade --install --wait`. The database
 password is generated once into `.local/kind/values.yaml` and kept with the cluster. The base
 commit's chart is installed with its own `values.local.yaml`, and only those of this run's overrides
-(the built images, the scrape peers, and for the release a raised `config.RATE_LIMIT_DEFAULT`) that its `values.yaml` knows. After the first `helm test` the
+(the built images, the scrape peers) that its `values.yaml` knows. After the first `helm test` the
 run creates a Job from each backup CronJob, as admin: the backup must write a dump and the verify
 Job must restore that same dump.
 
@@ -426,20 +426,27 @@ stops accepting, waits for open connections (Node closes idle keep-alive ones as
 `shutdown.frontendDrainSeconds` bounds a slow request. A test asserts that each grace period exceeds the
 sleep plus the drain.
 
-**The shutdown proof** (`tests/k8s/test_graceful_shutdown.py`, `make kind-shutdown-test` after
-`make kind-deploy`; the kind job runs it on both legs). For the backend, the frontend
-and the backend behind the WAF, it scales the tier to two ready Pods (the replicas and the HPA
-floor are restored after), starts a load Pod in the release namespace whose clients each hold one
-keep-alive connection, as a proxy's pool does, to the tier's Service (the backend's `tests.apiPath`,
-the frontend's page) or the WAF's, deletes one ready Pod with its default grace period, and waits for
-it to be gone and for its replacement to be ready while the load runs. A connection the server closes
-cleanly is replaced; a refused or reset one, or any 5xx answer or timeout, fails the test, as do a
-load that fell short, was mostly rate-limited (the kind deploy raises `config.RATE_LIMIT_DEFAULT` for
-it) or did not span the deletion, and a Pod never seen Terminating. The load Pod is the release's
-[`helm test`](#local-cluster-kind) Job's Pod (the backend image, restricted), admitted by the same two
-test NetworkPolicies, applied for the test's duration and deleted after. `make test` never collects
-`tests/k8s`. A change to `shutdown.preStopSeconds`, `shutdown.frontendDrainSeconds`,
-`shutdown.marginSeconds` or `config.BACKEND_GRACEFUL_TIMEOUT` must keep it green.
+**The shutdown check** (`tests/k8s/test_graceful_shutdown.py`, `make kind-shutdown-test` after
+`make kind-deploy`; the kind job runs it on both legs). For the backend, the frontend and the backend
+behind the WAF, it scales the tier to two ready Pods (the replicas and the HPA floor are restored
+after), starts a load Pod in the release namespace whose clients each hold one keep-alive
+connection, as a proxy's pool does, to the tier's Service (the backend's `tests.apiPath`, the
+frontend's page) or the WAF's, deletes one ready Pod with its default grace period, and waits for it
+to be gone and for its replacement to be ready while the load runs. A connection the server closes
+cleanly is replaced; a refused or reset one, a 5xx answer or a timeout fails the test, as do too few
+answers (every answer below 500 counts, 429 included) before the delete or after the Pod was gone,
+and a Pod never seen Terminating. The load Pod is the release's [`helm test`](#local-cluster-kind)
+Job's Pod (the backend image, restricted), admitted by the same two test NetworkPolicies, applied for
+the test's duration and deleted after. `make test` never collects `tests/k8s`.
+
+What it proves on kind: no request fails across a normal Pod deletion, through the Service and
+through the WAF, with keep-alive clients. What it cannot prove there: that the shutdown settings
+above are needed. On a one-node kind cluster the endpoint leaves the Service before the process stops
+accepting, so the test passed with the settings at their schema minimums, with the `preStop` hook
+removed, and even with the Pod force-deleted (`--grace-period=0 --force`). The `preStop` margin covers
+the endpoint-propagation lag of multi-node clusters and external load balancers, which kind does not
+have. So keep the settings and reason about them for each platform; a change to them must also keep
+this check green.
 
 **Kubernetes version.** The chart's `kubeVersion` is 1.34 or later, a tested floor: the kind job
 ([Local cluster (kind)](#local-cluster-kind)) installs and tests the chart on that minor and on the newest one. Every

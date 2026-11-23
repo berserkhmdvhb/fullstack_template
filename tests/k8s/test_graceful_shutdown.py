@@ -55,7 +55,7 @@ rate, duration = float(os.environ["RATE"]), float(os.environ["DURATION"])
 timeout, clients = float(os.environ["TIMEOUT"]), int(os.environ["CLIENTS"])
 path = url.path + (f"?{url.query}" if url.query else "")
 lock = threading.Lock()
-statuses, starts, served, failures = {}, [], [], []
+statuses, starts, answered, failures = {}, [], [], []
 counts = {"connection_errors": 0, "timeouts": 0, "connections": 0, "clean_closes": 0}
 expected = int(rate * duration)
 
@@ -80,8 +80,8 @@ def record(start, key, err=None):
         elif key not in counts:
             starts.append(start)
             statuses[key] = statuses.get(key, 0) + 1
-            if key != "429" and not key.startswith("5"):
-                served.append(round(start, 2))
+            if not key.startswith("5"):
+                answered.append(round(start, 2))
 
 def client(c, t0):
     conn = None
@@ -98,8 +98,12 @@ def client(c, t0):
         try:
             conn.request("GET", path)
             r = conn.getresponse()
-            r.read()
+            body = r.read()
             record(start, str(r.status))
+            if r.status >= 500:
+                with lock:
+                    failures.append({"at": round(start, 3), "kind": str(r.status),
+                                     "error": body[:200].decode(errors="replace")})
             if r.will_close:
                 conn.close()
                 conn = None
@@ -123,7 +127,7 @@ for t in threads:
     t.join()
 print(json.dumps({"expected": expected, "total": len(starts), "statuses": statuses, **counts,
                   "first": min(starts, default=None), "last": max(starts, default=None),
-                  "failures": sorted(failures, key=lambda f: f["at"])[:20], "served": served}),
+                  "failures": sorted(failures, key=lambda f: f["at"])[:20], "answered": answered}),
       flush=True)
 """
 
@@ -280,18 +284,17 @@ def _load_pod(job: dict[str, Any], target: str, name: str) -> dict[str, Any]:
     }
 
 
-@pytest.mark.parametrize(
-    ("tier", "via"), [("backend", "service"), ("frontend", "service"), ("backend", "waf")]
-)
-@pytest.mark.usefixtures("two_ready")
-def test_pod_deletion_under_load_fails_no_request(
-    kube: Kube, test_job: dict[str, Any], tier: str, via: str
-) -> None:
-    target = _target(test_job, tier, via)
+TARGETS = [("backend", "service"), ("frontend", "service"), ("backend", "waf")]
+
+
+def _delete_under_load(kube: Kube, job: dict[str, Any], tier: str, via: str) -> dict[str, Any]:
+    """Delete a ready Pod of the tier under load, with its default grace period; the load's
+    summary and the times, once the Pod is gone and replaced."""
+    target = _target(job, tier, via)
     load = f"{RELEASE}-shutdown-load-{uuid.uuid4().hex[:8]}"
     terminating = False
     try:
-        kube("create", "-f", "-", stdin=json.dumps(_load_pod(test_job, target, load)))
+        kube("create", "-f", "-", stdin=json.dumps(_load_pod(job, target, load)))
         kube("wait", "--for=condition=Ready", f"pod/{load}", "--timeout=120s")
         time.sleep(LEAD)
         victim = _ready_pods(kube, tier)[0]
@@ -313,23 +316,41 @@ def test_pod_deletion_under_load_fails_no_request(
         summary = json.loads(kube("logs", load).strip().splitlines()[-1])
     finally:
         kube("delete", "pod", load, "--ignore-not-found", "--wait=false", check=False)
+    answered = summary.pop("answered")
+    run = {
+        "target": target,
+        "victim": victim,
+        "deleted": deleted,
+        "gone": gone_at,
+        "replacement_ready": ready_at,
+        "terminating": terminating,
+        # Every answer below 500, 429 included: the Pod answered it on that connection.
+        "answered": len(answered),
+        "answered_before_delete": sum(t < deleted for t in answered),
+        "answered_after_gone": sum(t > gone_at for t in answered),
+        "summary": summary,
+    }
+    run["failed"] = (
+        summary["connection_errors"]
+        + summary["timeouts"]
+        + sum(n for code, n in summary["statuses"].items() if code.startswith("5"))
+    )
+    print(json.dumps(run))
+    return run
 
-    served = summary.pop("served")
-    before = sum(t < deleted for t in served)
-    after = sum(t > gone_at for t in served)
-    times = {"deleted": deleted, "gone": gone_at, "replacement_ready": ready_at}
-    spans = {"served_before_delete": before, "served_after_gone": after}
-    report = json.dumps({"target": target, "victim": victim, **times, **spans, "summary": summary})
-    print(report)
-    errors = sum(n for code, n in summary["statuses"].items() if code.startswith("5"))
-    assert errors == 0, f"{errors} 5xx answers: {report}"
-    assert summary["connection_errors"] == 0, f"connection errors: {report}"
-    assert summary["timeouts"] == 0, f"timeouts: {report}"
+
+@pytest.mark.parametrize(("tier", "via"), TARGETS)
+@pytest.mark.usefixtures("two_ready")
+def test_pod_deletion_under_load_fails_no_request(
+    kube: Kube, test_job: dict[str, Any], tier: str, via: str
+) -> None:
+    run = _delete_under_load(kube, test_job, tier, via)
+    summary, report = run["summary"], json.dumps(run)
+    assert run["failed"] == 0, f"failed requests (5xx, connection errors, timeouts): {report}"
     assert summary["total"] >= 0.8 * RATE * DURATION, f"the load fell short: {report}"
-    # Answers other than 429 and 5xx: the load must reach the route, not only the rate limiter.
-    assert len(served) >= 0.8 * RATE * DURATION, f"mostly rate-limited (429): {report}"
-    assert before >= RATE, f"too few answers before the deletion: {report}"
-    assert after >= RATE, f"too few answers after the Pod was gone: {report}"
-    assert summary["first"] <= deleted - LEAD / 2, f"no load well before the delete: {report}"
-    assert summary["last"] >= max(gone_at, ready_at), f"the load ended too early: {report}"
-    assert terminating, f"{victim} was never seen Terminating: {report}"
+    assert run["answered"] >= 0.8 * RATE * DURATION, f"too few answers: {report}"
+    assert run["answered_before_delete"] >= RATE, f"too few answers before the delete: {report}"
+    assert run["answered_after_gone"] >= RATE, f"too few answers after the Pod was gone: {report}"
+    assert summary["first"] <= run["deleted"] - LEAD / 2, f"no load before the delete: {report}"
+    assert summary["last"] >= max(run["gone"], run["replacement_ready"]), f"ended early: {report}"
+    assert run["terminating"], f"{run['victim']} was never seen Terminating: {report}"
