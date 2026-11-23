@@ -150,12 +150,16 @@ def test_the_packaged_chart_carries_the_tags_version(
 
 PUSH_STUB = """#!/usr/bin/env bash
 echo "helm $* config=${HELM_REGISTRY_CONFIG}" >> "$CALLS"
+if [[ -n "${PUSH_FAILS:-}" ]]; then
+  echo "Error: denied: permission_denied: write_package" >&2
+  exit 1
+fi
 echo "Pushed: ghcr.io/o/charts/c:1.2.3"
 echo "Digest: ${PUSHED_DIGEST}"
 """
 
 
-def _push(tmp_path: Path, digest: str) -> tuple[int, str, str]:
+def _push(tmp_path: Path, digest: str, *, fails: bool = False) -> tuple[int, str, str]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "helm").write_text(PUSH_STUB)
@@ -164,8 +168,9 @@ def _push(tmp_path: Path, digest: str) -> tuple[int, str, str]:
         "PATH": f"{bin_dir}:/usr/bin:/bin",
         "CALLS": str(tmp_path / "calls"),
         "PUSHED_DIGEST": digest,
+        "PUSH_FAILS": "1" if fails else "",
         "PACKAGE": "c-1.2.3.tgz",
-        "HOME": "/home/runner",
+        "HOME": str(tmp_path / "home"),
         "REGISTRY": "ghcr.io",
         "GITHUB_REPOSITORY_OWNER": "O",
         "GITHUB_OUTPUT": str(tmp_path / "out"),
@@ -189,14 +194,20 @@ def test_the_push_goes_to_the_owners_charts_namespace_and_outputs_the_digest(
     assert outputs == f"digest={DIGEST}\n"
     calls = (tmp_path / "calls").read_text()
     # The docker/login-action login, so no token reaches a run step.
-    assert (
-        calls
-        == "helm push c-1.2.3.tgz oci://ghcr.io/o/charts config=/home/runner/.docker/config.json\n"
-    )
+    config = tmp_path / "home" / ".docker" / "config.json"
+    assert calls == f"helm push c-1.2.3.tgz oci://ghcr.io/o/charts config={config}\n"
 
 
 def test_a_push_without_a_valid_digest_fails(tmp_path: Path) -> None:
     code, outputs, stdout = _push(tmp_path, "sha256:short")
     assert code != 0
     assert "::error::" in stdout
+    assert outputs == ""
+
+
+def test_a_failing_push_prints_helms_error_before_failing(tmp_path: Path) -> None:
+    code, outputs, stdout = _push(tmp_path, DIGEST, fails=True)
+    assert code != 0
+    assert "denied: permission_denied: write_package" in stdout
+    assert "::error::helm push failed" in stdout
     assert outputs == ""

@@ -426,7 +426,29 @@ def test_vex_merges_the_per_platform_grype_reports_per_image() -> None:
     assert runs.index("unique_by") < runs.index("generate-vex.sh")
 
 
-def test_provenance_md_lists_every_signed_digest_and_how_to_verify_it(tmp_path: Path) -> None:
+ATTEST_GUARD = (
+    "${{ github.event.repository.visibility == 'public' || vars.ATTESTATIONS_ENABLED == 'true' }}"
+)
+
+
+def test_provenance_md_follows_the_attestation_guard_of_the_build() -> None:
+    step = next(s for s in _assets()["steps"] if s.get("name") == "Collect the assets")
+    assert step["env"] == {"ATTESTED": ATTEST_GUARD}
+    build = workflow("reusable-build.yml")["jobs"]
+    guards = {
+        s["if"]
+        for j in build.values()
+        for s in j["steps"]
+        if str(s.get("uses", "")).startswith("actions/attest")
+    }
+    assert guards == {ATTEST_GUARD}
+
+
+@pytest.mark.parametrize("attested", [True, False])
+def test_provenance_md_lists_every_signed_digest_and_how_to_verify_it(
+    tmp_path: Path,
+    attested: bool,  # noqa: FBT001
+) -> None:
     step = next(s for s in _assets()["steps"] if s.get("name") == "Collect the assets")
     files = {
         "assets/sbom/sbom-backend.linux-amd64/backend.image.sbom.cdx.json": "{}",
@@ -452,6 +474,7 @@ def test_provenance_md_lists_every_signed_digest_and_how_to_verify_it(tmp_path: 
         "GH_REPO": "o/r",
         "TAG": "v1.0.0",
         "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
+        "ATTESTED": "true" if attested else "false",
     }
     subprocess.run(
         [BASH, "-e", "-c", step["run"]], cwd=tmp_path, env=env, check=True, capture_output=True
@@ -460,8 +483,11 @@ def test_provenance_md_lists_every_signed_digest_and_how_to_verify_it(tmp_path: 
     assert f"- image `ghcr.io/o/r/backend@{D1}`" in text
     assert f"- image `ghcr.io/o/r/frontend@{D2}`" in text
     assert f"- chart `ghcr.io/o/charts/c@{D3}` (version 1.0.0)" in text
-    assert "https://github.com/o/r/attestations" in text
-    assert "--signer-workflow o/r/.github/workflows/reusable-build.yml" in text
+    # Attestation links and their verify command only when the build attested.
+    assert ("https://github.com/o/r/attestations" in text) is attested
+    assert ("gh attestation verify" in text) is attested
+    assert ("attested by" in text) is attested
+    assert ("Not attested" in text) is not attested
     assert (
         "--certificate-identity https://github.com/o/r/.github/workflows/reusable-build.yml@refs/tags/v1.0.0"
         in text

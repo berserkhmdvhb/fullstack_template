@@ -272,7 +272,10 @@ jobs:
         with:
           name: chart
           path: assets/chart
+      # ATTESTED: the guard of the attestation steps in reusable-build.yml, so the text never claims a skipped one.
       - name: Collect the assets
+        env:
+          ATTESTED: ${{ github.event.repository.visibility == 'public' || vars.ATTESTATIONS_ENABLED == 'true' }}
         run: |
           mkdir release-assets
           # Only each artifact's image SBOM, by its exact name (image ids hold no dot), named after the artifact, so no two files collide.
@@ -289,7 +292,11 @@ jobs:
           {
             echo "# Provenance of ${TAG}"
             echo
-            echo "Signed keyless and attested by \`${workflow}@refs/tags/${TAG}\`. All attestations: https://github.com/${GH_REPO}/attestations"
+            if [[ "${ATTESTED}" == "true" ]]; then
+              echo "Signed keyless and attested by \`${workflow}@refs/tags/${TAG}\`. All attestations: https://github.com/${GH_REPO}/attestations"
+            else
+              echo "Signed keyless by \`${workflow}@refs/tags/${TAG}\`. Not attested: the repository is not public and ATTESTATIONS_ENABLED is not true."
+            fi
             echo
             while IFS='=' read -r key digest; do
               ref="$(sed -n "s/^${key%_DIGEST}=//p" assets/digests/scan.env)"
@@ -300,7 +307,9 @@ jobs:
             echo "Verify any of them (replace REF with a reference above):"
             echo
             echo '```'
-            echo "gh attestation verify oci://REF --repo ${GH_REPO} --signer-workflow ${workflow}"
+            if [[ "${ATTESTED}" == "true" ]]; then
+              echo "gh attestation verify oci://REF --repo ${GH_REPO} --signer-workflow ${workflow}"
+            fi
             echo "cosign verify REF --certificate-identity https://github.com/${workflow}@refs/tags/${TAG} --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-github-workflow-repository ${GH_REPO}"
             echo '```'
           } > release-assets/provenance.md

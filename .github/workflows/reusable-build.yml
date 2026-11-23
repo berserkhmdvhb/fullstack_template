@@ -539,7 +539,12 @@ jobs:
         run: |
           set -euo pipefail
           export HELM_REGISTRY_CONFIG="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
-          out="$(helm push "${PACKAGE}" "oci://${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/charts" 2>&1)"
+          # Print helm's output on failure too: a v* run cannot be re-run with more logging.
+          if ! out="$(helm push "${PACKAGE}" "oci://${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/charts" 2>&1)"; then
+            echo "${out}"
+            echo "::error::helm push failed (a first push may need the charts package to grant this repository write access)"
+            exit 1
+          fi
           echo "${out}"
           digest="$(sed -n 's/^Digest: //p' <<<"${out}")"
           if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
