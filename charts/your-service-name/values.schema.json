@@ -501,6 +501,8 @@
             "enabled":       { "type": "boolean" },
             "schedule":      { "type": "string" },
             "retentionDays": { "type": "integer" },
+            "deadlineSeconds":       { "type": "integer", "minimum": 60 },
+            "verifyDeadlineSeconds": { "type": "integer", "minimum": 60 },
             "verifySchedule":    { "type": "string" },
             "verifyMaxAgeHours": { "type": ["integer", "null"], "minimum": 1 },
             "verifyTables": {

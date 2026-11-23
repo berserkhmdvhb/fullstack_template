@@ -11,6 +11,13 @@
    so the scratch-DB restore always has permission.
 */}}
 {{- if and .Values.postgresql.enabled .Values.postgresql.backup.enabled }}
+{{- /* The age after which the script treats one of its temporary databases as left over by a killed
+       run (VERIFY_STALE_AFTER_SECONDS): longer than any run lasts, so the deadline must stay below it. */}}
+{{- $staleAfter := 86400 }}
+{{- $deadline := int .Values.postgresql.backup.verifyDeadlineSeconds }}
+{{- if ge $deadline $staleAfter }}
+{{- fail (printf "%s: postgresql.backup.verifyDeadlineSeconds (%d) must be below %d, the age after which the restore check drops a temporary database as left over: a longer run could lose its database to the next one." (include "chart.fullname" .) $deadline $staleAfter) }}
+{{- end }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -29,6 +36,12 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      # A hung restore ends at the deadline (SIGTERM: the script's trap drops its database) and
+      # fails the Job, so BackupVerifyFailed fires and Forbid does not block the next run.
+      activeDeadlineSeconds: {{ $deadline }}
+      # One retry, for a passing fault such as a database restart; a wrong dump fails the same way
+      # every time, and six retries would only repeat the failure.
+      backoffLimit: 1
       ttlSecondsAfterFinished: 86400
       template:
         metadata:
@@ -56,6 +69,8 @@ spec:
               # The script (files/pg-backup-verify.sh) comes from the ConfigMap, read-only.
               command: [/bin/sh, /scripts/pg-backup-verify.sh]
               env:
+                - name: VERIFY_STALE_AFTER_SECONDS
+                  value: {{ $staleAfter | quote }}
                 - name: VERIFY_TABLES
                   value: {{ join "," .Values.postgresql.backup.verifyTables | quote }}
                 - name: VERIFY_MAX_AGE_HOURS

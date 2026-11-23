@@ -7,8 +7,9 @@
 # table is missing or alembic_version holds no row. The temporary database is dropped on every
 # exit, and one left by an earlier run (killed before its trap ran) at the start of the next.
 # Env: DB_HOST, DB_USER, DB_NAME, PGPASSWORD, PGPORT (the CronJob's); BACKUP_DIR (/backup);
-# VERIFY_MAX_AGE_HOURS and VERIFY_TABLES (comma-separated), required: the chart's values hold the
-# defaults (postgresql.backup.verifyMaxAgeHours, verifyTables).
+# VERIFY_MAX_AGE_HOURS, VERIFY_TABLES (comma-separated) and VERIFY_STALE_AFTER_SECONDS, required:
+# the chart holds the defaults (postgresql.backup.verifyMaxAgeHours, verifyTables; the stale age
+# in the verify CronJob's template, above its activeDeadlineSeconds).
 # A failure fires BackupVerifyFailed: wiki/operations-runbook.md#backupverifyfailed.
 # -----------------------------------------------------------------------------
 set -eu
@@ -16,6 +17,7 @@ set -eu
 BACKUP_DIR="${BACKUP_DIR:-/backup}"
 MAX_AGE_HOURS="${VERIFY_MAX_AGE_HOURS:?VERIFY_MAX_AGE_HOURS is required (postgresql.backup.verifyMaxAgeHours)}"
 TABLES="${VERIFY_TABLES:?VERIFY_TABLES is required and must name at least one table (postgresql.backup.verifyTables)}"
+STALE_AFTER="${VERIFY_STALE_AFTER_SECONDS:?VERIFY_STALE_AFTER_SECONDS is required (the verify CronJob sets it)}"
 TEMP_DB=""
 
 fail() {
@@ -72,15 +74,17 @@ gunzip -c "$LATEST_BACKUP" | tail -n 10 | grep -q '^-- PostgreSQL database dump 
 OWN_NAME='^verify_backup_[0-9]{14}_[0-9a-f]{8}$'
 
 # Temporary databases of earlier runs that were killed before their trap ran: only names of this
-# script's own format, never the connected database, and only those over a day old (a younger one
-# may belong to a run still going). One that cannot be dropped is reported, not fatal.
-DATABASES=$(psql_on "$DB_NAME" -c "SELECT datname FROM pg_database WHERE datname <> current_database();") ||
+# script's own format, never the connected database or one with a live session, and only those
+# older than VERIFY_STALE_AFTER_SECONDS (longer than any run may last: the Job's deadline is below
+# it). One that cannot be dropped is reported, not fatal.
+DATABASES=$(psql_on "$DB_NAME" -c "SELECT datname FROM pg_database WHERE datname <> current_database() AND datname NOT IN (SELECT datname FROM pg_stat_activity WHERE datname IS NOT NULL);") ||
   fail "query failed: listing earlier temporary databases"
-DAY_AGO=$(date -u -d "@$(($(date +%s) - 86400))" +%Y%m%d%H%M%S)
+CUTOFF=$(date -u -d "@$(($(date +%s) - STALE_AFTER))" +%Y%m%d%H%M%S) ||
+  fail "could not compute the stale cut-off (date -u -d @SECONDS is not supported by this date)"
 for stale in $(printf '%s\n' "$DATABASES" | grep -E "$OWN_NAME" || true); do
   stamp=${stale#verify_backup_}
   stamp=${stamp%_*}
-  [ "$stamp" -lt "$DAY_AGO" ] || continue
+  [ "$stamp" -lt "$CUTOFF" ] || continue
   echo "Dropping a temporary database left by an earlier run: $stale"
   psql_on "$DB_NAME" -c "DROP DATABASE IF EXISTS \"${stale}\";" ||
     echo "WARNING: could not drop $stale; drop it by hand once no verify Job is active" >&2

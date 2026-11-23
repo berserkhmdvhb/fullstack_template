@@ -112,3 +112,36 @@ tests:
       - matchRegex:
           path: 'spec.jobTemplate.spec.template.spec.containers[0].command[2]'
           pattern: 'find /backup \\\( -name "\*\.sql\.gz" -o -name "\*\.sql\.gz\.partial" \\\) -mtime \+30 -delete'
+  - it: a run is bounded by its deadline and retried once, and the script gets the stale age the deadline stays below
+    template: pg-backup-verify-cronjob.yaml
+    asserts:
+      - equal: {path: spec.jobTemplate.spec.activeDeadlineSeconds, value: 3600}
+      - equal: {path: spec.jobTemplate.spec.backoffLimit, value: 1}
+      - contains:
+          path: 'spec.jobTemplate.spec.template.spec.containers[0].env'
+          content: {name: VERIFY_STALE_AFTER_SECONDS, value: "86400"}
+  - it: postgresql.backup.verifyDeadlineSeconds sets the deadline
+    template: pg-backup-verify-cronjob.yaml
+    set:
+      postgresql: {backup: {verifyDeadlineSeconds: 7200}}
+    asserts:
+      - equal: {path: spec.jobTemplate.spec.activeDeadlineSeconds, value: 7200}
+  - it: a deadline not below the stale age is refused (a running check's database could be dropped)
+    template: pg-backup-verify-cronjob.yaml
+    set:
+      postgresql: {backup: {verifyDeadlineSeconds: 86400}}
+    asserts:
+      - failedTemplate:
+          errorPattern: 'verifyDeadlineSeconds \(86400\) must be below 86400'
+  - it: the backup is bounded by postgresql.backup.deadlineSeconds
+    template: pg-backup-cronjob.yaml
+    documentSelector: {path: kind, value: CronJob}
+    asserts:
+      - equal: {path: spec.jobTemplate.spec.activeDeadlineSeconds, value: 3600}
+  - it: the backup deadline is a value
+    template: pg-backup-cronjob.yaml
+    documentSelector: {path: kind, value: CronJob}
+    set:
+      postgresql: {backup: {deadlineSeconds: 900}}
+    asserts:
+      - equal: {path: spec.jobTemplate.spec.activeDeadlineSeconds, value: 900}

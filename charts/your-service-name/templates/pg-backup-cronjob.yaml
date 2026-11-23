@@ -19,6 +19,8 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      # A hung pg_dump ends at the deadline and fails the Job (BackupJobFailed, and BackupTooOld).
+      activeDeadlineSeconds: {{ .Values.postgresql.backup.deadlineSeconds }}
       template:
         metadata:
           # What the database's NetworkPolicy admits (db-network-policy.yaml).

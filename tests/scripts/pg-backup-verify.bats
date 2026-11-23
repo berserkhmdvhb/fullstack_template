@@ -17,8 +17,11 @@ printf '%s\n' "$*" >> "$LOG"
 case "$*" in
   *"FROM pg_database"*)
     # The server's databases (DATABASES, one per line), without the connected one when asked.
+    # BUSY_DBS have a session, left out when the query excludes pg_stat_activity's databases.
     for d in ${DATABASES:-}; do
-      [[ "$*" == *"current_database()"* && "$d" == "${DB_NAME}" ]] || echo "$d"
+      [[ "$*" == *"current_database()"* && "$d" == "${DB_NAME}" ]] && continue
+      [[ "$*" == *"pg_stat_activity"* && " ${BUSY_DBS:-} " == *" $d "* ]] && continue
+      echo "$d"
     done; exit 0 ;;
   *"CREATE DATABASE"*) exit 0 ;;
   *"DROP DATABASE"*) [ -z "${DROP_FAIL:-}" ] || { echo 'ERROR:  database is being accessed by other users' >&2; exit 1; }; exit 0 ;;
@@ -39,7 +42,7 @@ STUB
   export BACKUP_DIR="$BATS_TEST_TMPDIR/backup"
   mkdir -p "$BACKUP_DIR"
   export DB_HOST=db DB_USER=app DB_NAME=app
-  export VERIFY_TABLES=alembic_version,items,echo_records VERIFY_MAX_AGE_HOURS=26
+  export VERIFY_TABLES=alembic_version,items,echo_records VERIFY_MAX_AGE_HOURS=26 VERIFY_STALE_AFTER_SECONDS=86400
   dump "$BACKUP_DIR/svc-old.sql.gz"
   touch -d '-3 days' "$BACKUP_DIR/svc-old.sql.gz"
   dump "$BACKUP_DIR/svc-new.sql.gz"
@@ -202,6 +205,39 @@ created_none() { [ "$(grep -c 'CREATE DATABASE' "$LOG")" -eq 0 ]; }
   DATABASES="$running" run sh "$SCRIPT"
   [ "$status" -eq 0 ]
   [ "$(grep -c "DROP DATABASE IF EXISTS \"$running\"" "$LOG")" -eq 0 ]
+}
+
+@test "a temporary database with a live session is never dropped, however old" {
+  DATABASES="verify_backup_19990101000000_0a1b2c3d" BUSY_DBS="verify_backup_19990101000000_0a1b2c3d" run sh "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c 'DROP DATABASE IF EXISTS "verify_backup_19990101000000_0a1b2c3d"' "$LOG")" -eq 0 ]
+}
+
+@test "VERIFY_STALE_AFTER_SECONDS sets the age after which a temporary database counts as left over" {
+  recent="verify_backup_$(date -u -d "@$(($(date +%s) - 7200))" +%Y%m%d%H%M%S)_0a1b2c3d"
+  VERIFY_STALE_AFTER_SECONDS=3600 DATABASES="$recent" run sh "$SCRIPT"
+  [ "$status" -eq 0 ]
+  grep -q "DROP DATABASE IF EXISTS \"$recent\";" "$LOG"
+}
+
+@test "without VERIFY_STALE_AFTER_SECONDS the script refuses to run" {
+  run env -u VERIFY_STALE_AFTER_SECONDS sh "$SCRIPT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"VERIFY_STALE_AFTER_SECONDS"* ]]
+  created_none
+}
+
+@test "a date that cannot compute the cut-off fails with a message" {
+  cat > "$B/date" <<'STUB'
+#!/usr/bin/env bash
+for a in "$@"; do [[ "$a" == @* ]] && { echo "date: invalid date '$a'" >&2; exit 1; }; done
+exec /usr/bin/env -u PATH /bin/date "$@"
+STUB
+  chmod +x "$B/date"
+  run sh "$SCRIPT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ERROR: could not compute"* ]]
+  created_none
 }
 
 @test "a temporary database that cannot be dropped is reported and the check goes on" {

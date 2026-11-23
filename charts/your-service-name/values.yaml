@@ -569,6 +569,7 @@ postgresql:
     enabled: true
     schedule: "0 2 * * *"        # daily 02:00 UTC
     retentionDays: 30
+    deadlineSeconds: 3600        # the backup Job's activeDeadlineSeconds: a hung pg_dump fails it
     # The weekly restore check (files/pg-backup-verify.sh): restores the newest dump into a
     # temporary database and fails when there is no dump, it is older than verifyMaxAgeHours or
     # incomplete, the restore fails, public holds no table, a verifyTables table is missing or
@@ -580,6 +581,10 @@ postgresql:
     verifyMaxAgeHours: null
     # At least one; unqualified, lower-case names of tables in schema public.
     verifyTables: [alembic_version, items, echo_records]
+    # The verify Job's activeDeadlineSeconds. It must stay below the age after which the check
+    # drops one of its temporary databases as left over ($staleAfter in
+    # templates/pg-backup-verify-cronjob.yaml; the render refuses otherwise).
+    verifyDeadlineSeconds: 3600
     storage:
       className: standard
       size: 50Gi
