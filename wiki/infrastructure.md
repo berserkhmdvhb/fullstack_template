@@ -312,6 +312,7 @@ pinned tools (`make tools`: kind, ct, Helm, yq, both kubectl pins, the CRD sourc
 make kind-up                     # create fst (or reuse it) on the floor node image; KIND_NODE=newest for the other
 make kind-deploy                 # the full sequence below; KIND_BASE=<ref> adds the upgrade test from that commit
                                  # (a commit id, branch or tag; no ~ or ^)
+make kind-shutdown-test         # after kind-deploy: Pods deleted under load fail no request (Workloads, below)
 make kind-down                   # delete fst and .local/kind
 ```
 
@@ -376,7 +377,8 @@ runs, never to the metrics port. Every hook object is deleted after a pass and a
 
 **In CI** `reusable-kind.yml`, called by `ci.yml` on pull requests behind its path filter, runs this
 on both legs: `scripts/kind-up.sh --node <leg>`, then `scripts/kind-deploy.sh --base <the pull
-request's base commit>`, the scripts `make kind-up` and `make kind-deploy` run. It always deletes the
+request's base commit>`, the scripts `make kind-up` and `make kind-deploy` run, then
+`make kind-shutdown-test` ([graceful shutdown](#workloads-rollout-resources-and-shutdown)). It always deletes the
 cluster at the end, and on a failure prints the cluster's state with the leg's own kubectl. It is
 blocking, behind `CI OK`.
 
@@ -423,6 +425,19 @@ SIGTERM. The grace period is derived, never set: the sleep, plus the drain, plus
 stops accepting, waits for open connections (Node closes idle keep-alive ones as soon as `server.close()` runs) and exits, so
 `shutdown.frontendDrainSeconds` bounds a slow request. A test asserts that each grace period exceeds the
 sleep plus the drain.
+
+**The shutdown proof** (`tests/k8s/test_graceful_shutdown.py`, `make kind-shutdown-test` after
+`make kind-deploy`; the kind job runs it on both legs). For the backend and then the frontend, it
+scales the tier to two ready Pods (the replicas and the HPA floor are restored after), starts a load
+Pod in the release namespace that sends a steady stream of requests, one connection each, to the
+tier's Service (the backend's `tests.apiPath`, the frontend's page), deletes one ready Pod with its
+default grace period, and waits for it to be gone and for its replacement to be ready while the load
+runs. It fails on any 5xx answer, connection error or timeout, on a load that fell short or did not
+span the deletion, or when the Pod was never seen Terminating. The load Pod is the release's
+[`helm test`](#local-cluster-kind) Job's Pod (the backend image, restricted), admitted by the same two
+test NetworkPolicies, applied for the test's duration and deleted after. `make test` never collects
+`tests/k8s`. A change to `shutdown.preStopSeconds`, `shutdown.frontendDrainSeconds`,
+`shutdown.marginSeconds` or `config.BACKEND_GRACEFUL_TIMEOUT` must keep it green.
 
 **Kubernetes version.** The chart's `kubeVersion` is 1.34 or later, a tested floor: the kind job
 ([Local cluster (kind)](#local-cluster-kind)) installs and tests the chart on that minor and on the newest one. Every
