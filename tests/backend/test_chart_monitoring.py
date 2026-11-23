@@ -283,3 +283,26 @@ def test_every_alert_links_a_runbook_section_and_every_alert_section_names_an_al
     # Every level-3 heading in the Alerts section names a rendered alert: no stale section.
     names = {r["alert"] for r in alerts.values()}
     assert set(sections.values()) <= names, set(sections.values()) - names
+
+
+def test_the_runbooks_stated_defaults_are_the_charts() -> None:
+    """The runbook keeps the defaults for readability; each must equal values.yaml (one source)."""
+    m = yaml.safe_load((CHART / "values.yaml").read_text(encoding="utf-8"))["monitoring"]
+    slo, alerts = m["slo"], m["alerts"]
+    text = " ".join(RUNBOOK.read_text(encoding="utf-8").split())
+    stated = {
+        r"`monitoring\.slo\.availability\.objective: ([^`]+)`": slo["availability"]["objective"],
+        r"`monitoring\.slo\.latency\.objective: ([^`]+)`": slo["latency"]["objective"],
+        r"under `thresholdSeconds: ([^`]+)`": slo["latency"]["thresholdSeconds"],
+        r"`monitoring\.slo\.excludeHandlers` \(default `([^`]+)`": slo["excludeHandlers"],
+        r"`monitoring\.alerts\.backupMaxAgeHours` \(default (\d+)\)": alerts["backupMaxAgeHours"],
+        r"`monitoring\.alerts\.backupVerifyMaxAgeHours` \(default (\d+),": alerts[
+            "backupVerifyMaxAgeHours"
+        ],
+        r"under `warningDays` \(default (\d+)\)": alerts["certificateExpiry"]["warningDays"],
+        r"under `criticalDays` \(default (\d+);": alerts["certificateExpiry"]["criticalDays"],
+    }
+    for pattern, default in stated.items():
+        found = re.findall(pattern, text)
+        assert found, f"the runbook no longer states {pattern}"
+        assert found == [str(default)] * len(found), (pattern, found, default)
