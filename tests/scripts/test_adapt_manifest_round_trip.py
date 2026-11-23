@@ -7,6 +7,7 @@ adapter must return the manifest unchanged except for the renamed package name: 
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -124,34 +125,52 @@ def test_a_blank_line_inside_the_images_block_is_refused_clearly(tmp_path: Path)
     assert (tmp_path / MANIFEST).read_text(encoding="utf-8") == text
 
 
-def test_the_info_metric_is_renamed_in_the_dashboards_the_collector_and_the_runbook(
+# Spelt in capitals so the adapter, which rewrites this file, leaves the placeholder alone.
+_OLD_METRIC = "YOUR_SERVICE_NAME_BUILD_INFO".lower()
+# The tests that read wiki/ (which the adapter leaves generic) against the code and the chart.
+_DOC_TESTS = (
+    "tests/backend/test_chart_dashboards.py",
+    "tests/backend/test_chart_monitoring.py",
+)
+
+
+def test_an_adapted_copy_passes_the_tests_that_read_the_docs_against_the_code(
     tmp_path: Path,
 ) -> None:
-    """The dashboards' variables and the collector name the adapted metric (a valid metric name)."""
-    files = [
-        *(
-            p.relative_to(REPO)
-            for p in (REPO / "charts/your-service-name/dashboards").glob("*.json")
-        ),
-        Path("src/your_service_name/backend/build_info.py"),
-        Path("wiki/operations-runbook.md"),
-    ]
-    for rel in files:
-        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(REPO / rel, tmp_path / rel)
-    _adapt(tmp_path)
-    metric = "acme_build_info"
+    """The info metric is renamed in the dashboards and the collector, a valid metric name, and the
+    doc-reading tests (the runbook stays generic) still pass in the adapted copy."""
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],  # noqa: S607
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    for rel in filter(None, listed.split("\0")):
+        if (REPO / rel).is_file():
+            (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(REPO / rel, tmp_path / rel)
+    (tmp_path / ".tools").symlink_to(REPO / ".tools")  # the pinned helm and promtool
+    proc = _run(tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    collector = (tmp_path / "src/acme/backend/build_info.py").read_text(encoding="utf-8")
+    found = re.search(r'BUILD_INFO_METRIC: Final = "([^"]+)"', collector)
+    assert found, collector
+    metric = found.group(1)
+    assert metric == "acme_build_info"
     assert re.fullmatch(r"[a-zA-Z_:][a-zA-Z0-9_:]*", metric)
-    adapted = [p for p in tmp_path.rglob("*") if p.is_file() and ".adapt-backup" not in p.parts]
-    names = {p.name for p in adapted}
-    assert {f.name for f in files} <= names, "the files kept their names"
-    for path in adapted:
-        if path.name == "operations-runbook.md":
-            # wiki/ is in excludes.txt: the template's docs keep the placeholder (as for every uid).
-            assert "your_service_name_build_info" in path.read_text(encoding="utf-8")
-        elif path.name in {f.name for f in files}:
-            text = path.read_text(encoding="utf-8")
-            assert "your_service_name_build_info" not in text, path
-            assert metric in text, path
-        if path.name == "build_info.py":
-            assert f'BUILD_INFO_METRIC: Final = "{metric}"' in path.read_text(encoding="utf-8")
+    for dashboard in (tmp_path / "charts/acme/dashboards").glob("*.json"):
+        text = dashboard.read_text(encoding="utf-8")
+        assert metric in text, dashboard
+        assert _OLD_METRIC not in text, dashboard
+
+    tests = subprocess.run(
+        [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", *_DOC_TESTS],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(tmp_path / "src")},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert tests.returncode == 0, tests.stdout[-3000:] + tests.stderr[-1000:]

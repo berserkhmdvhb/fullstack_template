@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import re
 import socket
+import subprocess
+import sys
 import urllib.request
 
 from fastapi.testclient import TestClient
@@ -40,7 +42,7 @@ def test_the_metrics_server_answers_on_its_port_and_the_api_app_does_not() -> No
     assert "http_requests_total" in body
     assert "http_request_duration_seconds" in body
     # The rate-limit counters and the pool gauges the SLOs and dashboards use.
-    # A sample from start, not only its HELP line: the dashboards' variables list its labels.
+    # A sample from start, not only its HELP line.
     assert re.search(r"^rate_limit_rejections_total \d", body, re.MULTILINE)
     assert "rate_limit_storage_failures_total" in body
     # The service's own info metric, from start, value 1, the package version as its only label.
@@ -65,3 +67,16 @@ def test_the_labelled_latency_histogram_has_the_slo_buckets() -> None:
     )
     assert bounds == {*(str(b) for b in LATENCY_BUCKETS), "+Inf"}
     assert LATENCY_BUCKETS == (0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
+
+
+def test_the_info_metric_is_served_from_import_with_no_request() -> None:
+    """A fresh process importing only the app module: no request, no startup, no collector."""
+    code = (
+        "from prometheus_client import REGISTRY, generate_latest\n"
+        "import your_service_name.backend.main\n"
+        "print(generate_latest(REGISTRY).decode())\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=60
+    ).stdout
+    assert f'{BUILD_INFO_METRIC}{{version="{__version__}"}} 1.0' in out

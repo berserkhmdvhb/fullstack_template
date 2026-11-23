@@ -2,10 +2,8 @@
 """
 The service's own info metric: a gauge named with the service name, value 1, from import.
 
-The dashboards' ``cluster`` and ``namespace`` variables list its labels. A series every service
-built from the template exports (a limiter counter, say) would list another service's namespaces
-under this one's title when two share a Prometheus; this name is rewritten per service by the adapt
-script (``your_service_name`` is the placeholder, so it stays a valid metric name).
+The dashboards' ``cluster`` and ``namespace`` variables list its labels (why it is per service:
+wiki/operations-runbook.md, "Grafana Dashboards"). The adapt script renames it with the service.
 """
 
 from __future__ import annotations

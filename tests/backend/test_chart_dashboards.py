@@ -57,10 +57,11 @@ GRAFANA_VARS = {
     "namespace": "app",
     "cluster": ".*",
 }
-# The variables list the clusters and namespaces of the service's own info metric (served from
-# start, named with the service name): a job name would follow the release's name (fullnameOverride
-# and nameOverride change it), and a series every service built from the template exports would
-# list another service's namespaces under this one's title.
+# The variables list the labels of the service's own info metric, not a series every service
+# built from the template exports (wiki/operations-runbook.md, "Grafana Dashboards": Variables).
+# The runbook stays generic after adaptation: it names the placeholder, spelt in capitals so the
+# adapter leaves this file's copy alone.
+RUNBOOK_BUILD_INFO = "YOUR_SERVICE_NAME_BUILD_INFO".lower()
 VARIABLE_QUERIES = {
     "cluster": f"label_values({BUILD_INFO_METRIC}, cluster)",
     "namespace": f'label_values({BUILD_INFO_METRIC}{{cluster=~"$cluster"}}, namespace)',
@@ -130,7 +131,7 @@ def _allowed() -> tuple[set[str], tuple[str, ...]]:
             elif "Summaries" in description:
                 names |= {f"{name}_count", f"{name}_sum"}
             else:
-                names.add(name)
+                names.add(BUILD_INFO_METRIC if name == RUNBOOK_BUILD_INFO else name)
     return names, tuple(prefixes)
 
 
