@@ -741,6 +741,14 @@ operational steps in
   equal to it by a test. Envoy's admin
   interface (which serves endpoints such as `/quitquitquit`) is disabled; the probes ask
   a separate listener (`waf.health.port`, `waf.health.path`) that answers a fixed `200`.
+  Envoy reuses keep-alive connections to the backend, and a backend Pod that gets SIGTERM closes its
+  idle ones, so a request Envoy has just written to one fails (`503`, response flag `UC`). The route
+  table retries a reset upstream connection where that is safe: any method when nothing was sent
+  yet (`reset-before-request`), the safe methods (`GET`, `HEAD`, `OPTIONS`) also after; a method
+  with side effects is never resent, and can still see that `503` in a rollout (the comment and the
+  routes are in `templates/waf-proxy.yaml`; the policies:
+  [Envoy's retry conditions](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/router_filter#x-envoy-retry-on)).
+  The [shutdown check](./infrastructure.md#workloads-rollout-resources-and-shutdown) found it.
 
 | | DAST (ZAP) | WAF (Coraza) |
 |---|---|---|

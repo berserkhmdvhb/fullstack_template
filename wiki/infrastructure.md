@@ -440,7 +440,9 @@ Job's Pod (the backend image, restricted), admitted by the same two test Network
 the test's duration and deleted after. `make test` never collects `tests/k8s`.
 
 What it proves on kind: no request fails across a normal Pod deletion, through the Service and
-through the WAF, with keep-alive clients. What it cannot prove there: that the shutdown settings
+through the WAF, with keep-alive clients (its WAF case found Envoy reusing a connection the
+backend was closing: [the retry policy](./security.md#runtime-application-protection-dast--waf)).
+What it cannot prove there: that the shutdown settings
 above are needed. On a one-node kind cluster the endpoint leaves the Service before the process stops
 accepting, so the test passed with the settings at their schema minimums, with the `preStop` hook
 removed, and even with the Pod force-deleted (`--grace-period=0 --force`). The `preStop` margin covers
