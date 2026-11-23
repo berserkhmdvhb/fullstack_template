@@ -435,6 +435,13 @@
             "requestSeconds": { "type": "integer", "minimum": 1 }
           }
         },
+        "allowedMethods": {
+          "description": "The HTTP methods CRS allows (tx.allowed_methods, rule 911100): the API's own, plus HEAD and OPTIONS.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] }
+        },
         "extraDirectives": {
           "description": "Coraza directives appended after CRS (rule exclusions).",
           "type": "array",

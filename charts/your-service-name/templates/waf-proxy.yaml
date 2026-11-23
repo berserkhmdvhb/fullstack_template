@@ -19,7 +19,10 @@
 {{- $bodyLimit := .Values.config.MAX_REQUEST_BODY_BYTES }}
 {{- $directives := list "Include @recommended-conf" "SecRuleEngine On" "SecRequestBodyAccess On" "SecResponseBodyAccess Off" (printf "SecRequestBodyLimit %s" $bodyLimit) (printf "SecRequestBodyInMemoryLimit %s" $bodyLimit) "SecRequestBodyLimitAction Reject" }}
 {{- if .Values.waf.owaspCrs }}
-{{- $directives = concat $directives (list "Include @crs-setup-conf" "Include @owasp_crs/*.conf") }}
+{{- /* waf.allowedMethods replaces CRS's default tx.allowed_methods (crs-setup's rule 900200), set
+       after crs-setup and before the rules read it. */}}
+{{- $methods := printf "SecAction \"id:900200,phase:1,pass,t:none,nolog,setvar:'tx.allowed_methods=%s'\"" (join " " .Values.waf.allowedMethods) }}
+{{- $directives = concat $directives (list "Include @crs-setup-conf" $methods "Include @owasp_crs/*.conf") }}
 {{- end }}
 {{- /* An adopter's own directives (rule exclusions such as SecRuleRemoveById), after CRS. */}}
 {{- $directives = concat $directives (.Values.waf.extraDirectives | default list) }}
@@ -149,6 +152,9 @@ spec:
                             typed_config:
                               "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
                               stat_prefix: waf
+                              # Envoy adds no `server` header of its own and passes the backend's
+                              # through unchanged (the backend sends none).
+                              server_header_transformation: PASS_THROUGH
                               # One canonical path for Coraza and the router: dot segments resolved,
                               # repeated slashes merged. An encoded slash (%2F) is refused (400): no
                               # API route has one, and it is a classic way to split a path differently
@@ -193,6 +199,9 @@ spec:
                                 - name: envoy.filters.http.router
                                   typed_config:
                                     "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                                    # No x-envoy-* headers (x-envoy-upstream-service-time, ...) on the
+                                    # responses or to the backend: they name the proxy and its timings.
+                                    suppress_envoy_headers: true
                               route_config:
                                 name: api_routes
                                 virtual_hosts:

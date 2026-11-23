@@ -7,15 +7,16 @@ return a 502. The launcher owns the backend value; the chart owns the Envoy (WAF
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import yaml
 
-from tests.backend.test_chart_production_guard import CHART, find_helm, require_helm
+from tests.backend.test_chart_production_guard import CHART, ROOT, find_helm, require_helm
 from your_service_name.backend import serve
 
 
@@ -178,3 +179,37 @@ def test_the_write_cluster_never_reuses_a_connection() -> None:
 def test_the_waf_filters_run_before_the_router_for_every_route() -> None:
     names = [f["name"] for f in _hcm(_envoy_config())["http_filters"]]
     assert names == [f"envoy.filters.http.{n}" for n in ("wasm", "buffer", "router")]
+
+
+def test_envoy_adds_no_server_or_x_envoy_headers_of_its_own() -> None:
+    """PASS_THROUGH: Envoy keeps the backend's `server` header as it is and adds none when the
+    backend sends none; the router sends no x-envoy-* headers (x-envoy-upstream-service-time)."""
+    hcm = _hcm(_envoy_config())
+    assert hcm["server_header_transformation"] == "PASS_THROUGH"
+    router = next(f for f in hcm["http_filters"] if f["name"] == "envoy.filters.http.router")
+    assert router["typed_config"]["suppress_envoy_headers"] is True
+
+
+def _directives(config: dict[str, Any]) -> list[str]:
+    wasm = _hcm(config)["http_filters"][0]["typed_config"]["config"]["configuration"]["value"]
+    parsed = json.loads(wasm)
+    return cast("list[str]", parsed["directives_map"][parsed["default_directives"]])
+
+
+def test_crs_allows_the_configured_methods_between_its_setup_and_its_rules() -> None:
+    directives = _directives(_envoy_config())
+    methods = " ".join(_load("values.yaml")["waf"]["allowedMethods"])
+    setvar = f"setvar:'tx.allowed_methods={methods}'"
+    action = f'SecAction "id:900200,phase:1,pass,t:none,nolog,{setvar}"'
+    setup = directives.index("Include @crs-setup-conf")
+    assert directives[setup + 1 : setup + 3] == [action, "Include @owasp_crs/*.conf"]
+
+
+def test_the_waf_allows_exactly_the_apis_methods_plus_head_and_options() -> None:
+    """The API's methods are the committed OpenAPI spec's (make openapi-drift-check)."""
+    spec = json.loads((ROOT / "frontend" / "lib" / "api" / "openapi.json").read_text("utf-8"))
+    served = {m.upper() for path in spec["paths"].values() for m in path}
+    allowed = _load("values.yaml")["waf"]["allowedMethods"]
+    assert len(allowed) == len(set(allowed))
+    assert set(allowed) == served | {"HEAD", "OPTIONS"}
+    assert not {"TRACE", "CONNECT"} & set(allowed)

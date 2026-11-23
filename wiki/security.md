@@ -756,6 +756,12 @@ operational steps in
   checked for load connections. The shutdown check in CI sends `GET`s only. The comments and routes are in `templates/waf-proxy.yaml`; the policies:
   [Envoy's retry conditions](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/router_filter#x-envoy-retry-on).
   The [shutdown check](./infrastructure.md#workloads-rollout-resources-and-shutdown) found it.
+  CRS lets through only the methods in `waf.allowedMethods` (its `tx.allowed_methods`, rule 911100;
+  CRS's own default has no `PATCH` or `DELETE`). A test keeps the list equal to the API's methods in
+  the committed OpenAPI spec plus `HEAD` and `OPTIONS`, so add a new method there. Envoy adds no
+  `server` or `x-envoy-*` header of its own: the
+  [header contract](#http-security-headers) holds through the WAF. The
+  [kind job's live suites](./infrastructure.md#local-cluster-kind) found both.
 
 | | DAST (ZAP) | WAF (Coraza) |
 |---|---|---|

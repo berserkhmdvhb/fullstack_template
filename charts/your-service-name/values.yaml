@@ -475,6 +475,11 @@ waf:
   timeouts:
     requestHeadersSeconds: 10
     requestSeconds: 120
+  # The methods CRS lets through (tx.allowed_methods; any other is refused, rule 911100). CRS's
+  # own default omits PATCH and DELETE, which the API serves. Exactly the methods of the committed
+  # OpenAPI spec (frontend/lib/api/openapi.json) plus HEAD and OPTIONS: a test keeps them equal, so
+  # a new method on a route fails it until it is added here. Never TRACE or CONNECT (the schema).
+  allowedMethods: [GET, HEAD, POST, PATCH, DELETE, OPTIONS]
   # Coraza directives appended after CRS: rule exclusions for your API (empty by default). Binary
   # uploads on one path (CRS refuses application/octet-stream, rule 920420, and would parse the
   # body as form fields), the pair wiki/containerization.md (Dockerfile.waf) explains:
