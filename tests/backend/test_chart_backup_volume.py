@@ -1,7 +1,13 @@
 # your-service-name — adaptable service template (see wiki/getting-started.md)
-"""Every Pod that mounts the backup volume (PostgreSQL, the backup and the verify jobs) has the
-same fsGroup with fsGroupChangePolicy OnRootMismatch, so the kubelet never flips the volume's group
-between them and the backup jobs, whatever their uid, can write it."""
+"""The backup volume and the restore check, as rendered.
+
+- Every Pod that mounts the backup volume (PostgreSQL, the backup and the verify jobs) has the same
+  fsGroup with fsGroupChangePolicy OnRootMismatch, so the kubelet never flips the volume's group
+  between them and the backup jobs, whatever their uid, can write it.
+- The verify CronJob's ConfigMap holds the tested script byte for byte.
+- Every table the restore check requires (postgresql.backup.verifyTables) is one the migrations
+  create.
+"""
 
 from __future__ import annotations
 

@@ -70,9 +70,11 @@ jobs:
         run: |
           scripts/tools.sh install uv
           .tools/bin/uv sync --locked --python "$(command -v python3)"
-      # Every leg: what the test proves (the preStop sleep action, endpoint removal before SIGTERM) is
-      # the Kubernetes version's behaviour, which is what the legs differ in; it adds about three minutes.
-      - name: Graceful shutdown (a backend and a frontend Pod deleted under load, no request fails)
+      # What it proves: a Pod deletion under load fails no request, through the Service and through the
+      # WAF, on each Kubernetes version (what the legs differ in). Not that the shutdown settings are
+      # needed: see wiki/infrastructure.md, "The shutdown check". Every leg runs it, about three minutes
+      # each, so a flaky run has two chances to fail the job.
+      - name: Graceful shutdown (backend, frontend and backend-behind-WAF Pods deleted under load, no request fails)
         run: make kind-shutdown-test
       - name: Show the cluster state
         if: failure()

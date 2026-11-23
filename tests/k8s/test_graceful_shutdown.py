@@ -286,6 +286,56 @@ def _load_pod(job: dict[str, Any], target: str, name: str) -> dict[str, Any]:
 
 TARGETS = [("backend", "service"), ("frontend", "service"), ("backend", "waf")]
 
+# Each tier's interpreter (the images are distroless) prints the Pod's TCP tables.
+READ_TCP = {
+    "backend": [
+        "/app/.venv/bin/python",
+        "-c",
+        "import glob\nfor f in glob.glob('/proc/net/tcp*'): print(open(f).read())",
+    ],
+    "frontend": [
+        "/nodejs/bin/node",
+        "-e",
+        (
+            "for (const f of ['tcp', 'tcp6']) try { process.stdout.write("
+            "require('fs').readFileSync('/proc/net/' + f, 'utf8')) } catch {}"
+        ),
+    ],
+}
+
+
+def _load_connections(kube: Kube, tier: str, pod: str, sources: list[str]) -> int:
+    """Established connections to the Pod's http port from the load's sources (the load Pod, or
+    the WAF Pods). A client connects only to send a request, so one means the Pod served load."""
+    spec = kube.get("pod", pod)["spec"]["containers"][0]
+    port = next(p["containerPort"] for p in spec["ports"] if p["name"] == "http")
+    # /proc/net/tcp{,6}: hex addresses, an IPv4 one little-endian (also the tail of a mapped IPv6).
+    peers = {"".join(f"{int(b):02X}" for b in reversed(ip.split("."))) for ip in sources}
+    count = 0
+    for line in kube("exec", pod, "-c", spec["name"], "--", *READ_TCP[tier]).splitlines():
+        fields = line.split()
+        if fields[3:4] != ["01"]:  # 01: ESTABLISHED
+            continue
+        local, remote = fields[1].split(":"), fields[2].split(":")
+        count += int(local[1], 16) == port and remote[0][-8:] in peers
+    return count
+
+
+def _victim(kube: Kube, tier: str, via: str, load: str) -> tuple[str, bool]:
+    """A ready Pod that served load: the first, else the other one; neither is inconclusive."""
+    if via == "waf":
+        waf = kube.get(
+            "pods", "-l", f"app.kubernetes.io/component=waf,app.kubernetes.io/instance={RELEASE}"
+        )
+        sources = [p["status"]["podIP"] for p in waf["items"]]
+    else:
+        sources = [kube.get("pod", load)["status"]["podIP"]]
+    pods = _ready_pods(kube, tier)
+    for pod in pods:
+        if _load_connections(kube, tier, pod, sources):
+            return pod, pod == pods[0]
+    pytest.fail(f"inconclusive: no ready {tier} Pod ({pods}) has a connection from {sources}")
+
 
 def _delete_under_load(kube: Kube, job: dict[str, Any], tier: str, via: str) -> dict[str, Any]:
     """Delete a ready Pod of the tier under load, with its default grace period; the load's
@@ -297,7 +347,7 @@ def _delete_under_load(kube: Kube, job: dict[str, Any], tier: str, via: str) -> 
         kube("create", "-f", "-", stdin=json.dumps(_load_pod(job, target, load)))
         kube("wait", "--for=condition=Ready", f"pod/{load}", "--timeout=120s")
         time.sleep(LEAD)
-        victim = _ready_pods(kube, tier)[0]
+        victim, first_choice = _victim(kube, tier, via, load)
         kube("delete", "pod", victim, "--wait=false")
         deleted = time.time()
 
@@ -315,11 +365,16 @@ def _delete_under_load(kube: Kube, job: dict[str, Any], tier: str, via: str) -> 
         kube("wait", succeeded, f"pod/{load}", f"--timeout={DURATION + 120:.0f}s")
         summary = json.loads(kube("logs", load).strip().splitlines()[-1])
     finally:
+        # On a failure before the summary was read (a timeout above), its log still shows.
+        if "summary" not in locals():
+            print(f"{load} log: {kube('logs', load, check=False).strip()}")
         kube("delete", "pod", load, "--ignore-not-found", "--wait=false", check=False)
     answered = summary.pop("answered")
     run = {
         "target": target,
         "victim": victim,
+        # False: the first ready Pod held no load connection, so the other one was deleted.
+        "victim_was_first_choice": first_choice,
         "deleted": deleted,
         "gone": gone_at,
         "replacement_ready": ready_at,

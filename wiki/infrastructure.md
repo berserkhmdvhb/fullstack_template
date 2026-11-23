@@ -432,17 +432,22 @@ behind the WAF, it scales the tier to two ready Pods (the replicas and the HPA f
 after), starts a load Pod in the release namespace whose clients each hold one keep-alive
 connection, as a proxy's pool does, to the tier's Service (the backend's `tests.apiPath`, the
 frontend's page) or the WAF's, deletes one ready Pod with its default grace period, and waits for it
-to be gone and for its replacement to be ready while the load runs. A connection the server closes
+to be gone and for its replacement to be ready while the load runs. The deleted Pod must hold load
+connections (from the load Pod, or from the WAF), so it served load: kube-proxy picks a Pod per
+connection, and the WAF's two or three upstream connections can all land on the other Pod. If the
+first ready Pod has none, the other is deleted instead; if neither has, the run fails as inconclusive. A connection the server closes
 cleanly is replaced; a refused or reset one, a 5xx answer or a timeout fails the test, as do too few
 answers (every answer below 500 counts, 429 included) before the delete or after the Pod was gone,
 and a Pod never seen Terminating. The load Pod is the release's [`helm test`](#local-cluster-kind)
 Job's Pod (the backend image, restricted), admitted by the same two test NetworkPolicies, applied for
 the test's duration and deleted after. `make test` never collects `tests/k8s`.
 
-What it proves on kind: no request fails across a normal Pod deletion, through the Service and
-through the WAF, with keep-alive clients (its WAF case found Envoy reusing a connection the
-backend was closing: [the retry policy](./security.md#runtime-application-protection-dast--waf)).
-What it cannot prove there: that the shutdown settings
+What it proves on kind: no `GET` fails across a normal Pod deletion, through the Service and
+through the WAF, with keep-alive clients. Its WAF case found Envoy reusing a connection the backend
+was closing; `GET` is resent on that reset and writes take their own path through the WAF
+([the WAF's upstream](./security.md#runtime-application-protection-dast--waf)), which this check
+does not send. Under kind's default rate limit about 70 to 75% of the backend and WAF answers are the
+limiter's `429`s; they count as answered (the Pod served them). What it cannot prove there: that the shutdown settings
 above are needed. On a one-node kind cluster the endpoint leaves the Service before the process stops
 accepting, so the test passed with the settings at their schema minimums, with the `preStop` hook
 removed, and even with the Pod force-deleted (`--grace-period=0 --force`). The `preStop` margin covers

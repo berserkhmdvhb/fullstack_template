@@ -308,12 +308,14 @@ run_job() { # name, cronjob, the log line it must print
   kc -n "$db_ns" delete job "$1" --ignore-not-found >/dev/null
   kc -n "$db_ns" create job "$1" --from="cronjob/$2" >/dev/null
   # Until Complete or Failed (at most 300 s). The Job controller deletes a failed Job's Pod, so
-  # each poll keeps the newest logs (the failed run's, --previous, after a restart in place).
+  # each poll keeps the newest log: the running or last attempt's, or the one before it
+  # (--previous) while a restarted container has printed nothing yet.
   local end=$((SECONDS + 300)) state=""
   while (( SECONDS < end )); do
     state="$(kc -n "$db_ns" get "job/$1" -o jsonpath='{range .status.conditions[?(@.status=="True")]}{.type} {end}')"
-    kc -n "$db_ns" logs "job/$1" --previous > "$WORK/$1.log.new" 2>/dev/null ||
-      kc -n "$db_ns" logs "job/$1" > "$WORK/$1.log.new" 2>/dev/null || true
+    kc -n "$db_ns" logs "job/$1" > "$WORK/$1.log.new" 2>/dev/null || true
+    [[ -s "$WORK/$1.log.new" ]] ||
+      kc -n "$db_ns" logs "job/$1" --previous > "$WORK/$1.log.new" 2>/dev/null || true
     [[ ! -s "$WORK/$1.log.new" ]] || mv "$WORK/$1.log.new" "$WORK/$1.failed.log"
     [[ " $state" != *" Complete "* && " $state" != *" Failed "* ]] || break
     sleep 0.5
