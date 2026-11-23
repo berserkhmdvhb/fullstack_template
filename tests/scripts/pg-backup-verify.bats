@@ -11,6 +11,7 @@ setup() {
   mkdir -p "$B"
   export LOG="$BATS_TEST_TMPDIR/psql.log"
   : > "$LOG"
+  export HANG_PID="$BATS_TEST_TMPDIR/restore.pid"
   cat > "$B/psql" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$LOG"
@@ -24,7 +25,11 @@ case "$*" in
       echo "$d"
     done; exit 0 ;;
   *"CREATE DATABASE"*) exit 0 ;;
-  *"DROP DATABASE"*) [ -z "${DROP_FAIL:-}" ] || { echo 'ERROR:  database is being accessed by other users' >&2; exit 1; }; exit 0 ;;
+  *"DROP DATABASE"*)
+    [ -z "${DROP_FAIL:-}" ] || { echo 'ERROR:  database is being accessed by other users' >&2; exit 1; }
+    # As the server does on WITH (FORCE): the session still attached to the database ends.
+    if [[ "$*" == *"WITH (FORCE)"* && -f "$HANG_PID" ]]; then kill "$(cat "$HANG_PID")" 2>/dev/null; fi
+    exit 0 ;;
   *"FROM alembic_version"*) echo "${ALEMBIC_ROWS:-1}"; exit 0 ;;
   *"table_name = '"*)
     all="$*" q="'"; t="${all##*table_name = $q}"; t="${t%%"$q"*}"
@@ -35,6 +40,8 @@ case "$*" in
   *" -c "*) exit 0 ;;
 esac
 cat > /dev/null
+# A restore that never ends (RESTORE_HANG): its pid is left for the test.
+if [ -n "${RESTORE_HANG:-}" ]; then echo "$$" > "$HANG_PID"; exec sleep 600 > /dev/null 2>&1; fi
 if [ -n "${RESTORE_FAIL:-}" ]; then echo 'ERROR:  syntax error at or near "garbage"' >&2; exit 3; fi
 STUB
   chmod +x "$B/psql"
@@ -54,7 +61,20 @@ dump() { printf 'SELECT 1;\n--\n-- PostgreSQL database dump complete\n--\n\n\\un
 # The temporary database this run created was dropped.
 dropped() {
   name="$(sed -n 's/.*CREATE DATABASE "\(verify_backup_[0-9a-f_]*\)";.*/\1/p' "$LOG")"
-  [ -n "$name" ] && grep -q "DROP DATABASE IF EXISTS \"$name\";" "$LOG"
+  [ -n "$name" ] && grep -q "DROP DATABASE IF EXISTS \"$name\" WITH (FORCE);" "$LOG"
+}
+
+teardown() { if [ -f "$HANG_PID" ]; then kill "$(cat "$HANG_PID")" 2>/dev/null || true; fi; }
+
+# until SECONDS CMD...: poll (every 0.1 s) until CMD succeeds; fail after SECONDS.
+until_ok() {
+  local n=$(($1 * 10))
+  shift
+  while ! "$@" 2>/dev/null; do
+    n=$((n - 1))
+    [ "$n" -gt 0 ] || return 1
+    sleep 0.1
+  done
 }
 
 created_none() { [ "$(grep -c 'CREATE DATABASE' "$LOG")" -eq 0 ]; }
@@ -119,6 +139,26 @@ created_none() { [ "$(grep -c 'CREATE DATABASE' "$LOG")" -eq 0 ]; }
   [ "$status" -ne 0 ]
   [[ "$output" == *"restore failed"* ]]
   dropped
+}
+
+@test "an ordinary failure keeps its own exit code (1), not a signal's" {
+  RESTORE_FAIL=1 run sh "$SCRIPT"
+  [ "$status" -eq 1 ]
+}
+
+@test "TERM during a hung restore (the Job's deadline) drops the temporary database at once and exits 143" {
+  RESTORE_HANG=1 sh "$SCRIPT" > "$BATS_TEST_TMPDIR/out" 2>&1 3>&- &
+  pid=$!
+  until_ok 5 test -s "$HANG_PID"
+  kill -TERM "$pid"
+  # Within 5 seconds, although the restore would hang for 600: the trap did not wait for it.
+  until_ok 5 dropped
+  status=0
+  wait "$pid" || status=$?
+  [ "$status" -eq 143 ]
+  # The hung restore ended too (the stub's FORCE, as the server ends the session).
+  gone() { ! kill -0 "$(cat "$HANG_PID")"; }
+  until_ok 5 gone
 }
 
 @test "a corrupt dump fails before any database is created" {

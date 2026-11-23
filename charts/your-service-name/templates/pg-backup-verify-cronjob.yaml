@@ -12,11 +12,16 @@
 */}}
 {{- if and .Values.postgresql.enabled .Values.postgresql.backup.enabled }}
 {{- /* The age after which the script treats one of its temporary databases as left over by a killed
-       run (VERIFY_STALE_AFTER_SECONDS): longer than any run lasts, so the deadline must stay below it. */}}
+       run (VERIFY_STALE_AFTER_SECONDS): longer than any run lasts, so the deadline and the grace
+       period together must stay below it. */}}
 {{- $staleAfter := 86400 }}
+{{- /* The Pod's terminationGracePeriodSeconds: the time the script has, after a deadline's SIGTERM, to
+       drop its temporary database (DROP DATABASE ... WITH (FORCE) ends the restore's session, then
+       checkpoints and removes the files). Fixed, and four times the default 30 s. */}}
+{{- $grace := 120 }}
 {{- $deadline := int .Values.postgresql.backup.verifyDeadlineSeconds }}
-{{- if ge $deadline $staleAfter }}
-{{- fail (printf "%s: postgresql.backup.verifyDeadlineSeconds (%d) must be below %d, the age after which the restore check drops a temporary database as left over: a longer run could lose its database to the next one." (include "chart.fullname" .) $deadline $staleAfter) }}
+{{- if ge (add $deadline $grace) $staleAfter }}
+{{- fail (printf "%s: postgresql.backup.verifyDeadlineSeconds (%d) plus the %d s termination grace period must be below %d, the age after which the restore check drops a temporary database as left over: a longer run could lose its database to the next one." (include "chart.fullname" .) $deadline $grace $staleAfter) }}
 {{- end }}
 apiVersion: batch/v1
 kind: CronJob
@@ -36,8 +41,10 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
-      # A hung restore ends at the deadline (SIGTERM: the script's trap drops its database) and
-      # fails the Job, so BackupVerifyFailed fires and Forbid does not block the next run.
+      # A hung restore ends at the deadline and fails the Job, so BackupVerifyFailed fires and
+      # Forbid does not block the next run. The Pod gets SIGTERM: the script stops waiting for the
+      # restore and drops its database within terminationGracePeriodSeconds. Only a SIGKILL before
+      # that drop finishes leaves the database, for a later run's stale cleanup.
       activeDeadlineSeconds: {{ $deadline }}
       # One retry, for a passing fault such as a database restart; a wrong dump fails the same way
       # every time, and six retries would only repeat the failure.
@@ -51,6 +58,7 @@ spec:
             app.kubernetes.io/component: backup-verification
         spec:
           restartPolicy: OnFailure
+          terminationGracePeriodSeconds: {{ $grace }}
           securityContext:
             runAsNonRoot: true
             runAsUser: 10001

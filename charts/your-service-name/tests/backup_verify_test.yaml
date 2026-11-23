@@ -126,13 +126,23 @@ tests:
       postgresql: {backup: {verifyDeadlineSeconds: 7200}}
     asserts:
       - equal: {path: spec.jobTemplate.spec.activeDeadlineSeconds, value: 7200}
-  - it: a deadline not below the stale age is refused (a running check's database could be dropped)
+  - it: the Pod's termination grace period leaves the script time to drop its database after a deadline's SIGTERM
+    template: pg-backup-verify-cronjob.yaml
+    asserts:
+      - equal: {path: spec.jobTemplate.spec.template.spec.terminationGracePeriodSeconds, value: 120}
+  - it: a deadline that, with the grace period, is not below the stale age is refused (a running check's database could be dropped)
     template: pg-backup-verify-cronjob.yaml
     set:
-      postgresql: {backup: {verifyDeadlineSeconds: 86400}}
+      postgresql: {backup: {verifyDeadlineSeconds: 86280}}
     asserts:
       - failedTemplate:
-          errorPattern: 'verifyDeadlineSeconds \(86400\) must be below 86400'
+          errorPattern: 'verifyDeadlineSeconds \(86280\) plus the 120 s termination grace period must be below 86400'
+  - it: the longest deadline that, with the grace period, stays below the stale age renders
+    template: pg-backup-verify-cronjob.yaml
+    set:
+      postgresql: {backup: {verifyDeadlineSeconds: 86279}}
+    asserts:
+      - equal: {path: spec.jobTemplate.spec.activeDeadlineSeconds, value: 86279}
   - it: the backup is bounded by postgresql.backup.deadlineSeconds
     template: pg-backup-cronjob.yaml
     documentSelector: {path: kind, value: CronJob}
