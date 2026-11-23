@@ -44,6 +44,7 @@
 #   --values, --set, --set-string  the deploy's own values after values.<env>.yaml: the secret
 #                    values (or secrets.existingSecret) and the images it deploys (repeatable).
 #                    The bootstrap render gets them too (--chart-values, --chart-set, --chart-set-string)
+#                    (--set-file and --set-json are refused: put such a value in a --values file)
 #   --bootstrap-values  a bootstrap config file, as scripts/k8s-bootstrap.sh --values (repeatable): the
 #                    one the admin's own bootstrap run passes. Each --values is also passed to it as
 #                    --chart-values, so its render and the upgrades read the same chart values
@@ -205,20 +206,25 @@ lacks() { # checks (kubectl auth can-i arguments): prints the first the identity
 # Keeping, reading back and listing: the Namespaces, and the PersistentVolumeClaims and Secrets of any namespace.
 kept_checks=()
 for verb in get list patch; do
-  kept_checks+=("$verb namespaces" "$verb persistentvolumeclaims --all-namespaces" "$verb secrets --all-namespaces")
+  # A cluster-scoped kind is checked cluster-wide: in the context's namespace a Role could answer yes.
+  kept_checks+=("$verb namespaces --all-namespaces" "$verb persistentvolumeclaims --all-namespaces" "$verb secrets --all-namespaces")
 done
 boot_checks() { # the bootstrap's apply, from its own render: every namespace it writes a quota, a LimitRange or RBAC to, and any ClusterRules
-  local render kind ns ref resource verb
+  local render kind ns ref api resource verb
   render="$("${boot[@]}")" || die "the bootstrap does not render for $ENV_NAME"
-  printf '%s\n' "$render" | yq -N 'select(.kind == "ResourceQuota" or .kind == "LimitRange" or .kind == "Role" or .kind == "RoleBinding" or .kind == "ClusterRules")
-    | .kind + " " + (.metadata.namespace // "'"$namespace"'") + " " + (.roleRef.kind // "-")' /dev/stdin > "$work/boot" ||
+  printf '%s\n' "$render" | yq -N 'select(.kind != null and .kind != "Namespace")
+    | .kind + " " + (.metadata.namespace // "'"$namespace"'") + " " + (.roleRef.kind // "-") + " " + (.apiVersion // "-")' /dev/stdin > "$work/boot" ||
     die "yq could not read the bootstrap's render"
-  echo "create namespaces"
-  while read -r kind ns ref; do
-    if [[ "$kind" == ClusterRules ]]; then # cluster-scoped (monitoring.googleapis.com): no namespace
-      for verb in get create patch; do echo "$verb clusterrules.monitoring.googleapis.com"; done
-      continue
-    fi
+  echo "create namespaces --all-namespaces"
+  while read -r kind ns ref api; do
+    case "$kind" in
+      ResourceQuota|LimitRange|Role|RoleBinding) ;;
+      ClusterRules) # cluster-scoped: its group from the render's apiVersion, checked cluster-wide
+        [[ "$api" == */* ]] || die "the bootstrap's ClusterRules has no API group (apiVersion '$api')"
+        for verb in get create patch; do echo "$verb clusterrules.${api%/*} --all-namespaces"; done
+        continue ;;
+      *) die "the bootstrap renders a $kind, a kind this script does not check the rights for: stopping before any change" ;;
+    esac
     resource="$(tr '[:upper:]' '[:lower:]' <<<"$kind")s"
     for verb in get create patch; do echo "$verb $resource -n $ns"; done
     # A Role may grant what its author lacks only with escalate; a RoleBinding to it only with bind.
@@ -280,8 +286,9 @@ if ! manifest_holds "$documents"; then
   exit 0
 fi
 # The steps create namespaces, quotas and RBAC: a cluster admin's rights, checked before any change.
-mapfile -t checks < <(boot_checks)
-[[ "${checks[0]-}" == "create namespaces" ]] || die "could not work out the rights the bootstrap needs"
+boot_checks > "$work/checks" # not in a process substitution: its die must stop the run
+mapfile -t checks < "$work/checks"
+[[ "${checks[0]-}" == "create namespaces --all-namespaces" ]] || die "could not work out the rights the bootstrap needs"
 missing="$(lacks "${checks[@]}" "${kept_checks[@]}")" || die "this identity cannot '$missing' in $where: run it as a cluster admin"
 # What the release holds and the first upgrade's render does not, Helm deletes in that upgrade. Each
 # stage is a file with its own status check, so a failure stops the run rather than empty the set.

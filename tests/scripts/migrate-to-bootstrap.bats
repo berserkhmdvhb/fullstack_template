@@ -38,13 +38,16 @@ case "$1 $2" in
     if [[ "$(cat "$STATE")" == old || -n "${STUB_STAYS_OLD-}" ]]; then echo "$STUB_OLD"; else echo "kind: Deployment"; fi ;;
   "upgrade "*)
     [[ "$*" != *"namespaces.create=false"* ]] || echo switched > "$STATE" ;;
-  "template bootstrap") echo "${STUB_BOOT:-kind: Rendered}"
+  "template bootstrap") ns_doc=$'kind: Namespace\nmetadata:\n  name: app-ns'; echo "${STUB_BOOT:-$ns_doc}"
     if [[ -n "${STUB_BOOT_SUBJECT-}" ]]; then # the render's RoleBinding subject: deployer.name of the merged -f files
       files=(); while [[ $# -gt 0 ]]; do [[ "$1" != -f ]] || files+=("$2"); shift; done
       echo "---"; echo "kind: RoleBinding"; echo "metadata: {name: d, namespace: app-ns}"
       echo "roleRef: {kind: Role}"; echo "subject: $(yq ea '. as $i ireduce ({}; . * $i) | .deployer.name' "${files[@]}")"
     fi ;;
-  "template "*) if [[ "$*" == *gmp-cluster-rules* ]]; then echo "$STUB_CLUSTER_RULES"; else echo "$STUB_NEW"; fi ;;
+  "template "*) # the bootstrap's renders of the chart (the app's Role, the ClusterRules), else the chart
+    if [[ "$*" == *gmp-cluster-rules* ]]; then echo "$STUB_CLUSTER_RULES"
+    elif [[ "$*" == *templates/rbac.yaml* ]]; then printf -- '---\nkind: Role\nmetadata:\n  name: app\n  namespace: app-ns\n'
+    else echo "$STUB_NEW"; fi ;;
 esac
 STUB
   cat > "$B/kubectl" <<'STUB'
@@ -531,7 +534,7 @@ STUB
   run bash "$SCRIPT" dev --context kind-x "${V[@]}" --dry-run
   [ "$status" -eq 0 ]
   for verb in get list patch; do
-    grep -q "auth can-i $verb namespaces$" "$LOG"
+    grep -q "auth can-i $verb namespaces --all-namespaces$" "$LOG"
     grep -q "auth can-i $verb persistentvolumeclaims --all-namespaces$" "$LOG"
     grep -q "auth can-i $verb secrets --all-namespaces$" "$LOG"
   done
@@ -678,7 +681,7 @@ boot_cluster_rules() {
   boot_cluster_rules
   run bash "$SCRIPT" dev --context kind-x "${V[@]}" --dry-run
   [ "$status" -eq 0 ]
-  for verb in get create patch; do grep -q "auth can-i $verb clusterrules.monitoring.googleapis.com$" "$LOG"; done
+  for verb in get create patch; do grep -q "auth can-i $verb clusterrules.monitoring.googleapis.com --all-namespaces$" "$LOG"; done
 }
 
 @test "an identity without a ClusterRules right is refused before any change, naming it" {
@@ -687,7 +690,7 @@ boot_cluster_rules() {
     : > "$LOG"
     STUB_DENY="$verb clusterrules" run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
     [ "$status" -eq 1 ]
-    [[ "$output" == *"cannot '$verb clusterrules.monitoring.googleapis.com'"*"cluster admin"* ]]
+    [[ "$output" == *"cannot '$verb clusterrules.monitoring.googleapis.com --all-namespaces'"*"cluster admin"* ]]
     run ! grep -q -e "^helm upgrade" -e "annotate" -e "apply -f" "$LOG"
   done
 }
@@ -696,8 +699,41 @@ boot_cluster_rules() {
   boot_cluster_rules
   run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
   [ "$status" -eq 0 ]
-  grep -q "^helm upgrade" "$LOG"
+  # Each ClusterRules right was asked, before the first upgrade.
+  upgrade="$(grep -n "^helm upgrade" "$LOG" | head -n 1 | cut -d: -f1)"
+  [ -n "$upgrade" ]
+  for verb in get create patch; do
+    can="$(grep -n "auth can-i $verb clusterrules.monitoring.googleapis.com --all-namespaces$" "$LOG" | head -n 1 | cut -d: -f1)"
+    [ -n "$can" ]
+    [ "$can" -lt "$upgrade" ]
+  done
   grep -q "apply -f -" "$LOG"
+}
+
+@test "the cluster-scoped kinds are checked cluster-wide, never in the context's namespace" {
+  boot_cluster_rules
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --dry-run
+  [ "$status" -eq 0 ]
+  grep -q "auth can-i create namespaces --all-namespaces$" "$LOG"
+  grep -q "auth can-i patch clusterrules.monitoring.googleapis.com --all-namespaces$" "$LOG"
+  run ! grep -E "auth can-i [a-z]+ (namespaces|clusterrules[^ ]*)( -n [^ ]+)?$" "$LOG"
+}
+
+@test "a kind in the bootstrap render whose rights the script does not check stops the run before any change" {
+  export STUB_BOOT=$'kind: Role\nmetadata:\n  name: d\n  namespace: app-ns\n---\nkind: ClusterRole\nmetadata:\n  name: c'
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"renders a ClusterRole"*"stopping before any change"* ]]
+  run ! grep -q -e "^helm upgrade" -e "annotate" -e "apply -f" "$LOG"
+}
+
+@test "the ClusterRules right names the API group of the render's apiVersion" {
+  boot_cluster_rules
+  export STUB_CLUSTER_RULES=$'apiVersion: monitoring.example.test/v2\nkind: ClusterRules\nmetadata:\n  name: kube-alerts'
+  run bash "$SCRIPT" dev --context kind-x "${V[@]}" --dry-run
+  [ "$status" -eq 0 ]
+  grep -q "auth can-i create clusterrules.monitoring.example.test --all-namespaces$" "$LOG"
+  run ! grep -q "clusterrules.monitoring.googleapis.com" "$LOG"
 }
 
 @test "without a ClusterRules in the render no ClusterRules right is checked" {
@@ -713,7 +749,7 @@ boot_cluster_rules() {
   printf 'gmpClusterRules: true\n' > "$BATS_TEST_TMPDIR/b.yaml"
   run bash "$SCRIPT" dev --context kind-x "${V[@]}" --bootstrap-values "$BATS_TEST_TMPDIR/b.yaml" --yes
   [ "$status" -eq 0 ]
-  for verb in get create patch; do grep -q "auth can-i $verb clusterrules.monitoring.googleapis.com$" "$LOG"; done
+  for verb in get create patch; do grep -q "auth can-i $verb clusterrules.monitoring.googleapis.com --all-namespaces$" "$LOG"; done
   grep -q "kind: ClusterRules" "$APPLIED"
 }
 
