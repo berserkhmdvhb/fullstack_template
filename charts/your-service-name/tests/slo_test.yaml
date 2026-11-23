@@ -7,6 +7,18 @@ templates:
   - gmp-rules.yaml
   - validate-values.yaml
 tests:
+  - it: the objective's namespace label stays a string for a numeric or boolean-looking namespace
+    release: {namespace: "1234"}
+    set: {monitoring: {prometheusRule: true}}
+    template: prometheusrule.yaml
+    asserts:
+      - equal: {path: 'spec.groups[5].rules[14].labels', value: {namespace: "1234", slo: availability}}
+  - it: the objective's namespace label stays a string for namespace "true" (gmp too)
+    release: {namespace: "true"}
+    set: {monitoring: {flavour: gmp, prometheusRule: true}}
+    template: gmp-rules.yaml
+    asserts:
+      - equal: {path: 'spec.groups[1].rules[14].labels', value: {namespace: "true", slo: availability}}
   - it: prometheus-operator holds the SLO recording rules and the four burn-rate alerts after app-health
     set: {monitoring: {prometheusRule: true}}
     template: prometheusrule.yaml

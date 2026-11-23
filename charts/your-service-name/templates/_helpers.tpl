@@ -818,8 +818,8 @@ key: password
 {{- range $s := list "availability" "latency" }}
     - record: slo:objective:ratio
       labels:
-        namespace: {{ $.Release.Namespace }}
-        slo: {{ $s }}
+        namespace: {{ $.Release.Namespace | quote }}
+        slo: {{ $s | quote }}
       expr: vector({{ (get $slo $s).objective }} / 100)
 {{- end }}
 - name: slo-alerts
