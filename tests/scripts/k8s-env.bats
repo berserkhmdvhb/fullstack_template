@@ -17,8 +17,10 @@ setup() {
   cat > "$B/helm" <<'STUB'
 #!/usr/bin/env bash
 echo "helm $*" >> "$LOG"
-# The bootstrap's render; the release's render (for the migration) is the stored manifest itself.
+# The bootstrap's render (and its render of the app's Role); the release's render (for the
+# migration) is the stored manifest itself.
 [[ "$1 $2" != "template bootstrap" ]] || echo "kind: Namespace # rendered"
+[[ "$1" != template || "$*" != *templates/rbac.yaml* ]] || { printf -- '---\nkind: Role\n'; exit 0; }
 [[ "$1" != template || "$2" == bootstrap ]] || printf '%s\n' "${STUB_MANIFEST-}"
 [[ "$1 $2" != "upgrade svc" || "$*" != *"namespaces.create=false"* ]] || touch "$STATE"
 if [[ "$1" == status ]]; then
