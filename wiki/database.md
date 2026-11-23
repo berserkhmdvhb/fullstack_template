@@ -634,8 +634,10 @@ spec:
                 - -c
                 - |
                   TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-                  pg_dump -h "${DB_HOST}" -U "${DB_USER}" -d "${DB_NAME}" | gzip > "/backup/your-service-name-${TIMESTAMP}.sql.gz"
-                  find /backup -name "*.sql.gz" -mtime +30 -delete
+                  BACKUP_FILE="/backup/your-service-name-${TIMESTAMP}.sql.gz"
+                  pg_dump -h "${DB_HOST}" -U "${DB_USER}" -d "${DB_NAME}" | gzip > "${BACKUP_FILE}.partial"
+                  mv "${BACKUP_FILE}.partial" "${BACKUP_FILE}"
+                  find /backup \( -name "*.sql.gz" -o -name "*.sql.gz.partial" \) -mtime +30 -delete
               env:
                 - name: DB_HOST
                   value: "your-service-name-postgresql"

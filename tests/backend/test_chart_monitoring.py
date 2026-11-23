@@ -19,6 +19,7 @@ from tests.backend.test_chart_pod_security import (
     render,
 )
 from tests.backend.test_chart_production_guard import CHART, find_helm, require_helm
+from tests.utils.markdown_headings import headings, slug
 from your_service_name.backend.main import LATENCY_BUCKETS
 
 BACKEND = "Deployment/svc-your-service-name-backend"
@@ -229,36 +230,20 @@ RUNBOOK = CHART.parents[1] / "wiki" / "operations-runbook.md"
 EVERY_ALERT = ("--set", "monitoring.alerts.certificateExpiry.enabled=true")
 
 
-def _slug(heading: str) -> str:
-    """GitHub's heading anchor: lower case, punctuation dropped, spaces to hyphens."""
-    return re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-")
-
-
-def _headings() -> list[tuple[int, str]]:
-    """The runbook's headings (level, text), skipping fenced code."""
-    out, fenced = [], False
-    for line in RUNBOOK.read_text(encoding="utf-8").splitlines():
-        if line.startswith("```"):
-            fenced = not fenced
-        elif not fenced and (m := re.match(r"(#{1,6}) (.+)$", line)):
-            out.append((len(m[1]), m[2]))
-    return out
-
-
 def _alert_sections() -> dict[str, str]:
     """The level-3 headings inside the Alerts section, by the anchor GitHub gives each (a slug
     already used earlier in the file gets -1, -2, ...)."""
     sections: dict[str, str] = {}
     seen: dict[str, int] = {}
     under = False
-    for level, text in _headings():
-        slug = _slug(text)
-        n = seen.get(slug, 0)
-        seen[slug] = n + 1
+    for level, text in headings(RUNBOOK):
+        base = slug(text)
+        n = seen.get(base, 0)
+        seen[base] = n + 1
         if level == 2:  # noqa: PLR2004
             under = text == "Alerts"
         elif level == 3 and under:  # noqa: PLR2004
-            sections[f"{slug}-{n}" if n else slug] = text
+            sections[f"{base}-{n}" if n else base] = text
     return sections
 
 
@@ -293,7 +278,7 @@ def test_every_alert_links_a_runbook_section_and_every_alert_section_names_an_al
         assert url.startswith(f"{base}#"), (key, url)
         anchor = url.removeprefix(f"{base}#")
         # The alert's own section: a ### under ## Alerts whose heading is the alert's name.
-        assert anchor == _slug(rule["alert"]), (key, url)
+        assert anchor == slug(rule["alert"]), (key, url)
         assert sections.get(anchor) == rule["alert"], (key, url)
     # Every level-3 heading in the Alerts section names a rendered alert: no stale section.
     names = {r["alert"] for r in alerts.values()}

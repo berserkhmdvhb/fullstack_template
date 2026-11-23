@@ -707,7 +707,8 @@ namespace and `<db-ns>` the database namespace (`<ns>-db`).
 
 - **Means:** the restore check has not succeeded for longer than
   `monitoring.alerts.backupVerifyMaxAgeHours` (default 192, eight days), or never has and is older.
-- **Impact:** the backups have not been proven restorable for over a week.
+- **Impact:** the backups have not been proven restorable for over a week. A `postgresql.backup.verifySchedule`
+  that runs less often than this threshold keeps it firing.
 - **First checks:** `kubectl -n <db-ns> get cronjob <fullname>-pg-backup-verify` and its Jobs.
 - **Fix:** [Backup Verification](#backup-verification); run the check by hand.
 
