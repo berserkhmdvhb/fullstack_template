@@ -269,8 +269,8 @@ and its Deployment in place: it must keep `--timeout` below the backend's
 [`rollout.progressDeadlineSeconds`](../charts/your-service-name/values.yaml), or the Deployment is marked
 `ProgressDeadlineExceeded` before the retry and Helm fails the retry on it at once (although the Pod becomes ready
 seconds after the retry's Job). `scripts/kind-deploy.sh` and `scripts/migrate-to-bootstrap.sh` are such deploys, so
-they wait 9 minutes, below the 600 s deadline; a test holds every deploy path to it
-([Deploy chain](./ci-cd.md#deploy-chain)).
+their `--timeout` stays below it; [`test_deploy_timeouts.py`](../tests/supply_chain/test_deploy_timeouts.py) holds every
+deploy path's wait to that rule ([Deploy chain](./ci-cd.md#deploy-chain)).
 
 The failed-first-install case runs `deploy-env.sh` itself, through its test-only `DEPLOY_ENV=kind`
 ([the deploy script on kind](./ci-cd.md#proven-on-kind)), so its namespaces are `<release>-kind` and `<release>-kind-db`:
