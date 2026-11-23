@@ -93,7 +93,9 @@ secret or build cache. The rule covers the project's registries and its signing 
 may push to a throwaway registry on the runner's loopback and sign there with a key the job generates,
 trusted only by a test policy in a cluster deleted when the job ends, with no `id-token`, no registry
 login and no secret, so nothing leaves the runner: the kind admission test does this
-([`wiki/admission-control.md`](wiki/admission-control.md#proven-on-kind)). New supply-chain logic goes
+([`wiki/admission-control.md`](wiki/admission-control.md#proven-on-kind)), and the kind deploy-script test
+pushes there, without signing, so the deploy script deploys by digest
+([`wiki/ci-cd.md`](wiki/ci-cd.md#proven-on-kind)). New supply-chain logic goes
 under `infra/security/local/` — the eight shared `infra/security/*.sh` scripts are **frozen** (`_helpers.sh`, `sbom-generate.sh`,
 `scan-vulnerabilities.sh`, `scan-licenses.sh`, `generate-vex.sh`, `check-ci-hardening.sh`,
 `tools-install.sh`, `verify-image-digest.sh`; see

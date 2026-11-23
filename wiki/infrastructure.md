@@ -314,6 +314,7 @@ make kind-deploy                 # the full sequence below; KIND_BASE=<ref> adds
                                  # (a commit id, branch or tag; no ~ or ^)
 make kind-shutdown-test         # after kind-deploy: Pods deleted under load fail no request (Workloads, below)
 make kind-migration-test        # after kind-deploy: the migration lifecycle on a release of its own (database.md)
+make kind-deploy-env-test       # after kind-deploy: scripts/ci/deploy-env.sh itself on a release of its own (ci-cd.md)
 make kind-admission-test        # after kind-up: the image admission policy with its own Kyverno (admission-control.md)
 make kind-live                   # after kind-deploy: the live suites (make test-live) against the release
 make kind-smoke                  # after kind-deploy: the smoke test against the public forward
@@ -386,6 +387,7 @@ on both legs: `scripts/kind-up.sh --node <leg>`, then `scripts/kind-deploy.sh --
 request's base commit>`, the scripts `make kind-up` and `make kind-deploy` run, then
 `make kind-shutdown-test` ([graceful shutdown](#workloads-rollout-resources-and-shutdown)), and on the floor leg
 `make kind-migration-test` ([the migration lifecycle](./database.md#proven-on-kind)), and on the newest leg
+`make kind-deploy-env-test` ([the deploy script](./ci-cd.md#proven-on-kind)),
 `make kind-admission-test` ([the admission policy](./admission-control.md#proven-on-kind)) and
 `make kind-tracing-redis-test` ([tracing](./backend-architecture.md#tracing) and
 [the Redis rate limit](./security.md#backend-rate-limiting), on a release of its own). It always deletes the

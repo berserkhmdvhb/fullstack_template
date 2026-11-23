@@ -259,7 +259,7 @@ at the first failure; about 15 minutes); CI runs it on the kind job's floor leg
 | Timeouts | through the backend's own settings: `DB_STATEMENT_TIMEOUT_MS` cancels a slow query, `DB_CONNECT_TIMEOUT_SECONDS` ends a connect the network drops, `DB_MIGRATION_LOCK_TIMEOUT_MS` ends a wait on a locked table; the Job gets the same values |
 | TLS modes | against the shipped PostgreSQL (no TLS) `disable` connects in plaintext and every other mode refuses rather than fall back; with TLS turned on there by the test (a test CA): `require` encrypts, `verify-ca` accepts a name not in the certificate, `verify-full` refuses it, a wrong CA or the system trust store is refused, and the chart's path (`verify-full` with `database.tls.caSecret`) migrates and serves over TLS |
 | Autogenerate | `alembic check` against the migrated database finds no change: the models and the migrations agree |
-| Failed first install, then a retry | deployed as `scripts/ci/deploy-env.sh` deploys (below), on a wiped release: the migration fails, `--rollback-on-failure` uninstalls the release and keeps the Failed Job, whose logs the deploy prints; the same deploy without the failure deletes that Job itself (no deployed revision: `migration_job_purge_failed`) and installs revision 1, whose Job finds the database untouched; nothing is removed by hand |
+| Failed first install, then a retry | deployed by `scripts/ci/deploy-env.sh` itself (below), on a wiped release: the migration fails, `--rollback-on-failure` uninstalls the release and keeps the Failed Job, whose logs the deploy prints; the same deploy without the failure deletes that Job itself (no deployed revision: `migration_job_purge_failed`) and installs revision 1, whose Job finds the database untouched; nothing is removed by hand |
 
 **A failed first install ends only at Helm's `--timeout`.** The Job is Failed within about two minutes, but
 the backend cannot become ready without the schema, so Helm keeps waiting for it (a failed upgrade, whose running
@@ -268,17 +268,14 @@ Pods stay ready, fails as soon as the Job does). `scripts/ci/deploy-env.sh` then
 and its Deployment in place: it must keep `--timeout` below the backend's
 [`rollout.progressDeadlineSeconds`](../charts/your-service-name/values.yaml), or the Deployment is marked
 `ProgressDeadlineExceeded` before the retry and Helm fails the retry on it at once (although the Pod becomes ready
-seconds after the retry's Job). `scripts/kind-deploy.sh` is such a deploy and waits as long as that deadline: after a
-failed first install there, uninstall the release before the retry.
+seconds after the retry's Job). `scripts/kind-deploy.sh` and `scripts/migrate-to-bootstrap.sh` are such deploys, so
+they wait 9 minutes, below the 600 s deadline; a test holds every deploy path to it
+([Deploy chain](./ci-cd.md#deploy-chain)).
 
-The failed-first-install case runs `deploy-env.sh`'s deploy steps rather than the script: the script deploys only to
-`dev`, `qa` or `production` (namespace and values file from that name, with `guards.rejectPlaceholders`, which refuses
-the placeholder hosts a kind cluster runs with) and only images by registry digest, which images loaded into kind have
-not. The test runs the same steps in the same order, as the deployer: the last deployed revision from `helm history`,
-`migration_job_purge_failed` when there is none, `helm upgrade --install` with the script's flags
-(`--rollback-on-failure --wait --wait-for-jobs`, the deploy workflow's default `HELM_TIMEOUT`), and on a failure
-`migration_job_report_newest`, all from `scripts/ci/migration-job-lib.sh`; it fails if the script stops carrying those
-steps.
+The failed-first-install case runs `deploy-env.sh` itself, through its test-only `DEPLOY_ENV=kind`
+([the deploy script on kind](./ci-cd.md#proven-on-kind)), so its namespaces are `<release>-kind` and `<release>-kind-db`:
+the kind job's images pushed to a throwaway registry for their digests, the deployer, the deploy workflow's default
+`HELM_TIMEOUT`, and this release's timeouts as a values file. A passing retry also runs the script's verify and smoke.
 
 The slow and failed migrations come from a test-only hook: `tests.migration.delaySeconds` and `tests.migration.fail`
 (off by default) give the Job `MIGRATION_TEST_DELAY_SECONDS` and `MIGRATION_TEST_FAIL`, only with `tests.enabled`,
