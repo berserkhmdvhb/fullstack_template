@@ -1,14 +1,14 @@
 {{/*
    Weekly backup-integrity verification CronJob. Gated by postgresql.enabled.
-   Restores the latest dump to a throwaway DB, checks critical tables exist, drops it.
+   Runs files/pg-backup-verify.sh (from the ConfigMap in pg-backup-verify-configmap.yaml): restores
+   the newest dump into a temporary database, checks it and drops it; wiki/disaster-recovery.md.
 
    CREATEDB perms (cross-cutting finding): this runs CREATE DATABASE as the app DB
    user. That user is POSTGRES_USER of the in-cluster StatefulSet, and the official
    postgres image runs `initdb --username="$POSTGRES_USER"` — i.e. the app user IS
    the cluster superuser, so it has CREATEDB unconditionally. This CronJob only
    renders for the in-cluster DB (postgresql.enabled), never the external prod DB,
-   so the scratch-DB restore always has permission. psql calls use ON_ERROR_STOP=1
-   so any step failing aborts the job loudly instead of passing silently.
+   so the scratch-DB restore always has permission.
 */}}
 {{- if and .Values.postgresql.enabled .Values.postgresql.backup.enabled }}
 apiVersion: batch/v1
@@ -20,7 +20,7 @@ metadata:
 {{- include "chart.labels" . | nindent 4 }}
     app.kubernetes.io/component: backup-verification
 spec:
-  schedule: "0 3 * * 0"        # Sundays 03:00 UTC
+  schedule: {{ .Values.postgresql.backup.verifySchedule | quote }}
   # revisionHistoryLimit is alpha (CronJobExecutionHistory feature gate) and absent
   # from clusters without it — use the GA split fields so SSA never rejects the object.
   successfulJobsHistoryLimit: 3
@@ -51,28 +51,13 @@ spec:
           containers:
             - name: pg-backup-verify
               image: {{ include "chart.image" (dict "image" .Values.postgresql.clientImage) }}
-              command:
-                - /bin/sh
-                - -c
-                - |
-                  set -euo pipefail
-                  echo "Starting backup verification ..."
-                  LATEST_BACKUP=$(ls -t /backup/*.sql.gz 2>/dev/null | head -n1)
-                  if [ -z "$LATEST_BACKUP" ]; then
-                    echo "ERROR: No backup files found in /backup"
-                    exit 1
-                  fi
-                  echo "Latest backup: $LATEST_BACKUP"
-                  TEMP_DB="verify_backup_$(date +%Y%m%d%H%M%S)"
-                  psql -v ON_ERROR_STOP=1 -h "${DB_HOST}" -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE DATABASE ${TEMP_DB};"
-                  gunzip -c "$LATEST_BACKUP" | psql -v ON_ERROR_STOP=1 -h "${DB_HOST}" -U "${DB_USER}" -d "$TEMP_DB"
-                  psql -v ON_ERROR_STOP=1 -h "${DB_HOST}" -U "${DB_USER}" -d "$TEMP_DB" -c \
-                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';"
-                  psql -v ON_ERROR_STOP=1 -h "${DB_HOST}" -U "${DB_USER}" -d "$TEMP_DB" -c \
-                    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('items', 'echo_records') ORDER BY table_name;"
-                  psql -v ON_ERROR_STOP=1 -h "${DB_HOST}" -U "${DB_USER}" -d "${DB_NAME}" -c "DROP DATABASE ${TEMP_DB};"
-                  echo "Backup verification completed successfully."
+              # The script (files/pg-backup-verify.sh) comes from the ConfigMap, read-only.
+              command: [/bin/sh, /scripts/pg-backup-verify.sh]
               env:
+                - name: VERIFY_TABLES
+                  value: {{ join "," .Values.postgresql.backup.verifyTables | quote }}
+                - name: VERIFY_MAX_AGE_HOURS
+                  value: {{ .Values.postgresql.backup.verifyMaxAgeHours | quote }}
                 - name: DB_HOST
                   value: {{ include "chart.fullname" . }}-postgresql
                 - name: DB_PORT
@@ -96,6 +81,9 @@ spec:
               volumeMounts:
                 - name: backup-volume
                   mountPath: /backup
+                - name: verify-script
+                  mountPath: /scripts
+                  readOnly: true
               resources:
 {{- include "chart.resources" .Values.resources.pgBackup | nindent 16 }}
               securityContext:
@@ -106,4 +94,8 @@ spec:
             - name: backup-volume
               persistentVolumeClaim:
                 claimName: {{ include "chart.fullname" . }}-pg-backup-pvc
+            - name: verify-script
+              configMap:
+                name: {{ include "chart.fullname" . }}-pg-backup-verify
+                defaultMode: 0555
 {{- end }}

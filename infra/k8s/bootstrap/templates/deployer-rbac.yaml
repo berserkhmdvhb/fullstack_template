@@ -79,9 +79,9 @@ rules:
     resources: [pods/portforward]
     verbs: [create]
 {{- else }}
-  # The chart's kinds in the database namespace.
+  # The chart's kinds in the database namespace (the ConfigMap holds the restore check's script).
   - apiGroups: [""]
-    resources: [secrets, services, persistentvolumeclaims]
+    resources: [configmaps, secrets, services, persistentvolumeclaims]
     verbs: {{ toJson $helm }}
   - apiGroups: [apps]
     resources: [statefulsets]

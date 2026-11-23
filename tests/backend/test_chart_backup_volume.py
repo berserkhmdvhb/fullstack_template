@@ -10,7 +10,7 @@ import os
 import pytest
 
 from tests.backend.test_chart_pod_security import VALUES_FILES, pod_specs, render
-from tests.backend.test_chart_production_guard import find_helm, require_helm
+from tests.backend.test_chart_production_guard import CHART, find_helm, require_helm
 
 CLAIM = "svc-your-service-name-pg-backup-pvc"
 
@@ -40,3 +40,16 @@ def test_every_pod_mounting_the_backup_volume_has_one_fs_group(helm: str, values
     # Each Pod keeps its own uid: the jobs are not PostgreSQL.
     assert mounting["CronJob/svc-your-service-name-pg-backup"]["runAsUser"] == 10001  # noqa: PLR2004
     assert mounting["StatefulSet/svc-your-service-name-postgresql"]["runAsUser"] == 999  # noqa: PLR2004
+
+
+def test_the_verify_config_map_holds_the_script_byte_for_byte(helm: str) -> None:
+    """The restore check runs the tested script (tests/scripts/pg-backup-verify.bats), unchanged."""
+    (cm,) = [
+        d
+        for d in render(helm, "values.yaml")
+        if d["kind"] == "ConfigMap"
+        and d["metadata"]["name"] == "svc-your-service-name-pg-backup-verify"
+    ]
+    assert (
+        cm["data"]["pg-backup-verify.sh"] == (CHART / "files" / "pg-backup-verify.sh").read_text()
+    )

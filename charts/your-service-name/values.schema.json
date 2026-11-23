@@ -501,6 +501,12 @@
             "enabled":       { "type": "boolean" },
             "schedule":      { "type": "string" },
             "retentionDays": { "type": "integer" },
+            "verifySchedule":    { "type": "string" },
+            "verifyMaxAgeHours": { "type": "integer", "minimum": 1 },
+            "verifyTables": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+            },
             "storage": {
               "type": "object",
               "additionalProperties": false,
