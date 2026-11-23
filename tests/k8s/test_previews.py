@@ -205,6 +205,44 @@ def test_a_synchronize_redeploys_one_preview_and_leaves_the_other_alone(
     assert set(previews.pods(2)) == set(before), "the other preview's Pods were replaced"
 
 
+def test_the_database_quota_holds_the_previews_and_refuses_one_more_than_it_allows(
+    previews: Previews,
+) -> None:
+    """The bootstrap's database-namespace quota (dbQuota: quotaReleases databases) holds the two
+    previews; as the preview deployer, a third release's volume claim fits, a fourth's is refused by
+    the quota."""
+    quota = previews.db.get("resourcequota", "bootstrap-quota")
+    used, hard = quota["status"]["used"], quota["status"]["hard"]
+    print(f"database quota: used {used}, hard {hard}")
+    assert (used["pods"], used["persistentvolumeclaims"]) == ("2", "2")
+    claim = previews.db.get("pvc", "-l", f"{INSTANCE}={release(2)}")["items"][0]["spec"]
+    created = []
+    for pr in (3, 4):
+        manifest = previews.work / f"claim-{pr}.json"
+        name = f"postgresql-data-{release(pr)}-postgresql-0"
+        spec = {k: claim[k] for k in ("accessModes", "storageClassName", "resources")}
+        manifest.write_text(
+            json.dumps(
+                {
+                    "apiVersion": "v1",
+                    "kind": "PersistentVolumeClaim",
+                    "metadata": {"name": name, "labels": {INSTANCE: release(pr)}},
+                    "spec": spec,
+                }
+            )
+        )
+        done = previews.as_deployer("kubectl", "-n", DB_NAMESPACE, "create", "-f", str(manifest))
+        print(f"release {pr}'s claim: rc {done.returncode} {done.stdout}{done.stderr}")
+        if pr == 3:  # noqa: PLR2004 - the third of quotaReleases 3
+            assert done.returncode == 0, done.stderr
+            created.append(name)
+        else:
+            assert done.returncode != 0, done.stdout
+            assert "exceeded quota: bootstrap-quota" in done.stderr, done.stderr
+    for name in created:
+        previews.db("delete", "pvc", name, "--wait")
+
+
 def test_the_preview_deployer_is_refused_outside_the_preview_namespaces(previews: Previews) -> None:
     """By the API server: no namespace creation, and no access to the main release (another
     namespace), through kubectl or helm. And by the cleanup script, before any call."""

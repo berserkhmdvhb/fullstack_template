@@ -132,13 +132,66 @@ def test_the_preview_quota_covers_its_releases_at_the_preview_values_with_headro
     boot = yaml.safe_load((BOOTSTRAP / "values.preview.yaml").read_text())
     releases = boot["quotaReleases"]
     assert releases > 1
-    hard = _one(bootstrap(helm, "preview"), "ResourceQuota")["spec"]["hard"]
+    hard = _one(bootstrap(helm, "preview"), "ResourceQuota", "your-service-name-preview")
+    hard = hard["spec"]["hard"]
     short = {
         key: (quantity(hard[key]), round(HEADROOM * releases * need, 3))
         for key, need in worst.items()
         if quantity(hard[key]) < HEADROOM * releases * need
     }
     assert short == {}, f"raise the quota in infra/k8s/bootstrap/values.preview.yaml: {short}"
+
+
+def database_need(docs: list[dict[str, Any]]) -> dict[str, float]:
+    """One release's use of the database namespace: its StatefulSets' Pods and volume claims, and
+    any CronJob's Pod (none at values.preview.yaml: backups are off there)."""
+    keys = ("requests.cpu", "requests.memory", "limits.memory", "pods")
+    total = dict.fromkeys((*keys, "persistentvolumeclaims", "requests.storage"), 0.0)
+    for d in docs:
+        if not str(d["metadata"].get("namespace", "")).endswith("-db"):
+            continue
+        if d["kind"] == "StatefulSet":
+            replicas = d["spec"].get("replicas", 1)
+            for key, value in pod_cost(d["spec"]["template"]["spec"]).items():
+                total[key] += value * replicas
+            for claim in d["spec"].get("volumeClaimTemplates") or []:
+                total["persistentvolumeclaims"] += replicas
+                storage = claim["spec"]["resources"]["requests"]["storage"]
+                total["requests.storage"] += quantity(storage) * replicas
+        elif d["kind"] == "CronJob":
+            pod = d["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+            for key, value in pod_cost(pod).items():
+                total[key] += value
+    return total
+
+
+def test_the_preview_database_quota_holds_its_releases_and_refuses_one_more(helm: str) -> None:
+    """The preview database namespace, which a pull request's chart reaches through the preview
+    deployer: room for exactly quotaReleases databases at values.preview.yaml, not for one more. No
+    headroom: the sum is exact and a StatefulSet replaces its Pod without a surge."""
+    need = database_need(render(helm, "values.preview.yaml"))
+    assert need["pods"] == 1
+    assert need["persistentvolumeclaims"] == 1
+    releases = yaml.safe_load((BOOTSTRAP / "values.preview.yaml").read_text())["quotaReleases"]
+    docs = bootstrap(helm, "preview")
+    hard = _one(docs, "ResourceQuota", "your-service-name-preview-db")["spec"]["hard"]
+    assert set(hard) == set(need), "every resource a database uses is capped"
+    wrong = {
+        key: (hard[key], releases * value, (releases + 1) * value)
+        for key, value in need.items()
+        if not releases * value <= quantity(hard[key]) < (releases + 1) * value
+    }
+    assert wrong == {}, f"size dbQuota in infra/k8s/bootstrap/values.preview.yaml: {wrong}"
+    # Its LimitRange admits the database container as the chart renders it.
+    limits = _one(docs, "LimitRange", "your-service-name-preview-db")["spec"]["limits"][0]
+    for d in render(helm, "values.preview.yaml"):
+        if d["kind"] == "StatefulSet":
+            for c in d["spec"]["template"]["spec"]["containers"]:
+                memory = quantity(c["resources"]["limits"]["memory"])
+                assert (
+                    quantity(limits["min"]["memory"]) <= memory <= quantity(limits["max"]["memory"])
+                )
+                assert quantity(limits["min"]["cpu"]) <= quantity(c["resources"]["requests"]["cpu"])
 
 
 def test_the_computation_counts_init_containers_and_sidecars_the_way_quota_does() -> None:

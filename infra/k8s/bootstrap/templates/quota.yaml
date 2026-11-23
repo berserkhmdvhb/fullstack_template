@@ -34,3 +34,41 @@ spec:
     - type: Pod
       max:
 {{- toYaml .Values.limitRange.pod.max | nindent 8 }}
+{{- /*
+   The database namespace's ResourceQuota and LimitRange, only when dbQuota and dbLimitRange are set
+   (the preview environment, whose deployer a pull request reaches: values.preview.yaml).
+*/}}
+{{- if and .Values.database.inCluster .Values.dbQuota }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: bootstrap-quota
+  namespace: {{ include "bootstrap.dbNamespace" . }}
+  labels:
+{{- include "bootstrap.labels" . | nindent 4 }}
+spec:
+  hard:
+{{- toYaml .Values.dbQuota.hard | nindent 4 }}
+{{- end }}
+{{- if and .Values.database.inCluster .Values.dbLimitRange }}
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: bootstrap-limits
+  namespace: {{ include "bootstrap.dbNamespace" . }}
+  labels:
+{{- include "bootstrap.labels" . | nindent 4 }}
+spec:
+  limits:
+    - type: Container
+      default:
+{{- toYaml .Values.dbLimitRange.container.default | nindent 8 }}
+      defaultRequest:
+{{- toYaml .Values.dbLimitRange.container.defaultRequest | nindent 8 }}
+      max:
+{{- toYaml .Values.dbLimitRange.container.max | nindent 8 }}
+      min:
+{{- toYaml .Values.dbLimitRange.container.min | nindent 8 }}
+{{- end }}

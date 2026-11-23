@@ -244,6 +244,20 @@ def test_the_quota_and_limitrange_keep_the_chart_defaults_without_cpu_limits(
     ]
 
 
+def test_only_the_preview_database_namespace_has_a_quota_and_limitrange(helm: str) -> None:
+    """A pull request reaches the preview deployer, so its database namespace is bounded too; with
+    no database namespace (--no-db), neither renders."""
+    db = "your-service-name-preview-db"
+    docs = bootstrap(helm, "preview")
+    assert _one(docs, "ResourceQuota", db)["spec"]["hard"]
+    assert _one(docs, "LimitRange", db)["spec"]["limits"]
+    no_db = bootstrap(helm, "preview", "--no-db")
+    assert not [d for d in no_db if d["metadata"].get("namespace") == db]
+    defaults = _merged(BOOTSTRAP / "values.yaml")
+    assert defaults["dbQuota"] == {}
+    assert defaults["dbLimitRange"] == {}
+
+
 # ---- The deployer RBAC -------------------------------------------------------------------------
 
 
@@ -505,7 +519,7 @@ def test_the_secrets_quota_covers_the_helm_history_the_chart_and_headroom(
             for args in ((), ALL_ON)
         )
     )
-    quota = int(_one(bootstrap(helm, env), "ResourceQuota")["spec"]["hard"]["secrets"])
+    quota = int(_one(bootstrap(helm, env), "ResourceQuota", app)["spec"]["hard"]["secrets"])
     releases = _merged(BOOTSTRAP / "values.yaml", BOOTSTRAP / f"values.{env}.yaml")["quotaReleases"]
     # One more release Secret exists while an upgrade runs, before Helm prunes the oldest; the
     # preview namespace holds that for each of its releases.

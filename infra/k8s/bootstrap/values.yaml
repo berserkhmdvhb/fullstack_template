@@ -48,7 +48,7 @@ deployer:
 # (tests/backend/test_chart_quota.py): every Deployment at its HPA maximum plus the rollout surge
 # and a wave of terminating Pods, the WAF, the Cloud SQL proxy sidecars, the migration Job and the helm test Jobs, with
 # 20% headroom. Raising a replica count, an HPA maximum or a request needs a quota bump here, or
-# that test fails. The database namespace has none. There is no limits.cpu: CPU limits are off by default (they throttle),
+# that test fails. The database namespace has none (dbQuota below) but in the preview environment. There is no limits.cpu: CPU limits are off by default (they throttle),
 # and a CPU-limit quota would refuse every Pod without one. The memory request and limit of each
 # container are equal (the chart enforces it), so the two memory caps track each other.
 # quotaReleases: how many releases of the chart the quota is sized for (the test multiplies the worst
@@ -67,6 +67,12 @@ quota:
     # the one written during an upgrade, the chart's own Secrets and headroom for a pull,
     # TLS and database CA secret. A test recomputes it.
     secrets: "15"
+
+# The database namespace's ResourceQuota and LimitRange (the same shapes as quota and limitRange):
+# none when empty, as in every environment but preview (values.preview.yaml), where any write-access
+# pull request reaches the deployer that runs the database namespace.
+dbQuota: {}
+dbLimitRange: {}
 
 # The app namespace's LimitRange. No CPU in default or max: a max with no default becomes the
 # default limit, so either one would put a CPU limit on every container.
