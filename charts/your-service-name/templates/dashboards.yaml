@@ -2,7 +2,8 @@
    Grafana dashboards (monitoring.dashboards; wiki/operations-runbook.md#grafana-dashboards): every
    file in dashboards/ in one ConfigMap, labelled for Grafana's dashboard sidecar. Off by default.
    Each key is <chart>-<file>: the sidecar writes every key into one folder, where bare file names of
-   two services (or two releases) would overwrite each other. `@exclude_handlers@` becomes
+   two services would overwrite each other. Two releases of one chart share the keys and still collide
+   (the runbook's Grafana dashboards section). `@exclude_handlers@` becomes
    monitoring.slo.excludeHandlers, JSON-escaped (inside a PromQL raw string, so PromQL reads it as
    written); not `tpl`, which would read the `{{pod}}` legends. A ConfigMap holds at most 1 MiB: the
    render fails before the dashboards, as rendered, outgrow it.
