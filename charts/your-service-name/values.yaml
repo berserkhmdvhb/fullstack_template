@@ -727,3 +727,10 @@ tests:
   enabled: false
   # A GET route of the API that reads the database (the template's sample route by default).
   apiPath: /api/v1/items
+  # Test-only, for the kind migration test (tests/k8s/test_migrations.py): the migration Job gets
+  # MIGRATION_TEST_DELAY_SECONDS (the runner sleeps before it acts: a slow migration) and
+  # MIGRATION_TEST_FAIL (it fails before it acts: a failed migration). Rendered only with
+  # tests.enabled, which production refuses; the runner refuses both in production too.
+  migration:
+    delaySeconds: 0
+    fail: false

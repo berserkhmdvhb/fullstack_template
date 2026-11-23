@@ -21,6 +21,8 @@ Operational:
 - Concurrency: Run once per release by the chart's migration Job (and by the local entry points);
   the application does not migrate at startup.
 - Timeouts: ``lock_timeout`` from ``DB_MIGRATION_LOCK_TIMEOUT_MS``; no ``statement_timeout``.
+- Test-only hooks: ``MIGRATION_TEST_DELAY_SECONDS`` and ``MIGRATION_TEST_FAIL`` (refused in
+  production).
 - Logging: Attempts and states; never the database URL.
 
 Usage
@@ -208,6 +210,7 @@ async def run_migrations(settings: Settings) -> None:
         revisions = schema.load_revisions()  # more than one head fails here, before any connect
         _ensure_sqlite_dir(url)
         state = schema.classify(await _read_revision_with_retry(settings, url), revisions)
+        await _test_hooks(settings)
         if state is schema.SchemaState.CURRENT:
             logger.info("Database is already at head (%s); nothing to migrate.", revisions.head)
         elif state is schema.SchemaState.AHEAD:
@@ -222,6 +225,23 @@ async def run_migrations(settings: Settings) -> None:
         # Connection and config errors can echo the URL; raise one that cannot.
         msg = f"{type(exc).__name__}: {_redact(str(exc), settings.database_url)}"
         raise RuntimeError(msg) from None
+
+
+async def _test_hooks(settings: Settings) -> None:
+    """Test-only (off by default, refused in production): a slow or a failed migration on purpose.
+
+    The kind migration test (tests/k8s/test_migrations.py) sets them through the chart's
+    ``tests.migration`` values, which render only with ``tests.enabled``.
+    """
+    if settings.MIGRATION_TEST_DELAY_SECONDS:
+        logger.warning(
+            "MIGRATION_TEST_DELAY_SECONDS: sleeping %ds before migrating (test-only)",
+            settings.MIGRATION_TEST_DELAY_SECONDS,
+        )
+        await asyncio.sleep(settings.MIGRATION_TEST_DELAY_SECONDS)
+    if settings.MIGRATION_TEST_FAIL:
+        msg = "MIGRATION_TEST_FAIL: failing on purpose before migrating (test-only)"
+        raise RuntimeError(msg)
 
 
 def _run_alembic_sync(cfg_path: str, settings: Settings) -> None:

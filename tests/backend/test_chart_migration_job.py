@@ -284,3 +284,40 @@ def test_the_app_never_migrates_at_startup() -> None:
         text = source.read_text(encoding="utf-8")
         assert not re.search(r"^\s*(from|import) .*\brun_migrations\b", text, re.MULTILINE), source
         assert "command.upgrade" not in text, source
+
+
+# ---- The test-only hooks (tests.migration): the kind migration test's slow and failed migration
+
+HOOKS = ("--set", "tests.migration.delaySeconds=160", "--set", "tests.migration.fail=true")
+
+
+def test_the_test_only_hooks_render_only_with_helm_test_on() -> None:
+    """Off by default; with tests.enabled (values.local.yaml) they reach the migrate container."""
+    assert "MIGRATION_TEST" not in str(_job("local"))
+    migrate = _job_env(_job("local", *HOOKS)["spec"]["template"]["spec"], "migrate")
+    assert migrate["MIGRATION_TEST_DELAY_SECONDS"]["value"] == "160"
+    assert migrate["MIGRATION_TEST_FAIL"]["value"] == "true"
+    assert "MIGRATION_TEST" not in str(_job("dev", *HOOKS))  # tests.enabled is off there
+
+
+def test_production_refuses_the_test_only_hooks() -> None:
+    """They render only with tests.enabled, which the production guard refuses."""
+    helm = require_helm(find_helm(), ci=bool(os.environ.get("CI")))
+    done = subprocess.run(
+        [
+            helm,
+            "template",
+            RELEASE,
+            str(CHART),
+            "-f",
+            str(CHART / "values.production.yaml"),
+            "--set",
+            "tests.enabled=true",
+            *HOOKS,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode != 0
+    assert "tests.enabled is true" in done.stderr

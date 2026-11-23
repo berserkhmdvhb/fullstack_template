@@ -106,6 +106,19 @@ spec:
             - name: DATABASE_URL
               value: {{ include "chart.databaseURL" . | quote }}
             {{- include "chart.dbCaEnv" . | nindent 12 }}
+            {{- /* Test-only (tests.migration): only with tests.enabled, which production refuses. */}}
+            {{- if .Values.tests.enabled }}
+            {{- with .Values.tests.migration }}
+            {{- if .delaySeconds }}
+            - name: MIGRATION_TEST_DELAY_SECONDS
+              value: {{ .delaySeconds | int | quote }}
+            {{- end }}
+            {{- if .fail }}
+            - name: MIGRATION_TEST_FAIL
+              value: "true"
+            {{- end }}
+            {{- end }}
+            {{- end }}
           {{- with include "chart.dbCaVolumeMount" . }}
           volumeMounts:
             {{- . | nindent 12 }}

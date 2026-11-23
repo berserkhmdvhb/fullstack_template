@@ -101,6 +101,55 @@ async def test_multiple_heads_fail_before_touching_the_database(
     assert revision_of(url) is None
 
 
+async def test_the_test_only_delay_sleeps_before_migrating(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, url: str
+) -> None:
+    """MIGRATION_TEST_DELAY_SECONDS (the kind test's slow migration): a sleep, then the upgrade."""
+    _use(monkeypatch, tmp_path, [("0001", None)])
+    order: list[str] = []
+
+    async def sleep(seconds: float) -> None:
+        order.append(f"sleep {seconds}")
+
+    real_upgrade = command.upgrade
+
+    def upgrade(*args: object, **kwargs: object) -> None:
+        order.append("upgrade")
+        real_upgrade(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    monkeypatch.setattr(command, "upgrade", upgrade)
+    await runner.run_migrations(Settings(MIGRATION_TEST_DELAY_SECONDS=7))
+    assert order == ["sleep 7", "upgrade"]
+    assert revision_of(url) == "0001"
+
+
+async def test_the_test_only_failure_fails_before_migrating(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, url: str
+) -> None:
+    """MIGRATION_TEST_FAIL (the kind test's failed migration): the database is left untouched."""
+    _use(monkeypatch, tmp_path, [("0001", None)])
+    with pytest.raises(RuntimeError, match="MIGRATION_TEST_FAIL: failing on purpose"):
+        await runner.run_migrations(Settings(MIGRATION_TEST_FAIL=True))
+    assert revision_of(url) is None
+
+
+async def test_the_test_only_hooks_are_off_by_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _use(monkeypatch, tmp_path, [("0001", None)])
+    slept: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    settings = Settings()
+    assert (settings.MIGRATION_TEST_DELAY_SECONDS, settings.MIGRATION_TEST_FAIL) == (0, False)
+    await runner.run_migrations(settings)
+    assert slept == []
+
+
 def test_the_module_exits_zero_when_the_database_is_ahead(url: str) -> None:
     """`python -m ...run_migrations` (what the Job runs) reports success on a newer schema."""
     stamp(url, "9999_from_a_newer_release")

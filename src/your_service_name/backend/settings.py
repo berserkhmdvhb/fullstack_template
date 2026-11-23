@@ -638,6 +638,19 @@ class Settings(BaseSettings):
         "migration waiting on a busy table fails instead of blocking traffic; a non-positive "
         "or invalid value falls back to the default.",
     )
+    MIGRATION_TEST_DELAY_SECONDS: int = Field(
+        default=0,
+        ge=0,
+        description="Test-only: the migration runner sleeps this long before it acts (a slow "
+        "migration, for the kind migration test).",
+        json_schema_extra={"production": "Refused when set: it is test-only."},
+    )
+    MIGRATION_TEST_FAIL: bool = Field(
+        default=False,
+        description="Test-only: the migration runner fails before it acts (a failed migration, "
+        "for the kind migration test).",
+        json_schema_extra={"production": "Refused when set: it is test-only."},
+    )
     DB_SSLMODE: Literal["disable", "require", "verify-ca", "verify-full"] = Field(
         default="disable",
         description="PostgreSQL TLS: `disable`, `require` (encrypt, no verification), "
@@ -978,6 +991,11 @@ class Settings(BaseSettings):
             problems.append(
                 "TEST_DATABASE_URL: test-only, and it takes precedence over DATABASE_URL; "
                 "unset it in production"
+            )
+        if self.MIGRATION_TEST_DELAY_SECONDS or self.MIGRATION_TEST_FAIL:
+            problems.append(
+                "MIGRATION_TEST_DELAY_SECONDS and MIGRATION_TEST_FAIL: test-only (a slow or a "
+                "failed migration on purpose); unset them in production"
             )
         return problems
 

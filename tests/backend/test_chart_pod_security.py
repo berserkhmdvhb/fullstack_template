@@ -363,6 +363,7 @@ NOT_ALL_ON = {
     "cloudSqlProxy.privateIp": "a proxy flag: PROXY_ON turns it on with the proxy",
     "cloudSqlProxy.autoIamAuthn": "a proxy flag: PROXY_ON turns it on with the proxy",
     "tests.enabled": "production refuses it: TESTS_ON turns it on for every other values file",
+    "tests.migration.fail": "test-only: the migration Job fails on purpose (no Pod spec changes)",
 }
 
 

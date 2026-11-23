@@ -550,7 +550,16 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
-        "apiPath": { "type": "string", "pattern": "^/" }
+        "apiPath": { "type": "string", "pattern": "^/" },
+        "migration": {
+          "description": "Test-only: a slow or a failed migration on purpose (the kind migration test); rendered only with tests.enabled.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "delaySeconds": { "type": "integer", "minimum": 0 },
+            "fail":         { "type": "boolean" }
+          }
+        }
       }
     },
 

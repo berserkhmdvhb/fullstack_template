@@ -25,7 +25,14 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 def _env(monkeypatch: pytest.MonkeyPatch, **values: str) -> None:
-    for name in ("ENV", "DATABASE_URL", "DB_SSLMODE", "TEST_DATABASE_URL"):
+    for name in (
+        "ENV",
+        "DATABASE_URL",
+        "DB_SSLMODE",
+        "TEST_DATABASE_URL",
+        "MIGRATION_TEST_DELAY_SECONDS",
+        "MIGRATION_TEST_FAIL",
+    ):
         monkeypatch.delenv(name, raising=False)
     for name, value in values.items():
         monkeypatch.setenv(name, value)
@@ -58,6 +65,17 @@ def test_production_accepts_disable_to_loopback_the_proxy_case(
         ).database_problems()
         == []
     )
+
+
+@pytest.mark.parametrize(
+    "hook", [{"MIGRATION_TEST_DELAY_SECONDS": "160"}, {"MIGRATION_TEST_FAIL": "true"}]
+)
+def test_production_refuses_the_test_only_migration_hooks(
+    monkeypatch: pytest.MonkeyPatch, hook: dict[str, str]
+) -> None:
+    _env(monkeypatch, ENV="production", DATABASE_URL=REMOTE, DB_SSLMODE="verify-full", **hook)
+    with pytest.raises(ValueError, match="test-only"):
+        Settings.for_migration()
 
 
 def test_production_refuses_a_missing_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
