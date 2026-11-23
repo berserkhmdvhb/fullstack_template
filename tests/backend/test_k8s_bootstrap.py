@@ -674,6 +674,33 @@ def test_production_clusterrules_with_the_placeholder_runbook_url_are_refused(
     assert "ClusterRules" not in result.stdout
 
 
+def test_a_placeholder_runbook_url_on_any_host_is_refused_like_the_chart_guard(
+    helm: str, tmp_path: Path
+) -> None:
+    """The chart guard refuses any URL containing github.com/your-org/your-repo/; so does this."""
+    url = "https://www.github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md"
+    args = (*_gmp_args(tmp_path), "--chart-set", f"monitoring.runbookUrl={url}")
+    result = run_bootstrap(helm, "production", *args)
+    assert result.returncode != 0
+    assert "monitoring.runbookUrl" in result.stderr
+
+
+def test_a_forwarded_rbac_create_false_still_renders_the_role_and_clusterrules(
+    helm: str, tmp_path: Path
+) -> None:
+    args = (
+        *_gmp_args(tmp_path),
+        "--chart-set",
+        "rbac.create=false",
+        "--chart-set",
+        "monitoring.gmp.clusterRules.enabled=false",
+    )
+    docs = bootstrap(helm, "dev", *args)
+    app = [d for d in docs if d["kind"] == "Role" and d["metadata"]["name"] != BOOTSTRAP_NAME]
+    assert [d["metadata"]["namespace"] for d in app] == ["your-service-name-dev"]
+    _one(docs, "ClusterRules")
+
+
 def test_production_clusterrules_with_a_real_runbook_url_render(helm: str, tmp_path: Path) -> None:
     url = "https://git.svc.test/ops/blob/main/wiki/operations-runbook.md"
     args = (*_gmp_args(tmp_path), "--chart-set", f"monitoring.runbookUrl={url}")

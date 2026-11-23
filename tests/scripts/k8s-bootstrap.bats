@@ -92,3 +92,29 @@ STUB
   [[ "$app" == *"-f $BATS_TEST_TMPDIR/c.yaml "*"--set a=b --set-string c=d"* ]]
   run ! bash "$SCRIPT" qa --chart-set nokey
 }
+
+@test "a forwarded rbac.create=false or clusterRules.enabled=false loses to the bootstrap's own sets" {
+  printf 'gmpClusterRules: true\n' > "$BATS_TEST_TMPDIR/boot.yaml"
+  printf 'monitoring:\n  flavour: gmp\n' > "$BATS_TEST_TMPDIR/c.yaml"
+  run bash "$SCRIPT" qa --values "$BATS_TEST_TMPDIR/boot.yaml" --chart-values "$BATS_TEST_TMPDIR/c.yaml" \
+    --chart-set rbac.create=false --chart-set monitoring.gmp.clusterRules.enabled=false
+  [ "$status" -eq 0 ]
+  # helm applies the last --set of a key: the bootstrap's own must come after the forwarded ones.
+  app="$(awk '/^== helm$/ {n++} n == 2' "$LOG")"
+  [ "$(grep -x 'rbac.create=.*' <<<"$app" | tail -1)" = "rbac.create=true" ]
+  rules="$(awk '/^== helm$/ {n++} n == 3' "$LOG")"
+  grep -qx "templates/gmp-cluster-rules.yaml" <<<"$rules"
+  [ "$(grep -x 'rbac.create=.*' <<<"$rules" | tail -1)" = "rbac.create=true" ]
+  [ "$(grep -x 'monitoring.gmp.clusterRules.enabled=.*' <<<"$rules" | tail -1)" = "monitoring.gmp.clusterRules.enabled=true" ]
+}
+
+@test "with gmpClusterRules, a monitoring.flavour --chart-set is refused and names --chart-values" {
+  printf 'gmpClusterRules: true\n' > "$BATS_TEST_TMPDIR/boot.yaml"
+  for set in monitoring.flavour=gmp "a=b,monitoring.flavour=gmp"; do
+    : > "$LOG"
+    run bash "$SCRIPT" qa --values "$BATS_TEST_TMPDIR/boot.yaml" --chart-set "$set"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"monitoring.flavour cannot be a --chart-set"*"--chart-values"* ]]
+    [ -z "$(cat "$LOG")" ]
+  done
+}
