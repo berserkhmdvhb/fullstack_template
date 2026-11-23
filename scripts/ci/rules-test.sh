@@ -5,7 +5,8 @@
 # PrometheusRule; gmp: the Rules and the ClusterRules), extracts every spec.groups into one Prometheus
 # rule file per flavour and runs `promtool check rules` on it. Then runs `promtool test rules` on each
 # unit-test file in <chart>/tests/rules (*.test.yaml, whose rule_files is `rules.yaml`) once per
-# flavour, against that flavour's file. The render is release `svc` in namespace `app`, which the
+# flavour, against that flavour's file, and those in <chart>/tests/rules/<flavour> against that
+# flavour's alone (a series layout only one flavour sees). The render is release `svc` in namespace `app`, which the
 # test files' series use, with the certificate alerts (off by default) on.
 #
 # Usage: scripts/ci/rules-test.sh. Needs helm, promtool and yq:
@@ -38,12 +39,15 @@ extract() {
   [[ "$(yq '.groups | length' "$dir/rules.yaml")" -gt 0 ]] || die "$flavour: the render holds no rule group"
   echo "== $flavour: promtool check rules"
   promtool check rules "$dir/rules.yaml"
-  cp "${tests[@]}" "$dir/"
+  local own=("$CHART/tests/rules/$flavour"/*.test.yaml)
+  cp "${tests[@]}" "${own[@]}" "$dir/"
   echo "== $flavour: promtool test rules"
   (cd "$dir" && promtool test rules ./*.test.yaml)
+  count=$((count + ${#tests[@]} + ${#own[@]}))
 }
 
+count=0
 extract prometheus-operator '.kind == "PrometheusRule"'
 extract gmp '.kind == "Rules" or .kind == "ClusterRules"' \
   --set monitoring.flavour=gmp --set monitoring.gmp.clusterRules.enabled=true
-echo "rules-test: the rules of both flavours pass promtool check and ${#tests[@]} unit-test files"
+echo "rules-test: the rules of both flavours pass promtool check and $count unit-test file runs"

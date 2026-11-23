@@ -1,0 +1,25 @@
+# prometheus-operator only (make rules-test runs tests/rules/<flavour>/*.test.yaml against that
+# flavour alone): a cert-manager ServiceMonitor with honorLabels true keeps the Certificate's
+# namespace in `namespace` and has no exported_namespace. The alerts select either layout.
+rule_files: [rules.yaml]
+# promtool otherwise orders the groups at random; the alerts read this step's recordings.
+group_eval_order: [slo-recording, slo-alerts]
+evaluation_interval: 1h
+
+tests:
+  - name: with honorLabels, a certificate 20 days from expiry in the release namespace fires the warning
+    interval: 1h
+    input_series:
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="app", name="api-tls"}'
+        values: '1738800x4'
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="other", name="api-tls"}'
+        values: '1738800x4'
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: CertificateExpiringSoon
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: app, name: api-tls}
+            exp_annotations:
+              summary: "Certificate api-tls expires in 20d 0h 0m 0s"
+              description: "cert-manager Certificate app/api-tls expires in less than 21 days: cert-manager has not renewed it."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#certificateexpiringsoon"

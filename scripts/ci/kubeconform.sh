@@ -117,7 +117,10 @@ for env in "${envs[@]}"; do
   check "$env bootstrap" "$ROOT/scripts/k8s-bootstrap.sh" "$env"
 done
 printf 'gmpClusterRules: true\n' > "$WORK/bootstrap-gmp.yaml"
-printf 'monitoring: {flavour: gmp}\n' > "$WORK/chart-gmp.yaml"
+# A stand-in runbook URL (no scheme: this script names no URL): the production bootstrap refuses
+# ClusterRules with the placeholder one.
+printf 'monitoring: {flavour: gmp, runbookUrl: "git.svc.test/ops/runbook.md"}\n' \
+  > "$WORK/chart-gmp.yaml"
 check "production bootstrap with the gmp ClusterRules" "$ROOT/scripts/k8s-bootstrap.sh" production \
   --values "$WORK/bootstrap-gmp.yaml" --chart-values "$WORK/chart-gmp.yaml"
 

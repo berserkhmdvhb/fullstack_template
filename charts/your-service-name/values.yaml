@@ -651,15 +651,18 @@ monitoring:
     # it never succeeded. 26 covers a daily backup and a late run; 192 (eight days) a weekly check.
     backupMaxAgeHours: 26
     backupVerifyMaxAgeHours: 192
-    # CertificateExpiringSoon (warning) and CertificateExpiryCritical (critical) from cert-manager's
+    # CertificateExpiringSoon (warning, under warningDays) and CertificateExpiryCritical (critical,
+    # under criticalDays; one alert per Certificate, each held 1h) from cert-manager's
     # certmanager_certificate_expiration_timestamp_seconds; needs cert-manager's metrics in the
     # metrics backend (the chart renders no Certificate). `namespaces` is a regex on the
     # Certificate's namespace, empty for the release namespace; in gateway mode the TLS
     # Certificates often live in the Gateway's namespace, so add it (for example
-    # "your-service-name-prod|gateway-system"). The Certificate's namespace is read from the label
-    # the cluster alerts use (prometheus-operator: `namespace`, which needs honorLabels on
-    # cert-manager's ServiceMonitor; gmp: monitoring.gmp.objectNamespaceLabel). criticalDays must
-    # be below warningDays.
+    # "your-service-name-prod|gateway-system"). The series come from cert-manager's own scrape,
+    # so the Certificate's namespace is in exported_namespace (gmp:
+    # monitoring.gmp.objectNamespaceLabel), or in `namespace` when the scrape honours the series'
+    # labels: the alerts read either, with cert-manager as installed. The regex must not match
+    # cert-manager's own namespace (with the default scrape that is the `namespace` of every
+    # series). criticalDays must be below warningDays.
     certificateExpiry:
       enabled: false
       namespaces: ""

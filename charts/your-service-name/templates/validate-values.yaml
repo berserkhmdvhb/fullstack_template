@@ -186,8 +186,10 @@
 {{- if $authHeld }}
 {{- $found = append $found (printf "%s still %s (an issuer on your-domain.example, the audience your-oidc-audience; set your OIDC provider's issuer and the API's audience)" (join ", " $authHeld) (ternary "holds a placeholder" "hold placeholders" (eq (len $authHeld) 1))) }}
 {{- end }}
-{{- /* The placeholder runbook link, in production while the rules render (either flavour). */}}
-{{- $rules := or .Values.monitoring.prometheusRule (and (eq .Values.monitoring.flavour "gmp") .Values.monitoring.gmp.clusterRules.enabled) }}
+{{- /* The placeholder runbook link, in production while the rules render. With gmp the admin
+     bootstrap renders the ClusterRules (which the deploy never does), so the flavour alone counts:
+     the deploy refuses what those rules would carry. */}}
+{{- $rules := or .Values.monitoring.prometheusRule (eq .Values.monitoring.flavour "gmp") }}
 {{- if and (eq (toString .Values.environment) "production") $rules (contains "github.com/your-org/your-repo/" .Values.monitoring.runbookUrl) }}
 {{- $found = append $found (printf "monitoring.runbookUrl is the placeholder %q (set your repository's wiki/operations-runbook.md; every alert links it)" .Values.monitoring.runbookUrl) }}
 {{- end }}

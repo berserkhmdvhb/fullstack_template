@@ -1,7 +1,9 @@
 # promtool unit tests for the age and expiry alerts: BackupTooOld, BackupVerifyTooOld and the
-# certificate alerts (make rules-test renders those on). They have no `for:`, so an hourly evaluation
-# tests them as well as a per-minute one, in a fraction of the time. Release svc in namespace app
-# (database namespace app-db); the series carry both namespace labels (see smoke.test.yaml).
+# certificate alerts (make rules-test renders those on). Their thresholds are hours or days (the
+# certificate alerts hold for 1h), so an hourly evaluation tests them in a fraction of the time.
+# Release svc in namespace app (database namespace app-db). The kube series carry both namespace
+# labels (see smoke.test.yaml); the cert-manager series are scraped from cert-manager's own
+# namespace, so the Certificate's namespace is exported_namespace, in both flavours.
 rule_files: [rules.yaml]
 # promtool otherwise orders the groups at random; the alerts read this step's recordings.
 group_eval_order: [slo-recording, slo-alerts]
@@ -82,72 +84,109 @@ tests:
               description: "CronJob svc-your-service-name-pg-backup-verify has not completed a restore check in the last 192 hours."
               runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#backupverifytooold"
 
-  # Certificates: evaluated at 1h (time() = 3600), so an expiry of 3600 + N days leaves N days.
+  # Certificates: evaluated at 3h (time() = 10800), so an expiry of 10800 + N days leaves N days.
+  # The alerts hold for 1h: each series exists from 0h unless the case says otherwise.
   - name: a certificate 22 days from expiry stays quiet
     interval: 1h
     input_series:
-      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="app", exported_namespace="app", name="api-tls"}'
-        values: '1904400x2'
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="cert-manager", exported_namespace="app", name="api-tls"}'
+        values: '1911600x4'
     alert_rule_test:
-      - eval_time: 1h
+      - eval_time: 3h
         alertname: CertificateExpiringSoon
         exp_alerts: []
-      - eval_time: 1h
+      - eval_time: 3h
         alertname: CertificateExpiryCritical
         exp_alerts: []
 
-  - name: a certificate 20 days from expiry fires the warning only
+  - name: a certificate 20 days from expiry fires the warning; a namespace the regex does not match stays quiet
     interval: 1h
     input_series:
-      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="app", exported_namespace="app", name="api-tls"}'
-        values: '1731600x2'
-      # a namespace the regex does not match stays quiet
-      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="other", exported_namespace="other", name="api-tls"}'
-        values: '1731600x2'
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="cert-manager", exported_namespace="app", name="api-tls"}'
+        values: '1738800x4'
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="cert-manager", exported_namespace="other", name="api-tls"}'
+        values: '1738800x4'
     alert_rule_test:
-      - eval_time: 1h
-        alertname: CertificateExpiryCritical
-        exp_alerts: []
-      - eval_time: 1h
+      - eval_time: 3h
         alertname: CertificateExpiringSoon
         exp_alerts:
-          - exp_labels: &cert_labels {severity: warning, namespace: app, exported_namespace: app, name: api-tls}
+          - exp_labels: {severity: warning, namespace: cert-manager, exported_namespace: app, name: api-tls}
             exp_annotations:
               summary: "Certificate api-tls expires in 20d 0h 0m 0s"
               description: "cert-manager Certificate app/api-tls expires in less than 21 days: cert-manager has not renewed it."
               runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#certificateexpiringsoon"
-
-  - name: a certificate 8 days from expiry is not critical yet
-    interval: 1h
-    input_series:
-      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="app", exported_namespace="app", name="api-tls"}'
-        values: '694800x2'
-    alert_rule_test:
-      - eval_time: 1h
+      - eval_time: 3h
         alertname: CertificateExpiryCritical
         exp_alerts: []
 
-  - name: a certificate 6 days from expiry fires the critical alert (and the warning)
+  - name: a certificate 8 days from expiry is still only the warning
     interval: 1h
     input_series:
-      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="app", exported_namespace="app", name="api-tls"}'
-        values: '522000x2'
-      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="other", exported_namespace="other", name="api-tls"}'
-        values: '522000x2'
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="cert-manager", exported_namespace="app", name="api-tls"}'
+        values: '702000x4'
     alert_rule_test:
-      - eval_time: 1h
+      - eval_time: 3h
+        alertname: CertificateExpiringSoon
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: cert-manager, exported_namespace: app, name: api-tls}
+            exp_annotations:
+              summary: "Certificate api-tls expires in 8d 0h 0m 0s"
+              description: "cert-manager Certificate app/api-tls expires in less than 21 days: cert-manager has not renewed it."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#certificateexpiringsoon"
+      - eval_time: 3h
+        alertname: CertificateExpiryCritical
+        exp_alerts: []
+
+  - name: a certificate 6 days from expiry fires the critical alert alone (the warning is banded above it)
+    interval: 1h
+    input_series:
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="cert-manager", exported_namespace="app", name="api-tls"}'
+        values: '529200x4'
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="cert-manager", exported_namespace="other", name="api-tls"}'
+        values: '529200x4'
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: CertificateExpiringSoon
+        exp_alerts: []
+      - eval_time: 3h
         alertname: CertificateExpiryCritical
         exp_alerts:
-          - exp_labels: {severity: critical, namespace: app, exported_namespace: app, name: api-tls}
+          - exp_labels: {severity: critical, namespace: cert-manager, exported_namespace: app, name: api-tls}
             exp_annotations:
               summary: "Certificate api-tls expires in 6d 0h 0m 0s"
               description: "cert-manager Certificate app/api-tls expires in less than 7 days. Renew it now."
               runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#certificateexpirycritical"
-      - eval_time: 1h
+
+  - name: a Certificate never issued (cert-manager exports 0) fires nothing
+    interval: 1h
+    input_series:
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="cert-manager", exported_namespace="app", name="api-tls"}'
+        values: '0x4'
+    alert_rule_test:
+      - eval_time: 3h
         alertname: CertificateExpiringSoon
+        exp_alerts: []
+      - eval_time: 3h
+        alertname: CertificateExpiryCritical
+        exp_alerts: []
+
+  - name: a certificate that appeared at 3h is pending at 3h and fires at 4h (the alerts hold for 1h)
+    interval: 1h
+    input_series:
+      - series: 'certmanager_certificate_expiration_timestamp_seconds{namespace="cert-manager", exported_namespace="app", name="api-tls"}'
+        values: '_x3 529200x1'
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: CertificateExpiringSoon
+        exp_alerts: []
+      - eval_time: 3h
+        alertname: CertificateExpiryCritical
+        exp_alerts: []
+      - eval_time: 4h
+        alertname: CertificateExpiryCritical
         exp_alerts:
-          - exp_labels: *cert_labels
+          - exp_labels: {severity: critical, namespace: cert-manager, exported_namespace: app, name: api-tls}
             exp_annotations:
-              summary: "Certificate api-tls expires in 6d 0h 0m 0s"
-              description: "cert-manager Certificate app/api-tls expires in less than 21 days: cert-manager has not renewed it."
-              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#certificateexpiringsoon"
+              summary: "Certificate api-tls expires in 5d 23h 0m 0s"
+              description: "cert-manager Certificate app/api-tls expires in less than 7 days. Renew it now."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#certificateexpirycritical"

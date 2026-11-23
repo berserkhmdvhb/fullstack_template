@@ -583,8 +583,12 @@ namespace and `<db-ns>` the database namespace (`<ns>-db`).
 
 ### PodFailed
 
-- **Means:** a Pod of the namespace is in phase `Failed` (held 5 minutes).
-- **Impact:** a failed Job Pod (a migration, a backup) or an evicted Pod; the matching Job alert says which.
+- **Means:** a Pod of the namespace that no Job owns is in phase `Failed` (held 5 minutes), such as an
+  evicted Pod. A Job's Pods are left out: the Job alerts cover them
+  ([MigrationJobFailed](#migrationjobfailed), [BackupJobFailed](#backupjobfailed),
+  [BackupVerifyFailed](#backupverifyfailed)), so a failed migration does not page through this alert.
+- **Impact:** that Pod no longer serves; its controller replaces it, but the cause (eviction, node
+  pressure) may hit the others.
 - **First checks:** `kubectl -n <ns> get pods --field-selector=status.phase=Failed` and its logs.
 - **Fix:** [Debugging](#debugging); delete an evicted Pod once its cause is fixed.
 
@@ -648,7 +652,10 @@ namespace and `<db-ns>` the database namespace (`<ns>-db`).
 - **Impact:** no fresh backup: a restore would lose more data.
 - **First checks:** `kubectl -n <db-ns> get jobs` and the failed Job's logs (credentials, disk space on the
   backup PVC).
-- **Fix:** [PostgreSQL Backup](#postgresql-backup); run a manual backup once fixed.
+- **Fix:** [PostgreSQL Backup](#postgresql-backup). Once fixed, run a backup under a name this alert
+  watches: `kubectl -n <db-ns> create job <fullname>-pg-backup-$(date +%s) --from=cronjob/<fullname>-pg-backup`.
+  The failed Job is kept (the CronJob keeps its last 3 failed Jobs, with no TTL), so the alert keeps
+  firing until you delete it: `kubectl -n <db-ns> delete job <failed-job-name>`.
 
 ### BackupVerifyFailed
 
@@ -656,7 +663,10 @@ namespace and `<db-ns>` the database namespace (`<ns>-db`).
 - **Impact:** the newest backup may not restore; treat the backups as unproven until a check passes.
 - **First checks:** the verify Job's logs (`kubectl -n <db-ns> logs -l app.kubernetes.io/component=backup-verification`).
 - **Fix:** [Backup Verification](#backup-verification); fix the backup (or the check), take a backup and
-  run the check again (`kubectl create job --from=cronjob/<fullname>-pg-backup-verify`).
+  run the check again under a name this alert watches:
+  `kubectl -n <db-ns> create job <fullname>-pg-backup-verify-$(date +%s) --from=cronjob/<fullname>-pg-backup-verify`.
+  A finished verify Job is deleted after 24 hours (`ttlSecondsAfterFinished`), so the alert clears by
+  then; delete the failed Job to clear it sooner (`kubectl -n <db-ns> delete job <failed-job-name>`).
 
 ### BackupTooOld
 
@@ -678,9 +688,10 @@ namespace and `<db-ns>` the database namespace (`<ns>-db`).
 ### CertificateExpiringSoon
 
 - **Means:** a cert-manager Certificate in a namespace matching
-  `monitoring.alerts.certificateExpiry.namespaces` expires in under `warningDays` (default 21). Off by
-  default (`monitoring.alerts.certificateExpiry.enabled`). cert-manager renews well before this, so
-  the renewal is failing.
+  `monitoring.alerts.certificateExpiry.namespaces` expires in under `warningDays` (default 21) but not
+  yet under `criticalDays`, where `CertificateExpiryCritical` takes over (held 1 hour). Off by default
+  (`monitoring.alerts.certificateExpiry.enabled`). A Certificate never issued (cert-manager exports 0)
+  does not fire. cert-manager renews well before this, so the renewal is failing.
 - **Impact:** none yet; browsers and clients refuse the endpoint once it expires.
 - **First checks:** `kubectl -n <namespace> describe certificate <name>` and its CertificateRequest and
   Order (a failed ACME challenge, a missing issuer).
@@ -688,11 +699,13 @@ namespace and `<db-ns>` the database namespace (`<ns>-db`).
 
 ### CertificateExpiryCritical
 
-- **Means:** as `CertificateExpiringSoon`, under `criticalDays` (default 7).
+- **Means:** as `CertificateExpiringSoon`, under `criticalDays` (default 7; held 1 hour).
 - **Impact:** an outage at expiry, days away.
 - **First checks:** as for `CertificateExpiringSoon`.
-- **Fix:** [Certificate Renewal](#certificate-renewal) now; delete the Certificate's Secret to force a new
-  issue once the issuer works.
+- **Fix:** [Certificate Renewal](#certificate-renewal) now. Once the issuer works, trigger a renewal with
+  `cmctl renew -n <namespace> <name>`: it keeps the current Secret (so the endpoint keeps serving) and
+  skips cert-manager's backoff after failed issuances. Do not delete the Secret: that removes the
+  serving certificate before a new one exists.
 
 ### HighErrorRate
 

@@ -245,16 +245,21 @@ def _headings() -> list[tuple[int, str]]:
     return out
 
 
-def _anchors() -> set[str]:
-    """The anchors GitHub gives the headings: a repeated slug gets -1, -2, ..."""
-    anchors: set[str] = set()
+def _alert_sections() -> dict[str, str]:
+    """The level-3 headings inside the Alerts section, by the anchor GitHub gives each (a slug
+    already used earlier in the file gets -1, -2, ...)."""
+    sections: dict[str, str] = {}
     seen: dict[str, int] = {}
-    for _, text in _headings():
+    under = False
+    for level, text in _headings():
         slug = _slug(text)
         n = seen.get(slug, 0)
-        anchors.add(f"{slug}-{n}" if n else slug)
         seen[slug] = n + 1
-    return anchors
+        if level == 2:  # noqa: PLR2004
+            under = text == "Alerts"
+        elif level == 3 and under:  # noqa: PLR2004
+            sections[f"{slug}-{n}" if n else slug] = text
+    return sections
 
 
 def _alerts(helm: str) -> dict[str, dict[str, Any]]:
@@ -281,18 +286,15 @@ def test_every_alert_links_a_runbook_section_and_every_alert_section_names_an_al
     ]
     alerts = _alerts(helm)
     assert {k.split("/")[0] for k in alerts} == {"PrometheusRule", "Rules", "ClusterRules"}
-    anchors = _anchors()
+    sections = _alert_sections()
+    assert sections, "the runbook has no ## Alerts section"
     for key, rule in alerts.items():
         url = rule["annotations"].get("runbook_url", "")
         assert url.startswith(f"{base}#"), (key, url)
-        assert url.removeprefix(f"{base}#") in anchors, (key, url)
+        anchor = url.removeprefix(f"{base}#")
+        # The alert's own section: a ### under ## Alerts whose heading is the alert's name.
+        assert anchor == _slug(rule["alert"]), (key, url)
+        assert sections.get(anchor) == rule["alert"], (key, url)
     # Every level-3 heading in the Alerts section names a rendered alert: no stale section.
-    names = {k.split("/")[1] for k in alerts}
-    section, under = [], False
-    for level, text in _headings():
-        if level == 2:  # noqa: PLR2004
-            under = text == "Alerts"
-        elif level == 3 and under:  # noqa: PLR2004
-            section.append(text)
-    assert section, "the runbook has no ## Alerts section"
-    assert set(section) <= names, set(section) - names
+    names = {r["alert"] for r in alerts.values()}
+    assert set(sections.values()) <= names, set(sections.values()) - names

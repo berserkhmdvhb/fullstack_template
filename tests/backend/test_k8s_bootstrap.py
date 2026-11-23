@@ -663,6 +663,26 @@ def test_gmp_cluster_rules_with_no_gmp_flavour_anywhere_fail_clearly(
     assert "monitoring.flavour" in result.stderr
 
 
+def test_production_clusterrules_with_the_placeholder_runbook_url_are_refused(
+    helm: str, tmp_path: Path
+) -> None:
+    """The ClusterRules carry every cluster alert's runbook link, and the bootstrap applies them
+    without the deploy: production refuses the placeholder here too."""
+    result = run_bootstrap(helm, "production", *_gmp_args(tmp_path))
+    assert result.returncode != 0
+    assert "monitoring.runbookUrl" in result.stderr
+    assert "ClusterRules" not in result.stdout
+
+
+def test_production_clusterrules_with_a_real_runbook_url_render(helm: str, tmp_path: Path) -> None:
+    url = "https://git.svc.test/ops/blob/main/wiki/operations-runbook.md"
+    args = (*_gmp_args(tmp_path), "--chart-set", f"monitoring.runbookUrl={url}")
+    rules = _one(bootstrap(helm, "production", *args), "ClusterRules")
+    links = [r["annotations"]["runbook_url"] for g in rules["spec"]["groups"] for r in g["rules"]]
+    assert links
+    assert all(link.startswith(f"{url}#") for link in links)
+
+
 def test_the_bootstrap_renders_the_charts_clusterrules_when_asked(
     helm: str, tmp_path: Path
 ) -> None:

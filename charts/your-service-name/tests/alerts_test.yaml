@@ -28,6 +28,13 @@ tests:
       - matchRegex: {path: 'spec.groups[3].rules[4].expr', pattern: 'cronjob="svc-your-service-name-pg-backup-verify"\} > 192 \* 3600'}
       - equal: {path: 'spec.groups[2].rules[2].annotations.runbook_url', value: 'https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#migrationjobfailed'}
 
+  - it: PodFailed leaves out Job Pods, which the Job alerts cover
+    set: {monitoring: {prometheusRule: true}}
+    template: prometheusrule.yaml
+    asserts:
+      - equal: {path: 'spec.groups[0].rules[2].alert', value: PodFailed}
+      - matchRegex: {path: 'spec.groups[0].rules[2].expr', pattern: 'phase="Failed"\} == 1\s+unless on \(pod\)\s+kube_pod_owner\{namespace="app", owner_kind="Job"\}'}
+
   - it: the max ages follow their values
     set: {monitoring: {prometheusRule: true, alerts: {backupMaxAgeHours: 50, backupVerifyMaxAgeHours: 400}}}
     template: prometheusrule.yaml
@@ -62,18 +69,22 @@ tests:
       - equal: {path: 'spec.groups[4].name', value: certificates}
       - equal: {path: 'spec.groups[4].rules[0].alert', value: CertificateExpiringSoon}
       - equal: {path: 'spec.groups[4].rules[0].labels.severity', value: warning}
-      - matchRegex: {path: 'spec.groups[4].rules[0].expr', pattern: 'certmanager_certificate_expiration_timestamp_seconds\{namespace=~"app"\} - time\(\) < 21 \* 86400'}
+      - matchRegex: {path: 'spec.groups[4].rules[0].expr', pattern: 'certmanager_certificate_expiration_timestamp_seconds\{namespace=~"app"\}\s+or\s+certmanager_certificate_expiration_timestamp_seconds\{exported_namespace=~"app"\}'}
+      - matchRegex: {path: 'spec.groups[4].rules[0].expr', pattern: '\) > 0\s*\) - time\(\) < 21 \* 86400 >= 7 \* 86400'}
+      - equal: {path: 'spec.groups[4].rules[0].for', value: 1h}
       - equal: {path: 'spec.groups[4].rules[1].alert', value: CertificateExpiryCritical}
       - equal: {path: 'spec.groups[4].rules[1].labels.severity', value: critical}
-      - matchRegex: {path: 'spec.groups[4].rules[1].expr', pattern: '\{namespace=~"app"\} - time\(\) < 7 \* 86400'}
+      - equal: {path: 'spec.groups[4].rules[1].for', value: 1h}
+      - matchRegex: {path: 'spec.groups[4].rules[1].expr', pattern: '\) > 0\s*\) - time\(\) < 7 \* 86400\s*$'}
       - equal: {path: 'spec.groups[5].name', value: app-health}
 
   - it: the certificate namespaces and thresholds follow their values
     set: {monitoring: {prometheusRule: true, alerts: {certificateExpiry: {enabled: true, namespaces: 'app|gateway-system', warningDays: 30, criticalDays: 10}}}}
     template: prometheusrule.yaml
     asserts:
-      - matchRegex: {path: 'spec.groups[4].rules[0].expr', pattern: '\{namespace=~"app\|gateway-system"\} - time\(\) < 30 \* 86400'}
-      - matchRegex: {path: 'spec.groups[4].rules[1].expr', pattern: '< 10 \* 86400'}
+      - matchRegex: {path: 'spec.groups[4].rules[0].expr', pattern: '\{exported_namespace=~"app\|gateway-system"\}'}
+      - matchRegex: {path: 'spec.groups[4].rules[0].expr', pattern: '< 30 \* 86400 >= 10 \* 86400'}
+      - matchRegex: {path: 'spec.groups[4].rules[1].expr', pattern: '< 10 \* 86400\s*$'}
 
   - it: in gmp the certificate group is in the ClusterRules, on the object namespace label, not in Rules
     set: {monitoring: {flavour: gmp, prometheusRule: true, gmp: {clusterRules: {enabled: true}}, alerts: {certificateExpiry: {enabled: true}}}}
@@ -82,6 +93,13 @@ tests:
         template: gmp-cluster-rules.yaml
       - matchRegex: {path: 'spec.groups[4].rules[0].expr', pattern: '\{exported_namespace=~"app"\}'}
         template: gmp-cluster-rules.yaml
+      - equal: {path: 'spec.groups[4].rules[0].annotations.description', value: 'cert-manager Certificate {{ or $labels.exported_namespace $labels.namespace }}/{{ $labels.name }} expires in less than 21 days: cert-manager has not renewed it.'}
+        template: gmp-cluster-rules.yaml
+  - it: with a custom object namespace label, gmp selects the Certificate's namespace on it
+    set: {monitoring: {flavour: gmp, gmp: {clusterRules: {enabled: true}, objectNamespaceLabel: kube_namespace}, alerts: {certificateExpiry: {enabled: true}}}}
+    template: gmp-cluster-rules.yaml
+    asserts:
+      - matchRegex: {path: 'spec.groups[4].rules[0].expr', pattern: '\{namespace=~"app"\}\s+or\s+certmanager_certificate_expiration_timestamp_seconds\{kube_namespace=~"app"\}'}
       - notContains: {path: spec.groups, content: {name: certificates}, any: true}
         template: gmp-rules.yaml
 

@@ -41,3 +41,24 @@ tests:
               summary: "Pod p1 has failed"
               description: "Pod p1 is in Failed state."
               runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#podfailed"
+
+  - name: PodFailed skips a failed Job Pod (the Job alerts cover it) and still fires for a Deployment's
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_status_phase{namespace="app", exported_namespace="app", pod="svc-your-service-name-migrate-r3-abcde", phase="Failed"}'
+        values: '1x20'
+      - series: 'kube_pod_owner{namespace="app", exported_namespace="app", pod="svc-your-service-name-migrate-r3-abcde", owner_kind="Job", owner_name="svc-your-service-name-migrate-r3", owner_is_controller="true"}'
+        values: '1x20'
+      - series: 'kube_pod_status_phase{namespace="app", exported_namespace="app", pod="svc-your-service-name-backend-5d4f8-xyz12", phase="Failed"}'
+        values: '1x20'
+      - series: 'kube_pod_owner{namespace="app", exported_namespace="app", pod="svc-your-service-name-backend-5d4f8-xyz12", owner_kind="ReplicaSet", owner_name="svc-your-service-name-backend-5d4f8", owner_is_controller="true"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PodFailed
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: app, exported_namespace: app, pod: svc-your-service-name-backend-5d4f8-xyz12, phase: Failed}
+            exp_annotations:
+              summary: "Pod svc-your-service-name-backend-5d4f8-xyz12 has failed"
+              description: "Pod svc-your-service-name-backend-5d4f8-xyz12 is in Failed state."
+              runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#podfailed"

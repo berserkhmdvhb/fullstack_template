@@ -107,6 +107,11 @@ if [[ "$(conf gmpClusterRules)" == "true" ]]; then
     die "gmpClusterRules is true but the chart's monitoring.flavour for ${ENV_NAME} is '${flavour}', not gmp: set monitoring.flavour: gmp in values.${ENV_NAME}.yaml (or --chart-values), or turn gmpClusterRules off"
   cluster_rules="$(helm template "$release" "$CHART" "${chart_args[@]}" \
     --set monitoring.gmp.clusterRules.enabled=true --show-only templates/gmp-cluster-rules.yaml)"
+  # The chart's deploy guard refuses the placeholder runbook link in production, but this render is
+  # not the deploy (and runs without guards.rejectPlaceholders), so refuse it here too.
+  if [[ "$ENV_NAME" == production ]] && grep -q 'runbook_url: "https://github.com/your-org/your-repo/' <<<"$cluster_rules"; then
+    die "the ClusterRules' runbook links still use the placeholder monitoring.runbookUrl (https://github.com/your-org/your-repo/...): set it in values.production.yaml (or --chart-values / --chart-set)"
+  fi
 fi
 printf '%s\n%s\n' "$boot" "$app_rbac"
 [[ -z "$cluster_rules" ]] || printf '%s\n' "$cluster_rules"

@@ -384,10 +384,12 @@ tests:
       - failedTemplate:
           errorPattern: '^\s*- monitoring\.runbookUrl is the placeholder "https://github\.com/your-org/your-repo/blob/main/wiki/operations-runbook\.md"'
 
-  - it: with the guard, the placeholder runbook URL is refused for the gmp ClusterRules too
+  # The deploy never sets clusterRules.enabled, so the gmp flavour alone counts: the deploy's render
+  # refuses what the admin bootstrap's ClusterRules would carry.
+  - it: with the guard, the placeholder runbook URL is refused for the gmp flavour (its ClusterRules carry it)
     set:
       guards: {rejectPlaceholders: true}
-      monitoring: {flavour: gmp, gmp: {clusterRules: {enabled: true}}}
+      monitoring: {flavour: gmp}
       images: *real_digests
       config: *real_oidc
       edge: *real_edge

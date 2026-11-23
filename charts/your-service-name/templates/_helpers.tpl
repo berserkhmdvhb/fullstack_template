@@ -577,6 +577,10 @@ key: password
     - alert: PodFailed
       expr: |
         kube_pod_status_phase{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}", phase="Failed"} == 1
+        unless on (pod)
+        kube_pod_owner{{ "{" }}{{ $kns }}="{{ .Release.Namespace }}", owner_kind="Job"}
+      # A Job's Pods are left to the Job alerts (MigrationJobFailed, BackupJobFailed,
+      # BackupVerifyFailed): a failed migration is not a page, and its Pods are kept for 24h.
       for: 5m
       labels:
         severity: critical
@@ -722,23 +726,31 @@ key: password
 {{- $cert := .Values.monitoring.alerts.certificateExpiry }}
 {{- if $cert.enabled }}
 {{- /*
-   cert-manager's own series (scraped in its namespace), so with the cluster alerts. The namespace
-   label is the Certificate's: $kns, as for the kube-state-metrics series.
+   cert-manager's own series, so with the cluster alerts. They are scraped from cert-manager's
+   namespace, so the Certificate's namespace is in exported_namespace (gmp: $kns) unless the
+   scrape keeps the series' labels (honorLabels: true), when it is in `namespace`: select either.
+   cert-manager exports 0 for a Certificate never issued (no notAfter), so > 0 leaves it out. The
+   warning stops where the critical alert starts, so one Certificate fires one alert.
 */}}
-{{- $sel := printf "{%s=~%q}" $kns (default .Release.Namespace $cert.namespaces) }}
+{{- $nsx := ternary $kns "exported_namespace" (eq .Values.monitoring.flavour "gmp") }}
+{{- $re := default .Release.Namespace $cert.namespaces }}
+{{- $m := "certmanager_certificate_expiration_timestamp_seconds" }}
 - name: certificates
   rules:
 {{- range $a := list
-      (dict "alert" "CertificateExpiringSoon" "severity" "warning" "days" $cert.warningDays "text" ": cert-manager has not renewed it.")
+      (dict "alert" "CertificateExpiringSoon" "severity" "warning" "days" $cert.warningDays "above" $cert.criticalDays "text" ": cert-manager has not renewed it.")
       (dict "alert" "CertificateExpiryCritical" "severity" "critical" "days" $cert.criticalDays "text" ". Renew it now.") }}
     - alert: {{ $a.alert }}
       expr: |
-        certmanager_certificate_expiration_timestamp_seconds{{ $sel }} - time() < {{ $a.days }} * 86400
+        (
+          ({{ $m }}{namespace=~{{ $re | quote }}{{ "}" }} or {{ $m }}{{ "{" }}{{ $nsx }}=~{{ $re | quote }}{{ "}" }}) > 0
+        ) - time() < {{ $a.days }} * 86400{{ if $a.above }} >= {{ $a.above }} * 86400{{ end }}
+      for: 1h
       labels:
         severity: {{ $a.severity }}
       annotations:
         summary: "Certificate {{ "{{" }} $labels.name {{ "}}" }} expires in {{ "{{" }} $value | humanizeDuration {{ "}}" }}"
-        description: "cert-manager Certificate {{ "{{" }} $labels.{{ $kns }} {{ "}}" }}/{{ "{{" }} $labels.name {{ "}}" }} expires in less than {{ $a.days }} days{{ $a.text }}"
+        description: "cert-manager Certificate {{ "{{" }} or $labels.{{ $nsx }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.name {{ "}}" }} expires in less than {{ $a.days }} days{{ $a.text }}"
         runbook_url: "{{ $.Values.monitoring.runbookUrl }}#{{ lower $a.alert }}"
 {{- end }}
 {{- end }}
