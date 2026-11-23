@@ -749,6 +749,7 @@ namespace and `<db-ns>` the database namespace (`<ns>-db`).
 ### HighErrorRate
 
 - **Means:** over 5% of requests answered 5xx for 10 minutes (the older backstop to the SLO alerts).
+  Like the SLOs, it leaves out the probe and scrape handlers (`monitoring.slo.excludeHandlers`).
 - **Impact:** users see errors.
 - **First checks:** act on a firing SLO alert first; the backend logs for the failing handler.
 - **Fix:** [Debugging](#debugging); [Rolling Back a Deployment](#rolling-back-a-deployment) if a deploy

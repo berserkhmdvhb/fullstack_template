@@ -27,6 +27,20 @@ tests:
               description: "More than 5% of requests are returning 5xx errors."
               runbook_url: "https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md#higherrorrate"
 
+  - name: HighErrorRate leaves out the probe and scrape handlers, as the SLOs do
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/items", method="GET", status="2xx"}'
+        values: '0+900x30'
+      - series: 'http_requests_total{namespace="app", handler="/api/v1/health", method="GET", status="5xx"}'
+        values: '0+100x30'
+      - series: 'http_requests_total{namespace="app", handler="/metrics", method="GET", status="5xx"}'
+        values: '0+100x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: HighErrorRate
+        exp_alerts: []
+
   - name: PodFailed fires on a Failed pod held for 5m
     interval: 1m
     input_series:

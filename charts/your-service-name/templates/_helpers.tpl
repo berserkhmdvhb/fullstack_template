@@ -757,6 +757,9 @@ key: password
 {{- end -}}
 
 {{- define "chart.alertGroupsApp" -}}
+{{- /* The release's requests without the probe and scrape handlers (monitoring.slo.excludeHandlers):
+       HighErrorRate and the SLOs count the same requests. */}}
+{{- $f := printf "namespace=%q, handler!~%q" .Release.Namespace .Values.monitoring.slo.excludeHandlers }}
 - name: app-health
   rules:
     - alert: HighErrorRate
@@ -764,9 +767,9 @@ key: password
       # (main.py: Instrumentator().instrument(app)), so the app records this series by
       # default; the metrics server (serve.py) exposes it on METRICS_PORT.
       expr: |
-        sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}", status=~"5.."}[5m]))
+        sum(rate(http_requests_total{{ "{" }}{{ $f }}, status=~"5.."}[5m]))
         /
-        sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}"}[5m]))
+        sum(rate(http_requests_total{{ "{" }}{{ $f }}}[5m]))
         > 0.05
       for: 10m
       labels:
@@ -785,7 +788,6 @@ key: password
    status label: the latency SLI covers every response, errors included.
 */}}
 {{- $slo := .Values.monitoring.slo }}
-{{- $f := printf "namespace=%q, handler!~%q" .Release.Namespace $slo.excludeHandlers }}
 {{- $le := include "chart.sloLatencyLe" . }}
 - name: slo-recording
   rules:
