@@ -255,19 +255,30 @@ at the first failure; about 15 minutes); CI runs it on the kind job's floor leg
 | Rollback within the TTL | the rollback renders the older revision's kept Job unchanged; Helm takes it over without re-running it (same uid, one Pod), and the newer Job stays (resource-policy keep) |
 | Rollback after the TTL | the TTL controller removed the Job (its mutable TTL lowered to 1 s); with the database stamped with a revision the code does not know, the rollback recreates the Job, which logs "database is ahead of this release; nothing to do" and exits 0; the Pods count that as ready |
 | Failed upgrade | the migration fails on purpose, Helm (4) fails the upgrade as soon as the Job is Failed, the running Pods keep serving (endpoints never empty), and the deploy path's report prints the failed Job's logs |
-| A migration over 150 s | with the schema dropped, a migration that sleeps 160 s first: the backend stays unready the whole time, becomes ready after the Job, and nothing restarts (the startup and liveness probes do not check the schema) |
+| A migration over 150 s | with the database emptied (the `public` schema dropped and recreated as a new database has it, checked against one), a first migration that sleeps 160 s first: the backend stays unready the whole time, becomes ready after the Job, and nothing restarts (the startup and liveness probes do not check the schema) |
 | Timeouts | through the backend's own settings: `DB_STATEMENT_TIMEOUT_MS` cancels a slow query, `DB_CONNECT_TIMEOUT_SECONDS` ends a connect the network drops, `DB_MIGRATION_LOCK_TIMEOUT_MS` ends a wait on a locked table; the Job gets the same values |
 | TLS modes | against the shipped PostgreSQL (no TLS) `disable` connects in plaintext and every other mode refuses rather than fall back; with TLS turned on there by the test (a test CA): `require` encrypts, `verify-ca` accepts a name not in the certificate, `verify-full` refuses it, a wrong CA or the system trust store is refused, and the chart's path (`verify-full` with `database.tls.caSecret`) migrates and serves over TLS |
 | Autogenerate | `alembic check` against the migrated database finds no change: the models and the migrations agree |
-| Failed first install, then a retry | on a wiped release the first install's migration fails and the install fails; the same deploy without the failure then succeeds, with nothing removed in between (see below) |
+| Failed first install, then a retry | deployed as `scripts/ci/deploy-env.sh` deploys (below), on a wiped release: the migration fails, `--rollback-on-failure` uninstalls the release and keeps the Failed Job, whose logs the deploy prints; the same deploy without the failure deletes that Job itself (no deployed revision: `migration_job_purge_failed`) and installs revision 1, whose Job finds the database untouched; nothing is removed by hand |
 
 **A failed first install ends only at Helm's `--timeout`.** The Job is Failed within about two minutes, but
 the backend cannot become ready without the schema, so Helm keeps waiting for it (a failed upgrade, whose running
-Pods stay ready, fails as soon as the Job does). When that timeout reaches the backend's `rollout.progressDeadlineSeconds`
-(600 s; `scripts/kind-deploy.sh` waits 10m), the Deployment is marked `ProgressDeadlineExceeded` and Helm fails an
-immediate retry on it, although the Pod becomes ready seconds after the retry's Job. The test therefore gives that
-install 5m. `scripts/ci/deploy-env.sh` should not be affected (not run on kind): `--rollback-on-failure` uninstalls a failed
-first install, so its retry starts fresh.
+Pods stay ready, fails as soon as the Job does). `scripts/ci/deploy-env.sh` then uninstalls the release
+(`--rollback-on-failure`), so its retry starts fresh. A deploy without `--rollback-on-failure` leaves the failed release
+and its Deployment in place: it must keep `--timeout` below the backend's
+[`rollout.progressDeadlineSeconds`](../charts/your-service-name/values.yaml), or the Deployment is marked
+`ProgressDeadlineExceeded` before the retry and Helm fails the retry on it at once (although the Pod becomes ready
+seconds after the retry's Job). `scripts/kind-deploy.sh` is such a deploy and waits as long as that deadline: after a
+failed first install there, uninstall the release before the retry.
+
+The failed-first-install case runs `deploy-env.sh`'s deploy steps rather than the script: the script deploys only to
+`dev`, `qa` or `production` (namespace and values file from that name, with `guards.rejectPlaceholders`, which refuses
+the placeholder hosts a kind cluster runs with) and only images by registry digest, which images loaded into kind have
+not. The test runs the same steps in the same order, as the deployer: the last deployed revision from `helm history`,
+`migration_job_purge_failed` when there is none, `helm upgrade --install` with the script's flags
+(`--rollback-on-failure --wait --wait-for-jobs`, the deploy workflow's default `HELM_TIMEOUT`), and on a failure
+`migration_job_report_newest`, all from `scripts/ci/migration-job-lib.sh`; it fails if the script stops carrying those
+steps.
 
 The slow and failed migrations come from a test-only hook: `tests.migration.delaySeconds` and `tests.migration.fail`
 (off by default) give the Job `MIGRATION_TEST_DELAY_SECONDS` and `MIGRATION_TEST_FAIL`, only with `tests.enabled`,
