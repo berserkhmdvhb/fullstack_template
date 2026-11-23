@@ -34,6 +34,8 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=/dev/null
 source "$ROOT/scripts/_kind.sh"
+# shellcheck source=/dev/null
+source "$ROOT/scripts/ci/migration-job-lib.sh"
 CHART="$ROOT/charts/your-service-name"
 ENV_NAME=local
 RELEASE=your-service-name
@@ -182,14 +184,21 @@ fi
 ok "ct install passed for every ci/ values file; its $(wc -l <<<"$ct_tests") helm tests ran as $deployer"
 
 # ---- 4. The release, and the upgrade test --------------------------------------------------------
+# A failed deploy prints the newest migration Job's status and logs (helm prints neither), as
+# scripts/ci/deploy-env.sh does.
 deploy() { # chart dir, extra helm args...
   local chart="$1"; shift
   local -a args
+  local rc=0
   mapfile -t args < <(kind_args "$chart" "$NS")
   helm_as upgrade --install "$RELEASE" "$chart" -n "$NS" -f "$chart/values.local.yaml" -f "$values" \
     "${args[@]}" --history-max 5 --wait --wait-for-jobs --timeout 10m "$@" \
-    2>&1 | tee "$WORK/helm.log"
+    2>&1 | tee "$WORK/helm.log" || rc=$?
   ! grep -qi forbidden "$WORK/helm.log" || die "the deployer was refused: $(grep -i forbidden "$WORK/helm.log")"
+  if (( rc != 0 )); then
+    migration_job_report_newest "$NS" "$RELEASE" >&2
+    die "helm upgrade --install failed ($rc); the migration Job's status and logs are above"
+  fi
 }
 migrated() { # the migration Job of the current revision succeeded; --admin: read it as cluster admin
   local rev job

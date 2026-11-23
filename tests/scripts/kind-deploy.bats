@@ -119,3 +119,45 @@ teardown() {
   [ "$status" -eq 2 ]
   [ -z "$(cat "$LOG")" ]
 }
+
+# deploy() on its own (the full sequence needs a cluster): extracted from the script, with its
+# helpers stubbed. helm fails as a failed migration makes it fail; the newest migration Job's report
+# (scripts/ci/migration-job-lib.sh, as deploy-env.sh prints it) must be printed, then the run dies.
+deploy_fn() {
+  sed -n '/^deploy() {/,/^}/p' "$SCRIPT"
+}
+
+@test "a failed deploy prints the newest migration Job's status and logs, then fails" {
+  [[ "$(deploy_fn)" == *migration_job_report_newest* ]]
+  run bash -c '
+    set -Eeuo pipefail
+    WORK="$1" NS=ns RELEASE=rel values=v
+    die() { echo "die: $*" >&2; exit 1; }
+    kind_args() { :; }
+    helm_as() { echo "Error: UPGRADE FAILED: resource Job/ns/rel-migrate-r2 not ready. status: Failed"; return 1; }
+    migration_job_report_newest() { echo "report $1 $2"; echo "RuntimeError: MIGRATION_TEST_FAIL"; }
+    eval "$2"
+    deploy chart
+    echo "not reached"' _ "$BATS_TEST_TMPDIR" "$(deploy_fn)"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"report ns rel"* ]]
+  [[ "$output" == *"RuntimeError: MIGRATION_TEST_FAIL"* ]]
+  [[ "$output" == *"die: helm upgrade --install failed (1)"* ]]
+  [[ "$output" != *"not reached"* ]]
+}
+
+@test "a deploy that succeeds prints no migration report" {
+  run bash -c '
+    set -Eeuo pipefail
+    WORK="$1" NS=ns RELEASE=rel values=v
+    die() { echo "die: $*" >&2; exit 1; }
+    kind_args() { :; }
+    helm_as() { echo "STATUS: deployed"; }
+    migration_job_report_newest() { echo "report"; }
+    eval "$2"
+    deploy chart
+    echo "done"' _ "$BATS_TEST_TMPDIR" "$(deploy_fn)"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"done"* ]]
+  [[ "$output" != *"report"* ]]
+}
