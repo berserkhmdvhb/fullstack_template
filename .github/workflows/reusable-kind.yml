@@ -19,6 +19,9 @@ jobs:
   kind:
     name: Kind (${{ matrix.leg }})
     runs-on: ubuntu-24.04
+    # The floor leg's steps take about 22 minutes on a workstation (the cluster
+    # and the base-to-HEAD deploy 5, the shutdown check 3, the migration lifecycle 15), so 60 leaves
+    # more than twice that for a slower runner, its cold tool, image and environment installs.
     timeout-minutes: 60
     permissions:
       contents: read
