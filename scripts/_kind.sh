@@ -1,5 +1,5 @@
 # shellcheck shell=bash disable=SC2034  # the variables are for the scripts that source this file
-# _kind.sh — sourced by kind-up.sh and kind-deploy.sh: the one place the local kind cluster's name and
+# _kind.sh — sourced by kind-up.sh, kind-deploy.sh and kind-forward.sh: the one place the local kind cluster's name and
 # files are fixed. The cluster is fst, its directory is the repository's .local/kind. The only override is
 # FST_KIND_DIR (the bats tests set it), and it must resolve under the repository's .local/; an exported
 # KIND_DIR, or anything else, is never read.

@@ -16,8 +16,11 @@
 #   SMOKE_BASE_URL and DAST_TARGET_URL (= PUBLIC_URL), NEXT_DEPLOYMENT_ID (derived, as Dockerfile.frontend
 #   does, from the version and revision labels of the image the frontend Pod runs, read on its kind node)
 #   and LIVE_TARGET=deployed (the live suites skip what needs a local build).
-# Logs: each forward's log goes to $RUNNER_TEMP/kind-forward when RUNNER_TEMP is set (the kind job's
-#   failure dump prints them), else to a temporary directory; on a failure they are printed here too.
+# Logs: each run writes one log per forward, <name>-<pid>.log, to $RUNNER_TEMP/kind-forward when RUNNER_TEMP
+#   is set (the kind job's failure dump prints every run's), else to a temporary directory; on a failure
+#   this run's are printed here too.
+# Root on the node: the deployment id is read with `docker exec` and `crictl inspecti` on the kind node,
+#   outside the deployer's identity; it is read-only, kind nodes only (fst-*), and reads the image that runs.
 # Env: KIND_FORWARD_TIMEOUT (seconds a forward has to start and answer, default 60).
 #
 # Usage: kind-forward.sh [--] COMMAND [ARG...]
@@ -62,7 +65,7 @@ cleanup() {
   for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done
   for pid in "${pids[@]}" ${cmd_pid:+"$cmd_pid"}; do wait "$pid" 2>/dev/null || true; done
   if (( rc != 0 )); then
-    for log in "$LOGS"/*.log; do [[ ! -f "$log" ]] || { echo "--- $log" >&2; cat "$log" >&2; }; done
+    for log in "$LOGS"/*-"$$".log; do [[ ! -f "$log" ]] || { echo "--- $log" >&2; cat "$log" >&2; }; done
   fi
   [[ -n "${RUNNER_TEMP:-}" ]] || rm -rf "$LOGS"
   exit "$rc"
@@ -75,7 +78,7 @@ forward() { # name, health path: starts the forward and sets the port variable <
   local name="$1" path="$2" svc_port log port="" end=$((SECONDS + TIMEOUT))
   svc_port="$(kc get "service/$RELEASE-$name" -o jsonpath='{.spec.ports[?(@.name=="http")].port}')"
   [[ -n "$svc_port" ]] || die "the $RELEASE-$name Service has no http port"
-  log="$LOGS/$name.log"
+  log="$LOGS/$name-$$.log"
   echo "== $(date -u +%FT%TZ) $name: $*" >> "$log"
   # The binary itself in the background, not kc: a backgrounded function is a subshell, and killing
   # that would leave kubectl running.

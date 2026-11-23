@@ -218,6 +218,7 @@ def test_zap_is_advisory_last_and_always_reports() -> None:
     zap = _step(ZAP)
     assert zap["id"] == "zap"
     assert zap["continue-on-error"] is True
+    assert str(zap["timeout-minutes"]) == "15"
     assert zap["if"] == "matrix.leg == 'newest'"
     assert zap["run"] == "make kind-zap"
     assert names.index(SHUTDOWN) < names.index(ZAP)

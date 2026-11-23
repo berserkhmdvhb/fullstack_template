@@ -392,7 +392,7 @@ deployed, the job runs the repository's own suites through `scripts/ci/kind-forw
 picks, waits until both answer, exports the URLs and runs one command; the forwards stop on every exit, and
 their logs are in the failure dump. *Public* on kind is the frontend Service: there is no Gateway controller,
 and the frontend is the edge that serves the pages and proxies the API through the WAF to the backend.
-`NEXT_DEPLOYMENT_ID` comes from the labels of the frontend image that runs (the script's header says how).
+`NEXT_DEPLOYMENT_ID` comes from the labels of the frontend image that runs (the script's header says how). That read is the one step outside the deployer's identity: `docker exec` and `crictl inspecti` on the kind node, as root there; it is read-only, on kind nodes only (`fst-*`), and used because it reads the image that actually runs.
 - `make kind-live`, both legs: [the live suites](./testing.md#live-tests) against the backend forward and the
   public edge, on each Kubernetes version. `tests/live/test_static_files.py` skips (`LIVE_TARGET=deployed`):
   it starts its own server from a local build.

@@ -23,7 +23,8 @@ setup() {
   unset RUNNER_TEMP
   # kubectl: the context and version questions, the Services' ports, the ConfigMap, the frontend's
   # image and node; a port-forward prints kubectl's line with a port of its own (40000 + n) and
-  # stays up, its pid recorded. STUB_PF_SILENT: the forward never prints its line.
+  # stays up, its pid recorded. STUB_PF_SILENT: the forward never prints its line; STUB_PF_DELAY: seconds
+  # before it does (kubectl needs API round trips first).
   cat > "$B/kubectl" <<'STUB'
 #!/usr/bin/env bash
 echo "kubectl $*" >> "$LOG"
@@ -34,6 +35,7 @@ esac
 case "$*" in
   *" port-forward "*)
     echo "$$" >> "$PIDS"
+    sleep "${STUB_PF_DELAY:-0}"
     [[ -n "${STUB_PF_SILENT:-}" ]] || echo "Forwarding from 127.0.0.1:$((40000 + $(wc -l < "$PIDS"))) -> 8000"
     exec sleep 300 ;;
   *"get service/"*) echo 8000 ;;
@@ -94,6 +96,20 @@ all_stopped() {
   grep -q "curl .*http://127.0.0.1:40001/api/v1/health" "$LOG"
   grep -q "curl .*http://127.0.0.1:40002/api/healthz" "$LOG"
   grep -q "docker exec fst-control-plane crictl inspecti -o json kind-fst/frontend:kind-1" "$LOG"
+  all_stopped
+}
+
+@test "two runs in a row with RUNNER_TEMP set each export their own ports" {
+  export RUNNER_TEMP="$BATS_TEST_TMPDIR/runner" STUB_PF_DELAY=0.5
+  run bash "$SCRIPT" -- "$SHOW"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PUBLIC_PORT=40002"* ]]
+  run bash "$SCRIPT" -- "$SHOW"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"BACKEND_PORT=40003"* ]]
+  [[ "$output" == *"PUBLIC_PORT=40004"* ]]
+  logs=("$RUNNER_TEMP"/kind-forward/*.log)
+  [ "${#logs[@]}" -eq 4 ]
   all_stopped
 }
 
