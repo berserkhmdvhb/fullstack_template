@@ -750,8 +750,10 @@ operational steps in
   socket in `TIME_WAIT` on the WAF Pod for about a minute after each, so at tens of thousands of
   writes a minute scale the WAF out before it runs out of ephemeral ports. Envoy runs at most three
   retries per cluster at once (its default circuit breaker); a reset beyond that is still a `503`.
-  On kind, `POST`s through the WAF during a backend Pod deletion failed none (8 runs, up to
-  200 requests a second). The comments and routes are in `templates/waf-proxy.yaml`; the policies:
+  A one-off measurement on kind, not a CI check: `POST`s through the WAF during a backend Pod
+  deletion failed none in 8 runs (up to 200 requests a second), but most answers were the rate
+  limiter's `429`s (a few hundred writes reached the backend per run), and the deleted Pod was not
+  checked for load connections. The shutdown check in CI sends `GET`s only. The comments and routes are in `templates/waf-proxy.yaml`; the policies:
   [Envoy's retry conditions](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/router_filter#x-envoy-retry-on).
   The [shutdown check](./infrastructure.md#workloads-rollout-resources-and-shutdown) found it.
 

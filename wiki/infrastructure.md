@@ -440,7 +440,8 @@ cleanly is replaced; a refused or reset one, a 5xx answer or a timeout fails the
 answers (every answer below 500 counts, 429 included) before the delete or after the Pod was gone,
 and a Pod never seen Terminating. The load Pod is the release's [`helm test`](#local-cluster-kind)
 Job's Pod (the backend image, restricted), admitted by the same two test NetworkPolicies, applied for
-the test's duration and deleted after. `make test` never collects `tests/k8s`.
+the test's duration and deleted after. It needs `kubectl exec` (it reads the Pods' sockets), so it runs
+with the kind cluster's admin kubeconfig: the deployer role cannot exec. `make test` never collects `tests/k8s`.
 
 What it proves on kind: no `GET` fails across a normal Pod deletion, through the Service and
 through the WAF, with keep-alive clients. Its WAF case found Envoy reusing a connection the backend
@@ -572,7 +573,10 @@ the chart's `values.<env>.yaml` (or `--chart-values FILE` on the bootstrap), lik
 namespace with `monitoring.gmp.objectNamespaceLabel` (default `exported_namespace`; a third-party
 report says GMP relabels kube-state-metrics so, **verify it against your GMP** by reading the labels
 of `kube_pod_status_phase`). The prometheus-operator flavour is unchanged: one `PrometheusRule`,
-selecting on `namespace`. The deployer Role holds `podmonitorings` and `rules`. Every alert links its section of the runbook (`runbook_url`, from `monitoring.runbookUrl`; [Alerts](./operations-runbook.md#alerts)). Which rules need which series, in both flavours:
+selecting on `namespace`. The deployer Role holds `podmonitorings` and `rules`. Every alert links its section of the runbook (`runbook_url`, from `monitoring.runbookUrl`; [Alerts](./operations-runbook.md#alerts)). **With `gmp`, after a chart upgrade that changes the cluster
+alerts (and after setting `monitoring.runbookUrl`), re-apply `scripts/k8s-bootstrap.sh <env>`**: the
+deploy never renders `ClusterRules`, so until then the cluster keeps the old ones and the only symptom is
+an alert that never fires. Which rules need which series, in both flavours:
 
 | Rules | Series | Source |
 |---|---|---|
