@@ -200,10 +200,14 @@ spec:
                                     domains: ["*"]
                                     # A backend Pod that gets SIGTERM closes its idle keep-alive
                                     # connections; Envoy can have just written a request to one (503,
-                                    # flag UC). Any method is retried when the reset came before the
-                                    # request was sent; the safe methods (GET, HEAD, OPTIONS: no side
-                                    # effect) also when it came after, since the backend may not have
-                                    # read it. A request with side effects is never resent.
+                                    # flag UC). The safe methods (GET, HEAD, OPTIONS: no side effect)
+                                    # are resent on a reset, since the backend may not have read them.
+                                    # Every other method goes to upstream_writes, which never reuses a
+                                    # connection, so no write lands on one a Pod is closing; it is
+                                    # resent only when the reset came before anything was sent.
+                                    # Envoy runs at most 3 retries per cluster at once (its default
+                                    # circuit breaker, max_retries); a reset beyond that is a 503
+                                    # (stat upstream_rq_retry_overflow).
                                     retry_policy: { retry_on: reset-before-request, num_retries: 2 }
                                     routes:
                                       {{- range $safe := list true false }}
@@ -216,9 +220,11 @@ spec:
                                               string_match: { safe_regex: { regex: "GET|HEAD|OPTIONS" } }
                                           {{- end }}
                                         route:
-                                          cluster: upstream
                                           {{- if $safe }}
+                                          cluster: upstream
                                           retry_policy: { retry_on: reset, num_retries: 2 }
+                                          {{- else }}
+                                          cluster: upstream_writes
                                           {{- end }}
                                       {{- end }}
                                       {{- end }}
@@ -248,20 +254,29 @@ spec:
                                       - match: { prefix: / }
                                         direct_response: { status: 404 }
                 clusters:
-                  - name: upstream
+                  # upstream: the safe methods' pool. upstream_writes: one request per connection,
+                  # so a write always opens a new one, which reaches only a Pod still in the Service.
+                  # Its cost: each write leaves a socket in TIME_WAIT on the WAF Pod for about 60 s,
+                  # so tens of thousands of writes a minute to the one Service address can run the
+                  # Pod out of ephemeral ports; scale the WAF out before that.
+                  {{- range $name := list "upstream" "upstream_writes" }}
+                  - name: {{ $name }}
                     type: STRICT_DNS
                     # Close idle upstream connections BEFORE the backend's keep-alive does
-                    # (values.yaml: waf.upstreamIdleTimeoutSeconds), so Envoy never reuses a
-                    # connection Uvicorn has just closed.
+                    # (values.yaml: waf.upstreamIdleTimeoutSeconds), so at idle expiry Envoy never
+                    # reuses a connection Uvicorn has just closed (a Pod's shutdown: the routes above).
                     typed_extension_protocol_options:
                       envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
                         "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
                         common_http_protocol_options:
-                          idle_timeout: {{ .Values.waf.upstreamIdleTimeoutSeconds }}s
+                          idle_timeout: {{ $.Values.waf.upstreamIdleTimeoutSeconds }}s
+                          {{- if eq $name "upstream_writes" }}
+                          max_requests_per_connection: 1
+                          {{- end }}
                         explicit_http_config:
                           http_protocol_options: {}
                     load_assignment:
-                      cluster_name: upstream
+                      cluster_name: {{ $name }}
                       endpoints:
                         - lb_endpoints:
                             - endpoint:
@@ -269,6 +284,7 @@ spec:
                                   socket_address:
                                     address: {{ $upstreamHost }}
                                     port_value: {{ $upstreamPort }}
+                  {{- end }}
             - --disable-hot-restart
             # Worker threads: Envoy's default is one per CPU of the node, each with its own Wasm VM and
             # CRS, which outgrows the memory limit on a large node (waf.concurrency).

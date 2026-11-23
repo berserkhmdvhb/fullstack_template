@@ -89,10 +89,11 @@ def test_no_line_of_the_values_file_runs_past_the_wrap_width() -> None:
 
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+PREFIXES = {"/api", "/docs", "/openapi.json"}
 
 
-def _api_virtual_host() -> dict[str, Any]:
-    """The rendered WAF Envoy's API virtual host (the bootstrap passed in --config-yaml)."""
+def _envoy_config() -> dict[str, Any]:
+    """The rendered WAF Envoy's bootstrap (passed in --config-yaml)."""
     helm = require_helm(find_helm(), ci=bool(os.environ.get("CI")))
     out = subprocess.run(
         [helm, "template", "svc", str(CHART), "--set", "waf.enabled=true"],
@@ -107,35 +108,73 @@ def _api_virtual_host() -> dict[str, Any]:
         if d and d["kind"] == "Deployment" and d["metadata"]["name"].endswith("-waf")
     )
     args = waf["spec"]["template"]["spec"]["containers"][0]["args"]
-    config = yaml.safe_load(args[args.index("--config-yaml") + 1])
-    listener = config["static_resources"]["listeners"][0]
-    hcm = listener["filter_chains"][0]["filters"][0]["typed_config"]
-    vhost: dict[str, Any] = hcm["route_config"]["virtual_hosts"][0]
-    return vhost
+    config: dict[str, Any] = yaml.safe_load(args[args.index("--config-yaml") + 1])
+    return config
+
+
+def _hcm(config: dict[str, Any]) -> dict[str, Any]:
+    hcm: dict[str, Any] = config["static_resources"]["listeners"][0]["filter_chains"][0]["filters"][
+        0
+    ]["typed_config"]
+    return hcm
+
+
+def _clusters(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {c["name"]: c for c in config["static_resources"]["clusters"]}
+
+
+def _http_options(cluster: dict[str, Any]) -> dict[str, Any]:
+    options: dict[str, Any] = cluster["typed_extension_protocol_options"][
+        "envoy.extensions.upstreams.http.v3.HttpProtocolOptions"
+    ]["common_http_protocol_options"]
+    return options
 
 
 def test_a_reset_upstream_connection_is_retried_only_where_it_is_safe() -> None:
     """A backend Pod closes its idle keep-alive connections on SIGTERM, and Envoy can have just
-    written a request to one (503, UC). Every method is retried when nothing was sent yet; a
-    safe method also after, a method with side effects never (the backend may have read it)."""
-    vhost = _api_virtual_host()
+    written a request to one (503, UC). A safe method is resent on a reset; any other method goes
+    to a cluster that never reuses a connection, and is resent only when nothing was sent yet."""
+    vhost = _hcm(_envoy_config())["route_config"]["virtual_hosts"][0]
     assert vhost["retry_policy"]["retry_on"] == "reset-before-request"
-    prefixes = {"/api", "/docs", "/openapi.json"}
     safe, other = {}, {}
     for route in vhost["routes"]:
-        match, policy = route["match"], route["route"].get("retry_policy")
+        match, action = route["match"], route["route"]
+        # Coraza and the buffer run for every route: nothing switches a filter off per route.
+        assert "typed_per_filter_config" not in route
+        assert "typed_per_filter_config" not in action
         if "headers" in match:
             (header,) = match["headers"]
             assert header["name"] == ":method"
             assert set(header["string_match"]["safe_regex"]["regex"].split("|")) == SAFE_METHODS
-            safe[match["prefix"]] = policy
+            safe[match["prefix"]] = action
         else:
             # No route-level policy: the virtual host's (before the request was sent) applies.
-            assert policy is None, route
-            other[match["prefix"]] = policy
-    assert set(safe) == set(other) == prefixes
-    assert all(p is not None and p["retry_on"] == "reset" for p in safe.values()), safe
+            assert "retry_policy" not in action, route
+            other[match["prefix"]] = action
+    assert set(safe) == set(other) == PREFIXES
+    assert all(a["cluster"] == "upstream" for a in safe.values()), safe
+    assert all(a["retry_policy"]["retry_on"] == "reset" for a in safe.values()), safe
+    assert all(a["cluster"] == "upstream_writes" for a in other.values()), other
     # Envoy takes the first matching route: the method-restricted ones must come first.
     first_plain = next(i for i, r in enumerate(vhost["routes"]) if "headers" not in r["match"])
     assert all("headers" in r["match"] for r in vhost["routes"][:first_plain])
-    assert len(vhost["routes"]) == 2 * len(prefixes)
+    assert len(vhost["routes"]) == 2 * len(PREFIXES)
+
+
+def test_the_write_cluster_never_reuses_a_connection() -> None:
+    """The two clusters reach the same upstream with the same idle timeout; only the write one
+    limits a connection to one request, so a write never lands on a pooled connection."""
+    clusters = _clusters(_envoy_config())
+    assert set(clusters) == {"upstream", "upstream_writes"}
+    pool, writes = clusters["upstream"], clusters["upstream_writes"]
+    assert pool["load_assignment"]["endpoints"] == writes["load_assignment"]["endpoints"]
+    assert _http_options(pool) == {"idle_timeout": f"{_gateway_idle()}s"}
+    assert _http_options(writes) == {
+        "idle_timeout": f"{_gateway_idle()}s",
+        "max_requests_per_connection": 1,
+    }
+
+
+def test_the_waf_filters_run_before_the_router_for_every_route() -> None:
+    names = [f["name"] for f in _hcm(_envoy_config())["http_filters"]]
+    assert names == [f"envoy.filters.http.{n}" for n in ("wasm", "buffer", "router")]

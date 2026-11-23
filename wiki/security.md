@@ -742,12 +742,17 @@ operational steps in
   interface (which serves endpoints such as `/quitquitquit`) is disabled; the probes ask
   a separate listener (`waf.health.port`, `waf.health.path`) that answers a fixed `200`.
   Envoy reuses keep-alive connections to the backend, and a backend Pod that gets SIGTERM closes its
-  idle ones, so a request Envoy has just written to one fails (`503`, response flag `UC`). The route
-  table retries a reset upstream connection where that is safe: any method when nothing was sent
-  yet (`reset-before-request`), the safe methods (`GET`, `HEAD`, `OPTIONS`) also after; a method
-  with side effects is never resent, and can still see that `503` in a rollout (the comment and the
-  routes are in `templates/waf-proxy.yaml`; the policies:
-  [Envoy's retry conditions](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/router_filter#x-envoy-retry-on)).
+  idle ones, so a request Envoy has just written to one fails (`503`, response flag `UC`). The safe
+  methods (`GET`, `HEAD`, `OPTIONS`) are resent on such a reset. Every other method goes to a second
+  upstream cluster with one request per connection: it never lands on a pooled connection, a new
+  connection reaches only a Pod still in the Service, and it is resent only when the reset came
+  before anything was sent (`reset-before-request`). The cost is a new connection per write and a
+  socket in `TIME_WAIT` on the WAF Pod for about a minute after each, so at tens of thousands of
+  writes a minute scale the WAF out before it runs out of ephemeral ports. Envoy runs at most three
+  retries per cluster at once (its default circuit breaker); a reset beyond that is still a `503`.
+  On kind, `POST`s through the WAF during a backend Pod deletion failed none (8 runs, up to
+  200 requests a second). The comments and routes are in `templates/waf-proxy.yaml`; the policies:
+  [Envoy's retry conditions](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/router_filter#x-envoy-retry-on).
   The [shutdown check](./infrastructure.md#workloads-rollout-resources-and-shutdown) found it.
 
 | | DAST (ZAP) | WAF (Coraza) |
