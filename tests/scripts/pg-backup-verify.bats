@@ -15,7 +15,11 @@ setup() {
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$LOG"
 case "$*" in
-  *"FROM pg_database"*) [ -z "${STALE_DB:-}" ] || echo "$STALE_DB"; exit 0 ;;
+  *"FROM pg_database"*)
+    # The server's databases (DATABASES, one per line), without the connected one when asked.
+    for d in ${DATABASES:-}; do
+      [[ "$*" == *"current_database()"* && "$d" == "${DB_NAME}" ]] || echo "$d"
+    done; exit 0 ;;
   *"CREATE DATABASE"*) exit 0 ;;
   *"DROP DATABASE"*) [ -z "${DROP_FAIL:-}" ] || { echo 'ERROR:  database is being accessed by other users' >&2; exit 1; }; exit 0 ;;
   *"FROM alembic_version"*) echo "${ALEMBIC_ROWS:-1}"; exit 0 ;;
@@ -46,8 +50,8 @@ dump() { printf 'SELECT 1;\n--\n-- PostgreSQL database dump complete\n--\n\n\\un
 
 # The temporary database this run created was dropped.
 dropped() {
-  name="$(sed -n 's/.*CREATE DATABASE \(verify_backup_[0-9]*\);.*/\1/p' "$LOG")"
-  [ -n "$name" ] && grep -q "DROP DATABASE IF EXISTS $name;" "$LOG"
+  name="$(sed -n 's/.*CREATE DATABASE "\(verify_backup_[0-9a-f_]*\)";.*/\1/p' "$LOG")"
+  [ -n "$name" ] && grep -q "DROP DATABASE IF EXISTS \"$name\";" "$LOG"
 }
 
 created_none() { [ "$(grep -c 'CREATE DATABASE' "$LOG")" -eq 0 ]; }
@@ -180,9 +184,42 @@ created_none() { [ "$(grep -c 'CREATE DATABASE' "$LOG")" -eq 0 ]; }
   [[ "$output" == *"could not drop the temporary database verify_backup_"* ]]
 }
 
-@test "a temporary database left by an earlier run is dropped first" {
-  STALE_DB=verify_backup_19990101000000 run sh "$SCRIPT"
+@test "the temporary database's name is unique per run: the second, then a random suffix" {
+  run sh "$SCRIPT"
   [ "$status" -eq 0 ]
-  grep -q 'DROP DATABASE IF EXISTS verify_backup_19990101000000;' "$LOG"
-  [ "$(grep -n 'verify_backup_19990101000000' "$LOG" | head -n1 | cut -d: -f1)" -lt "$(grep -n 'CREATE DATABASE' "$LOG" | cut -d: -f1)" ]
+  grep -Eq 'CREATE DATABASE "verify_backup_[0-9]{14}_[0-9a-f]{8}";' "$LOG"
+}
+
+@test "a temporary database left by an earlier run is dropped first" {
+  DATABASES="app postgres verify_backup_19990101000000_0a1b2c3d" run sh "$SCRIPT"
+  [ "$status" -eq 0 ]
+  grep -q 'DROP DATABASE IF EXISTS "verify_backup_19990101000000_0a1b2c3d";' "$LOG"
+  [ "$(grep -n 'verify_backup_19990101000000_0a1b2c3d' "$LOG" | head -n1 | cut -d: -f1)" -lt "$(grep -n 'CREATE DATABASE' "$LOG" | cut -d: -f1)" ]
+}
+
+@test "a temporary database under a day old (another run in progress) is left alone" {
+  running="verify_backup_$(date -u -d "@$(($(date +%s) - 7200))" +%Y%m%d%H%M%S)_0a1b2c3d"
+  DATABASES="$running" run sh "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c "DROP DATABASE IF EXISTS \"$running\"" "$LOG")" -eq 0 ]
+}
+
+@test "a temporary database that cannot be dropped is reported and the check goes on" {
+  DROP_FAIL=1 DATABASES="verify_backup_19990101000000_0a1b2c3d" run sh "$SCRIPT"
+  [[ "$output" == *"could not drop verify_backup_19990101000000_0a1b2c3d"* ]]
+  grep -q 'CREATE DATABASE' "$LOG"
+}
+
+@test "a database that only starts like a temporary one is never dropped" {
+  DATABASES="verify_backup_app verify_backup_19990101000000 verify_backup_19990101000000_0a1b2c3d_x" run sh "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c 'DROP DATABASE' "$LOG")" -eq 1 ]
+  dropped
+}
+
+@test "the connected database is never dropped, even with a temporary database's name" {
+  DB_NAME=verify_backup_19990101000000_0a1b2c3d DATABASES="verify_backup_19990101000000_0a1b2c3d" run sh "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c 'DROP DATABASE' "$LOG")" -eq 1 ]
+  dropped
 }

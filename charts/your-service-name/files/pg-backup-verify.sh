@@ -23,16 +23,17 @@ fail() {
   exit 1
 }
 
+# psql_on DATABASE ARGS... (sh has no local variables: _on_db is this function's own).
 psql_on() {
-  db="$1"
+  _on_db="$1"
   shift
-  psql -v ON_ERROR_STOP=1 -X -q -t -A -h "$DB_HOST" -U "$DB_USER" -d "$db" "$@"
+  psql -v ON_ERROR_STOP=1 -X -q -t -A -h "$DB_HOST" -U "$DB_USER" -d "$_on_db" "$@"
 }
 
 cleanup() {
   rc=$?
   if [ -n "$TEMP_DB" ]; then
-    if ! psql_on "$DB_NAME" -c "DROP DATABASE IF EXISTS ${TEMP_DB};"; then
+    if ! psql_on "$DB_NAME" -c "DROP DATABASE IF EXISTS \"${TEMP_DB}\";"; then
       echo "ERROR: could not drop the temporary database ${TEMP_DB}" >&2
       [ "$rc" -ne 0 ] || rc=1
     fi
@@ -66,16 +67,28 @@ gunzip -t "$LATEST_BACKUP" 2>/dev/null || fail "$LATEST_BACKUP is not a readable
 gunzip -c "$LATEST_BACKUP" | tail -n 10 | grep -q '^-- PostgreSQL database dump complete' ||
   fail "$LATEST_BACKUP is incomplete: it lacks pg_dump's closing '-- PostgreSQL database dump complete'"
 
-# Temporary databases of earlier runs that were killed before their trap ran.
-STALE=$(psql_on "$DB_NAME" -c "SELECT datname FROM pg_database WHERE datname LIKE 'verify\_backup\_%';") ||
+# This script's temporary databases: verify_backup_<UTC second>_<8 random hex digits>, unique even
+# for a hand-run check that starts in the same second as the scheduled one.
+OWN_NAME='^verify_backup_[0-9]{14}_[0-9a-f]{8}$'
+
+# Temporary databases of earlier runs that were killed before their trap ran: only names of this
+# script's own format, never the connected database, and only those over a day old (a younger one
+# may belong to a run still going). One that cannot be dropped is reported, not fatal.
+DATABASES=$(psql_on "$DB_NAME" -c "SELECT datname FROM pg_database WHERE datname <> current_database();") ||
   fail "query failed: listing earlier temporary databases"
-for db in $STALE; do
-  echo "Dropping a temporary database left by an earlier run: $db"
-  psql_on "$DB_NAME" -c "DROP DATABASE IF EXISTS ${db};"
+DAY_AGO=$(date -u -d "@$(($(date +%s) - 86400))" +%Y%m%d%H%M%S)
+for stale in $(printf '%s\n' "$DATABASES" | grep -E "$OWN_NAME" || true); do
+  stamp=${stale#verify_backup_}
+  stamp=${stamp%_*}
+  [ "$stamp" -lt "$DAY_AGO" ] || continue
+  echo "Dropping a temporary database left by an earlier run: $stale"
+  psql_on "$DB_NAME" -c "DROP DATABASE IF EXISTS \"${stale}\";" ||
+    echo "WARNING: could not drop $stale; drop it by hand once no verify Job is active" >&2
 done
 
-TEMP_DB="verify_backup_$(date +%Y%m%d%H%M%S)"
-psql_on "$DB_NAME" -c "CREATE DATABASE ${TEMP_DB};"
+TEMP_DB="verify_backup_$(date -u +%Y%m%d%H%M%S)_$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+printf '%s\n' "$TEMP_DB" | grep -Eq "$OWN_NAME" || fail "could not make a temporary database name ($TEMP_DB)"
+psql_on "$DB_NAME" -c "CREATE DATABASE \"${TEMP_DB}\";"
 
 gunzip -c "$LATEST_BACKUP" | psql_on "$TEMP_DB" >/dev/null || fail "restore failed: psql stopped on an error restoring $LATEST_BACKUP"
 
