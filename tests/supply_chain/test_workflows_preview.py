@@ -65,6 +65,8 @@ def test_the_deploy_runs_only_for_a_labelled_same_repository_pull_request() -> N
         assert SAME_REPO in cond
         assert LABELLED in cond
         assert "github.event.action != 'closed' && github.event.action != 'unlabeled'" in cond
+        # A preview label added to a closed pull request deploys nothing.
+        assert "github.event.pull_request.state == 'open'" in cond
         # Another label added to a previewed pull request deploys nothing.
         assert "(github.event.action != 'labeled' || github.event.label.name == 'preview')" in cond
     assert _jobs()["deploy"]["needs"] == ["digests"]
@@ -160,11 +162,21 @@ def test_the_cleanup_and_the_sweep_are_preview_cleanup_sh() -> None:
 
 
 def test_a_deploy_and_a_cleanup_of_one_pull_request_never_overlap() -> None:
-    group = _wf()["concurrency"]
-    assert group == {
-        "group": "preview-${{ github.event.pull_request.number || 'sweep' }}",
+    """On the jobs, never the workflow: a group keeps one pending run and cancels the older one, so
+    a workflow-level group lets a run whose jobs all skip drop a waiting deploy or cleanup."""
+    assert "concurrency" not in _wf()
+    per_pr = {
+        "group": "preview-${{ github.event.pull_request.number }}",
         "cancel-in-progress": False,
     }
+    for name in ("deploy", "cleanup"):
+        assert _jobs()[name]["concurrency"] == per_pr, name
+    assert _jobs()["sweep"]["concurrency"] == {
+        "group": "preview-sweep",
+        "cancel-in-progress": False,
+    }
+    for name in ("digests", "open-prs"):
+        assert "concurrency" not in _jobs()[name], name
 
 
 def test_no_expression_is_interpolated_into_a_run_script() -> None:

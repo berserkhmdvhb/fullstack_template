@@ -22,11 +22,6 @@ on:
 
 permissions: {}
 
-# One run at a time per pull request (a deploy and its cleanup never overlap), one sweep at a time.
-concurrency:
-  group: preview-${{ github.event.pull_request.number || 'sweep' }}
-  cancel-in-progress: false
-
 defaults:
   run:
     shell: bash
@@ -49,6 +44,7 @@ jobs:
       vars.PREVIEWS_ENABLED == 'true' && github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
       && github.event.action != 'closed' && github.event.action != 'unlabeled'
+      && github.event.pull_request.state == 'open'
       && contains(github.event.pull_request.labels.*.name, 'preview')
       && (github.event.action != 'labeled' || github.event.label.name == 'preview')
     runs-on: ubuntu-24.04
@@ -80,10 +76,17 @@ jobs:
       vars.PREVIEWS_ENABLED == 'true' && github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
       && github.event.action != 'closed' && github.event.action != 'unlabeled'
+      && github.event.pull_request.state == 'open'
       && contains(github.event.pull_request.labels.*.name, 'preview')
       && (github.event.action != 'labeled' || github.event.label.name == 'preview')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # One deploy or cleanup of a pull request at a time, on the job, not the workflow: a group keeps
+    # one pending run and cancels the older one, so at the workflow level a run whose jobs all skip
+    # (another label) would drop a waiting push, the preview label's deploy or a close's cleanup.
+    concurrency:
+      group: preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     # The deployment record links the preview's public URL (empty without PREVIEW_DOMAIN).
     environment:
       name: preview
@@ -152,6 +155,10 @@ jobs:
       || (github.event.action == 'unlabeled' && github.event.label.name == 'preview'))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # The deploy's group (above): a cleanup waits for a running deploy, never overlaps it.
+    concurrency:
+      group: preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     environment:
       name: preview
     permissions:
@@ -211,6 +218,10 @@ jobs:
     if: vars.PREVIEWS_ENABLED == 'true' && github.event_name == 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # One sweep at a time (a daily run that skips nothing: nothing else shares this group).
+    concurrency:
+      group: preview-sweep
+      cancel-in-progress: false
     environment:
       name: preview
     permissions:

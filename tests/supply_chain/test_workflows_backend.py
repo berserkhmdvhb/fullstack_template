@@ -158,7 +158,12 @@ def test_every_workflow_has_permissions_and_concurrency() -> None:
     for path in sorted(WORKFLOWS.glob("*.yml")):
         wf = load(path)
         assert wf["permissions"] in ({}, {"contents": "read"}), path.name
-        if set(wf["on"]) != {"workflow_call"}:
+        if path.name == "preview.yml":
+            # Its groups sit on the cluster jobs: a workflow-level one lets a run whose jobs all
+            # skip drop a pending deploy or cleanup (tests/supply_chain/test_workflows_preview.py).
+            assert "concurrency" not in wf
+            assert all("concurrency" in wf["jobs"][j] for j in ("deploy", "cleanup", "sweep"))
+        elif set(wf["on"]) != {"workflow_call"}:
             assert "concurrency" in wf, path.name
 
 
