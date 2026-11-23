@@ -392,6 +392,14 @@ In the chart: `observability.tracing.*` (and `backend.networkPolicy.extraEgress`
 collector on 4318). See [Security](security.md#rate-limiting) for the Redis rate-limit storage that
 shares the same egress setting.
 
+**Proven on kind.** `make kind-tracing-redis-test` (`tests/k8s/test_tracing_redis.py`, the kind
+job's newest leg) installs a release of its own with these chart values and a throwaway
+OpenTelemetry Collector (its debug exporter's log is what the test reads) behind the release's
+NetworkPolicy. A request gives a server span with its route and database spans whose statements
+carry the placeholder, never the search value it sent; a problem response's `trace_id` is its
+server span's. Without the `extraEgress` rule the collector receives nothing and the requests still
+answer `200` at once: the export waits on its own thread. How to run it: the test's docstring.
+
 ---
 
 ## Data Flow

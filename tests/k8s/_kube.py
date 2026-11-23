@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 KUBECONFIG = ROOT / ".local" / "kind" / "kubeconfig"
@@ -19,6 +20,7 @@ CONTEXT = "kind-fst"
 # The release and namespace scripts/kind-deploy.sh installs.
 RELEASE = "your-service-name"
 NAMESPACE = f"{RELEASE}-local"
+GROUP = "system:authenticated"
 
 
 def _run(cmd: list[str], stdin: str | None = None, *, check: bool = True) -> str:
@@ -35,6 +37,22 @@ def _tool(name: str) -> str:
     path = shutil.which(name)
     assert path, f"no {name} on PATH (scripts/tools.sh install {name}; make puts .tools/bin first)"
     return path
+
+
+def deployer() -> str:
+    """The bootstrap's deployer (infra/k8s/bootstrap, the local env), as kind-deploy.sh reads it."""
+    boot = ROOT / "infra" / "k8s" / "bootstrap"
+    name = ""
+    for f in ("values.yaml", "values.local.yaml"):
+        name = (yaml.safe_load((boot / f).read_text()) or {}).get("deployer", {}).get("name", name)
+    assert name, "no deployer name in infra/k8s/bootstrap"
+    return name
+
+
+def helm_as_deployer() -> list[str]:
+    """helm on fst as the deployer, as kind-deploy.sh's helm_as."""
+    helm = [_tool("helm"), "--kubeconfig", str(KUBECONFIG), "--kube-context", CONTEXT]
+    return [*helm, "--kube-as-user", deployer(), "--kube-as-group", GROUP]
 
 
 class Kube:

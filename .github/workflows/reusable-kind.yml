@@ -19,9 +19,11 @@ jobs:
   kind:
     name: Kind (${{ matrix.leg }})
     runs-on: ubuntu-24.04
-    # The floor leg's steps take about 22 minutes on a workstation (the cluster
-    # and the base-to-HEAD deploy 5, the shutdown check 3, the migration lifecycle 15), so 60 leaves
-    # more than twice that for a slower runner, its cold tool, image and environment installs.
+    # The floor leg's steps take about 23 minutes on a workstation (the cluster
+    # and the base-to-HEAD deploy 5, the shutdown check 4 with its limit upgrade and rollback, the
+    # migration lifecycle 15), so 60 leaves more than twice that for a slower runner, its cold tool,
+    # image and environment installs. The newest leg runs the browser, tracing, Redis, admission and
+    # ZAP steps instead of the migration lifecycle: about 21 minutes by those steps' own times.
     timeout-minutes: 60
     permissions:
       contents: read
@@ -98,10 +100,18 @@ jobs:
       - name: Frontend live suite (Playwright, public forward)
         if: matrix.leg == 'newest'
         run: make kind-e2e
+      # A real browser's CSP violation on the release (kind-deploy turns cspReporting on) reaches the
+      # backend's log through the frontend and the WAF (tests/k8s/test_csp_report.py; wiki/security.md,
+      # CSP Violation Reports). Newest leg, with Playwright: a few seconds once the browser is installed.
+      - name: CSP reports (a browser violation reaches the backend's log, public forward)
+        if: matrix.leg == 'newest'
+        timeout-minutes: 5
+        run: make kind-csp-report-test
       # What it proves: a Pod deletion under load fails no request, through the Service and through the
-      # WAF, on each Kubernetes version (what the legs differ in). Not that the shutdown settings are
-      # needed: see wiki/infrastructure.md, "The shutdown check". Every leg runs it, about three minutes
-      # each, so a flaky run has two chances to fail the job.
+      # WAF (reads and writes), on each Kubernetes version (what the legs differ in). Not that the shutdown
+      # settings are needed: see wiki/infrastructure.md, "The shutdown check". Every leg runs it, about
+      # four minutes each (its rate-limit upgrade and rollback included), so a flaky run has two
+      # chances to fail the job.
       - name: Graceful shutdown (backend, frontend and backend-behind-WAF Pods deleted under load, no request fails)
         run: make kind-shutdown-test
       # The migration lifecycle (tests/k8s/test_migrations.py; wiki/database.md, "Proven on kind") on a
@@ -124,6 +134,15 @@ jobs:
         if: matrix.leg == 'newest'
         timeout-minutes: 10
         run: make kind-admission-test
+      # Tracing to a throwaway collector and the rate limit in a throwaway Redis, both through the
+      # backend's NetworkPolicy (tests/k8s/test_tracing_redis.py; wiki/backend-architecture.md,
+      # Tracing, and wiki/security.md, Backend Rate Limiting), on a release and namespaces of its own, removed by the test, so it runs after the steps
+      # that need the main release. Newest leg only (about two minutes): NetworkPolicy is the CNI's and
+      # the version does not change it, and the floor leg carries the migration lifecycle.
+      - name: Tracing and Redis (own release; spans to a collector, the limit shared in Redis, both through the NetworkPolicy)
+        if: matrix.leg == 'newest'
+        timeout-minutes: 10
+        run: make kind-tracing-redis-test
       # Advisory, last: findings and tool errors warn and never fail the job (continue-on-error and a
       # verdict that exits 0), and its spider uses up the per-client rate limit for a minute, so no
       # blocking step runs after it. infra/security/local/scan-dast.sh with dast.yml's pinned image; the
@@ -171,6 +190,12 @@ jobs:
           "${kubectl_pin}" --kubeconfig .local/kind/kubeconfig logs -n fst-kyverno deploy/kyverno-admission-controller \
             -c kyverno --tail=200 2>/dev/null || true
           "${kubectl_pin}" --kubeconfig .local/kind/kubeconfig get imagevalidatingpolicies -o yaml 2>/dev/null || true
+          # The tracing and Redis test's collector and Redis, if it left them (it prints both itself
+          # before its cleanup when one of its tests fails).
+          for deploy in fst-otel-collector fst-redis; do
+            "${kubectl_pin}" --kubeconfig .local/kind/kubeconfig logs -n your-service-name-feat-local "deploy/${deploy}" \
+              --tail=200 2>/dev/null || true
+          done
           # The port-forwards' logs (scripts/ci/kind-forward.sh), one file per Service and run (<name>-<pid>.log).
           for log in "${RUNNER_TEMP}"/kind-forward/*.log; do
             if [[ -f "${log}" ]]; then echo "--- ${log}"; tail -n 100 "${log}"; fi

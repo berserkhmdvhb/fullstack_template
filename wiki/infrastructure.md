@@ -386,7 +386,9 @@ on both legs: `scripts/kind-up.sh --node <leg>`, then `scripts/kind-deploy.sh --
 request's base commit>`, the scripts `make kind-up` and `make kind-deploy` run, then
 `make kind-shutdown-test` ([graceful shutdown](#workloads-rollout-resources-and-shutdown)), and on the floor leg
 `make kind-migration-test` ([the migration lifecycle](./database.md#proven-on-kind)), and on the newest leg
-`make kind-admission-test` ([the admission policy](./admission-control.md#proven-on-kind)). It always deletes the
+`make kind-admission-test` ([the admission policy](./admission-control.md#proven-on-kind)) and
+`make kind-tracing-redis-test` ([tracing](./backend-architecture.md#tracing) and
+[the Redis rate limit](./security.md#backend-rate-limiting), on a release of its own). It always deletes the
 cluster at the end, and on a failure prints the cluster's state with the leg's own kubectl. It is
 blocking, behind `CI OK`.
 
@@ -402,6 +404,9 @@ and the frontend is the edge that serves the pages and proxies the API through t
   it starts its own server from a local build.
 - `make kind-smoke`, both legs: [the smoke test](../scripts/smoke-test.sh) of the API through the public edge.
 - `make kind-e2e`, newest leg only: the frontend's Playwright suite in a browser, through the public edge.
+- `make kind-csp-report-test`, newest leg only: a browser's CSP violation report reaches the backend's log
+  through the public edge ([CSP Violation Reports](./security.md#csp-violation-reports)); the deploy's WAF
+  upgrade turns `cspReporting.enabled` on for it.
 - `make kind-zap`, newest leg only, advisory, after the shutdown check: a ZAP baseline of the public edge
   ([Security](./security.md#runtime-application-protection-dast--waf)). Findings and tool errors warn, the
   report is the `kind-dast` artifact, and it runs last because its spider uses up the per-client rate limit
@@ -466,22 +471,30 @@ connection, and the WAF's two or three upstream connections can all land on the 
 first ready Pod has none, the other is deleted instead; if neither has, the run fails as inconclusive. A connection the server closes
 cleanly is replaced; a refused or reset one, a 5xx answer or a timeout fails the test, as do too few
 answers (every answer below 500 counts, 429 included) before the delete or after the Pod was gone,
-and a Pod never seen Terminating. The load Pod is the release's [`helm test`](#local-cluster-kind)
+and a Pod never seen Terminating. Through the WAF the load Pod also sends `POST`s (5 a second, each a new
+item with a unique name, over two keep-alive connections) to the API route, which the WAF sends to its writes
+cluster (`upstream_writes`): a write answered with a 5xx, reset or timed out fails the test, and the failure
+names the write and whether the backend stored it anyway (looked up by name after the load). For its run
+the test raises the backend's `RATE_LIMIT_DEFAULT` (`SHUTDOWN_TEST_RATE_LIMIT`, `100000/minute`) with a
+`helm upgrade --reuse-values` as the deployer and rolls the release back after; the shipped values keep the
+default. The load Pod is the release's [`helm test`](#local-cluster-kind)
 Job's Pod (the backend image, restricted), admitted by the same two test NetworkPolicies, applied for
 the test's duration and deleted after. It needs `kubectl exec` (it reads the Pods' sockets), so it runs
 with the kind cluster's admin kubeconfig: the deployer role cannot exec. `make test` never collects `tests/k8s`.
 
 What it proves on kind: no `GET` fails across a normal Pod deletion, through the Service and
-through the WAF, with keep-alive clients. Its WAF case found Envoy reusing a connection the backend
-was closing; `GET` is resent on that reset and writes take their own path through the WAF
-([the WAF's upstream](./security.md#runtime-application-protection-dast--waf)), which this check
-does not send. Under kind's default rate limit about 70 to 75% of the backend and WAF answers are the
-limiter's `429`s; they count as answered (the Pod served them). What it cannot prove there: that the shutdown settings
+through the WAF, with keep-alive clients, and no `POST` fails through the WAF's writes cluster. Its WAF
+case found Envoy reusing a connection the backend was closing; `GET` is resent on that reset and writes
+take their own path ([the WAF's upstream](./security.md#runtime-application-protection-dast--waf)). With
+the raised limit every answer is the backend's own: in our runs 800 of 800 reads answered `200` in each
+case and 200 of 200 writes `201`, no `429` (under the default limit 70 to 75% of the answers were the
+limiter's `429`s). What it cannot prove there: that the shutdown settings
 above are needed. On a one-node kind cluster the endpoint leaves the Service before the process stops
 accepting, so the test passed with the settings at their schema minimums, with the `preStop` hook
 removed, and even with the Pod force-deleted (`--grace-period=0 --force`). The `preStop` margin covers
 the endpoint-propagation lag of multi-node clusters and external load balancers, which kind does not
-have. So keep the settings and reason about them for each platform; a change to them must also keep
+have. The same holds for the writes: with the writes cluster pooled like the reads' (no
+`max_requests_per_connection: 1`), no write failed in our runs either. So keep the settings and reason about them for each platform; a change to them must also keep
 this check green.
 
 **Kubernetes version.** The chart's `kubeVersion` is 1.34 or later, a tested floor: the kind job

@@ -246,6 +246,7 @@ def test_the_drift_note_covers_the_crd_sources() -> None:
 
 
 ADMISSION_IMAGE_FILES = ("deploy/policies/test/kyverno-values.yaml", "tests/k8s/test_admission.py")
+KIND_IMAGE_FILES = (*ADMISSION_IMAGE_FILES, "tests/k8s/test_tracing_redis.py")
 
 
 def _file_managers(rel: str) -> list[dict[str, Any]]:
@@ -257,8 +258,8 @@ def _file_managers(rel: str) -> list[dict[str, Any]]:
     ]
 
 
-@pytest.mark.parametrize("rel", ADMISSION_IMAGE_FILES)
-def test_every_image_digest_of_the_kind_admission_test_is_seen_by_one_manager(rel: str) -> None:
+@pytest.mark.parametrize("rel", KIND_IMAGE_FILES)
+def test_every_image_digest_of_the_kind_tests_is_seen_by_one_manager(rel: str) -> None:
     """Each pinned digest is matched once, with its tag, so a tag never moves without its digest."""
     text = (ROOT / rel).read_text(encoding="utf-8")
     digests = re.findall(r"sha256:[a-f0-9]{64}", text)

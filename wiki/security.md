@@ -311,6 +311,15 @@ without the URL in the message. In the chart the URL comes from the app Secret (
 `secrets.existingSecret`), never from `config:`; allow the egress to Redis (port 6379) with
 `backend.networkPolicy.extraEgress`.
 
+**Proven on kind.** `make kind-tracing-redis-test` (see [Tracing](backend-architecture.md#tracing))
+also runs the limit in a throwaway Redis, the URL in the app Secret and the egress through
+`extraEgress`: requests alternating over two backend Pods together get exactly the one limit
+(`memory://` lets each Pod count its own, and the test fails); with Redis scaled to zero they are
+all answered `200`, and once it is back the limit applies again (each Pod's first request after the
+return still fails open, while redis-py replaces its connection to the old Redis Pod). That release
+runs `ENV: development` (values.local.yaml), so the production refusal of plaintext `redis://` does
+not apply; in production use `rediss://`.
+
 **Fail open.** A Redis error, or a call slower than `RATE_LIMIT_STORAGE_TIMEOUT_SECONDS`, allows the
 request and logs a warning (the exception type only) at most once a minute: an outage of the
 limiter must not take the API down. While Redis is unreachable a request can wait up to the timeout
@@ -373,6 +382,18 @@ not API: it is not in the OpenAPI document, takes no authentication (browsers se
 - **The backend's `/docs`.** It sets its own CSP (`api/docs_page.py`), so with `CSP_REPORT_ENABLED` on the
   backend adds the same `report-uri`, `report-to` and `Reporting-Endpoints` to the docs page and its init
   script. Off, they carry the plain CSP.
+- **Through the WAF.** CRS refuses both report content types (rule 920420) and scores a report's body
+  (the page's policy and URLs: `data:`, `http://...`) as XSS and SSRF, so with the WAF on every report
+  was a 403. With `cspReporting.enabled` the WAF's report route alone accepts exactly those two content
+  types and does not inspect the body (`templates/waf-proxy.yaml`); the backend reads it as hostile
+  input (above).
+- **Proven on kind.** `make kind-csp-report-test` (`tests/k8s/test_csp_report.py`, the kind job's newest
+  leg; `make kind-deploy` turns `cspReporting.enabled` on) has Chromium load a page of the built frontend,
+  injects an inline script without the nonce, and finds the backend's warning for that violation, sent
+  through the frontend and the WAF. Chromium under Playwright never delivered `report-to` reports (they
+  stayed queued), so the spec (`frontend/e2e/csp-report.spec.ts`) drops `report-to` from the page's
+  response in the browser after checking the release sent it, and the report goes through `report-uri`;
+  the `report-to` delivery is not proven.
 
 ---
 
@@ -750,10 +771,10 @@ operational steps in
   socket in `TIME_WAIT` on the WAF Pod for about a minute after each, so at tens of thousands of
   writes a minute scale the WAF out before it runs out of ephemeral ports. Envoy runs at most three
   retries per cluster at once (its default circuit breaker); a reset beyond that is still a `503`.
-  A one-off measurement on kind, not a CI check: `POST`s through the WAF during a backend Pod
-  deletion failed none in 8 runs (up to 200 requests a second), but most answers were the rate
-  limiter's `429`s (a few hundred writes reached the backend per run), and the deleted Pod was not
-  checked for load connections. The shutdown check in CI sends `GET`s only. The comments and routes are in `templates/waf-proxy.yaml`; the policies:
+  The [shutdown check](./infrastructure.md#workloads-rollout-resources-and-shutdown) sends `POST`s
+  through the WAF during a backend Pod deletion (with the limit raised for its run, so they reach
+  the backend) and fails on any write answered with a 5xx or reset; it cannot show that the writes
+  cluster is needed on one-node kind (the same section says why). The comments and routes are in `templates/waf-proxy.yaml`; the policies:
   [Envoy's retry conditions](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/router_filter#x-envoy-retry-on).
   The [shutdown check](./infrastructure.md#workloads-rollout-resources-and-shutdown) found it.
   CRS lets through only the methods in `waf.allowedMethods` (its `tx.allowed_methods`, rule 911100;

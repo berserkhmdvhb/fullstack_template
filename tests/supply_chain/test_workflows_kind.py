@@ -184,6 +184,10 @@ SUITES = {
     "Live suites (backend and public forwards)": ("make kind-live", None),
     "Smoke test (public forward)": ("make kind-smoke", None),
     "Frontend live suite (Playwright, public forward)": ("make kind-e2e", "matrix.leg == 'newest'"),
+    "CSP reports (a browser violation reaches the backend's log, public forward)": (
+        "make kind-csp-report-test",
+        "matrix.leg == 'newest'",
+    ),
 }
 ZAP = "ZAP baseline (advisory, public forward)"
 SHUTDOWN = next(n for n in _names() if n.startswith("Graceful shutdown"))
@@ -307,3 +311,36 @@ def test_the_admission_tests_signing_has_no_identity_login_or_secret() -> None:
     assert "127.0.0.1" in test  # pushes and signs through the loopback only
     rules = (REPO / "CONVENTIONS.md").read_text(encoding="utf-8")
     assert "wiki/admission-control.md#proven-on-kind" in rules
+
+
+def _recipe(target: str) -> str:
+    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+    return makefile.split(f"\n{target}:\n", 1)[1].split("\n\n", 1)[0]
+
+
+def test_the_csp_report_test_runs_after_playwright_is_installed_with_its_own_timeout() -> None:
+    names = _names()
+    name = next(n for n in names if n.startswith("CSP reports"))
+    assert names.index("Install the Playwright browser") < names.index(name)
+    assert "timeout-minutes" in _step(name)
+    assert "tests/k8s/test_csp_report.py" in _recipe("kind-csp-report-test")
+    script = (REPO / "scripts" / "kind-deploy.sh").read_text(encoding="utf-8")
+    assert 'deploy "$CHART" --set waf.enabled=true --set cspReporting.enabled=true' in script
+
+
+def test_the_tracing_and_redis_test_runs_on_the_newest_leg_after_the_shutdown_check() -> None:
+    """Blocking, after the steps that check the main release, before ZAP; its own make target, its
+    own timeout, and its collector's and Redis's logs in the failure dump."""
+    names = _names()
+    name = next(n for n in names if n.startswith("Tracing and Redis"))
+    step = _step(name)
+    assert step["run"] == "make kind-tracing-redis-test"
+    assert step["if"] == "matrix.leg == 'newest'"
+    assert "continue-on-error" not in step
+    assert "timeout-minutes" in step
+    assert set(step) <= {"name", "if", "timeout-minutes", "run"}, step  # no env, no secret
+    assert names.index(SHUTDOWN) < names.index(name) < names.index(ZAP)
+    assert "tests/k8s/test_tracing_redis.py" in _recipe("kind-tracing-redis-test")
+    dump = _step("Show the cluster state")["run"]
+    assert "fst-otel-collector fst-redis" in dump
+    assert "-n your-service-name-feat-local" in dump

@@ -38,7 +38,7 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.k8s._kube import CONTEXT, KUBECONFIG, ROOT, Kube, _run, _tool
+from tests.k8s._kube import CONTEXT, GROUP, KUBECONFIG, ROOT, Kube, _run, _tool, deployer
 from tests.k8s._kube import NAMESPACE as MAIN_NAMESPACE
 from tests.k8s._kube import RELEASE as MAIN_RELEASE
 from your_service_name.backend.db import schema
@@ -52,7 +52,6 @@ DB_NAMESPACE = f"{NAMESPACE}-db"
 DB_POD = f"{RELEASE}-postgresql-0"
 DB_HOST = f"{RELEASE}-postgresql.{DB_NAMESPACE}.svc.cluster.local"
 BACKEND = f"{RELEASE}-backend"
-GROUP = "system:authenticated"
 JOB_PREFIX = f"{RELEASE}-migrate-r"
 FAKE_AHEAD = "9999_from_a_newer_release"
 # The timeouts this release sets through the chart (config.*: the ConfigMap and the migration Job).
@@ -174,15 +173,6 @@ DEPLOY_ENV = ROOT / "scripts" / "ci" / "deploy-env.sh"
 # ---- The cluster, the identities and the deploy -------------------------------------------------
 
 
-def _deployer() -> str:
-    boot = ROOT / "infra" / "k8s" / "bootstrap"
-    name = ""
-    for f in ("values.yaml", "values.local.yaml"):
-        name = (yaml.safe_load((boot / f).read_text()) or {}).get("deployer", {}).get("name", name)
-    assert name, "no deployer name in infra/k8s/bootstrap"
-    return name
-
-
 class Cluster:
     """kubectl on the two namespaces, helm as the deployer, and the deploy kind-deploy.sh runs."""
 
@@ -190,7 +180,7 @@ class Cluster:
         self.app, self.db = Kube(NAMESPACE), Kube(DB_NAMESPACE)
         self.kubectl = self.app.base[0]
         self.cluster_wide = self.app.base[:-2]  # without -n, for the bootstrap's objects
-        self.deployer = _deployer()
+        self.deployer = deployer()
         helm = [_tool("helm"), "--kubeconfig", str(KUBECONFIG), "--kube-context", CONTEXT]
         self.helm_admin = helm
         self.helm = [*helm, "--kube-as-user", self.deployer, "--kube-as-group", GROUP]

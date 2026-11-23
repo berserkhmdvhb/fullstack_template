@@ -15,7 +15,8 @@
     dev-tools-list dev-tools-outdated dev-tools-upgrade version-check- \
     k8s-apply k8s-delete k8s-build k8s-status k8s-pods k8s-services k8s-port-forward \
     k8s-wait k8s-logs k8s-port-forward-all deploy rebuild-and-roll smoke-test \
-    kind-up kind-deploy kind-down kind-shutdown-test kind-migration-test kind-admission-test kind-live kind-smoke kind-e2e kind-zap \
+    kind-up kind-deploy kind-down kind-shutdown-test kind-migration-test kind-admission-test \
+    kind-tracing-redis-test kind-csp-report-test kind-live kind-smoke kind-e2e kind-zap \
     secrets db-backup certs \
     security-local security-build security-tools \
     security-sbom security-vuln security-license security-malware security-iac security-k8s security-dast security-vex security-audit \
@@ -147,6 +148,8 @@ help::
 	@echo "  kind-shutdown-test       Delete a backend and a frontend Pod under load on fst: no request may fail"
 	@echo "  kind-migration-test      The migration lifecycle on fst (install, upgrade, rollbacks, failures, TLS)"
 	@echo "  kind-admission-test      The image admission policy on fst: signed and attested admitted, the rest denied"
+	@echo "  kind-tracing-redis-test  Spans to a collector and the rate limit in Redis, through the NetworkPolicy, on fst"
+	@echo "  kind-csp-report-test     A browser CSP violation on the release reaches the backend's log (Playwright)"
 	@echo "  kind-live                The live suites against the release on fst (port-forwards as the deployer)"
 	@echo "  kind-smoke               The smoke test against the release's public forward on fst"
 	@echo "  kind-e2e                 The frontend's Playwright suite against the release's public forward on fst"
@@ -632,6 +635,16 @@ kind-migration-test:
 # ephemeral keys and a throwaway registry, all of its own (wiki/admission-control.md, Proven on kind).
 kind-admission-test:
 	$(PYTHON) -m pytest tests/k8s/test_admission.py -o addopts="" -v -s
+
+# After kind-deploy: tests/k8s/test_tracing_redis.py, on a release of its own with a throwaway
+# collector and Redis (wiki/backend-architecture.md, Tracing; wiki/security.md, Backend Rate Limiting).
+kind-tracing-redis-test:
+	$(PYTHON) -m pytest tests/k8s/test_tracing_redis.py -o addopts="" -v -s
+
+# After kind-deploy and the frontend's Playwright install: tests/k8s/test_csp_report.py (it runs
+# frontend/e2e/csp-report.spec.ts through scripts/ci/kind-forward.sh; wiki/security.md, CSP Violation Reports).
+kind-csp-report-test:
+	$(PYTHON) -m pytest tests/k8s/test_csp_report.py -o addopts="" -v -s
 
 # After kind-deploy: the suites against the release, through scripts/ci/kind-forward.sh (it starts the
 # port-forwards, exports the URLs, runs the command, stops them). kind-zap is advisory: findings exit 0.

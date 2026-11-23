@@ -142,14 +142,18 @@
       "datasourceTemplate": "docker"
     },
     {
-      // The kind admission test's images, each under a `# renovate: image=<name>` line: the Kyverno images in
-      // deploy/policies/test/kyverno-values.yaml (the chart takes `tag: <tag>@<digest>`) and the throwaway
-      // registry in tests/k8s/test_admission.py.
+      // The kind tests' throwaway images, each under a `# renovate: image=<name>` line: the Kyverno images in
+      // deploy/policies/test/kyverno-values.yaml (the chart takes `tag: <tag>@<digest>`), the registry in
+      // tests/k8s/test_admission.py, and the collector and Redis in tests/k8s/test_tracing_redis.py (`<NAME>_TAG = `).
       "customType": "regex",
-      "description": "Annotated image tags and digests of the kind admission test",
-      "managerFilePatterns": ["/^deploy/policies/test/kyverno-values\\.yaml$/", "/^tests/k8s/test_admission\\.py$/"],
+      "description": "Annotated image tags and digests of the kind tests",
+      "managerFilePatterns": [
+        "/^deploy/policies/test/kyverno-values\\.yaml$/",
+        "/^tests/k8s/test_admission\\.py$/",
+        "/^tests/k8s/test_tracing_redis\\.py$/"
+      ],
       "matchStrings": [
-        "# renovate: image=(?<depName>[^\\s]+)[^\\n]*\\n\\s*(?:tag: |REGISTRY_TAG = )\"(?<currentValue>[^@\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+        "# renovate: image=(?<depName>[^\\s]+)[^\\n]*\\n\\s*(?:tag: |[A-Z]+_TAG = )\"(?<currentValue>[^@\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
       ],
       "datasourceTemplate": "docker"
     }
