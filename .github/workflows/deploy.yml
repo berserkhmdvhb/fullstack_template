@@ -6,7 +6,8 @@ name: Deploy
 # request can never reach them. Without a cluster (DEPLOY_ENABLED unset) the run stays green and a
 # notice says the deploys were skipped.
 # Per environment variables (set on the GitHub Environment): DEPLOY_MODE (gke or kubeconfig, default gke),
-# GCP_WIF_PROVIDER, GCP_DEPLOYER_SA, GCP_PROJECT_ID, GKE_CLUSTER, GKE_LOCATION, and the secret KUBECONFIG_B64.
+# GCP_WIF_PROVIDER, GCP_DEPLOYER_SA, GCP_PROJECT_ID, GKE_CLUSTER, GKE_LOCATION, DEPLOY_URL (the URL
+# the environment's deployment record links; optional), and the secret KUBECONFIG_B64.
 # Repository variables: DEPLOY_ENABLED, DEPLOY_ENVS (comma list without spaces, e.g. dev,qa,production;
 # unset means all), SERVICE_NAME (the Helm release name, default is the chart name), HELM_TIMEOUT (default 5m).
 on:
@@ -89,7 +90,10 @@ jobs:
     if: github.event_name == 'push' && inputs.digests != '' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    environment: dev
+    # The deployment record GitHub keeps per run links the environment variable DEPLOY_URL.
+    environment:
+      name: dev
+      url: ${{ vars.DEPLOY_URL }}
     concurrency:
       group: deploy-dev
       cancel-in-progress: false
@@ -146,7 +150,10 @@ jobs:
     if: ${{ !cancelled() && github.event_name == 'push' && inputs.digests != '' && vars.DEPLOY_ENABLED == 'true' && needs.deploy-dev.result == 'success' && (vars.DEPLOY_ENVS == '' || contains(format(',{0},', vars.DEPLOY_ENVS), ',qa,')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    environment: qa
+    # The deployment record GitHub keeps per run links the environment variable DEPLOY_URL.
+    environment:
+      name: qa
+      url: ${{ vars.DEPLOY_URL }}
     concurrency:
       group: deploy-qa
       cancel-in-progress: false
@@ -203,7 +210,10 @@ jobs:
     if: ${{ !cancelled() && github.event_name == 'push' && inputs.digests != '' && vars.DEPLOY_ENABLED == 'true' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v') && inputs.immutable == 'true' && needs.deploy-dev.result == 'success' && (needs.deploy-qa.result == 'success' || needs.deploy-qa.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    environment: production
+    # The deployment record GitHub keeps per run links the environment variable DEPLOY_URL.
+    environment:
+      name: production
+      url: ${{ vars.DEPLOY_URL }}
     concurrency:
       group: deploy-production
       cancel-in-progress: false

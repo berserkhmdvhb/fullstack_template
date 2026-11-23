@@ -444,3 +444,49 @@ def test_only_a_rollback_creates_a_deployment_record() -> None:
     env = _ops()["jobs"]["ops"]["environment"]
     assert env["name"] == "${{ inputs.environment }}"
     assert env["deployment"] == "${{ inputs.operation == 'rollback' }}"
+
+
+def test_each_deploy_job_records_its_deployment_with_the_environment_url() -> None:
+    """GitHub records a deployment per deploy job, with the URL of the environment variable
+    DEPLOY_URL (never a literal host) and the job's status; a rollback from deploy-ops does too."""
+    for name in DEPLOY_JOBS:
+        env = _jobs()[name]["environment"]
+        assert env == {"name": name.removeprefix("deploy-"), "url": "${{ vars.DEPLOY_URL }}"}
+    ops = _ops()["jobs"]["ops"]["environment"]
+    assert ops["url"] == "${{ vars.DEPLOY_URL }}"
+    assert ops["deployment"] == "${{ inputs.operation == 'rollback' }}"
+
+
+def test_the_deploy_jobs_install_the_pinned_helm_4_before_any_helm_call() -> None:
+    """The flags (--rollback-on-failure) are Helm 4's: the pin is Helm 4, checksum-pinned, and
+    each deploy job installs it, first on PATH, instead of a runner's preinstalled Helm."""
+    pins = (REPO / "tools" / "pins.tsv").read_text(encoding="utf-8")
+    assert re.search(r"^#default-helm: 4$", pins, re.MULTILINE)
+    row = re.search(
+        r"^helm4\t(4\.\d+\.\d+)\tlinux-amd64\t(\S+)\t([0-9a-f]{64})$", pins, re.MULTILINE
+    )
+    assert row, "no helm4 4.x row with a sha256 in tools/pins.tsv"
+    for name in DEPLOY_JOBS:
+        steps = _jobs()[name]["steps"]
+        runs = [s.get("run", "") for s in steps]
+        install = next(i for i, r in enumerate(runs) if "scripts/tools.sh install helm4" in r)
+        assert 'echo "$PWD/.tools/bin" >> "$GITHUB_PATH"' in runs[install]
+        deploy = next(i for i, r in enumerate(runs) if "deploy-env.sh" in r)
+        assert install < deploy
+        assert not any("setup-helm" in s.get("uses", "") for s in steps)
+    ops = steps_of(_ops())
+    assert any("scripts/tools.sh install helm4" in s.get("run", "") for s in ops)
+    assert not any("setup-helm" in s.get("uses", "") for s in ops)
+
+
+def test_no_workflow_can_take_the_kind_test_seam_of_the_deploy_script() -> None:
+    """DEPLOY_ENV=kind is test-only (tests/k8s/test_deploy_env.py): no workflow sets its flag or
+    the kind value, and the deploy jobs' DEPLOY_ENV is their own environment's name."""
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        assert "DEPLOY_ENV_KIND_TEST" not in text, path.name
+        assert not re.search(r"DEPLOY_ENV: *['\"]?kind", text), path.name
+        assert "KIND_VALUES" not in text, path.name
+    assert {_jobs()[n]["env"]["DEPLOY_ENV"] for n in DEPLOY_JOBS} == {"dev", "qa", "production"}
+    assert 'case "${DEPLOY_ENV}" in dev|qa|production) ;;' in str(_ops())
+    assert '[[ "${DEPLOY_ENV_KIND_TEST:-}" == 1 ]]' in SCRIPT

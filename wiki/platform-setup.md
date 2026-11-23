@@ -52,6 +52,7 @@ This is the single list. Every `vars.*` and `secrets.*` that a template workflow
 | `DEPLOY_ENABLED` | variable | repository | `true` turns deploys on; unset (the default) skips them, with a notice in the run summary. Set it only after the first successful `check` ([GKE §13.3](./gke-cluster-setup.md#133-the-first-check-deploy-ops-check)), and not before the platform rollout | you |
 | `DEPLOY_ENVS` | variable | repository | optional comma list without spaces, e.g. `dev,production`; leave `qa` out to skip it. Unset runs all three. `dev` and `production` always follow the chain rules | you |
 | `DEPLOY_MODE` | variable | environment | `gke` (the default, Workload Identity Federation) or `kubeconfig` (see below) | you |
+| `DEPLOY_URL` | variable | environment | optional: the URL the environment's deployment record links (its public app URL); GitHub shows it on the run and in the environment's deployment history, with each deploy's status ([Deploy chain](./ci-cd.md#deploy-chain)). Unset records the deployment without a link | you |
 | `KUBECONFIG_B64` | **secret** | environment, only for `DEPLOY_MODE=kubeconfig` | the base64 kubeconfig; the job decodes it into a 0600 file and deletes it | you |
 | `SERVICE_NAME` | variable | repository | the Helm release name (default: the chart name) **and** the namespace prefix: the app namespace is `<SERVICE_NAME>-<env>` | you |
 | `HELM_TIMEOUT` | variable | repository | optional: the Helm wait timeout (default `5m`) | you |
