@@ -80,7 +80,9 @@ async def test_every_table_the_restore_check_requires_is_one_the_migrations_crea
     (container,) = job["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]
     env = {e["name"]: e.get("value") for e in container["env"]}
     await run_migrations(Settings())
-    engine = create_async_engine(Settings().database_url)
+    url = Settings().database_url
+    assert url is not None, "the test database URL must be configured"
+    engine = create_async_engine(url)
     try:
         async with engine.connect() as conn:
             tables = set(await conn.run_sync(lambda c: inspect(c).get_table_names()))
