@@ -9,6 +9,16 @@ All notable changes to this project, following [Keep a Changelog](https://keepac
 <!-- Future changes accumulate here. When cutting a release, rename this heading to the
      version + date and open a fresh [Unreleased] above it (see wiki/releasing.md). -->
 
+### Upgrading
+
+The steps an existing release needs, gathered from the entries below (each links the section that holds it):
+
+- **Re-run `scripts/k8s-bootstrap.sh <env>` before the next deploy.** The deployer Role in the database namespace gains `configmaps` (the restore check's ConfigMap; [Added](#added), "The weekly restore check fails when the restore is wrong"). With `monitoring.flavour: gmp`, the same re-run applies the new cluster alerts' `ClusterRules`, which the deploy never renders ([Added](#added), "New alerts, and a runbook link on every alert").
+- **Set `monitoring.runbookUrl` to your repository's runbook before production** (then re-run the bootstrap for gmp): the production render refuses the placeholder ([Added](#added), "New alerts, and a runbook link on every alert").
+- **Expect two new `critical` SLO alerts on upgrade** wherever the rules render; tune `monitoring.slo`, or opt out with `monitoring.slo.enabled: false` ([Added](#added), "Service level objectives").
+- **Queries over the labelled latency histogram see new `le` series** ([Changed](#changed), "The backend's labelled latency histogram has new buckets").
+- **`HighErrorRate` no longer counts the probe and scrape handlers** ([Changed](#changed), "`HighErrorRate` leaves out the probe and scrape handlers").
+
 ### Security
 - **glibc CVE-2026-19499 and CVE-2026-5435 (High) are fixed in all three images, before their distroless bases ship the fix.** Debian fixed them, with twelve Medium and Low glibc CVEs, in `2.41-12+deb13u5`, but no distroless Debian 13 base had been rebuilt with it, so the blocking Grype gate failed on every image. Each Dockerfile now has a `debian-fixes` stage: `DEBIAN_FIXES` lists `<package>=<version>` fixes, `scripts/docker/debian-fixes.sh` downloads them from the Debian archive (checked against its signed indices) and unpacks them with their dpkg records, and the runtime stage copies them over the base, so the image and its SBOM carry the fixed glibc. The build refuses an entry the base already has, so a fix is removed when Renovate moves the base digest past it and never downgrades the base. **Nothing to do when adopting**; when a Renovate base-digest pull request fails with "the base already ships", delete the entry it names. See [Containerization](./containerization.md#debian-fixes-the-base-has-not-shipped-yet).
 
