@@ -10,6 +10,8 @@ import urllib.request
 from fastapi.testclient import TestClient
 from prometheus_client import REGISTRY, generate_latest, start_http_server
 
+from your_service_name import __version__
+from your_service_name.backend.build_info import BUILD_INFO_METRIC
 from your_service_name.backend.main import LATENCY_BUCKETS, create_app
 
 
@@ -41,6 +43,8 @@ def test_the_metrics_server_answers_on_its_port_and_the_api_app_does_not() -> No
     # A sample from start, not only its HELP line: the dashboards' variables list its labels.
     assert re.search(r"^rate_limit_rejections_total \d", body, re.MULTILINE)
     assert "rate_limit_storage_failures_total" in body
+    # The service's own info metric, from start, value 1, the package version as its only label.
+    assert f'{BUILD_INFO_METRIC}{{version="{__version__}"}} 1.0' in body
     for name in (
         "db_pool_size",
         "db_pool_checked_out",

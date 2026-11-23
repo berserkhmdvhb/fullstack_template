@@ -24,6 +24,7 @@ import yaml
 
 from tests.backend.test_chart_pod_security import render
 from tests.backend.test_chart_production_guard import CHART, ROOT, find_helm, require_helm
+from your_service_name.backend.build_info import BUILD_INFO_METRIC
 
 DASHBOARDS = CHART / "dashboards"
 RUNBOOK = ROOT / "wiki" / "operations-runbook.md"
@@ -56,12 +57,13 @@ GRAFANA_VARS = {
     "namespace": "app",
     "cluster": ".*",
 }
-# The variables list the clusters and namespaces of a series every backend exports from start (a
-# label-less counter, at 0): a job name would follow the release's name (fullnameOverride and
-# nameOverride change it) and leave every dashboard empty.
+# The variables list the clusters and namespaces of the service's own info metric (served from
+# start, named with the service name): a job name would follow the release's name (fullnameOverride
+# and nameOverride change it), and a series every service built from the template exports would
+# list another service's namespaces under this one's title.
 VARIABLE_QUERIES = {
-    "cluster": "label_values(rate_limit_rejections_total, cluster)",
-    "namespace": 'label_values(rate_limit_rejections_total{cluster=~"$cluster"}, namespace)',
+    "cluster": f"label_values({BUILD_INFO_METRIC}, cluster)",
+    "namespace": f'label_values({BUILD_INFO_METRIC}{{cluster=~"$cluster"}}, namespace)',
 }
 # A regex with a backslash: the replacement must escape it for JSON, and PromQL must read it back.
 BACKSLASH_EXCLUDE = r".*/(health|healthz|readyz|livez|metrics)$|^/static/.*\.map$"
@@ -422,3 +424,14 @@ def test_the_configmap_holds_every_dashboard_with_the_regex_in_place(helm: str) 
         for p in DASHBOARDS.glob("*.json")
     }
     assert cm["data"] == files
+
+
+@pytest.mark.parametrize("name", sorted(UIDS))
+def test_the_variables_key_on_the_services_own_info_metric(name: str) -> None:
+    """Not on a series every service built from the template exports."""
+    assert BUILD_INFO_METRIC.endswith("_build_info")
+    assert re.fullmatch(r"[a-zA-Z_:][a-zA-Z0-9_:]*", BUILD_INFO_METRIC)
+    for var in ("cluster", "namespace"):
+        query = _variables(_load(DASHBOARDS)[name])[var]["query"]
+        assert query.count(BUILD_INFO_METRIC) == 1, (name, var)
+        assert "rate_limit_rejections_total" not in query, (name, var)

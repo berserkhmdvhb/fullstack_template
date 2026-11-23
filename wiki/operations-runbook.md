@@ -255,6 +255,7 @@ The backend serves these on the metrics port (`METRICS_PORT`, default registry, 
 - `http_request_duration_highr_seconds` — latency histogram, no labels, 21 buckets (0.01 s to 60 s), for percentiles.
 - `http_request_size_bytes{handler}` / `http_response_size_bytes{handler}` — Summaries of the `Content-Length` header values (count and sum only).
 - `process_*` and `python_*` — the Prometheus client's default process and runtime series (CPU, memory, file descriptors, GC).
+- `your_service_name_build_info{version}` — constant 1 from start; `version` is the package version (the Git tag). The dashboards' variables list its labels.
 - `rate_limit_rejections_total` — requests answered 429 by the default per-IP limit (the CSP report limit is not counted).
 - `rate_limit_storage_failures_total{reason}` — limiter storage failures let through (fail open; `error|timeout`).
 - `db_pool_size` — configured pool size.
@@ -342,8 +343,11 @@ keys, documented with their defaults in [`values.yaml`](../charts/your-service-n
   the deploy fails with "configmaps is forbidden".
 - **Variables.** `datasource` (a Prometheus data source), `cluster` (All by default; a series without a
   `cluster` label matches All, so GMP's multi-cluster data is not summed when you pick one) and
-  `namespace` (the namespaces where the backend exports `rate_limit_rejections_total`, a counter it
-  serves at 0 from start, so the list does not depend on the release's or the scrape job's name).
+  `namespace` (the namespaces where the backend exports `your_service_name_build_info`, a gauge it
+  serves at 1 from start, so the list does not depend on the release's or the scrape job's name). The
+  metric is named with the service name, so two services on one Prometheus each list only their own
+  namespaces: a series every service built from the template exports would list another service's
+  namespaces under this one's title.
 - **What the chart fills in.** The probe and scrape handlers are left out as the SLOs leave them out: the
   render writes `monitoring.slo.excludeHandlers` into the queries. The SLO dashboard divides by the
   release's own objective, recorded as `slo:objective:ratio{namespace, slo}`, so it is right in every

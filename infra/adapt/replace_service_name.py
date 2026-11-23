@@ -266,6 +266,8 @@ def _patterns_python_paths(cfg: ServiceNameConfig) -> list[tuple[re.Pattern[str]
     pats.append((re.compile(rf"src/{re.escape(old)}/"), f"src/{new}/"))
     # Pattern for __version__ = _pkg_version("your_service_name")
     pats.append((re.compile(rf'_pkg_version\("{re.escape(old)}"\)'), f'_pkg_version("{new}")'))
+    # The info metric (a Prometheus name: the dashboards' variables and the backend collector).
+    pats.append((re.compile(rf"\b{re.escape(old)}_build_info\b"), f"{new}_build_info"))
     return pats
 
 

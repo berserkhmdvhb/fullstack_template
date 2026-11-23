@@ -7,6 +7,7 @@ adapter must return the manifest unchanged except for the renamed package name: 
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -121,3 +122,36 @@ def test_a_blank_line_inside_the_images_block_is_refused_clearly(tmp_path: Path)
     assert proc.returncode != 0
     assert "blank line" in proc.stderr
     assert (tmp_path / MANIFEST).read_text(encoding="utf-8") == text
+
+
+def test_the_info_metric_is_renamed_in_the_dashboards_the_collector_and_the_runbook(
+    tmp_path: Path,
+) -> None:
+    """The dashboards' variables and the collector name the adapted metric (a valid metric name)."""
+    files = [
+        *(
+            p.relative_to(REPO)
+            for p in (REPO / "charts/your-service-name/dashboards").glob("*.json")
+        ),
+        Path("src/your_service_name/backend/build_info.py"),
+        Path("wiki/operations-runbook.md"),
+    ]
+    for rel in files:
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(REPO / rel, tmp_path / rel)
+    _adapt(tmp_path)
+    metric = "acme_build_info"
+    assert re.fullmatch(r"[a-zA-Z_:][a-zA-Z0-9_:]*", metric)
+    adapted = [p for p in tmp_path.rglob("*") if p.is_file() and ".adapt-backup" not in p.parts]
+    names = {p.name for p in adapted}
+    assert {f.name for f in files} <= names, "the files kept their names"
+    for path in adapted:
+        if path.name == "operations-runbook.md":
+            # wiki/ is in excludes.txt: the template's docs keep the placeholder (as for every uid).
+            assert "your_service_name_build_info" in path.read_text(encoding="utf-8")
+        elif path.name in {f.name for f in files}:
+            text = path.read_text(encoding="utf-8")
+            assert "your_service_name_build_info" not in text, path
+            assert metric in text, path
+        if path.name == "build_info.py":
+            assert f'BUILD_INFO_METRIC: Final = "{metric}"' in path.read_text(encoding="utf-8")

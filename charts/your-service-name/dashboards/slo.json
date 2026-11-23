@@ -28,8 +28,8 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "query": "label_values(rate_limit_rejections_total, cluster)",
-        "definition": "label_values(rate_limit_rejections_total, cluster)",
+        "query": "label_values(your_service_name_build_info, cluster)",
+        "definition": "label_values(your_service_name_build_info, cluster)",
         "refresh": 2,
         "sort": 1,
         "includeAll": true,
@@ -48,8 +48,8 @@
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "query": "label_values(rate_limit_rejections_total{cluster=~\"$cluster\"}, namespace)",
-        "definition": "label_values(rate_limit_rejections_total{cluster=~\"$cluster\"}, namespace)",
+        "query": "label_values(your_service_name_build_info{cluster=~\"$cluster\"}, namespace)",
+        "definition": "label_values(your_service_name_build_info{cluster=~\"$cluster\"}, namespace)",
         "refresh": 2,
         "sort": 1
       }

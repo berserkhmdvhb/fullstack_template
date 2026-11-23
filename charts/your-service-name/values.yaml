@@ -659,8 +659,9 @@ monitoring:
       # templates/_helpers.tpl; the list is in wiki/operations-runbook.md#prometheus-metrics); the
       # render fails otherwise.
       thresholdSeconds: 0.5
-    # Handlers left out of both SLIs (a PromQL regex on the handler label): probes and scrapes are
-    # not user traffic. /api/v1/health is the readiness probe, /api/v1/healthz the liveness probe.
+    # Handlers left out of both SLIs, of HighErrorRate and of the dashboards' queries (a PromQL
+    # regex on the handler label): probes and scrapes are not user traffic. /api/v1/health is the
+    # readiness probe, /api/v1/healthz the liveness probe.
     excludeHandlers: '.*/(health|healthz|readyz|livez|metrics)$'
   # Every alert's runbook_url is <runbookUrl>#<the alert's section>: one `### <AlertName>` per
   # alert under "Alerts" in wiki/operations-runbook.md. Point it at your repository's copy (the

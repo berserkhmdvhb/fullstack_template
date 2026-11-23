@@ -50,6 +50,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from your_service_name.backend.api import build_api_router
 from your_service_name.backend.api.routers.docs import build_docs_router
+from your_service_name.backend.build_info import BUILD_INFO  # noqa: F401 - registers the metric at import
 from your_service_name.backend.db import close_db
 from your_service_name.backend.errors import install_error_handling
 from your_service_name.backend.logging.correlation import RequestIdFilter
