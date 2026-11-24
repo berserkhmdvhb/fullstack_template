@@ -343,6 +343,8 @@ def test_the_registry_tests_have_no_identity_login_or_secret() -> None:
     assert published == ["127.0.0.1::5000"], published  # the registry on the loopback only
     rules = (REPO / "CONVENTIONS.md").read_text(encoding="utf-8")
     assert "wiki/admission-control.md#proven-on-kind" in rules
+    # The rule names this test as the list of the kind tests that push, rather than naming them.
+    assert "test_the_registry_tests_have_no_identity_login_or_secret" in rules
 
 
 def _recipe(target: str) -> str:

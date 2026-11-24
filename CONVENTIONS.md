@@ -92,10 +92,10 @@ the local daemon only, to check them: it holds a `contents: read` token and does
 secret or build cache. The rule covers the project's registries and its signing identity. A test job
 may push to a throwaway registry on the runner's loopback and sign there with a key the job generates,
 trusted only by a test policy in a cluster deleted when the job ends, with no `id-token`, no registry
-login and no secret, so nothing leaves the runner: the kind admission test does this
-([`wiki/admission-control.md`](wiki/admission-control.md#proven-on-kind)), and the kind deploy-script test
-pushes there, without signing, so the deploy script deploys by digest
-([`wiki/ci-cd.md`](wiki/ci-cd.md#proven-on-kind)). New supply-chain logic goes
+login and no secret, so nothing leaves the runner: the kind tests do this (only the admission test signs,
+[`wiki/admission-control.md`](wiki/admission-control.md#proven-on-kind)); which modules push is derived, not
+listed, by the guard test `test_the_registry_tests_have_no_identity_login_or_secret` in
+[`tests/supply_chain/test_workflows_kind.py`](tests/supply_chain/test_workflows_kind.py). New supply-chain logic goes
 under `infra/security/local/` — the eight shared `infra/security/*.sh` scripts are **frozen** (`_helpers.sh`, `sbom-generate.sh`,
 `scan-vulnerabilities.sh`, `scan-licenses.sh`, `generate-vex.sh`, `check-ci-hardening.sh`,
 `tools-install.sh`, `verify-image-digest.sh`; see
