@@ -1,8 +1,6 @@
 <!--
-Title: a Conventional Commit, `type(scope)!: subject` (the PR title check; the squash merge makes it the commit on
-main, and release-please reads it). Types: build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test.
-`!` marks a breaking change, and is required when the pull request carries the `breaking-change` label.
-See wiki/releasing.md, "Pull request titles".
+Title: a Conventional Commit (the PR title check; the squash merge makes it the commit on main, and release-please
+reads it). The allowed types and when `!` is required: wiki/releasing.md, "Pull request titles".
 -->
 
 ## What and why

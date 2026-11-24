@@ -87,6 +87,7 @@ echo
 echo "==> [2/2] Domain (${DOMAIN}) + registry (${REGISTRY})${REPOSITORY:+ + repository (${REPOSITORY})}…"
 stamp_args=( --domain "${DOMAIN}" --registry "${REGISTRY}" )
 [ -n "${REPOSITORY:-}" ] && stamp_args+=( --repository "${REPOSITORY}" )
+[ -n "${CODEOWNER:-}" ] && stamp_args+=( --codeowner "${CODEOWNER}" )
 python3 "${SCRIPT_DIR}/adopt_stamp.py" "${stamp_args[@]}" "${common_args[@]}"
 echo
 

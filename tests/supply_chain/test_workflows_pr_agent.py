@@ -39,15 +39,18 @@ def _if(key: str) -> str:
 def test_triggers_are_pull_request_and_comments_never_pull_request_target() -> None:
     on = _wf()["on"]
     assert set(on) == {"pull_request", "issue_comment"}
-    assert set(on["pull_request"]["types"]) == {
-        "opened", "reopened", "ready_for_review", "synchronize",
-    }  # fmt: skip
+    # No `synchronize`: PR-Agent ignores it while its push trigger is off (the default).
+    assert set(on["pull_request"]["types"]) == {"opened", "reopened", "ready_for_review"}
     assert on["issue_comment"]["types"] == ["created"]
     assert "pull_request_target" not in on
 
 
 def test_the_gate_is_off_unless_the_variable_is_true_and_the_review_needs_it() -> None:
-    assert _if("gate") == "vars.PR_AGENT_ENABLED == 'true'"
+    # The pre-filter: an ordinary comment starts no runner; the shell step stays the decision.
+    assert _if("gate") == (
+        "vars.PR_AGENT_ENABLED == 'true' && (github.event_name == 'pull_request' || "
+        "(github.event.issue.pull_request && startsWith(github.event.comment.body, '/')))"
+    )
     review = _job("review")
     assert review["needs"] == "gate"
     assert _if("review") == "needs.gate.outputs.run == 'true'"
@@ -64,6 +67,23 @@ def test_the_gate_holds_no_secret_no_environment_and_read_rights_only() -> None:
     assert "${{" not in step["run"]  # the event reaches the shell through env only
 
 
+def test_the_gate_reads_each_fact_from_the_right_field() -> None:
+    """The commenter's association, not the issue author's; repository IDs, not names."""
+    (step,) = _job("gate")["steps"]
+    assert step["env"] == {
+        "EVENT": "${{ github.event_name }}",
+        "SENDER_TYPE": "${{ github.event.sender.type }}",
+        "BASE_REPO_ID": "${{ github.repository_id }}",
+        "HEAD_REPO_ID": "${{ github.event.pull_request.head.repo.id }}",
+        "ON_PR": "${{ github.event.issue.pull_request && 'true' || 'false' }}",
+        "ASSOCIATION": "${{ github.event.comment.author_association }}",
+        "BODY": "${{ github.event.comment.body }}",
+        "PR_NUMBER": "${{ github.event.issue.number }}",
+        "GH_TOKEN": "${{ github.token }}",
+        "GH_REPO": "${{ github.repository }}",
+    }
+
+
 def test_exactly_one_zizmor_ignore_on_the_comment_trigger_with_a_reason() -> None:
     lines = (WORKFLOWS / NAME).read_text(encoding="utf-8").splitlines()
     ignores = [n for n, line in enumerate(lines) if "zizmor: ignore" in line]
@@ -78,13 +98,16 @@ def test_exactly_one_zizmor_ignore_on_the_comment_trigger_with_a_reason() -> Non
 SAME, FORK, PR = "111", "222", "7"
 
 
-def _gate(tmp_path: Path, api_head: str = SAME, **event: str) -> tuple[str, str]:
+def _run_gate(
+    tmp_path: Path, api_head: str, event: dict[str, str], gh_rc: int = 0
+) -> tuple[subprocess.CompletedProcess[str], str]:
     """Run the gate's step locally, with a stub `gh` that answers the head repository id."""
     stub = tmp_path / "bin"
     stub.mkdir(exist_ok=True)
     gh = stub / "gh"
     gh.write_text(
-        f'#!{BASH}\necho "$*" >> "{tmp_path}/gh.log"\necho "{api_head}"\n', encoding="utf-8"
+        f'#!{BASH}\necho "$*" >> "{tmp_path}/gh.log"\necho "{api_head}"\nexit {gh_rc}\n',
+        encoding="utf-8",
     )
     gh.chmod(0o755)
     out = tmp_path / "out"
@@ -106,9 +129,15 @@ def _gate(tmp_path: Path, api_head: str = SAME, **event: str) -> tuple[str, str]
     }
     (step,) = _job("gate")["steps"]
     done = subprocess.run(
-        [BASH, "-c", step["run"]], env=env, capture_output=True, text=True, check=True
+        [BASH, "-c", step["run"]], env=env, capture_output=True, text=True, check=False
     )
-    return out.read_text(encoding="utf-8").strip(), done.stdout
+    return done, out.read_text(encoding="utf-8").strip()
+
+
+def _gate(tmp_path: Path, api_head: str = SAME, **event: str) -> tuple[str, str]:
+    done, run = _run_gate(tmp_path, api_head, event)
+    assert done.returncode == 0, done.stderr
+    return run, done.stdout
 
 
 @pytest.mark.parametrize(
@@ -162,6 +191,12 @@ def test_the_gate_asks_the_api_only_for_an_accepted_command(tmp_path: Path) -> N
     )
 
 
+def test_the_gate_fails_closed_when_the_api_call_fails(tmp_path: Path) -> None:
+    done, run = _run_gate(tmp_path, SAME, {}, gh_rc=1)
+    assert done.returncode != 0
+    assert "run=true" not in run
+
+
 def test_the_review_job_has_exactly_the_three_grants_and_its_own_environment() -> None:
     assert _wf()["permissions"] == {}
     job = _job("review")
@@ -180,7 +215,8 @@ def test_advisory_by_name_and_never_a_required_check() -> None:
     required = doc.split("## Required status checks", 1)[1].split("\n## ", 1)[0]
     assert "PR-Agent" not in required
     advisory = doc.split("## Advisory checks (never required)", 1)[1].split("\n## ", 1)[0]
-    assert f"- `{_job('review')['name']}`" in advisory
+    for key in ("gate", "review"):
+        assert f"- `{_job(key)['name']}`" in advisory, key
 
 
 def test_one_step_the_digest_pinned_image_no_checkout_and_only_the_model_key() -> None:
@@ -228,6 +264,22 @@ def test_the_settings_use_claude_and_turn_approval_and_thread_resolving_off() ->
     assert cfg["gitlab"]["auto_resolve_fixed_inline_threads"] is False
     assert cfg["pr_update_changelog"]["push_changelog_changes"] is False
     assert cfg["config"]["restricted_mode"] is True
+
+
+def test_the_settings_keep_pr_agent_to_comments_and_issue_text_out() -> None:
+    """The token could rewrite the title, body (the squash commit's message) and labels."""
+    cfg = tomllib.loads((REPO / ".pr_agent.toml").read_text(encoding="utf-8"))
+    assert cfg["pr_description"] == {
+        "publish_description_as_comment": True,
+        "generate_ai_title": False,
+        "publish_labels": False,
+    }
+    assert cfg["pr_reviewer"] == {
+        "enable_review_labels_security": False,
+        "enable_review_labels_effort": False,
+        "require_ticket_analysis_review": False,
+    }
+    assert cfg["config"]["extract_issue_from_branch"] is False
 
 
 def test_the_switch_and_the_secret_are_in_the_single_list() -> None:

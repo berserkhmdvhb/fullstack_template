@@ -23,9 +23,10 @@ These warn and don't block. They are never listed as required:
 - `ZAP baseline (advisory)`
 - `Licences (grant, advisory)`
 - `VEX (advisory)`
+- `PR-Agent gate`
 - `PR-Agent review (advisory)`
 
-The advisory scanner legs of `security.yml` (named `<id> (advisory)`) are the same. `Live suites (full stack)` is advisory on pull requests and blocking on `main` and tags. `Unit (Python 3.14)` is the one advisory leg of the unit matrix. DAST, grant and VEX run only on `main`, tags or by hand, so they never gate a pull request. `PR-Agent review (advisory)` is the optional AI reviewer, off by default ([CI/CD](./ci-cd.md#ai-pull-request-review)); it comments and never approves.
+The advisory scanner legs of `security.yml` (named `<id> (advisory)`) are the same. `Live suites (full stack)` is advisory on pull requests and blocking on `main` and tags. `Unit (Python 3.14)` is the one advisory leg of the unit matrix. DAST, grant and VEX run only on `main`, tags or by hand, so they never gate a pull request. `PR-Agent gate` and `PR-Agent review (advisory)` are the optional AI reviewer, off by default ([CI/CD](./ci-cd.md#ai-pull-request-review)); it comments and never approves.
 
 ## What the script sets
 

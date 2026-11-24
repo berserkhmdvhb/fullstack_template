@@ -5,8 +5,8 @@
 # with a single owner that rule would block every merge (or force an admin bypass, which the ruleset doesn't have).
 # A team with a second reviewer can raise the approvals and turn the rule on (wiki/github-repository-settings.md).
 #
-# `@your-org` is a placeholder: infra/adapt/adopt.sh stamps the owner of REPOSITORY (adopt.conf) over it. Use a
-# user or a team (@org/team); GitHub ignores an owner without write access.
+# The owner below is a placeholder: infra/adapt/adopt.sh stamps CODEOWNER (adopt.conf) over it. Use a user, a
+# team (@org/team) or an email, never a bare organisation; GitHub ignores an owner without write access.
 
 *                    @your-org
 /.github/            @your-org

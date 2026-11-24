@@ -39,8 +39,12 @@ OLD_DOMAIN: Final[str] = "your-domain.example"
 OLD_REGISTRY: Final[str] = "registry.your-domain.example"
 # The GitHub repository in the SOURCE_URL default of every Dockerfile (the OCI `source` label).
 OLD_REPOSITORY: Final[str] = "your-org/your-repo"
-# The owner half alone, as a CODEOWNERS owner (`@your-org`), takes the repository's owner.
+# The CODEOWNERS owner placeholder. GitHub accepts a user, a team or an email there, never a bare
+# organisation, so it takes CODEOWNER (adopt.conf), not the repository's owner.
 OLD_OWNER: Final[str] = "@" + OLD_REPOSITORY.split("/", maxsplit=1)[0]
+CODEOWNERS: Final[str] = ".github/CODEOWNERS"
+# A user @name, a team @org/team, or an email (no backslash: the value is a re.sub replacement).
+_CODEOWNER: Final = re.compile(r"@[A-Za-z0-9-]+(/[A-Za-z0-9_.-]+)?|[^@\s\\]+@[^@\s\\]+\.[^@\s\\]+")
 # README.md is excluded from the rewrites (it explains the placeholders), but its badges carry
 # the repository.
 REPOSITORY_ALSO: Final[str] = "README.md"
@@ -67,11 +71,11 @@ class _Config:
 
 
 def build_patterns(
-    domain: str, registry: str, repository: str = ""
+    domain: str, registry: str, repository: str = "", codeowner: str = ""
 ) -> list[tuple[re.Pattern[str], str]]:
     """The fixed old->new substitutions, registry first (see module docstring).
 
-    The repository (``owner/name``) is optional: unset, the placeholder stays.
+    The repository (``owner/name``) and the code owner are optional: unset, the placeholder stays.
     """
     patterns = [
         (re.compile(rf"\b{re.escape(OLD_REGISTRY)}\b"), registry),
@@ -79,18 +83,14 @@ def build_patterns(
     ]
     if repository:
         patterns += repository_patterns(repository)
+    if codeowner:
+        patterns.append((re.compile(rf"(?<![\w.-]){re.escape(OLD_OWNER)}(?![\w./-])"), codeowner))
     return patterns
 
 
 def repository_patterns(repository: str) -> list[tuple[re.Pattern[str], str]]:
-    """``your-org/your-repo`` -> the repository, and the ``@your-org`` owner -> ``@<owner>``."""
-    return [
-        (re.compile(rf"(?<![\w.-]){re.escape(OLD_REPOSITORY)}(?![\w.-])"), repository),
-        (
-            re.compile(rf"(?<![\w.-]){re.escape(OLD_OWNER)}(?![\w./-])"),
-            "@" + repository.split("/", maxsplit=1)[0],
-        ),
-    ]
+    """``your-org/your-repo`` -> the repository."""
+    return [(re.compile(rf"(?<![\w.-]){re.escape(OLD_REPOSITORY)}(?![\w.-])"), repository)]
 
 
 def parse_args() -> argparse.Namespace:
@@ -107,8 +107,13 @@ def parse_args() -> argparse.Namespace:
         "--repository",
         default="",
         help="GitHub repository as owner/name (replaces your-org/your-repo in the image "
-        "source label, the README badges and the governance files, and @your-org in "
-        "CODEOWNERS); unset keeps the placeholder",
+        "source label, the README badges and the governance files); unset keeps the placeholder",
+    )
+    parser.add_argument(
+        "--codeowner",
+        default="",
+        help="The CODEOWNERS owner: a user @name, a team @org/team or an email (replaces "
+        "@your-org); unset keeps the placeholder",
     )
     parser.add_argument("--root", default=None, help="Repo root (default: the current directory)")
     parser.add_argument("--dry-run", action="store_true", help="Show changes only")
@@ -134,6 +139,13 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+    if args.codeowner and not _CODEOWNER.fullmatch(args.codeowner):
+        print(
+            "[adopt] ERROR: --codeowner must be a user @name, a team @org/team or an email "
+            f"(got {args.codeowner!r})",
+            file=sys.stderr,
+        )
+        return 2
 
     include_exts: set[str] = {e.strip().lower() for e in args.include_exts.split(",") if e.strip()}
     excludes: set[str] = (
@@ -144,7 +156,7 @@ def main() -> int:
     config = _Config(include_exts, excludes, Path(args.backup_dir), dry=args.dry_run)
     root: Path = Path(args.root) if args.root else Path.cwd()
 
-    patterns = build_patterns(args.domain, args.registry, args.repository)
+    patterns = build_patterns(args.domain, args.registry, args.repository, args.codeowner)
     changed = rewrite_tree(root=root, patterns=patterns, config=config)
     if args.repository:
         config.excludes = excludes - {REPOSITORY_ALSO}
@@ -164,6 +176,12 @@ def main() -> int:
         for relf in changed:
             print(f" - {relf}")
     print(f"\n[adopt] Total: {len(changed)} file(s)")
+    owners = root / CODEOWNERS
+    if not args.codeowner and owners.is_file() and OLD_OWNER in owners.read_text(encoding="utf-8"):
+        print(
+            f"[adopt] NOTE: CODEOWNER is unset, so {CODEOWNERS} keeps the placeholder {OLD_OWNER}. "
+            "Set CODEOWNER in adopt.conf (a user @name, a team @org/team or an email) and re-run."
+        )
     return 0
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 STAMP = ROOT / "infra" / "adapt" / "adopt_stamp.py"
 DOCKERFILES = ("Dockerfile.backend", "Dockerfile.frontend", "Dockerfile.waf")
+BASH = shutil.which("bash") or "/usr/bin/bash"
 PLACEHOLDER = "ARG SOURCE_URL=https://github.com/your-org/your-repo\n"
 
 
@@ -102,7 +104,7 @@ def test_the_placeholder_source_url_is_defined_once_and_matches_the_dockerfiles(
         assert f"ARG SOURCE_URL={out[0]}\n" in (ROOT / name).read_text(encoding="utf-8")
 
 
-# The governance files and the README carry the repository too; CODEOWNERS takes its owner.
+# The governance files and the README carry the repository too; CODEOWNERS takes CODEOWNER.
 GOVERNANCE = (
     "README.md",
     "SECURITY.md",
@@ -130,16 +132,17 @@ def test_the_badges_and_governance_links_carry_the_placeholder_repository() -> N
     assert "@your-org\n" in (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
 
 
-def test_the_repository_and_its_owner_and_the_domain_are_stamped(governance: Path) -> None:
-    out = _stamp(governance, "--repository", "acme/shop")
+def test_the_repository_the_code_owner_and_the_domain_are_stamped(governance: Path) -> None:
+    out = _stamp(governance, "--repository", "acme/shop", "--codeowner", "@acme/core")
     for name in GOVERNANCE:
         text = (governance / name).read_text(encoding="utf-8")
         assert "github.com/acme/shop" in text, name
         assert "your-org" not in text, name
         assert name in out.stdout
     owners = (governance / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
-    assert "*                    @acme\n" in owners
+    assert "*                    @acme/core\n" in owners
     assert "@your-org" not in owners
+    assert "CODEOWNER is unset" not in out.stdout
     conduct = (governance / "CODE_OF_CONDUCT.md").read_text(encoding="utf-8")
     assert "conduct@example.test" in conduct
 
@@ -148,3 +151,47 @@ def test_without_a_repository_the_governance_placeholders_stay(governance: Path)
     _stamp(governance)
     for name in (*GOVERNANCE, ".github/CODEOWNERS"):
         assert "your-org" in (governance / name).read_text(encoding="utf-8"), name
+
+
+def test_the_repository_alone_keeps_the_code_owner_placeholder_with_a_notice(
+    governance: Path,
+) -> None:
+    out = _stamp(governance, "--repository", "acme/shop")
+    owners = (governance / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
+    assert "*                    @your-org\n" in owners
+    assert "@acme" not in owners  # never the bare organisation: GitHub rejects it
+    assert "[adopt] NOTE: CODEOWNER is unset" in out.stdout
+
+
+@pytest.mark.parametrize("owner", ["@octocat", "@acme/core-team", "dev@example.test"])
+def test_a_user_a_team_or_an_email_is_a_code_owner(governance: Path, owner: str) -> None:
+    _stamp(governance, "--codeowner", owner)
+    owners = (governance / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
+    assert f"*                    {owner}\n" in owners
+
+
+@pytest.mark.parametrize("bad", ["octocat", "@", "@a/b/c", "@ac me", "a@b", "@a\\1", "a\\1@b.c"])
+def test_a_code_owner_of_another_shape_is_refused(governance: Path, bad: str) -> None:
+    with pytest.raises(subprocess.CalledProcessError) as err:
+        _stamp(governance, "--codeowner", bad)
+    assert "@org/team" in err.value.stderr
+    assert "@your-org" in (governance / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
+
+
+def test_adopt_sh_passes_codeowner_from_the_config(governance: Path) -> None:
+    shutil.copy(ROOT / "pyproject.toml", governance / "pyproject.toml")
+    conf = governance.parent / "adopt.conf"
+    conf.write_text(
+        'SERVICE_NAME="your_service_name"\nDOMAIN="example.test"\n'
+        'REGISTRY="registry.example.test"\nCODEOWNER="@acme/core"\n',
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [BASH, str(STAMP.parent / "adopt.sh")],
+        env={**os.environ, "ADOPT_CONF": str(conf), "ADAPT_ROOT": str(governance)},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    owners = (governance / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
+    assert "*                    @acme/core\n" in owners

@@ -12,6 +12,22 @@ fallback_models = ["anthropic/claude-sonnet-5-5"]
 enable_auto_approval = false
 # The token has no contents: write, so skip what would need it.
 restricted_mode = true
+# No issue text in the prompt: in a public repository anyone can write an issue, so the issue a branch name points
+# to stays out unless you opt in (wiki/ci-cd.md, AI pull request review).
+extract_issue_from_branch = false
+
+# Comments only: the token can edit a pull request's title, body and labels, so keep PR-Agent off them. The squash
+# merge takes the body into the commit on main, so a rewritten description would land there.
+[pr_description]
+publish_description_as_comment = true
+generate_ai_title = false
+publish_labels = false
+
+[pr_reviewer]
+enable_review_labels_security = false
+enable_review_labels_effort = false
+# No linked tickets in the review either (the same opt-in).
+require_ticket_analysis_review = false
 
 # Never resolve review threads: off in every place PR-Agent has the switch (the [gitlab] two only act on GitLab,
 # and are set so that a copy moved there keeps the rule).

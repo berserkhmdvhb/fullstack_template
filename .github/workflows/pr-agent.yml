@@ -1,14 +1,19 @@
 name: PR-Agent
 
-# An optional AI reviewer (PR-Agent, https://github.com/The-PR-Agent/pr-agent), advisory only: it comments on a
-# pull request and answers slash commands, and is never a required check (wiki/adr/0040-optional-ai-pr-review.md).
+# An optional AI reviewer (PR-Agent, https://github.com/The-PR-Agent/pr-agent), advisory only: it reviews and
+# describes a pull request when it opens and answers slash commands, and is never a required check
+# (wiki/adr/0040-optional-ai-pr-review.md). Its token can edit a pull request's title, body and labels;
+# .pr_agent.toml keeps it to comments.
 # Off unless the repository variable PR_AGENT_ENABLED is `true`; the model key is the ANTHROPIC_KEY secret of the
 # `ai-review` environment (wiki/ci-cd.md, AI pull request review).
 # Trust:
 # - `gate` decides, with no environment, no secret and read rights only; `review` holds the key and runs only
 #   when `gate` says `run=true`.
 # - `pull_request` from this repository only: a fork's pull request gets a notice and no review. Never the
-#   trigger that runs a fork's pull request with the base repository's secrets.
+#   trigger that runs a fork's pull request with the base repository's secrets. "This repository" is compared by
+#   repository ID, not name: an ID survives a rename and has no case to get wrong.
+# - Ordinary comments start no runner: the gate's `if:` passes only a pull request event or a comment that starts
+#   with `/`; the shell step below decides.
 # - `issue_comment`: only a supported slash command, on a pull request, from an owner, member or collaborator,
 #   not a bot, and only on a pull request from this repository (looked up through the API), so fork content
 #   never reaches the job with the key.
@@ -20,7 +25,8 @@ name: PR-Agent
 # The image corresponds to release v0.50.0, commit e673a02076ce09a4726c3d0c3cc85780e59ca52b.
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, synchronize]
+    # No `synchronize`: PR-Agent ignores a push unless its push trigger is on (wiki/ci-cd.md, AI pull request review).
+    types: [opened, reopened, ready_for_review]
   # A comment trigger, made safe by `gate`: no checkout, collaborators only, forks skipped, and the key only in
   # the gated `review` job.
   issue_comment: # zizmor: ignore[dangerous-triggers]
@@ -28,7 +34,7 @@ on:
 
 permissions: {}
 
-# A literal prefix. A pull request's newer push replaces its running review; each comment is its own group.
+# A literal prefix. A pull request's newer event replaces its running review; each comment is its own group.
 concurrency:
   group: pr-agent-${{ github.event_name }}-${{ github.event.comment.id || github.event.pull_request.number }}
   cancel-in-progress: true
@@ -36,7 +42,9 @@ concurrency:
 jobs:
   gate:
     name: PR-Agent gate
-    if: vars.PR_AGENT_ENABLED == 'true'
+    if: >-
+      vars.PR_AGENT_ENABLED == 'true' && (github.event_name == 'pull_request' ||
+      (github.event.issue.pull_request && startsWith(github.event.comment.body, '/')))
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     permissions:

@@ -81,7 +81,7 @@ infra/adapt/replace_service_name.sh -n awesome_solution --dry-run
 infra/adapt/replace_service_name.sh -n awesome_solution
 ```
 
-The README badges (CI, OpenSSF Scorecard, licence, SLSA), the private-reporting links in `SECURITY.md` and the issue forms, and the owners in `.github/CODEOWNERS` use the placeholder repository `your-org/your-repo`. So does the images' OCI `source` label, for local and kind builds (CI passes the real URL). Set `REPOSITORY=owner/name` in `infra/adapt/adopt.conf` and run `infra/adapt/adopt.sh` to stamp all of them (the owner alone goes into `CODEOWNERS`); see [Adaptation](adaptation.md#config-driven-adoption-kubernetes-deployments).
+The README badges (CI, OpenSSF Scorecard, licence, SLSA) and the private-reporting links in `SECURITY.md` and the issue forms use the placeholder repository `your-org/your-repo`, and `.github/CODEOWNERS` the placeholder owner `@your-org`. The images' OCI `source` label carries the repository too, for local and kind builds (CI passes the real URL). Set `REPOSITORY=owner/name`, and `CODEOWNER` (a user `@name` or a team `@org/team`) for `CODEOWNERS`, in `infra/adapt/adopt.conf` and run `infra/adapt/adopt.sh` to stamp all of them; see [Adaptation](adaptation.md#config-driven-adoption-kubernetes-deployments).
 
 ### Configure Ports (Optional)
 

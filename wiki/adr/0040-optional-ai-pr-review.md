@@ -27,7 +27,7 @@ injection), sends code to a model provider, and costs money per run.
   commit only builds `FROM pragent/pr-agent:github_action`, a rolling tag, so pinning the action by SHA alone would
   still run a mutable image; the workflow records the action commit the digest belongs to.
 
-Its settings, [`.pr_agent.toml`](../../.pr_agent.toml), pick Claude and turn auto-approval and thread resolving off.
+Its settings, [`.pr_agent.toml`](../../.pr_agent.toml), pick Claude, keep it to comments, and turn auto-approval and thread resolving off.
 [CI/CD](../ci-cd.md#ai-pull-request-review) says what is sent to the provider, the cost and how to cap it, and the
 owner's steps.
 
