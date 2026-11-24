@@ -45,3 +45,13 @@ setup() {
   [ ! -e "$R/.template-version" ]
   [[ "$output" == *"is not written"* ]]
 }
+
+@test "running adoption twice keeps the first record" {
+  run bash "$REPO/infra/adapt/adopt.sh"
+  [ "$status" -eq 0 ]
+  printf '{\n  ".": "9.9.9"\n}\n' > "$R/.release-please-manifest.json"
+  run bash "$REPO/infra/adapt/adopt.sh"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$R/.template-version")" = "v4.2.0" ]
+  [[ "$output" == *"already records v4.2.0"* ]]
+}

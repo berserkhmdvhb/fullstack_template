@@ -50,10 +50,18 @@ Complete guide to setting up, configuring, and running the service template loca
 
 ### Development container
 
-`.devcontainer/devcontainer.json` is an optional container with everything above: its base image (Ubuntu 24.04, the CI
-runner's OS) and its one feature are pinned by digest, and on creation it runs `make tools`, so Python, Node, Helm,
-kind and the security tools come from `tools/pins.tsv`, checksum-verified, and `.tools/bin` is on `PATH`. Nothing in
-it restates a version, and Renovate updates its digests.
+`.devcontainer/devcontainer.json` is an optional container with everything above: its base image (the OS of the kind
+job's runner, [`reusable-kind.yml`](../.github/workflows/reusable-kind.yml)) and its one feature are pinned by digest,
+and on creation it runs `make tools`, so Python, Node, Helm, kind and the security tools come from `tools/pins.tsv`,
+checksum-verified, and `.tools/bin` is on `PATH`. Nothing in it restates a version, and Renovate updates its digests.
+`.tools` and `.venv` are volumes of the container, not the workspace's: the installer links absolute paths, so a host
+toolchain and the container's would break each other. The container is linux/amd64 only, as `scripts/tools.sh` has no
+Linux arm64 pins: on Apple Silicon run `make tools` natively on macOS, which it supports.
+
+Two pieces are not pinned: the Docker-in-Docker feature installs the current Docker engine and CLI when the container
+is built, and apt installs `make` and `python3` from the signed Ubuntu archive, only to bootstrap the installer. Both
+are signed distribution packages, nothing that ships or that CI runs comes from them, and every tool the checks use
+is still the pinned one.
 
 kind gets its Docker daemon from the Docker-in-Docker feature: a daemon of its own inside the container, so clusters
 and images stay out of the host's daemon. The trade-off is that the container runs **privileged** (the feature asks

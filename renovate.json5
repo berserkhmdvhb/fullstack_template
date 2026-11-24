@@ -202,6 +202,16 @@
       "schedule": ["before 6am on monday"]
     },
     {
+      // The devcontainer's feature is referenced by digest alone, with no tag beside it,
+      // so Renovate has no version to compare and moves the digest to the feature's `latest` tag: its own pull
+      // request, never in the weekly group, with a note to check what version that is.
+      "description": "The devcontainer feature: its own pull request, the version checked by hand",
+      "matchManagers": ["devcontainer"],
+      "matchPackageNames": ["ghcr.io/devcontainers/features/docker-in-docker"],
+      "groupName": null,
+      "prBodyNotes": ["This digest follows the feature's `latest` tag. Check which version it is (a new major included) and read its release notes in the devcontainers/features repository before merging."]
+    },
+    {
       "description": "Major updates: one pull request each, never grouped",
       "matchUpdateTypes": ["major"],
       "groupName": null,

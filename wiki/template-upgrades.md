@@ -23,8 +23,9 @@ last release it cut, so the template carries no second version literal and does 
 written once: a re-run keeps it, and you move it yourself after each upgrade. It is a separate file because your own
 releases take the manifest over.
 
-The template's releases are its `v*` tags. Before its first tagged release, the record names the changelog's newest
-version heading instead. A copy made from `main` between releases holds that release plus later commits: the
+The template's releases are its `v*` tags, cut by release-please; its first tag is its first public release. Make a
+copy from a release, or from `main` after one: nothing before the first release is owed to an adopter, so the
+adopter actions start there. A copy made from `main` between releases holds that release plus later commits: the
 upgrade below then re-applies a few changes you already have, which merge cleanly or come out empty.
 
 ---
@@ -34,22 +35,30 @@ upgrade below then re-applies a few changes you already have, which merge cleanl
 1. **Compare the versions.** Read your `.template-version`, then the template's [Changelog](./changelog.md): every
    release after yours, and `[Unreleased]` if you take `main`.
 2. **Read the adopter actions.** Each release's **Upgrading** list gathers the steps a running deployment needs (a
-   bootstrap re-run, a settings re-run, a new value); every other entry says "Nothing to do when adopting" or links
-   that list. Note the steps before you merge: some must be done before the next deploy.
+   bootstrap re-run, a settings re-run, a new value). From the first release on, every other entry says "Nothing to
+   do when adopting" or links that list ([CONTRIBUTING](../CONTRIBUTING.md#appendix-a-pull-request-checklist-copy-paste)
+   requires it). Note the steps before you merge: some must be done before the next deploy.
 3. **Bring the changes in** from a template remote, on a branch:
 
    ```bash
    git remote add upstream https://github.com/<template-owner>/<template-repo>.git
-   git fetch upstream --tags
+   # The template's v* tags must not land among your own: your release-please tags are v* too, and setuptools_scm
+   # reads the version from `git describe`. Keep them under the remote instead.
+   git config remote.upstream.tagOpt --no-tags
+   git fetch upstream '+refs/tags/v*:refs/remotes/upstream/tags/v*'
    git switch -c template-upgrade
    # A fork or clone shares the template's history: merge the release.
-   git merge v<new>
+   git merge upstream/tags/v<new>
    # A copy made with "Use this template" has no shared history: replay the template's commits between the releases
-   # (each is a three-way merge against its own parent).
-   git cherry-pick v<old>..v<new>
+   # (each is a three-way merge against its own parent), without the template's release commits.
+   git cherry-pick $(git rev-list --reverse --invert-grep --grep='^chore(main): release' \
+     upstream/tags/v<old>..upstream/tags/v<new>)
    ```
 
-   For a few changes only, cherry-pick their commits from the changelog's links.
+   `v<old>` is your `.template-version`, a real template tag from the first release on. The `upstream/tags/*` refs are
+   remote-tracking refs: never push them (`git push --tags` does not, and nothing else should). For a few changes
+   only, find their commits with `git log --oneline upstream/tags/v<old>..upstream/tags/v<new> -- <path>` and
+   cherry-pick those.
 4. **Re-apply the adoption** to what came in: see [Conflicts](#conflicts-with-the-renamed-placeholders) below.
 5. **Record the new version:** write `v<new>` to `.template-version` in the same pull request.
 6. **Run the gates:** `make check-all-dry`, `make test` and `make precommit` locally, then the pull request's CI
@@ -58,6 +67,12 @@ upgrade below then re-applies a few changes you already have, which merge cleanl
 ---
 
 ## Conflicts with the renamed placeholders
+
+**Files your copy owns.** Keep your own `.release-please-manifest.json`, `.release-please-version` and
+`wiki/changelog.md` (your releases and their notes), and `.template-version` apart from the new version you write
+into it. On a conflict in one of them take yours (`git checkout --ours <file>`); a merge that brought template
+changes into one cleanly is undone with `git checkout HEAD -- <file>` before you commit. The release commits the
+cherry-pick above skips are the template's `chore(main): release …` commits, which touch only these files.
 
 The adapter rewrote the placeholders in your copy (the service name, the domain, the registry, the repository and the
 code owner; [Adaptation](./adaptation.md#config-driven-adoption-kubernetes-deployments)), and the template still has
@@ -71,6 +86,9 @@ them, so a template change to one of those lines conflicts, and a new file arriv
   `infra/adapt/replace_service_name.sh --new-name <your_name> --old-name your_service_name --dry-run` first, then
   without `--dry-run`. A renamed path (`src/your_service_name/…`, the chart directory) comes in under the
   placeholder name: the rename moves it.
+- **Check the placeholder package is gone:** `src/your_service_name/` must not exist after the rename. While it exists
+  the next check takes the repository for the template and passes without checking anything, which is exactly what a
+  skipped rename leaves.
 - **Check that nothing is left:** `pre-commit run placeholder-leftovers --all-files` runs
   `scripts/ci/check-placeholder-leftovers.sh`, which fails while any file outside `infra/adapt/excludes.txt` still names
   the placeholder.

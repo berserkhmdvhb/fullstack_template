@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -197,7 +198,39 @@ def test_adopt_sh_passes_codeowner_from_the_config(governance: Path) -> None:
     assert "*                    @acme/core\n" in owners
 
 
-def test_the_template_ships_no_template_version() -> None:
-    """adopt.sh writes it from release-please's manifest; a committed one is a second version."""
-    assert not (ROOT / ".template-version").exists()
+# The placeholder package, split so the adapter never rewrites it (check-placeholder-leftovers.sh).
+PLACEHOLDER_PACKAGE = "your_" + "service_name"
+RECORD = re.compile(r"v\d+\.\d+\.\d+\n")
+
+
+def template_version_problem(root: Path) -> str | None:
+    """The template ships no .template-version (adopt.sh writes it); a copy holds one tag."""
+    record = root / ".template-version"
+    if any((root / "src" / PLACEHOLDER_PACKAGE).glob("*.py")):
+        return "the template ships .template-version" if record.exists() else None
+    if record.exists() and not RECORD.fullmatch(record.read_text(encoding="utf-8")):
+        return f".template-version is not one v<major>.<minor>.<patch> line: {record.read_text()!r}"
+    return None
+
+
+def test_the_template_version_record_fits_this_repository() -> None:
+    """In the template a committed record is a second version; in a copy it is the record."""
+    assert template_version_problem(ROOT) is None
     assert (ROOT / ".release-please-manifest.json").is_file()
+
+
+def test_the_record_check_tells_a_template_from_an_adopted_copy(tmp_path: Path) -> None:
+    template = tmp_path / "template"
+    (template / "src" / PLACEHOLDER_PACKAGE).mkdir(parents=True)
+    (template / "src" / PLACEHOLDER_PACKAGE / "__init__.py").write_text("", encoding="utf-8")
+    assert template_version_problem(template) is None
+    (template / ".template-version").write_text("v1.2.3\n", encoding="utf-8")
+    assert template_version_problem(template) is not None
+
+    adopted = tmp_path / "adopted"
+    (adopted / "src" / "acme").mkdir(parents=True)
+    assert template_version_problem(adopted) is None
+    (adopted / ".template-version").write_text("v1.2.3\n", encoding="utf-8")
+    assert template_version_problem(adopted) is None
+    (adopted / ".template-version").write_text("1.2.3\n", encoding="utf-8")
+    assert template_version_problem(adopted) is not None

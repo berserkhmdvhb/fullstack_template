@@ -79,3 +79,36 @@ def test_renovate_updates_the_devcontainer() -> None:
         assert not (
             "devcontainer" in rule.get("matchManagers", []) and rule.get("enabled") is False
         )
+
+
+def test_a_digest_only_feature_gets_its_own_pull_request_with_a_note() -> None:
+    """With no tag Renovate follows the feature's `latest`: never grouped, and a note says so."""
+    features = [ref.split("@")[0] for ref in devcontainer()["features"]]
+    rules = renovate()["packageRules"]
+    weekly = next(i for i, r in enumerate(rules) if r.get("groupName") == "minor and patch updates")
+    for name in features:
+        hits = [
+            (i, r)
+            for i, r in enumerate(rules)
+            if r.get("matchManagers") == ["devcontainer"] and name in r.get("matchPackageNames", [])
+        ]
+        assert len(hits) == 1, name
+        index, rule = hits[0]
+        assert index > weekly, "must come after the weekly group to override it"
+        assert "groupName" in rule
+        assert rule["groupName"] is None
+        assert any("`latest`" in note for note in rule["prBodyNotes"])
+
+
+def test_tools_and_venvs_are_volumes_of_the_container() -> None:
+    """The installer links absolute paths: the host's .tools and .venv are not the container's."""
+    cfg = devcontainer()
+    targets = {}
+    for mount in cfg["mounts"]:
+        fields = dict(f.split("=", 1) for f in mount.split(","))
+        assert fields["type"] == "volume", mount
+        assert "${devcontainerId}" in fields["source"], mount
+        targets[fields["target"]] = fields["source"]
+    workspace = "${containerWorkspaceFolder}/"
+    assert {workspace + ".tools", workspace + ".venv"} <= set(targets)
+    assert cfg["postCreateCommand"].startswith('sudo chown "$(id -u):$(id -g)" .tools .venv && ')

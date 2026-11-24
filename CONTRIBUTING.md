@@ -252,4 +252,6 @@ Safety / hygiene
 - [ ] No secrets, real internal URLs, or project IDs in code, tests, docs, or examples.
 - [ ] Docs updated and in sync; every internal link resolves.
 - [ ] CHANGELOG / wiki updated where the change touches them.
+- [ ] An adopter-facing change adds its step to the changelog's Upgrading list, or its entry says "Nothing to do when
+      adopting" (wiki/template-upgrades.md).
 ```

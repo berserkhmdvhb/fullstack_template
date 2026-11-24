@@ -110,25 +110,18 @@ cd frontend && npm run dev                  # http://127.0.0.1:${FRONTEND_PORT}/
 docker compose up -d                        # Includes PostgreSQL
 ```
 
-### B) Local Kubernetes (kind/minikube)
+### B) Local Kubernetes (kind, as CI runs it)
 
 ```bash
-# Create a local cluster (minikube shown; kind works too)
-minikube start
-
-# Build each image into the node daemon (bare `name:local` tags, picked up via imagePullPolicy: IfNotPresent)
-make compose-build-backend compose-build-frontend
-
-# Deploy + verify the whole stack in one command
-# (reads charts/your-service-name/values.local.yaml; a per-revision migration Job runs the migration)
-./scripts/e2e.sh --env local
-
-# Access the service (self-cleaning port-forwards to backend/frontend)
-./scripts/port-forward.sh --env local &
+make tools        # the pinned toolchain in .tools/bin (kind, Helm, kubectl, ...)
+make kind-up      # the cluster fst on a pinned node image, kubeconfig in .local/kind/
+make kind-deploy  # build, load and deploy the chart as CI's kind job does
+make kind-down    # delete fst
 ```
 
-Or run what CI's kind job runs, in a kind cluster of its own (`fst`, kubeconfig in `.local/kind/`):
-`make kind-up kind-deploy`, then `make kind-down` ([Local cluster (kind)](wiki/infrastructure.md#local-cluster-kind)).
+The options and the kind tests are in the [Makefile](Makefile) and
+[Local cluster (kind)](wiki/infrastructure.md#local-cluster-kind). Optional: minikube or a cluster of your own,
+step by step, in [Local Deployment (minikube)](wiki/local-development-minikube.md).
 
 ### C) Kubernetes deployment (production)
 
