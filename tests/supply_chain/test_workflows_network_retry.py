@@ -23,7 +23,10 @@ SITES = [
     ("reusable-frontend.yml", "lighthouse"),
     ("reusable-kind.yml", "kind"),
     ("reusable-live.yml", "live"),
+    ("reusable-docs-site.yml", "build"),
 ]
+# Each install runs where that job's Playwright is installed.
+WORKDIR = {"reusable-docs-site.yml": "docs-site"}
 STEP_MINUTES = 5
 ATTEMPT_SECONDS = 130
 KILL_AFTER_SECONDS = 10
@@ -44,7 +47,7 @@ def test_each_playwright_install_is_two_bounded_retried_steps(file: str, job: st
     deps, browser = (steps[names.index(n)] for n in (DEPS, BROWSER))
     assert names.index(DEPS) + 1 == names.index(BROWSER)
     for step, cmd in ((deps, "install-deps chromium"), (browser, "install chromium")):
-        assert step["working-directory"] == "frontend"
+        assert step["working-directory"] == WORKDIR.get(file, "frontend")
         assert step["timeout-minutes"] == STEP_MINUTES
         assert step["run"] == (
             f'bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" {ATTEMPTS} {DELAY_SECONDS} '

@@ -1,0 +1,15 @@
+name: T
+on: [push]
+permissions: {}
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: github-pages
+    permissions:
+      contents: read
+      pages: write  # publish to GitHub Pages
+      id-token: write  # deploy-pages' OIDC token
+    steps:
+      - run: echo ok

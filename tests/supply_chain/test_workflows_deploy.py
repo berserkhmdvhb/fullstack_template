@@ -262,6 +262,7 @@ def test_only_wif_and_signing_jobs_hold_id_token() -> None:
         ("preview.yml", "cleanup"),
         ("preview.yml", "sweep"),
         ("scorecard.yml", "analysis"),  # OIDC token for the published Scorecard results
+        ("docs-site.yml", "deploy"),  # deploy-pages' OIDC token, in the github-pages environment
     }
 
 

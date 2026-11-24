@@ -213,6 +213,9 @@ WRITE_ALLOWLIST = {
     # The optional AI reviewer: its comments (pull requests, and the issues API for replies).
     ("pr-agent.yml", "review", "pull-requests"),
     ("pr-agent.yml", "review", "issues"),
+    # The docs site: only its deploy job publishes to Pages, behind the github-pages environment.
+    ("docs-site.yml", "deploy", "pages"),
+    ("docs-site.yml", "deploy", "id-token"),
 }
 
 
@@ -234,6 +237,8 @@ READ_ALLOWLIST = {
     ("preview.yml", "open-prs", "pull-requests", "read"),
     # The PR-Agent gate: the head repository of a commented pull request (forks are skipped).
     ("pr-agent.yml", "gate", "pull-requests", "read"),
+    # The docs site: whether Pages is enabled, so the deploy is skipped when it is not.
+    ("docs-site.yml", "pages", "pages", "read"),
 }
 
 

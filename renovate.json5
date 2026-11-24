@@ -278,6 +278,22 @@
       "groupName": "pr-agent"
     },
     {
+      // The documentation site (docs-site/package.json, exact pins): Starlight follows Astro's releases and its
+      // plugins follow Starlight, so one pull request moves them, majors too (this rule comes after the major rule).
+      "description": "The docs site: Astro, Starlight and the Starlight plugins move together",
+      "matchFileNames": ["docs-site/package.json"],
+      "matchPackageNames": ["astro", "@astrojs/**", "starlight-*"],
+      "groupName": "astro and starlight"
+    },
+    {
+      // The docs site renders its diagrams and runs axe in the frontend's Playwright Chromium: the two lockfiles pin
+      // the same Playwright (tests/docs_site/ checks it), so one pull request moves both.
+      "description": "Playwright: the frontend and the docs site move together",
+      "matchFileNames": ["frontend/package.json", "docs-site/package.json"],
+      "matchPackageNames": ["playwright", "@playwright/test"],
+      "groupName": "playwright"
+    },
+    {
       "description": "Tell the reviewer why pin drift is red",
       "matchFileNames": ["tools/pins.tsv", "infra/security/config.yaml", "charts/your-service-name/ci/crds/sources.tsv"],
       "prBodyNotes": ["The `pins` check is red until `make pins-refresh` has written the vendor checksums and the hashed locks. Run it and push."]

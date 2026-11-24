@@ -1,0 +1,13 @@
+name: T
+on: [workflow_call]
+permissions: {}
+jobs:
+  sign-attest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: github-pages
+    permissions:
+      contents: read
+      pages: write  # publish to GitHub Pages
+    steps:
+      - run: echo ok

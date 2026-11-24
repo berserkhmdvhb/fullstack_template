@@ -46,6 +46,9 @@ node_modules/
 test-results/
 playwright-report/
 .lighthouseci/
+# The documentation site's build output and Astro's generated types (docs-site/node_modules is covered above).
+/docs-site/dist/
+/docs-site/.astro/
 
 # --- Infrastructure as code (state and variable files never belong in Git) ---
 *.tfvars

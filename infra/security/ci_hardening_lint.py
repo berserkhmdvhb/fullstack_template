@@ -12,7 +12,8 @@ prints a structured report instead (used by ``check-ci-hardening.sh``).
 Checks (ids are stable):
   pinned-uses, top-permissions, no-prt-checkout, no-inline-secrets, image-digest,
   image-push-isolation (only the two signing workflows push, sign or attest: reusable-build.yml
-  the images, reusable-chart-release.yml the release chart), provenance
+  the images, reusable-chart-release.yml the release chart; only docs-site.yml's deploy job, in
+  the github-pages environment, holds pages: write), provenance
   (when a workflow calls reusable-build.yml, it must sign, verify and attest), osv-coverage,
   environment-for-secrets, timeouts, no-dry-run-env, documented-permissions, no-release-cache
   (the release path uses no build cache, no actions/cache and no setup-* cache).
@@ -48,6 +49,13 @@ SIGNING_WORKFLOWS = {REUSABLE_BUILD: ATTESTING_JOBS, CHART_RELEASE: ("chart",)}
 # workflow restrictions allow no environment-free job but this one.
 SCORECARD_WORKFLOW = ".github/workflows/scorecard.yml"
 SCORECARD_JOB = "analysis"
+# Publishing the docs site: actions/deploy-pages needs pages: write and id-token: write (an OIDC
+# token that proves the run to GitHub Pages; no cloud credential, nothing is signed). Only this job
+# may hold pages: write, and only in the github-pages environment (environment-for-secrets requires
+# one for id-token).
+PAGES_WORKFLOW = ".github/workflows/docs-site.yml"
+PAGES_JOB = "deploy"
+PAGES_ENVIRONMENT = "github-pages"
 _REUSABLE_REF = "./" + REUSABLE_BUILD
 _SIGNING_REFS = {"./" + w for w in SIGNING_WORKFLOWS}
 _SIGNERS = " or ".join(w.rsplit("/", 1)[-1] for w in SIGNING_WORKFLOWS)  # for the messages
@@ -413,6 +421,25 @@ def _runner_isolation(doc: Doc, job_id: str, job: LDict, perms: Any) -> list[Fin
     return found
 
 
+def _pages_isolation(doc: Doc, job_id: str, job: LDict, perms: Any) -> list[Finding]:
+    """Only the named docs-site deploy job publishes to Pages, in the github-pages environment."""
+    if not _grants(perms, "pages"):
+        return []
+    if not (doc.name.endswith(PAGES_WORKFLOW) and job_id == PAGES_JOB and "uses" not in job):
+        where = PAGES_WORKFLOW.rsplit("/", 1)[-1]
+        return [
+            _isolation(
+                doc, job.line, f"job {job_id} holds pages: write; only {where} {PAGES_JOB} may"
+            )
+        ]
+    env = job.get("environment")
+    name = env.get("name") if isinstance(env, LDict) else env
+    if name != PAGES_ENVIRONMENT:
+        msg = f"job {job_id} holds pages: write outside the {PAGES_ENVIRONMENT} environment"
+        return [_isolation(doc, job.line, msg)]
+    return []
+
+
 def check_image_push_isolation(doc: Doc) -> list[Finding]:
     """Only the signing workflows push, sign or attest; in each, only its named jobs attest."""
     if not doc.is_workflow:  # a composite action: its steps run inside whatever job calls it
@@ -427,6 +454,9 @@ def check_image_push_isolation(doc: Doc) -> list[Finding]:
         signing = next(
             (jobs for w, jobs in SIGNING_WORKFLOWS.items() if doc.name.endswith(w)), None
         )
+        # A signing job may hold write-all (it implies pages); an explicit pages: write never may.
+        if signing is None or isinstance(perms, LDict):
+            found += _pages_isolation(doc, job_id, job, perms)
         if signing is not None:
             if job_id not in signing and _grants(perms, "attestations"):
                 who = " and ".join(signing)

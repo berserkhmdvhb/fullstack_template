@@ -1,0 +1,72 @@
+name: Docs site
+
+# The documentation site (docs-site/, ADR-0041): the strict build and the axe scan. ci.yml calls it on every pull
+# request that touches the site's inputs; docs-site.yml calls it on main with upload-pages, then deploys.
+on:
+  workflow_call:
+    inputs:
+      upload-pages:
+        description: Upload the built site as the GitHub Pages artifact (docs-site.yml only).
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  build:
+    name: Docs site (build and axe)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      # The repository the site's links and its Pages base path come from (docs-site/src/lib/repo.mjs).
+      SITE_REPOSITORY: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The one Node version: the tools/pins.tsv row, as in the setup-frontend action.
+      - id: pin
+        run: echo "node-version=$(awk -F'\t' '$1=="node"{print $2}' tools/pins.tsv)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ steps.pin.outputs.node-version }}
+          package-manager-cache: false
+      - name: Check the npm version
+        working-directory: docs-site
+        run: node ../frontend/scripts/check-npm-version.mjs
+      - name: Install the site dependencies
+        working-directory: docs-site
+        run: npm ci --ignore-scripts
+      # Mermaid renders at build time in the Playwright Chromium; the axe scan drives the same browser.
+      - name: Install the Playwright system deps
+        timeout-minutes: 5
+        working-directory: docs-site
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install-deps chromium
+      - name: Download the Playwright browser
+        timeout-minutes: 5
+        working-directory: docs-site
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install chromium
+      # Strict: a broken link or #anchor, invalid front matter, a missing loaded file or a diagram that does
+      # not render fails the build.
+      - name: Build the site
+        working-directory: docs-site
+        run: npm run build
+      - name: axe accessibility scan
+        working-directory: docs-site
+        run: npm run test:a11y
+      - name: Upload the test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docs-site-a11y-reports
+          path: |
+            docs-site/test-results
+            docs-site/playwright-report
+          retention-days: 7
+      - name: Upload the Pages artifact
+        if: inputs.upload-pages
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs-site/dist

@@ -45,6 +45,7 @@ The advisory scanner legs of `security.yml` (named `<id> (advisory)`) are the sa
 | Actions policy | full-length SHA pinning required; approval for all outside contributors | a fork can't run workflows unreviewed |
 | Merges | squash only (merge commits and rebase merges off); the squash commit takes the pull request **title** and body | the title lands on `main` as the commit message, so `pr-title.yml` can hold it to Conventional Commits ([Pull request titles](./releasing.md#pull-request-titles)) |
 | Security | immutable releases; secret scanning and push protection; private vulnerability reporting; Dependabot alerts and security updates | a published release can't be changed; a leaked secret is blocked at push; a vulnerable dependency gets a fix pull request while Renovate is off or between runs. [`SECURITY.md`](../SECURITY.md) and the issue forms send reporters to private vulnerability reporting |
+| Pages | GitHub Pages on, **Source: GitHub Actions** (created when missing; a site built from a branch is switched); a plan that refuses it is a skip | [`docs-site.yml`](../.github/workflows/docs-site.yml) publishes the [documentation site](../docs-site/README.md); until Pages is on it deploys nothing, with a notice. GitHub creates the `github-pages` environment itself |
 | Template | marked as a template, only with `--template` | the upstream template repository sets it; an adopter's copy leaves it off |
 | Runners | none self-hosted (checked, never set) | the repository settings script; `--apply` refuses while any exist |
 

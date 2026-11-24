@@ -179,7 +179,10 @@ def _git(cwd: Path, *args: str) -> str:
     return done.stdout.strip()
 
 
-def _run_filter(tmp_path: Path, event: str, changed: list[str]) -> dict[str, str]:
+def _run_filter(
+    tmp_path: Path, event: str, changed: list[str], removed: tuple[str, ...] = ()
+) -> dict[str, str]:
+    """The filter's outputs for a head that changes `changed` and deletes `removed`."""
     origin = tmp_path / "origin"
     origin.mkdir()
     _git(origin, "init", "-q", "-b", "main")
@@ -189,10 +192,14 @@ def _run_filter(tmp_path: Path, event: str, changed: list[str]) -> dict[str, str
         ("commit.gpgsign", "false"),
     ):
         _git(origin, "config", key, value)
-    (origin / "README.md").write_text("base\n")
+    for rel in ("README.md", *removed):
+        (origin / rel).parent.mkdir(parents=True, exist_ok=True)
+        (origin / rel).write_text("base\n")
     _git(origin, "add", ".")
     _git(origin, "commit", "-q", "-m", "base")
     base = _git(origin, "rev-parse", "HEAD")
+    for rel in removed:
+        (origin / rel).unlink()
     for rel in changed:
         target = origin / rel
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -294,12 +301,13 @@ def test_main_tags_and_dispatch_force_every_output(tmp_path: Path, event: str) -
         "pins": "true",
         "images": "true",
         "kind": "true",
+        "docs": "true",
     }
 
 
 def test_filter_outputs_match_the_declared_outputs() -> None:
     declared = set(workflow("ci.yml")["jobs"]["changes"]["outputs"])
-    assert declared == {"backend", "frontend", "pins", "images", "kind"}
+    assert declared == {"backend", "frontend", "pins", "images", "kind", "docs"}
 
 
 def test_integration_job_uploads_its_report_only_on_failure() -> None:

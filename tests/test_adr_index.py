@@ -3,7 +3,8 @@
 
 The seven ADRs of the minimum set (GitHub only, IaC placement, one Uvicorn process, migrations
 as a Job, the edge modes, uv, the supply-chain level) must exist, and no ADR may restate a version
-pinned in tools/pins.tsv or tools/kind-nodes.tsv: Renovate moves those files, not the ADRs."""
+pinned in tools/pins.tsv or tools/kind-nodes.tsv: Renovate moves those files, not the ADRs. The
+documentation site's pages (docs-site/src/content/docs/) are held to the same version rule."""
 
 from __future__ import annotations
 
@@ -85,7 +86,11 @@ def test_each_adr_has_the_sections_and_a_valid_status(adr: Path) -> None:
     assert problems(adr.name, adr.read_text("utf-8")) == []
 
 
-@pytest.mark.parametrize("doc", [*ADRS, ADR_DIR / "README.md"], ids=lambda p: p.name)
+# The documentation site's own pages follow the same rule: they link the pin, never restate it.
+SITE_PAGES = sorted((ROOT / "docs-site" / "src" / "content" / "docs").rglob("*.md"))
+
+
+@pytest.mark.parametrize("doc", [*ADRS, ADR_DIR / "README.md", *SITE_PAGES], ids=lambda p: p.name)
 def test_no_adr_restates_a_pinned_version(doc: Path) -> None:
     assert stated_versions(doc.read_text("utf-8"), pinned_versions()) == [], (
         f"{doc.name}: link tools/pins.tsv or tools/kind-nodes.tsv instead of the version"

@@ -2,6 +2,8 @@
 
 Production-grade template for API-based services with a FastAPI backend, Next.js 16 frontend, Kubernetes deployment with a Helm chart, and comprehensive CI/CD.
 
+This wiki is the complete technical reference. The [documentation site](../docs-site/README.md) is the curated reading path in front of it: the architecture, the pipeline, the design and the practices, linking back here.
+
 ---
 
 ## Quick Navigation

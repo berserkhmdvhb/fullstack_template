@@ -22,6 +22,7 @@
 #   actions       https://docs.github.com/en/rest/actions/permissions
 #   runners       https://docs.github.com/en/rest/actions/self-hosted-runners
 #   repo          https://docs.github.com/en/rest/repos/repos
+#   pages         https://docs.github.com/en/rest/pages/pages
 # One value is not in those pages: the id of the GitHub Actions app (15368) that must produce the required check.
 # It is verified against GitHub in the pre-flight (and can be set with --actions-app-id).
 set -euo pipefail
@@ -387,6 +388,20 @@ labels() {
   fi
 }
 
+# --- GitHub Pages for the docs site (docs-site.yml), Source: GitHub Actions: https://docs.github.com/en/rest/pages/pages ---
+# Created when missing (a plan that refuses Pages, as for some private repositories, is a skip); a site that builds
+# from a branch is switched to GitHub Actions. Until then docs-site.yml deploys nothing, with a notice.
+pages() {
+  local have
+  have="$(get "/repos/$REPO/pages")"
+  if [[ -z "$have" ]]; then
+    soft "GitHub Pages" POST "/repos/$REPO/pages" '{"build_type": "workflow"}'
+  elif [[ "$(jq -r '.build_type // empty' <<<"$have")" != workflow ]]; then
+    backup "/repos/$REPO/pages" "$have"
+    api PUT "/repos/$REPO/pages" '{"build_type": "workflow"}'
+  fi
+}
+
 secrets_list() {
   cat >&2 <<'LIST'
 # Secrets are never set by this script. Set by hand (Settings -> Environments, or gh secret set --env):
@@ -412,6 +427,7 @@ tag_ruleset
 for e in "${ENVS[@]}"; do environment "$e"; done
 variables
 labels
+pages
 secrets_list
 if ((${#SKIPS[@]})); then
   echo "# SKIPPED (${#SKIPS[@]}):" >&2

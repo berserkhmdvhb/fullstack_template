@@ -234,3 +234,13 @@ def test_the_record_check_tells_a_template_from_an_adopted_copy(tmp_path: Path) 
     assert template_version_problem(adopted) is None
     (adopted / ".template-version").write_text("1.2.3\n", encoding="utf-8")
     assert template_version_problem(adopted) is not None
+
+
+def test_the_repository_is_stamped_into_the_docs_site_config(tmp_path: Path) -> None:
+    """docs-site/site.json is the one repository value the site's links and address come from."""
+    root = tmp_path / "repo"
+    (root / "docs-site").mkdir(parents=True)
+    shutil.copy(ROOT / "docs-site" / "site.json", root / "docs-site" / "site.json")
+    assert '"repository": "your-org/your-repo"' in (root / "docs-site/site.json").read_text("utf-8")
+    _stamp(root, "--repository", "acme/shop")
+    assert '"repository": "acme/shop"' in (root / "docs-site/site.json").read_text("utf-8")

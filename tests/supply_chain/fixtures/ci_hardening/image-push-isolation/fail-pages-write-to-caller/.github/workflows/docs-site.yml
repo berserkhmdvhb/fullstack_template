@@ -1,0 +1,9 @@
+name: T
+on: [push]
+permissions: {}
+jobs:
+  deploy:
+    permissions:
+      contents: read
+      pages: write  # publish to GitHub Pages
+    uses: ./.github/workflows/reusable-docs-site.yml

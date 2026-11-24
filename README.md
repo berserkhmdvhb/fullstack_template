@@ -51,6 +51,7 @@ It ensures:
 │       ├── utils/          # validators, API versioning
 │       └── __init__.py     # runtime version resolution
 ├── tests/                  # unit/integration/e2e/live/contract, and the kind tests (subfolders)
+├── docs-site/              # the curated documentation site (Starlight), published to GitHub Pages
 └── wiki                    # extended documentation
 ```
 
@@ -208,6 +209,7 @@ Defined in `.github/workflows/`; the full map is in [`wiki/ci-cd.md`](wiki/ci-cd
 *   **ci** → backend (`ruff`, `mypy`, unit on Python 3.12 and 3.13, integration, e2e), frontend (`eslint`, `prettier`, `tsc`, build, Vitest, Playwright config), chart lint, live suites, security scans, workflow hardening; the required check is **`CI OK`**
 *   **release** (`main` and `v*` tags only) → **buildx** build & push, immutable digest check, SBOM, Grype (blocking), licence check, OpenVEX; then keyless signing and SLSA provenance attestations, by digest
 *   **deploy** → Helm `upgrade --install` by digest (`--wait-for-jobs`, so a failed migration Job fails the release) + verify + smoke test, with a rollback to the recorded revision; `deploy-ops` rolls back by hand
+*   **docs-site** → the [documentation site](docs-site/README.md), built strictly and scanned with axe on pull requests, published from `main` to GitHub Pages (`https://<owner>.github.io/<repo>/`)
 *   **security** → CodeQL, gitleaks, dependency review, `pip-audit`, OSV-Scanner, GuardDog, Checkov, Kubescape, and a ZAP baseline (`dast`)
 
 > **Build method**: the release builds with `docker/build-push-action` (buildx) on GitHub-hosted runners, with no Docker-in-Docker and no build cache (the hardening lint refuses one); a pull request builds into the runner's local daemon, with no cache either.

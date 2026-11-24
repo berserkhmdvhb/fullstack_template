@@ -1,0 +1,16 @@
+/* Each Mermaid diagram is rendered twice at build time (src/lib/mermaid-themes.mjs): show the copy that matches the theme. */
+:root[data-theme='dark'] .diagram-light,
+:root:not([data-theme='dark']) .diagram-dark {
+  display: none;
+}
+
+.diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* The search button's accessible name is "Search"; its visible Ctrl+K hint would make the visible text differ
+   from that name (axe label-content-name-mismatch). The shortcut still works (aria-keyshortcuts). */
+button[data-open-modal] kbd {
+  display: none !important;
+}

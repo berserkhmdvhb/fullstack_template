@@ -1,0 +1,13 @@
+name: T
+on: [push]
+permissions: {}
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: github-pages
+    permissions:
+      contents: read
+      pages: write  # publish to GitHub Pages
+    steps:
+      - run: echo ok
