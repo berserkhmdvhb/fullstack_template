@@ -45,12 +45,12 @@ STUB
   STUB_ISSUER="letsencrypt-prod/" run "$SCRIPT" --env dev --issuer letsencrypt-prod
   [ "$status" -ne 0 ]
   [[ "$output" == *"ClusterIssuer letsencrypt-prod exists and is not managed by certs-local.sh"* ]]
-  ! grep -q '^kubectl apply' "$LOG"
+  run ! grep -q '^kubectl apply' "$LOG"
 }
 
 @test "an existing issuer is used as is with --no-ca" {
   STUB_ISSUER="letsencrypt-prod/" run "$SCRIPT" --env dev --issuer letsencrypt-prod --no-ca --timeout 1
   [ "$status" -eq 0 ]
-  ! grep -q '^kubectl get clusterissuer' "$LOG"
+  run ! grep -q '^kubectl get clusterissuer' "$LOG"
   [ "$(grep -c '^kubectl apply -f -' "$LOG")" -eq 1 ]   # the Certificate only
 }
