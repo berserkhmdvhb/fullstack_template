@@ -402,6 +402,7 @@ def test_a_nested_composite_action_is_linted() -> None:
 RELEASE_CLOSURE = {
     ".github/workflows/release.yml",
     ".github/workflows/reusable-build.yml",
+    ".github/workflows/reusable-chart-release.yml",
     ".github/workflows/deploy.yml",
     ".github/workflows/reusable-chart.yml",
     ".github/actions/cluster-access/action.yml",

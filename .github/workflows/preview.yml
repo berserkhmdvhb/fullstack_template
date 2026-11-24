@@ -47,6 +47,7 @@ jobs:
       && github.event.pull_request.state == 'open'
       && contains(github.event.pull_request.labels.*.name, 'preview')
       && (github.event.action != 'labeled' || github.event.label.name == 'preview')
+      && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -79,6 +80,7 @@ jobs:
       && github.event.pull_request.state == 'open'
       && contains(github.event.pull_request.labels.*.name, 'preview')
       && (github.event.action != 'labeled' || github.event.label.name == 'preview')
+      && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     # One deploy or cleanup of a pull request at a time, on the job, not the workflow: a group keeps
@@ -144,6 +146,27 @@ jobs:
       - name: Remove the kubeconfig
         if: always()
         run: rm -f "${RUNNER_TEMP}/kubeconfig"
+
+  # A run Dependabot starts (its push to a previewed pull request) gets no environment secret and no
+  # OIDC token, so the deploy would fail: digests and deploy skip it, and this says why. The actor test
+  # is spoofable, which is harmless here: this job holds no grant but contents: read, no secret, and only prints.
+  bot-skip:
+    name: No preview for a Dependabot push
+    if: >- # zizmor: ignore[bot-conditions]
+      vars.PREVIEWS_ENABLED == 'true' && github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.id == github.event.pull_request.base.repo.id
+      && github.event.action != 'closed' && github.event.action != 'unlabeled'
+      && github.event.pull_request.state == 'open'
+      && contains(github.event.pull_request.labels.*.name, 'preview')
+      && (github.event.action != 'labeled' || github.event.label.name == 'preview')
+      && github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Explain the skipped deploy
+        run: echo "::notice::No preview deploy for a run Dependabot started (it gets no environment secret or OIDC token). To preview this push, remove and re-add the preview label."
 
   # Closed, or the label removed: the release goes (scripts/ci/preview-cleanup.sh --pr).
   cleanup:

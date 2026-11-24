@@ -118,9 +118,10 @@ def test_source_level_scans_have_no_ref_gate() -> None:
 
 
 def test_image_operations_never_run_on_pull_requests() -> None:
-    # Build, push and signing exist only in reusable-build.yml, called by release.yml, which
-    # triggers on main and v* only; the one other registry login (dast.yml) is reached by
-    # workflow_run/dispatch, never by a pull request.
+    # Build, push and signing exist only in reusable-build.yml (and the chart's in
+    # reusable-chart-release.yml), called by release.yml, which triggers on main and v* only;
+    # the one other registry login (dast.yml) is reached by workflow_run/dispatch, never by a
+    # pull request.
     release = workflow("release.yml")
     assert set(release["on"]) == {"push"}
     assert release["on"]["push"] == {"branches": ["main"], "tags": ["v*"]}
@@ -130,4 +131,7 @@ def test_image_operations_never_run_on_pull_requests() -> None:
         if uses.startswith("docker/build-push-action@"):
             assert name == "reusable-build.yml", (name, uses)
         if uses.startswith("docker/login-action@"):
-            assert name in {"reusable-build.yml", "dast.yml"}, (name, uses)
+            assert name in {"reusable-build.yml", "reusable-chart-release.yml", "dast.yml"}, (
+                name,
+                uses,
+            )

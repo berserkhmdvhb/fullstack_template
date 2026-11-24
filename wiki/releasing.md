@@ -87,11 +87,13 @@ On a `v*` tag, `release-assets` creates the GitHub Release for the tag as a **dr
 
 ### The chart
 
-On a `v*` tag only, the `chart` job of [`reusable-build.yml`](../.github/workflows/reusable-build.yml) runs after every image is signed: `helm package` with `version` and `appVersion` set to the tag without its `v` (the `Chart.yaml` literals never ship), `helm push` to `oci://ghcr.io/<owner>/charts` with the job's token, then a keyless signature and a provenance attestation by digest, with the images' identity rules. Its reference and digest are `chart.env` on the draft release. A push to `main` publishes no chart: deploys use the checked-out chart, so a chart per commit would only fill the registry. Install it by version or digest, then verify it as in [Verifying the chart](./security.md#verifying-the-chart):
+On a `v*` tag only, the `chart` job of `release.yml` calls [`reusable-chart-release.yml`](../.github/workflows/reusable-chart-release.yml) after the `images` job, so after every image is signed: `helm package` with `version` and `appVersion` set to the tag without its `v` (the `Chart.yaml` literals never ship), `helm push` to `oci://ghcr.io/<owner>/<repo>/charts` with the job's token (beside the images, so two repositories of one owner never share a chart package), then a keyless signature and a provenance attestation by digest, with the images' rules and the chart workflow's own identity. Its reference and digest are `chart.env` on the draft release. A push to `main` publishes no chart: deploys use the checked-out chart, so a chart per commit would only fill the registry. Install it by version or digest, then verify it as in [Verifying the chart](./security.md#verifying-the-chart):
 
 ```bash
-helm install <release> oci://ghcr.io/<owner>/charts/your-service-name --version 1.2.3
+helm install <release> oci://ghcr.io/<owner>/<repo>/charts/your-service-name --version 1.2.3
 ```
+
+Only `release-assets` waits for the chart: the digests, the deploys (dev, qa, production) and the VEX do not, so a failed chart job holds back only the draft release's assets. **When the chart job fails** (most likely on the first release, when `helm push` is refused because the chart package already exists without write access for this repository): in the package's settings on GitHub, under Manage Actions access, give this repository the Write role; then re-run the failed jobs of the release run (`gh run rerun <run-id> --failed`), which runs the chart job and then `release-assets`.
 
 ### Pull request titles
 

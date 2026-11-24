@@ -233,7 +233,8 @@ def push_from_node(image: str, ref: str) -> None:
 DEPLOY_ENV = ROOT / "scripts" / "ci" / "deploy-env.sh"
 CHART = ROOT / "charts" / "your-service-name"
 # The kind cluster's generated secrets (scripts/kind-deploy.sh) and the kind values the deploy's
-# placeholder guard accepts; both go to the script's KIND_VALUES.
+# placeholder guard accepts; both go to the script's KIND_VALUES (a preview takes the Secrets the
+# bootstrap creates instead, as values.preview.yaml names them, so only the kind values).
 SECRETS = ROOT / ".local" / "kind" / "values.yaml"
 KIND_VALUES = ROOT / "tests" / "k8s" / "deploy-env-kind.yaml"
 # The images the deploy workflow deploys (deploy.yml's DEPLOY_IMAGES); the WAF renders only with
@@ -324,7 +325,8 @@ def deploy_env(  # noqa: PLR0913 - the script's inputs, each optional but the fi
     the deployer on fst (``user``, else the local deployer), the pushed images by digest, the
     deploy workflow's default HELM_TIMEOUT, KIND_VALUES the secrets, the kind values and these
     files. ``verify`` replaces deploy-verify.sh (VERIFY_SCRIPT); ``preview_pr`` deploys that pull
-    request's preview release (PREVIEW_PR). Returns the exit code and the script's output."""
+    request's preview release (PREVIEW_PR), without the kind secrets: its values file names the
+    bootstrap's Secrets. Returns the exit code and the script's output."""
     run = work / "run"
     run.mkdir(exist_ok=True)
     matrix = work / "matrix.sh"
@@ -335,7 +337,9 @@ def deploy_env(  # noqa: PLR0913 - the script's inputs, each optional but the fi
     env |= {
         "DEPLOY_ENV": "kind",
         "DEPLOY_ENV_KIND_TEST": "1",
-        "KIND_VALUES": ":".join(str(f) for f in (SECRETS, KIND_VALUES, *values)),
+        "KIND_VALUES": ":".join(
+            str(f) for f in ((() if preview_pr else (SECRETS,)) + (KIND_VALUES, *values))
+        ),
         "SERVICE_NAME": release,
         "CHART_DIR": str(CHART),
         "DEPLOY_IMAGES": ",".join(DEPLOY_IMAGES),

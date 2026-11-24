@@ -8,6 +8,9 @@
 #
 #   scripts/k8s-bootstrap.sh dev | kubectl apply -f -
 #
+# The one exception, preview only: --create-secrets prints nothing and, with the admin's kubectl
+# (its current context), creates the previews' database Secrets once (below).
+#
 # It holds (infra/k8s/bootstrap, values.<env>.yaml over values.yaml):
 #   - the app namespace and, with the in-cluster database, the database namespace, both on the
 #     restricted Pod Security profile;
@@ -23,6 +26,7 @@
 # Usage: k8s-bootstrap.sh <dev|qa|production|local|preview> [--release NAME] [--namespace NS] [--db|--no-db]
 #                         [--values FILE]... [--chart-values FILE]...
 #                         [--chart-set K=V]... [--chart-set-string K=V]...
+#        k8s-bootstrap.sh preview [--release NAME] [--namespace NS] --create-secrets
 #   --release NAME   the Helm release name (SERVICE_NAME; default your-service-name)
 #   --namespace NS   the app namespace (default <release>-<env>)
 #   --db / --no-db   create the database namespace or not (default: the env config)
@@ -32,7 +36,12 @@
 #   --chart-set K=V, --chart-set-string K=V  a --set / --set-string the deploy passes to the chart,
 #                    rendered after the chart values files, as helm applies them (repeatable);
 #                    with gmpClusterRules, monitoring.flavour is refused here: use --chart-values
-# Needs helm and yq (scripts/tools.sh install helm4 yq), used only to render and read the config.
+#   --create-secrets (preview only, after the apply) create the Secrets the chart's values.preview.yaml
+#                    names (secrets.existingSecret in the app namespace, postgresql.existingSecret in
+#                    the database namespace) with one random password, never printed; both kept when
+#                    they exist, so a re-run changes nothing; refused when only one exists
+# Needs helm and yq (scripts/tools.sh install helm4 yq), used only to render and read the config;
+# --create-secrets needs yq and kubectl.
 # ===========================================================================
 set -Eeuo pipefail
 
@@ -52,7 +61,7 @@ case "$1" in
   *) die "unknown environment '$1' (dev, qa, production, local or preview)" ;;
 esac
 
-args=() files=("$DIR/values.yaml" "$DIR/values.${ENV_NAME}.yaml") release="" namespace=""
+args=() files=("$DIR/values.yaml" "$DIR/values.${ENV_NAME}.yaml") release="" namespace="" create_secrets=""
 chart_files=("$CHART/values.yaml" "$CHART/values.${ENV_NAME}.yaml") chart_sets=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -72,12 +81,14 @@ while [[ $# -gt 0 ]]; do
     --values)
       [[ $# -ge 2 && -f "$2" ]] || die "--values needs an existing file"
       files+=("$2"); args+=(-f "$2"); shift 2 ;;
+    --create-secrets) create_secrets=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option '$1' (try --help)" ;;
   esac
 done
 
-command -v helm >/dev/null 2>&1 || die "helm is required to render (scripts/tools.sh install helm4)"
+[[ -z "$create_secrets" || "$ENV_NAME" == preview ]] || die "--create-secrets is for preview only"
+[[ -n "$create_secrets" ]] || command -v helm >/dev/null 2>&1 || die "helm is required to render (scripts/tools.sh install helm4)"
 command -v yq >/dev/null 2>&1 || die "yq is required to read the config (scripts/tools.sh install yq)"
 # One config value: the bootstrap files merged in order (values.yaml, values.<env>.yaml, --values).
 conf() { yq ea ". as \$i ireduce ({}; . * \$i) | .$1 // \"\"" "${files[@]}"; }
@@ -87,6 +98,44 @@ label release "$release"
 namespace="${namespace:-$(conf namespace)}"
 namespace="${namespace:-${release}-$(conf environment)}"
 label namespace "$namespace"
+
+# --create-secrets: the previews' database password, generated here once and shared by every preview
+# (the preview deployer can read every Secret of the namespace, so a password per preview would
+# separate nothing). Values go to kubectl in files only this user can read, never on a command line.
+if [[ -n "$create_secrets" ]]; then
+  command -v kubectl >/dev/null 2>&1 || die "kubectl is required for --create-secrets"
+  chart_value() { yq ea ". as \$i ireduce ({}; . * \$i) | .$1 // \"\"" "${chart_files[@]}"; }
+  app_secret="$(chart_value secrets.existingSecret)"
+  db_secret="$(chart_value postgresql.existingSecret)"
+  db_key="$(chart_value postgresql.existingSecretKey)"
+  db_user="$(chart_value secrets.dbUser)"
+  db_namespace="${namespace}-$(conf dbSuffix)"
+  for v in app_secret db_secret db_key db_user; do
+    [[ "${!v}" =~ ^[A-Za-z0-9]([-._A-Za-z0-9]{0,251}[A-Za-z0-9])?$ ]] ||
+      die "values.preview.yaml must name secrets.existingSecret, postgresql.existingSecret, its key and secrets.dbUser ($v is '${!v}')"
+  done
+  # The name if the Secret exists, nothing if not; any other kubectl error stops here.
+  have() { kubectl -n "$1" get secret "$2" --ignore-not-found -o name || die "cannot read secret $2 in $1"; }
+  found_app="$(have "$namespace" "$app_secret")"
+  found_db="$(have "$db_namespace" "$db_secret")"
+  if [[ -n "$found_app" && -n "$found_db" ]]; then
+    echo "k8s-bootstrap: kept ${namespace}/${app_secret} and ${db_namespace}/${db_secret}"
+    exit 0
+  fi
+  [[ -z "$found_app$found_db" ]] ||
+    die "only one of ${namespace}/${app_secret} and ${db_namespace}/${db_secret} exists; delete it (the preview databases then need recreating) and re-run"
+  secret_dir="$(umask 077 && mktemp -d)"
+  trap 'rm -rf "$secret_dir"' EXIT
+  ( umask 077
+    printf '%s' "$db_user" > "$secret_dir/user"
+    od -An -N24 -tx1 /dev/urandom | tr -d ' \n' > "$secret_dir/password"
+    od -An -N24 -tx1 /dev/urandom | tr -d ' \n' > "$secret_dir/stats" )
+  kubectl -n "$namespace" create secret generic "$app_secret" --from-file="DB_USER=$secret_dir/user" \
+    --from-file="DB_PASSWORD=$secret_dir/password" --from-file="STATS_PASS=$secret_dir/stats" >/dev/null
+  kubectl -n "$db_namespace" create secret generic "$db_secret" --from-file="$db_key=$secret_dir/password" >/dev/null
+  echo "k8s-bootstrap: created ${namespace}/${app_secret} and ${db_namespace}/${db_secret}"
+  exit 0
+fi
 chart_args=(-f "$CHART/values.${ENV_NAME}.yaml" -n "$namespace")
 for f in "${chart_files[@]:2}"; do chart_args+=(-f "$f"); done
 for key in fullname:fullnameOverride nameOverride:nameOverride serviceAccountName:serviceAccount.name; do

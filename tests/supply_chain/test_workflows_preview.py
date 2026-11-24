@@ -73,6 +73,23 @@ def test_the_deploy_runs_only_for_a_labelled_same_repository_pull_request() -> N
     assert _if("digests") == _if("deploy")
 
 
+DEPENDABOT = "github.actor != 'dependabot[bot]'"
+
+
+def test_a_dependabot_run_skips_the_deploy_with_a_notice_instead_of_failing() -> None:
+    """A run Dependabot starts gets no environment secret or OIDC token: the deploy jobs skip it,
+    and bot-skip, the same conditions with the actor's test inverted, says so (contents: read)."""
+    for name in DEPLOY_JOBS:
+        assert _if(name).endswith(f" && {DEPENDABOT}"), name
+    inverted = DEPENDABOT.replace("!=", "==")
+    assert _if("bot-skip") == _if("deploy").replace(DEPENDABOT, inverted)
+    job = _jobs()["bot-skip"]
+    assert job["permissions"] == {"contents": "read"}
+    assert "environment" not in job
+    (step,) = job["steps"]
+    assert step["run"].startswith('echo "::notice::')
+
+
 def test_closing_or_unlabelling_removes_the_preview_and_a_fork_never_reaches_the_cluster() -> None:
     cond = _if("cleanup")
     assert SAME_REPO in cond

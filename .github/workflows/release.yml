@@ -83,6 +83,20 @@ jobs:
       image_tag: ${{ needs.plan.outputs.image_tag }}
       immutable: ${{ needs.plan.outputs.immutable }}
 
+  # A v* tag only, after every image is signed: the chart, packaged, pushed, signed and attested in its own reusable
+  # workflow (the union of its job's grants). Only release-assets needs it: the deploys use the checked-out chart, so a
+  # failed chart push never holds back the digests, a deploy or the VEX.
+  chart:
+    name: Chart
+    needs: images
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      packages: write  # reusable-chart-release.yml pushes the chart and attaches its signature and attestation
+      id-token: write  # reusable-chart-release.yml signs keyless
+      attestations: write  # reusable-chart-release.yml records the chart's provenance
+    uses: ./.github/workflows/reusable-chart-release.yml
+
   # Merge the per-image digests into image-digests.env and scan.env, as the old verify job did.
   digests:
     name: Image digests
@@ -241,8 +255,8 @@ jobs:
   # The release is never published here; immutable releases reject assets added after publication.
   release-assets:
     name: Release assets (draft)
-    needs: [images, digests, grant, vex]
-    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.images.result == 'success' && needs.digests.result == 'success' && needs.grant.result == 'success' && needs.vex.result == 'success' }}
+    needs: [images, digests, grant, vex, chart]
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.images.result == 'success' && needs.digests.result == 'success' && needs.grant.result == 'success' && needs.vex.result == 'success' && needs.chart.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -287,31 +301,41 @@ jobs:
           cp assets/vex/openvex.json assets/grant/*.license.grant.json release-assets/
           cp assets/grant/summary.json release-assets/licence-summary.json
           cp assets/digests/image-digests.env assets/digests/scan.env assets/chart/chart.env release-assets/
-          # provenance.md: every signed digest (each image's index, the chart) and how to verify it.
+          # provenance.md: every signed digest (each image's index, the chart) and how to verify it. The images are
+          # signed by reusable-build.yml, the chart by reusable-chart-release.yml.
           workflow="${GH_REPO}/.github/workflows/reusable-build.yml"
+          chart_workflow="${GH_REPO}/.github/workflows/reusable-chart-release.yml"
+          chart_ref="$(sed -n 's/^CHART=//p' assets/chart/chart.env)@$(sed -n 's/^CHART_DIGEST=//p' assets/chart/chart.env)"
+          verify() { # reference, signing workflow
+            echo '```'
+            if [[ "${ATTESTED}" == "true" ]]; then
+              echo "gh attestation verify oci://$1 --repo ${GH_REPO} --signer-workflow $2"
+            fi
+            echo "cosign verify $1 --certificate-identity https://github.com/$2@refs/tags/${TAG} --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-github-workflow-repository ${GH_REPO}"
+            echo '```'
+          }
           {
             echo "# Provenance of ${TAG}"
             echo
             if [[ "${ATTESTED}" == "true" ]]; then
-              echo "Signed keyless and attested by \`${workflow}@refs/tags/${TAG}\`. All attestations: https://github.com/${GH_REPO}/attestations"
+              echo "Signed keyless and attested by \`${workflow}@refs/tags/${TAG}\` (the images) and \`${chart_workflow}@refs/tags/${TAG}\` (the chart). All attestations: https://github.com/${GH_REPO}/attestations"
             else
-              echo "Signed keyless by \`${workflow}@refs/tags/${TAG}\`. Not attested: the repository is not public and ATTESTATIONS_ENABLED is not true."
+              echo "Signed keyless by \`${workflow}@refs/tags/${TAG}\` (the images) and \`${chart_workflow}@refs/tags/${TAG}\` (the chart). Not attested: the repository is not public and ATTESTATIONS_ENABLED is not true."
             fi
             echo
             while IFS='=' read -r key digest; do
               ref="$(sed -n "s/^${key%_DIGEST}=//p" assets/digests/scan.env)"
               echo "- image \`${ref%:*}@${digest}\`"
             done < assets/digests/image-digests.env
-            echo "- chart \`$(sed -n 's/^CHART=//p' assets/chart/chart.env)@$(sed -n 's/^CHART_DIGEST=//p' assets/chart/chart.env)\` (version $(sed -n 's/^CHART_VERSION=//p' assets/chart/chart.env))"
+            echo "- chart \`${chart_ref}\` (version $(sed -n 's/^CHART_VERSION=//p' assets/chart/chart.env))"
             echo
-            echo "Verify any of them (replace REF with a reference above):"
+            echo "Verify an image (replace REF with an image reference above):"
             echo
-            echo '```'
-            if [[ "${ATTESTED}" == "true" ]]; then
-              echo "gh attestation verify oci://REF --repo ${GH_REPO} --signer-workflow ${workflow}"
-            fi
-            echo "cosign verify REF --certificate-identity https://github.com/${workflow}@refs/tags/${TAG} --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-github-workflow-repository ${GH_REPO}"
-            echo '```'
+            verify REF "${workflow}"
+            echo
+            echo "Verify the chart:"
+            echo
+            verify "${chart_ref}" "${chart_workflow}"
           } > release-assets/provenance.md
           echo "- provenance.md lists $(grep -c '^- ' release-assets/provenance.md) signed digest(s)" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload to the draft release

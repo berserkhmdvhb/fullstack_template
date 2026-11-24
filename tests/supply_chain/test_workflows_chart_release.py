@@ -1,4 +1,4 @@
-"""The signed OCI chart (reusable-build.yml, job `chart`). Offline; the steps run locally."""
+"""The signed OCI chart (reusable-chart-release.yml, called by release.yml). Offline."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ BASH: str = shutil.which("bash") or "/usr/bin/bash"
 DIGEST = "sha256:" + "a" * 64
 IDENTITY = (
     '--certificate-identity "https://github.com/${GITHUB_REPOSITORY}'
-    '/.github/workflows/reusable-build.yml@${GITHUB_REF}"'
+    '/.github/workflows/reusable-chart-release.yml@${GITHUB_REF}"'
 )
 ATTEST_GUARD = (
     "${{ github.event.repository.visibility == 'public' || vars.ATTESTATIONS_ENABLED == 'true' }}"
@@ -29,7 +29,7 @@ ATTEST_GUARD = (
 
 
 def _job() -> dict[str, Any]:
-    return cast("dict[str, Any]", workflow("reusable-build.yml")["jobs"]["chart"])
+    return cast("dict[str, Any]", workflow("reusable-chart-release.yml")["jobs"]["chart"])
 
 
 def _step(name: str) -> dict[str, Any]:
@@ -44,18 +44,39 @@ def _index(needle: str) -> int:
     )
 
 
+GRANTS = {"contents": "read", "packages": "write", "id-token": "write", "attestations": "write"}
+
+
 def test_the_chart_is_published_only_on_a_pushed_v_tag_after_the_images_are_signed() -> None:
+    doc = workflow("reusable-chart-release.yml")
+    assert set(doc["on"]) == {"workflow_call"}
+    assert doc["permissions"] == {}
+    assert list(doc["jobs"]) == ["chart"]
     job = _job()
     assert job["if"] == "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
     assert "pull_request" not in str(job)
     assert "refs/heads/main" not in job["if"]
-    assert job["needs"] == "sign-attest"
-    assert job["permissions"] == {
-        "contents": "read",
-        "packages": "write",
-        "id-token": "write",
-        "attestations": "write",
+    assert job["permissions"] == GRANTS
+    # release.yml calls it after the images job (every image signed), on a v* tag, with its grants.
+    caller = workflow("release.yml")["jobs"]["chart"]
+    assert caller["uses"] == "./.github/workflows/reusable-chart-release.yml"
+    assert caller["needs"] == "images"
+    assert caller["if"] == "startsWith(github.ref, 'refs/tags/v')"
+    assert caller["permissions"] == GRANTS
+    assert "chart" not in workflow("reusable-build.yml")["jobs"]
+
+
+def test_only_the_release_assets_wait_for_the_chart() -> None:
+    """A failed chart push holds back the draft release's assets, never the digests, the deploys or
+    the VEX: the images' path to production does not depend on the chart."""
+    jobs = workflow("release.yml")["jobs"]
+    waiting = {
+        n
+        for n, j in jobs.items()
+        if "chart" in ([j["needs"]] if isinstance(j.get("needs"), str) else j.get("needs", []))
     }
+    assert waiting == {"release-assets"}
+    assert "needs.chart.result == 'success'" in jobs["release-assets"]["if"]
 
 
 def test_package_push_sign_verify_attest_in_order() -> None:
@@ -122,7 +143,7 @@ def _package(tmp_path: Path, helm: str, tag: str) -> tuple[dict[str, str], dict[
         "GITHUB_OUTPUT": str(out),
         "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
         "GITHUB_REF_NAME": tag,
-        "GITHUB_REPOSITORY_OWNER": "Some-Owner",
+        "GITHUB_REPOSITORY": "Some-Owner/Some-Repo",
         "CHART_DIR": "charts/your-service-name",
         "REGISTRY": "ghcr.io",
     }
@@ -145,7 +166,8 @@ def test_the_packaged_chart_carries_the_tags_version(
     assert chart["appVersion"] == version
     assert committed["version"] != version  # the committed literal is not what ships
     assert outputs["version"] == version
-    assert outputs["repository"] == f"ghcr.io/some-owner/charts/{committed['name']}"
+    # Under the repository, as the images are (ghcr.io/<owner>/<repo>/<id>), lower-cased.
+    assert outputs["repository"] == f"ghcr.io/some-owner/some-repo/charts/{committed['name']}"
 
 
 PUSH_STUB = """#!/usr/bin/env bash
@@ -154,7 +176,7 @@ if [[ -n "${PUSH_FAILS:-}" ]]; then
   echo "Error: denied: permission_denied: write_package" >&2
   exit 1
 fi
-echo "Pushed: ghcr.io/o/charts/c:1.2.3"
+echo "Pushed: ghcr.io/o/r/charts/c:1.2.3"
 echo "Digest: ${PUSHED_DIGEST}"
 """
 
@@ -172,7 +194,7 @@ def _push(tmp_path: Path, digest: str, *, fails: bool = False) -> tuple[int, str
         "PACKAGE": "c-1.2.3.tgz",
         "HOME": str(tmp_path / "home"),
         "REGISTRY": "ghcr.io",
-        "GITHUB_REPOSITORY_OWNER": "O",
+        "GITHUB_REPOSITORY": "O/R",
         "GITHUB_OUTPUT": str(tmp_path / "out"),
     }
     done = subprocess.run(
@@ -186,7 +208,7 @@ def _push(tmp_path: Path, digest: str, *, fails: bool = False) -> tuple[int, str
     return done.returncode, out.read_text() if out.exists() else "", done.stdout
 
 
-def test_the_push_goes_to_the_owners_charts_namespace_and_outputs_the_digest(
+def test_the_push_goes_to_the_repositorys_charts_namespace_and_outputs_the_digest(
     tmp_path: Path,
 ) -> None:
     code, outputs, _ = _push(tmp_path, DIGEST)
@@ -195,7 +217,7 @@ def test_the_push_goes_to_the_owners_charts_namespace_and_outputs_the_digest(
     calls = (tmp_path / "calls").read_text()
     # The docker/login-action login, so no token reaches a run step.
     config = tmp_path / "home" / ".docker" / "config.json"
-    assert calls == f"helm push c-1.2.3.tgz oci://ghcr.io/o/charts config={config}\n"
+    assert calls == f"helm push c-1.2.3.tgz oci://ghcr.io/o/r/charts config={config}\n"
 
 
 def test_a_push_without_a_valid_digest_fails(tmp_path: Path) -> None:
@@ -210,4 +232,5 @@ def test_a_failing_push_prints_helms_error_before_failing(tmp_path: Path) -> Non
     assert code != 0
     assert "denied: permission_denied: write_package" in stdout
     assert "::error::helm push failed" in stdout
+    assert "re-run the failed jobs (wiki/releasing.md, The chart)" in stdout  # the recovery
     assert outputs == ""

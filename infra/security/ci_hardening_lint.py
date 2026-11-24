@@ -11,7 +11,8 @@ prints a structured report instead (used by ``check-ci-hardening.sh``).
 
 Checks (ids are stable):
   pinned-uses, top-permissions, no-prt-checkout, no-inline-secrets, image-digest,
-  image-push-isolation (only reusable-build.yml pushes, signs or attests images), provenance
+  image-push-isolation (only reusable-build.yml pushes, signs or attests images, and
+  reusable-chart-release.yml the release chart), provenance
   (when a workflow calls reusable-build.yml, it must sign, verify and attest), osv-coverage,
   environment-for-secrets, timeouts, no-dry-run-env, documented-permissions, no-release-cache
   (the release path uses no build cache, no actions/cache and no setup-* cache).
@@ -36,14 +37,19 @@ import yaml
 USAGE_ERROR = 2
 REUSABLE_BUILD = ".github/workflows/reusable-build.yml"
 SIGNING_JOB = "sign-attest"
-# The per-platform SBOM attestation runs in its own matrix job, and the chart (v* tags) in its
-# own job, so each holds the same keyless grants.
-ATTESTING_JOBS = (SIGNING_JOB, "attest-sbom", "chart")
+# The per-platform SBOM attestation runs in its own matrix job, so it holds the same keyless grants.
+ATTESTING_JOBS = (SIGNING_JOB, "attest-sbom")
+# The release chart (v* tags) is signed in a workflow of its own, so a failed chart push never fails
+# the images' path to the deploys: its one job holds the same keyless grants.
+CHART_RELEASE = ".github/workflows/reusable-chart-release.yml"
+# The workflows that may push, sign or attest, and the jobs in each that may attest.
+SIGNING_WORKFLOWS = {REUSABLE_BUILD: ATTESTING_JOBS, CHART_RELEASE: ("chart",)}
 # Publishing Scorecard results needs id-token: write (OIDC) and no cloud credential; the action's
 # workflow restrictions allow no environment-free job but this one.
 SCORECARD_WORKFLOW = ".github/workflows/scorecard.yml"
 SCORECARD_JOB = "analysis"
 _REUSABLE_REF = "./" + REUSABLE_BUILD
+_SIGNING_REFS = {"./" + w for w in SIGNING_WORKFLOWS}
 _CLOUD_LOGIN_REF = (
     "./.github/workflows/deploy.yml"  # its caller grants id-token for the cloud login
 )
@@ -376,16 +382,16 @@ def _caller_isolation(doc: Doc, job_id: str, job: LDict, perms: Any) -> list[Fin
     callee = str(job.get("uses", "")).strip()
     found: list[Finding] = []
     pr = [n for n in _triggers(doc) if n.startswith("pull_request")]
-    if callee == _REUSABLE_REF and pr:
-        msg = f"job {job_id} calls reusable-build.yml from a {pr[0]} workflow; push only"
+    if callee in _SIGNING_REFS and pr:
+        msg = f"job {job_id} calls {callee.rsplit('/', 1)[-1]} from a {pr[0]} workflow; push only"
         found.append(_isolation(doc, job.line, msg))
-    if callee != _REUSABLE_REF:
+    if callee not in _SIGNING_REFS:
         found += [
             _isolation(doc, job.line, f"job {job_id} grants {scope}: write to {callee}")
             for scope in ("packages", "attestations")
             if _grants(perms, scope)
         ]
-    if callee not in {_REUSABLE_REF, _CLOUD_LOGIN_REF} and _grants(perms, "id-token"):
+    if callee not in {*_SIGNING_REFS, _CLOUD_LOGIN_REF} and _grants(perms, "id-token"):
         msg = f"job {job_id} grants id-token: write to {callee}; only signing and cloud login may"
         found.append(_isolation(doc, job.line, msg))
     return found
@@ -417,9 +423,12 @@ def check_image_push_isolation(doc: Doc) -> list[Finding]:
     found: list[Finding] = []
     for job_id, job in doc.jobs():
         perms = _effective_permissions(doc, job)
-        if doc.name.endswith(REUSABLE_BUILD):
-            if job_id not in ATTESTING_JOBS and _grants(perms, "attestations"):
-                who = " and ".join(ATTESTING_JOBS)
+        signing = next(
+            (jobs for w, jobs in SIGNING_WORKFLOWS.items() if doc.name.endswith(w)), None
+        )
+        if signing is not None:
+            if job_id not in signing and _grants(perms, "attestations"):
+                who = " and ".join(signing)
                 msg = f"job {job_id} holds attestations: write; only {who} may"
                 found.append(_isolation(doc, job.line, msg))
         elif "uses" in job:
@@ -589,7 +598,7 @@ def check_environment_for_secrets(doc: Doc) -> list[Finding]:
             continue
         reasons = _job_secret_reasons(job, top_idtoken=top_idtoken)
         # Keyless signing needs no cloud credential; only this one job is exempt.
-        if doc.name.endswith(REUSABLE_BUILD) and job_id in ATTESTING_JOBS:
+        if any(doc.name.endswith(w) and job_id in j for w, j in SIGNING_WORKFLOWS.items()):
             reasons = [r for r in reasons if r != "id-token: write"]
         # Publishing Scorecard results (OIDC, no cloud credential): only this one job is exempt.
         if doc.name.endswith(SCORECARD_WORKFLOW) and job_id == SCORECARD_JOB:

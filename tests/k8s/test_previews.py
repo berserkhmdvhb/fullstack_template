@@ -5,7 +5,8 @@ Run with ``make kind-preview-test`` after ``make kind-up kind-deploy``; ``make t
 it (tests/conftest.py ignores tests/k8s). It talks to fst only, through .local/kind/kubeconfig. The
 preview environment is bootstrapped as the admin does it (scripts/k8s-bootstrap.sh preview: the
 preview namespace, its database namespace, quota, LimitRange, the shared ServiceAccount and the
-preview deployer's Role), for a release name of its own, so its namespaces are its own. Then, as
+preview deployer's Role, then --create-secrets: the database Secrets values.preview.yaml names), for
+a release name of its own, so its namespaces are its own. Then, as
 the preview deployer and through the real scripts: scripts/ci/deploy-env.sh deploys two pull
 requests' previews (its test-only DEPLOY_ENV=kind with PREVIEW_PR and the chart's
 values.preview.yaml; the kind job's images by digest from the throwaway registry), redeploys one,
@@ -17,6 +18,7 @@ One lifecycle, in file order (the make target stops at the first failure).
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -121,6 +123,24 @@ def _remove(admin: list[str], helm: list[str], objects: str) -> None:
     _run([*admin, "delete", "-f", "-", "--ignore-not-found", "--wait"], objects, check=False)
 
 
+def _create_secrets(main: Kube) -> None:
+    """k8s-bootstrap.sh preview --create-secrets as the admin (fst's kubeconfig, the pinned kubectl
+    first on PATH), twice: the second run keeps the first's Secrets."""
+    kubectl = Path(main.base[0])
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("HELM_KUBE", "GITHUB_"))} | {
+        "KUBECONFIG": str(KUBECONFIG),
+        "PATH": f"{kubectl.parent}:{os.environ['PATH']}",
+    }
+    cmd = ["bash", str(ROOT / "scripts" / "k8s-bootstrap.sh"), "preview", "--release", SERVICE]
+    for word in ("created", "kept"):
+        done = subprocess.run(
+            [*cmd, "--create-secrets"], capture_output=True, text=True, env=env, check=False
+        )
+        print(f"k8s-bootstrap.sh --create-secrets: rc {done.returncode} {done.stdout}{done.stderr}")
+        assert done.returncode == 0, done.stderr
+        assert done.stdout.startswith(f"k8s-bootstrap: {word} {NAMESPACE}/"), done.stdout
+
+
 @pytest.fixture(scope="module")
 def previews() -> Iterator[Previews]:
     assert KUBECONFIG.is_file(), f"no {KUBECONFIG}: run make kind-up kind-deploy first"
@@ -138,6 +158,7 @@ def previews() -> Iterator[Previews]:
             pushed = _kube.push_release_images(host, tls, "fst-previews")
             _run([*admin, "apply", "-f", "-"], objects)
             try:
+                _create_secrets(main)
                 yield Previews(work, pushed, helm)
             finally:
                 _remove(admin, helm, objects)

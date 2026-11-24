@@ -153,8 +153,8 @@ def _assets() -> dict[str, Any]:
 def test_release_assets_run_only_on_v_tags_after_the_images_job() -> None:
     job = _assets()
     assert TAG_ONLY in job["if"]
-    assert {"images", "digests", "grant", "vex"} <= set(job["needs"])
-    for needed in ("images", "digests", "grant", "vex"):
+    assert {"images", "digests", "grant", "vex", "chart"} <= set(job["needs"])
+    for needed in ("images", "digests", "grant", "vex", "chart"):
         assert f"needs.{needed}.result == 'success'" in job["if"]
     assert job["permissions"] == {"contents": "write"}
     assert "id-token" not in str(job["permissions"])
@@ -434,10 +434,10 @@ ATTEST_GUARD = (
 def test_provenance_md_follows_the_attestation_guard_of_the_build() -> None:
     step = next(s for s in _assets()["steps"] if s.get("name") == "Collect the assets")
     assert step["env"] == {"ATTESTED": ATTEST_GUARD}
-    build = workflow("reusable-build.yml")["jobs"]
     guards = {
         s["if"]
-        for j in build.values()
+        for name in ("reusable-build.yml", "reusable-chart-release.yml")
+        for j in workflow(name)["jobs"].values()
         for s in j["steps"]
         if str(s.get("uses", "")).startswith("actions/attest")
     }
@@ -462,7 +462,7 @@ def test_provenance_md_lists_every_signed_digest_and_how_to_verify_it(
             "FRONTEND_IMAGE=ghcr.io/o/r/frontend:1.0.0-prod-abc1234\n"
         ),
         "assets/chart/chart.env": (
-            f"CHART=ghcr.io/o/charts/c\nCHART_VERSION=1.0.0\nCHART_DIGEST={D3}\n"
+            f"CHART=ghcr.io/o/r/charts/c\nCHART_VERSION=1.0.0\nCHART_DIGEST={D3}\n"
         ),
     }
     for rel, text in files.items():
@@ -482,7 +482,7 @@ def test_provenance_md_lists_every_signed_digest_and_how_to_verify_it(
     text = (tmp_path / "release-assets/provenance.md").read_text()
     assert f"- image `ghcr.io/o/r/backend@{D1}`" in text
     assert f"- image `ghcr.io/o/r/frontend@{D2}`" in text
-    assert f"- chart `ghcr.io/o/charts/c@{D3}` (version 1.0.0)" in text
+    assert f"- chart `ghcr.io/o/r/charts/c@{D3}` (version 1.0.0)" in text
     # Attestation links and their verify command only when the build attested.
     assert ("https://github.com/o/r/attestations" in text) is attested
     assert ("gh attestation verify" in text) is attested
@@ -493,6 +493,17 @@ def test_provenance_md_lists_every_signed_digest_and_how_to_verify_it(
         in text
     )
     assert "--certificate-github-workflow-repository o/r" in text
+    # The chart is signed by its own workflow: its verify commands name that identity, with its ref.
+    chart = text.split("Verify the chart:", 1)[1]
+    assert (
+        f"cosign verify ghcr.io/o/r/charts/c@{D3} --certificate-identity "
+        "https://github.com/o/r/.github/workflows/reusable-chart-release.yml@refs/tags/v1.0.0"
+    ) in chart
+    assert "reusable-build.yml" not in chart
+    assert (
+        f"gh attestation verify oci://ghcr.io/o/r/charts/c@{D3} --repo o/r --signer-workflow "
+        "o/r/.github/workflows/reusable-chart-release.yml" in chart
+    ) is attested
     assert (tmp_path / "release-assets/chart.env").exists()
     assert "3 signed digest(s)" in (tmp_path / "summary").read_text()
 

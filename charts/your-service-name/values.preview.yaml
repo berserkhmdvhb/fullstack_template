@@ -41,9 +41,17 @@ config:
 # The hosts are set per release by scripts/ci/deploy-env.sh (<release>.<PREVIEW_DOMAIN>, and -api and
 # -app under the same domain), so the releases' routes never share a hostname.
 
+# The database password: no value here. The bootstrap creates these two Secrets once, with one random
+# password that every preview of the namespace shares (scripts/k8s-bootstrap.sh preview --create-secrets
+# reads their names and key from this file): the app Secret (DB_USER, DB_PASSWORD, STATS_PASS) in the
+# preview namespace and the database's password Secret in the preview database namespace.
+secrets:
+  existingSecret: preview-app-secret
+
 # A throwaway database per preview: small, and no backups (the TTL cleanup deletes it with its volume).
 postgresql:
   enabled: true
+  existingSecret: preview-db-password
   storage:
     size: 1Gi
   backup:

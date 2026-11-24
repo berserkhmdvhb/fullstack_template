@@ -179,10 +179,13 @@ WRITE_ALLOWLIST = {
     ("reusable-build.yml", "attest-sbom", "packages"),
     ("reusable-build.yml", "attest-sbom", "id-token"),
     ("reusable-build.yml", "attest-sbom", "attestations"),
-    # The chart: pushed, signed and attested on a v* tag, with the images' identity.
-    ("reusable-build.yml", "chart", "packages"),
-    ("reusable-build.yml", "chart", "id-token"),
-    ("reusable-build.yml", "chart", "attestations"),
+    # The chart: pushed, signed and attested on a v* tag in its own workflow, and its caller.
+    ("reusable-chart-release.yml", "chart", "packages"),
+    ("reusable-chart-release.yml", "chart", "id-token"),
+    ("reusable-chart-release.yml", "chart", "attestations"),
+    ("release.yml", "chart", "packages"),
+    ("release.yml", "chart", "id-token"),
+    ("release.yml", "chart", "attestations"),
     ("release.yml", "images", "packages"),
     ("release.yml", "images", "security-events"),
     ("release.yml", "images", "id-token"),

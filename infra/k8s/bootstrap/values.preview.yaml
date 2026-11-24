@@ -27,7 +27,8 @@ quota:
     persistentvolumeclaims: "5"
     configmaps: "15"
     # Each release's Helm history (5, plus one during an upgrade) and the chart's Secrets, three
-    # times, and the headroom. A test recomputes it.
+    # times, the app Secret the releases share (k8s-bootstrap.sh preview --create-secrets), and the
+    # headroom. A test recomputes it.
     secrets: "30"
 # The database namespace: exactly quotaReleases databases at the chart's values.preview.yaml (one
 # PostgreSQL Pod and one volume claim each), and the next one refused. No headroom: the sum is exact,

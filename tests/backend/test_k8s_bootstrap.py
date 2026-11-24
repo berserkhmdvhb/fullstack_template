@@ -521,9 +521,15 @@ def test_the_secrets_quota_covers_the_helm_history_the_chart_and_headroom(
     )
     quota = int(_one(bootstrap(helm, env), "ResourceQuota", app)["spec"]["hard"]["secrets"])
     releases = _merged(BOOTSTRAP / "values.yaml", BOOTSTRAP / f"values.{env}.yaml")["quotaReleases"]
+    # The Secrets the releases share: in the preview namespace, the app Secret that
+    # k8s-bootstrap.sh preview --create-secrets creates there.
+    shared = (
+        SCRIPT.read_text().count('kubectl -n "$namespace" create secret') if env == "preview" else 0
+    )
+    assert shared == (1 if env == "preview" else 0)
     # One more release Secret exists while an upgrade runs, before Helm prunes the oldest; the
     # preview namespace holds that for each of its releases.
-    assert quota >= releases * (history_max + 1 + chart_secrets) + SECRET_HEADROOM
+    assert quota >= releases * (history_max + 1 + chart_secrets) + shared + SECRET_HEADROOM
 
 
 def _extra(tmp_path: Path, config: dict[str, Any]) -> str:
