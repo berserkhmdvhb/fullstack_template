@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# check-ci-hardening.sh — CI's-own-supply-chain hardening self-check (standard 04 §6.4).
+# check-ci-hardening.sh — CI's-own-supply-chain hardening self-check.
 #
 # Statically lints THIS repo's GitHub workflows and composite actions (.github/workflows/*.yml,
 # .github/actions/*/action.yml) against the table-stakes: actions pinned to a commit SHA, top-level
 # permissions, no pull_request_target, no inline secrets, digest-pinned images, environment-scoped
-# secrets, job timeouts and an osv-scanner job. SLSA provenance surfaces as SKIP until phase 2
-# (never a false GREEN, never a gate-blocking FAIL). Exits non-zero (RED) if any finding is reported.
+# secrets, job timeouts and an osv-scanner job. Provenance: a workflow that calls reusable-build.yml
+# must cosign sign and verify the image and attest its build provenance and SBOM. Exits non-zero
+# (RED) if any finding is reported.
 # The grading logic lives in ci_hardening_lint.py; this is the thin wrapper the
 # CI job runs. Source-level (reads committed YAML, no build / image), so it runs
 # on pull requests for fast feedback AND on protected refs.
@@ -28,8 +29,8 @@ Usage: check-ci-hardening.sh [REPO_ROOT] [SEC_OUTPUT_DIR]
 
 Statically lint this repo's GitHub workflows and actions against the supply-chain
 table-stakes (SHA-pinned actions, permissions, digest-pinned images, environment-scoped
-secrets, timeouts, osv coverage). SLSA provenance is SKIP until phase 2. Exit non-zero
-(RED) if any check reports a finding.
+secrets, timeouts, osv coverage) and, for what reusable-build.yml builds, cosign sign, verify
+and attestation. Exit non-zero (RED) if any check reports a finding.
 
   REPO_ROOT       repo root            (default: this script's ../..)
   SEC_OUTPUT_DIR  security output dir  (default: output/security)

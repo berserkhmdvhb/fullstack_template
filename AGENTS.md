@@ -45,7 +45,7 @@ Adapt the placeholder before running the app for real:
 6. **Never edit the eight frozen `infra/security/*.sh` scripts** — `_helpers.sh`, `sbom-generate.sh`,
    `scan-vulnerabilities.sh`, `scan-licenses.sh`, `generate-vex.sh`, `check-ci-hardening.sh`,
    `tools-install.sh`, `verify-image-digest.sh` — new supply-chain logic goes under
-   `infra/security/local/`. (They were edited once, as a one-time re-baseline, to remove the old CI vendor coupling, once for a VEX correctness fix in `generate-vex.sh`, and once more in `generate-vex.sh` to pass scanner-derived JSON to jq through files instead of command-line arguments, because a large report exceeded the argument limit; each was a one-time, owner-approved edit and the rule is unchanged.) Add/extend a scanner via the `add-supply-chain-scanner` skill.
+   `infra/security/local/`. (They were edited once, as a one-time re-baseline, to remove the old CI vendor coupling, once for a VEX correctness fix in `generate-vex.sh`, and once more in `generate-vex.sh` to pass scanner-derived JSON to jq through files instead of command-line arguments, because a large report exceeded the argument limit, and once in `check-ci-hardening.sh` to describe the provenance check it runs (comments and usage text only); each was a one-time, owner-approved edit and the rule is unchanged.) Add/extend a scanner via the `add-supply-chain-scanner` skill.
 7. **No secrets in code, tests, docs, examples, or CI YAML** — and no real internal URLs / project
    IDs (redact them). CI's secret-template check and gitleaks fail the run on a leak.
 8. **Version comes from Git tags (`setuptools_scm`) — never hard-code `__version__`.**
