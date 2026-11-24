@@ -91,7 +91,12 @@ def test_exactly_one_zizmor_ignore_on_the_comment_trigger_with_a_reason() -> Non
     (n,) = ignores
     assert lines[n] == "  issue_comment: # zizmor: ignore[dangerous-triggers]"
     reason = " ".join(ln.strip("# ") for ln in lines[n - 2 : n])
-    for word in ("no checkout", "owners, members and collaborators only", "forks skipped", "gated `review` job"):
+    for word in (
+        "no checkout",
+        "owners, members and collaborators only",
+        "forks skipped",
+        "gated `review` job",
+    ):
         assert word in reason, word
 
 
