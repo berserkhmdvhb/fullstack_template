@@ -255,6 +255,12 @@
       "groupName": "kyverno"
     },
     {
+      // scorecard.yml stays on v2.5.0: v2.6.0's image cannot be pulled (ossf/scorecard-action#1752). Any later release is proposed.
+      "description": "ossf/scorecard-action: never v2.6.0, whose image cannot be pulled (ossf/scorecard-action#1752)",
+      "matchPackageNames": ["ossf/scorecard-action"],
+      "allowedVersions": "!/^v?2\\.6\\.0$/"
+    },
+    {
       // The WAF base (Dockerfile.waf) is tagged distroless-vX.Y.Z, which docker versioning cannot read: without this
       // rule only the digest of the same tag would be refreshed, and a new Envoy patch or minor never proposed.
       "description": "Envoy's distroless tags are versioned by their X.Y.Z",

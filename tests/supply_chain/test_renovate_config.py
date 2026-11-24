@@ -384,3 +384,21 @@ def test_dependabot_security_titles_are_fix_deps_conventional_commits() -> None:
         # Dependabot inserts ": " after a prefix that ends in ")".
         title = f"{update['commit-message']['prefix']}: bump x from 1.0.0 to 1.0.1"
         assert _title_pattern().match(title)
+
+
+def test_scorecard_action_never_proposes_the_unpullable_v2_6_0() -> None:
+    rules = [
+        r
+        for r in renovate()["packageRules"]
+        if r.get("matchPackageNames") == ["ossf/scorecard-action"]
+    ]
+    assert len(rules) == 1
+    assert "scorecard-action#1752" in rules[0]["description"]
+    allowed = rules[0]["allowedVersions"]
+    assert allowed.startswith("!/")
+    assert allowed.endswith("/")
+    excluded = re.compile(allowed[2:-1])
+    for version in ("v2.6.0", "2.6.0"):
+        assert excluded.search(version), version
+    for version in ("v2.6.1", "v2.7.0", "v2.5.0"):
+        assert not excluded.search(version), version
