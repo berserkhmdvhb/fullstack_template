@@ -55,8 +55,8 @@ flowchart TB
 ### Install scripts
 
 Dependency install scripts (`preinstall`, `install`, `postinstall`) run arbitrary code at install time, so the
-frontend installs with `npm ci --ignore-scripts` in the CI `setup-frontend` action and in both Dockerfile builder
-stages. The build, every test, the dev server and Playwright pass without them.
+frontend installs with `npm ci --ignore-scripts` in the CI `setup-frontend` action and in the Dockerfile's builder
+stage. The build, every test, the dev server and Playwright pass without them.
 
 Three lockfile packages declare an install script; none is needed:
 
@@ -144,14 +144,13 @@ const nextConfig: NextConfig = {
 - Only the files needed to run the production server
 - No development dependencies
 - No source maps (unless configured)
-- Node.js binary copied from build stage
+- No Node.js binary: the runtime base image (distroless Node.js) provides it
 
 ### Running the Standalone Server
 
 ```bash
-# In the standalone directory
-cd frontend/.next/standalone
-node server.js
+# From frontend/, after npm run build: copies .next/static and public beside server.js, as the image does
+node scripts/serve-standalone.mjs
 
 # Or via Docker Compose (uses Dockerfile.frontend)
 docker compose up frontend

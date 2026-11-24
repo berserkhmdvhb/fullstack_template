@@ -244,12 +244,12 @@ flowchart LR
 The stack is deployed as a single Helm chart (`charts/your-service-name/`); per-environment differences
 live in `values.<env>.yaml`, not separate overlays.
 
-- **Values-driven config** — One chart, parameterized by `values.dev/qa/production/local.yaml`
+- **Values-driven config** — One chart, parameterized by `values.<env>.yaml` (dev, qa, production, local, …)
 - **Templating** — Repeats (labels, selectors, secrets) are DRY'd into chart helpers
 - **Release management** — `helm upgrade --install`, `helm history`, `helm rollback`
 - **Gated optional pieces** — in-cluster Postgres, backups, monitoring, logging toggle on/off via values
 
-> The pre-Helm `k8s/` Kustomize tree was removed in Phase 2 Stage C (recoverable from git history);
+> The pre-Helm `k8s/` Kustomize tree was removed (recoverable from git history);
 > its overlay pattern lives on as the `values.<env>.yaml` files.
 
 ### Why Per-Service Dockerfiles?

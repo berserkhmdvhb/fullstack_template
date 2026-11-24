@@ -77,7 +77,7 @@ flowchart LR
 
 | Kind | Behaviour | Jobs |
 |---|---|---|
-| Blocking, required | Fails the run on a finding; behind `CI OK` | ruff, mypy, unit (3.12, 3.13), integration, e2e, the frontend gates, `chart`, `codeql`, `dependency-review`, `gitleaks`, `repo` (shellcheck, the secret templates, the offline doc link check, the bats suites, the admission policy tests), `hadolint`, `api-compat`, `workflows`, `pins`, `image-plan`, `images` (image structure checks, pull requests only), `kind` (pull requests only); `live` on `main` and tags |
+| Blocking, required | Fails the run on a finding; behind `CI OK` | ruff, mypy, unit (3.12, 3.13), integration, e2e, the frontend gates, `chart`, `codeql`, `dependency-review`, `gitleaks`, `repo` (its steps: [Workflow map](#workflow-map)), `hadolint`, `api-compat`, `workflows`, `pins`, `image-plan`, `images` (image structure checks, pull requests only), `kind` (pull requests only); `live` on `main` and tags |
 | Blocking, release | Fails the release run (`main` and `v*` tags, where the images exist; a pull request builds no image to scan, so none of these runs there) | `build` (digest check), `image-checks` (structure checks on the pushed digest, before signing), `grype` (threshold `policy.fail_level` in `infra/security/config.yaml`) |
 | Advisory | Findings become a `::warning` annotation and a step-summary line; fails only on a tool error; never a required check | `pip-audit`, the `advisory` matrix (`osv`, `guarddog`, `checkov`, `kubescape`), `Unit (Python 3.14)`, `live` on pull requests, `grant`, `vex`, DAST |
 

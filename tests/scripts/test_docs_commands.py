@@ -75,13 +75,20 @@ def test_the_migration_is_one_script_that_passes_the_current_charts_values() -> 
     assert 'values=(-f "$CHART/values.$ENV_NAME.yaml")' in code
 
 
-# A code span or a fenced line holding `make <target>` (any flags and VAR=value before the target).
+# A code span or a fenced line holding `make <targets>`: the words up to an operator or a comment.
+_MAKE = re.compile(r"(?:^|[\s;&|(])make\s+([^;&|)#]*)")
+_TARGET = re.compile(r"[a-z][\w.-]*")
 # A placeholder target (`make security-<step>`, `make kind-*-test`) is not one.
-_MAKE = re.compile(r"(?:^|[\s;&|(])make\s+(?:-\S+\s+)*(?:[A-Z_]+=\S*\s+)*([a-z][\w-]*)(?![\w<*-])")
+_PLACEHOLDER = re.compile(r"[<*{]")
+# make's options that take the next word as their argument.
+_OPTION_ARG = {"-C", "-f", "-I", "-j", "-o", "-W"}
+_ASSIGNMENT = re.compile(r"[A-Z_][A-Z0-9_]*=")
+# A `/` between alternatives (`make test-e2e / test-live`) or an option.
+_SKIPPED = re.compile(r"/$|-")
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 # A path under a scripts/ directory: the repo's, the frontend's or a skill's (the docs name each
-# relative to where it lives).
-_SCRIPT_PATH = re.compile(r"(?<![\w./-])scripts/[\w./-]*[\w/]")
+# relative to where it lives), with or without a leading `./`.
+_SCRIPT_PATH = re.compile(r"(?<![\w./-])(?:\./)?(scripts/[\w./-]*[\w/])")
 # The changelog records what was removed, by name.
 _HISTORY = {"wiki/changelog.md"}
 
@@ -100,8 +107,26 @@ def _code(text: str) -> list[str]:
     return out
 
 
+def _targets(words: list[str]) -> list[str]:
+    """The targets of one make command's words: options, VAR=value and `/` separators skipped."""
+    found: list[str] = []
+    it = iter(words)
+    for word in it:
+        if word in {"--", "\\"}:
+            break
+        if word in _OPTION_ARG:
+            next(it, None)
+        elif _SKIPPED.match(word) or _ASSIGNMENT.match(word) or _PLACEHOLDER.search(word):
+            continue
+        elif _TARGET.fullmatch(word):
+            found.append(word)
+        else:
+            break
+    return found
+
+
 def make_targets_named(text: str) -> set[str]:
-    return {m[1] for bit in _code(text) for m in _MAKE.finditer(bit)}
+    return {t for bit in _code(text) for m in _MAKE.finditer(bit) for t in _targets(m[1].split())}
 
 
 def _makefile_targets() -> set[str]:
@@ -116,40 +141,123 @@ def missing_targets(named: set[str], targets: set[str]) -> set[str]:
 
 def test_every_make_target_the_docs_name_exists() -> None:
     targets = _makefile_targets()
+    named = {p: make_targets_named(p.read_text("utf-8")) for p in _docs()}
+    # The scan finds real targets, among them the later ones of a multi-target command
+    # (`make kind-up kind-deploy`, AGENTS.md's `make test-integration / test-e2e / …`).
+    assert {"test", "check-all-dry", "kind-deploy", "test-contract", "test-live"} <= set().union(
+        *named.values()
+    )
     offenders = [
         f"{p.relative_to(ROOT)}: make {t}"
-        for p in _docs()
-        for t in sorted(missing_targets(make_targets_named(p.read_text("utf-8")), targets))
+        for p, found in named.items()
+        for t in sorted(missing_targets(found, targets))
     ]
     assert offenders == []
 
 
-def test_every_scripts_path_the_docs_name_exists() -> None:
-    tracked = subprocess.run(
+def _tracked() -> list[str]:
+    return subprocess.run(
         ["git", "ls-files"],  # noqa: S607
         cwd=ROOT,
         capture_output=True,
         text=True,
         check=True,
     ).stdout.splitlines()
-    # "/<path>" and "/<path>/" for every tracked file and each directory above it.
-    known = {f"/{n}" for n in tracked} | {
+
+
+def _known(tracked: list[str]) -> set[str]:
+    """Each tracked file and each directory above it, as "/<path>" and "/<path>/"."""
+    return {f"/{n}" for n in tracked} | {
         f"/{n[: i + 1]}" for n in tracked for i, c in enumerate(n) if c == "/"
     }
+
+
+def _exists(path: str, known: set[str]) -> bool:
+    """A path exists when it is a tracked path or the tail of one (docs name paths relative to
+    the directory they describe: `e2e/smoke.spec.ts` for frontend/e2e/smoke.spec.ts)."""
+    return any(k.endswith((f"/{path}", f"/{path}/")) for k in known)
+
+
+def test_every_scripts_path_the_docs_name_exists() -> None:
+    known = _known(_tracked())
+    found = [(p, m[1]) for p in _docs() for m in _SCRIPT_PATH.finditer(p.read_text("utf-8"))]
+    assert any(path == "scripts/k8s-bootstrap.sh" for _, path in found)
     offenders = [
-        f"{p.relative_to(ROOT)}: {m[0]}"
-        for p in _docs()
-        if str(p.relative_to(ROOT)) not in _HISTORY
-        for m in _SCRIPT_PATH.finditer(p.read_text("utf-8"))
-        if not any(k.endswith(f"/{m[0]}") for k in known)
+        f"{p.relative_to(ROOT)}: {path}"
+        for p, path in found
+        if str(p.relative_to(ROOT)) not in _HISTORY and not _exists(path, known)
     ]
     assert offenders == []
+
+
+# A repo-relative path in a code span: words joined by "/", not part of a URL, a host or an
+# expression, and not cut short by a placeholder (`values.<env>.yaml`, `scan-*.sh`).
+_CODE_PATH = re.compile(r"(?<![\w./@:$\\-])((?:[\w.-]+/)+[\w.-]*\w)(?![\w<*{$/.\\-]|\.[\w<*{])")
+_FILE = re.compile(r"\.(ya?ml|sh|py|md|toml|json|tsx?|mjs|js|bats|tpl|txt|cfg|ini)$")
+# Paths the docs name on purpose that are not tracked, each with its reason.
+_UNTRACKED = {
+    r"src/your_service_name/_version\.py": "written by setuptools-scm at build time, ignored",
+    r"(frontend/)?\.next(/.*)?": "the Next.js build output",
+    r"\.local/.*": "written by make kind-up, ignored",
+    r"frontend/node_modules": "installed by npm ci",
+    r"charts/your-service-name/values\.secret\.yaml": "a local secrets file, ignored",
+    r"path/to/.*": "a placeholder path",
+    r".*your-feature.*": "the developer guide's example of a feature to add",
+    r"[\w-]+(\.[\w-]+)*\.example/.*": "a URL on a placeholder host, not a path",
+    r"frontend/middleware\.ts": "a troubleshooting entry names an older image's file",
+}
+
+
+def code_paths(text: str, top: set[str]) -> set[str]:
+    """The repo-relative paths in the code of a Markdown text: under a tracked top-level
+    directory, or a file name with an extension."""
+    found = set()
+    for bit in _code(text):
+        for m in _CODE_PATH.finditer(bit):
+            path = m[1].removeprefix("./")
+            if path.split("/")[0] in top or _FILE.search(path):
+                found.add(path)
+    return found
+
+
+def missing_paths(named: set[str], known: set[str]) -> set[str]:
+    allowed = [re.compile(p) for p in _UNTRACKED]
+    return {p for p in named if not _exists(p, known) and not any(a.fullmatch(p) for a in allowed)}
+
+
+def test_every_repo_path_the_docs_name_in_code_exists() -> None:
+    tracked = _tracked()
+    known = _known(tracked)
+    top = {n.split("/")[0] for n in tracked if "/" in n}
+    named = {p: code_paths(p.read_text("utf-8"), top) for p in _docs()}
+    assert {"scripts/k8s-bootstrap.sh", ".github/workflows/ci.yml"} <= set().union(*named.values())
+    offenders = [
+        f"{p.relative_to(ROOT)}: {path}"
+        for p, found in named.items()
+        if str(p.relative_to(ROOT)) not in _HISTORY
+        for path in sorted(missing_paths(found, known))
+    ]
+    assert offenders == []
+
+
+def test_the_path_scan_skips_urls_placeholders_and_expressions() -> None:
+    text = "`ci/security.yml` `./run_backend.sh` `charts/x/values.<env>.yaml` `scan-*.sh`\n"
+    text += "`https://example.com/a/b.md` `ghcr.io/o/r/backend` `$HOME/.kube/c.yaml` `a\\.b/c`\n"
+    assert code_paths(text, {"charts"}) == {"ci/security.yml", "run_backend.sh"}
+    assert missing_paths({"ci/security.yml", "path/to/x.py"}, {"/run_backend.sh"}) == {
+        "ci/security.yml"
+    }
 
 
 def test_the_make_target_scan_reads_code_only_and_skips_placeholders() -> None:
     text = "make sure of it\n`make test` and `HELM_ENV=dev make k8s-apply`\n"
     text += "`make security-<step>` `make kind-*-test`\n```bash\nmake -s lock-check\n```\n"
-    assert make_targets_named(text) == {"test", "k8s-apply", "lock-check"}
+    text += "`make kind-up kind-deploy` `make test-e2e / test-live` `make -C x lint FOO=1 # c`\n"
+    text += '`make smoke-test URL=u -- smoke-test --out a` `make k8s-logs ARGS="-f x" y`\n'
+    assert make_targets_named(text) == {
+        "test", "k8s-apply", "lock-check", "kind-up", "kind-deploy", "test-e2e", "test-live",
+        "lint", "smoke-test", "k8s-logs",
+    }  # fmt: skip
     assert missing_targets({"test", "version-check-ruff", "nope"}, {"test", "version-check-%"}) == {
         "nope"
     }

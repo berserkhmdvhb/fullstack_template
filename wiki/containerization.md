@@ -446,7 +446,7 @@ helm upgrade --install your-service-name charts/your-service-name \
 
 ### CI/CD Deployment
 
-The `ci/deploy.yml` pipeline handles automated deployment — **Helm-native** (see
+The [`deploy.yml`](../.github/workflows/deploy.yml) workflow handles automated deployment — **Helm-native** (see
 [`wiki/ci-cd.md`](./ci-cd.md)):
 
 1. **build** (`release.yml`) — builds and pushes the backend and frontend images, one matrix leg each

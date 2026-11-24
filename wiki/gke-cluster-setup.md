@@ -860,13 +860,14 @@ When rows 1 to 12 pass (leaving out optional row 9 if you skipped section 10), y
 
 ## 17. What comes next
 
-> **Planned changes.** Everything below is not implemented yet.
+> **Planned changes.** The first item is already in the repository; the rest is not implemented yet.
+
+- **Settings script and release App (in the repository):** [`scripts/github-settings.sh`](../scripts/github-settings.sh) replaces the hand steps of 11.2 and adds the `release` environment and the release GitHub App's tag ruleset ([GitHub repository settings](./github-repository-settings.md)).
 
 These come with the GitHub pipeline work, not in this guide:
 
-- **Settings script and release App:** The settings script replaces the hand steps of 11.2 and adds the `release` environment and its GitHub App.
 - **Domain, TLS and public traffic:** through Cloudflare. See [Cloudflare Setup](./cloudflare-setup.md): a Tunnel by default, so the cluster has no public load balancer. The alternative is a `Gateway` with a Google-managed certificate.
-- **Signed images only:** keyless cosign signing and build provenance in CI, then admission enforcement: a Kyverno policy or Binary Authorization on GKE, later.
+- **Signed images only:** keyless cosign signing and build provenance are in CI already, and example Kyverno policies are tested offline and on kind ([Admission control](./admission-control.md)); enforcing them on this cluster (Kyverno, or Binary Authorization on GKE) comes later.
 - **Database:** Cloud SQL for PostgreSQL for production, reached privately and with IAM authentication.
 - **Closing the public endpoint:** the DNS-based endpoint is already on (8.2). Later, turn the public IP endpoint off. Never allowlist CI addresses on it.
 - **The edge mode:** the template's default `edge.mode` is `gateway`; the platform values use `tunnel`.

@@ -36,29 +36,23 @@ Common issues and solutions for local development, Kubernetes, Docker, and CI/CD
 # Check if backend process is running
 curl -fsS http://127.0.0.1:${BACKEND_PORT}/api/v1/health
 
-# Check logs
-tail -f logs/DEV/*.log
+# Logs go to stdout only: read the terminal, or for the Compose stack
+docker compose logs -f backend
 ```
 
 ### MyPy Import Errors
 
 **Symptom**: `error: Cannot find implementation or library stub for module named 'xxx'`
 
-**Solution**: Add to `pyproject.toml`:
-```toml
-[tool.mypy]
-ignore_missing_imports = true
-```
+**Solution**: `[tool.mypy]` in [`pyproject.toml`](../pyproject.toml) already sets `ignore_missing_imports`; the
+error then means the package is not installed in the venv (`make develop`).
 
 ### Ruff Lint Errors in Tests
 
 **Symptom**: `S101: use of assert detected` in test files
 
-**Solution**: Already handled in config:
-```toml
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "S603", "SLF001", "T201"]
-```
+**Solution**: Already handled in config: the `per-file-ignores` of `[tool.ruff.lint]` in [`pyproject.toml`](../pyproject.toml)
+relax `S101` and a few more for `tests/*`.
 
 ---
 
@@ -188,9 +182,8 @@ kubectl -n your-service-name-<env> logs <pod-name> --previous
 # Check pod events
 kubectl -n your-service-name-<env> describe pod <pod-name>
 
-# Test registry access
-kubectl -n your-service-name-<env> exec <pod-name> -- \
-  curl -fsS https://<registry>/v2/<image>/manifests/<tag>
+# Test registry access (the images have no curl or shell): from a machine logged in with the same credentials
+docker manifest inspect <registry>/<image>:<tag>
 ```
 
 ### Ingress Not Working
@@ -217,8 +210,8 @@ kubectl -n your-service-name-<env> describe httproute,ingress
 # Check services
 kubectl -n your-service-name-<env> get svc
 
-# Test backend directly
-kubectl -n your-service-name-<env> exec <pod-name> -- curl -fsS http://localhost:8000/api/v1/health
+# Test the backend directly (its image has no curl: the stdlib probe of its HEALTHCHECK, which calls /healthz)
+kubectl -n your-service-name-<env> exec <backend-pod> -- python -m your_service_name.backend.healthcheck
 ```
 
 ### Database Connection Issues
@@ -230,17 +223,17 @@ kubectl -n your-service-name-<env> exec <pod-name> -- curl -fsS http://localhost
 | Issue | Solution |
 |-------|----------|
 | Secret missing | Create or update the database credentials secret |
-| Wrong hostname | Use Kubernetes DNS: `your-service-name-postgresql.your-service-name-db.svc.cluster.local` |
+| Wrong hostname | Use Kubernetes DNS: `your-service-name-postgresql.your-service-name-<env>-db.svc.cluster.local` |
 | NetworkPolicy blocking | Check NetworkPolicy allows backend → database |
 | PostgreSQL not ready | Check PostgreSQL pod status and logs |
 
 **Debug**:
 ```bash
 # Check database pod
-kubectl -n your-service-name-db get pods
+kubectl -n your-service-name-<env>-db get pods
 
 # Check secret
-kubectl -n your-service-name-<env> get secret your-service-name-db-credentials -o yaml
+kubectl -n your-service-name-<env> get secret your-service-name-secret   # or secrets.existingSecret
 
 # Test connectivity from backend
 kubectl -n your-service-name-<env> exec <backend-pod> -- \
@@ -291,8 +284,8 @@ kubectl -n your-service-name-<env> rollout status deployment/your-service-name-b
 # Check pod events
 kubectl -n your-service-name-<env> get events --sort-by='.lastTimestamp'
 
-# Force rollback if stuck
-kubectl -n your-service-name-<env> rollout undo deployment/your-service-name-backend
+# Roll back the release if stuck (Helm owns the Deployments: see the operations runbook's rollback)
+helm rollback your-service-name <N> -n your-service-name-<env> --wait
 ```
 
 ---
@@ -310,7 +303,7 @@ kubectl -n your-service-name-<env> rollout undo deployment/your-service-name-bac
 | PostgreSQL not ready | Wait for `pg_isready` health check; check `DB_PASSWORD` matches |
 | Backend can't connect to DB | Verify `DATABASE_URL` uses `postgres` as hostname (not `localhost`) |
 | Backend answers `400` "The Host header is not allowed." | The `Host` is not in `ALLOWED_HOSTS` (the chart renders the ingress hosts and the backend Service names; add more with `backend.extraAllowedHosts`). Through a port-forward send `Host: <release>-backend`; the health and metrics paths accept any host |
-| Frontend can't reach backend | Check `NEXT_PUBLIC_API_URL` points to the backend port (default: `http://127.0.0.1:8000`) |
+| Frontend can't reach backend | Check `BACKEND_URL`, where the Next.js server forwards `/api/v1` (Compose sets `http://backend:${BACKEND_PORT}`); `NEXT_PUBLIC_API_URL` stays the same-origin `/api/v1` |
 
 **Debug**:
 ```bash
@@ -385,7 +378,7 @@ docker compose up -d
 
 ### Image Build Fails
 
-**Symptom**: the `build` job of `release.yml` fails
+**Symptom**: the `build` job of `reusable-build.yml` (called by `release.yml`) fails
 
 **Common causes**:
 
@@ -405,7 +398,7 @@ docker compose up -d
 
 ### Grype Scan Fails (`main` and Tags)
 
-**Symptom**: the `grype` job of `release.yml` fails (it is blocking)
+**Symptom**: the `grype` job of `reusable-build.yml` (called by `release.yml`) fails (it is blocking)
 
 **Solution**:
 - Review vulnerabilities in the SBOM
@@ -424,8 +417,8 @@ docker compose up -d
 | Issue | Solution |
 |-------|----------|
 | Cluster access fails | Verify the environment's variables (`DEPLOY_MODE`, `GKE_CLUSTER`, ...) and secret `KUBECONFIG_B64`; run `deploy-ops` with the operation `check` |
-| Namespace doesn't exist | Create namespace or use `kubectl create namespace` |
-| Image not in registry | Ensure the `build` job of `release.yml` succeeded |
+| Namespace doesn't exist | An admin applies the bootstrap, never a hand-made namespace: `scripts/k8s-bootstrap.sh <env> \| kubectl apply -f -` ([GKE §13.2](./gke-cluster-setup.md#132-the-namespaces-and-the-deployer-rbac-come-from-the-bootstrap)) |
+| Image not in registry | Ensure the `build` job of `reusable-build.yml` (in the `release.yml` run) succeeded |
 | Migration job fails | Check migration job logs |
 
 **Debug**:

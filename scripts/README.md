@@ -334,9 +334,9 @@ an external DB. Switching env on one cluster is idempotent because the selectors
 carry only stable identity (`app.kubernetes.io/name` + `instance`), never
 `environment`.
 
-> **The `k8s/` Kustomize tree was removed in Phase 2 Stage C** — the operational
+> **The `k8s/` Kustomize tree was removed** — the operational
 > surface is fully Helm-driven and no longer reads it. The tree survives in git
-> history (last touched `f72fdd1`) if the manifests ever need to be recovered.
+> history if the manifests ever need to be recovered.
 
 ---
 

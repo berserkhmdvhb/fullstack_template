@@ -1,7 +1,8 @@
 # Supply-chain tooling assessment: a layered (defense-in-depth) approach
 
-> Date: 2026-11-02 · Scope: the `ci/security.yml` + `infra/security/` supply-chain
-> surface. **Verdict:** adopt **OSV-Scanner** (consolidated, offline, multi-language
+> Date: 2026-11-02 · **A historical decision record:** written when the security jobs lived in GitLab CI;
+> they are now in [`.github/workflows/security.yml`](../.github/workflows/security.yml). Scope: those jobs +
+> the `infra/security/` supply-chain surface. **Verdict:** adopt **OSV-Scanner** (consolidated, offline, multi-language
 > source-level SCA + known-malicious) **and** **GuardDog** (proactive heuristic
 > typosquat). Overlap is intentional where it covers a different *target* or *detection
 > model*; to keep it honest, retire the narrow tools each new tool subsumes.

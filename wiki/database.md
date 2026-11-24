@@ -491,7 +491,7 @@ class InMemoryEchoRepository:
 For development and testing, use the included PostgreSQL StatefulSet:
 
 ```yaml
-# now in the Helm chart: charts/your-service-name/templates/postgresql-statefulset.yaml (in-cluster DB, dev/testing only; k8s/ tree removed in Phase 2 Stage C)
+# now in the Helm chart: charts/your-service-name/templates/postgresql-statefulset.yaml (in-cluster DB, dev/testing only; k8s/ tree removed)
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:

@@ -131,7 +131,7 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DEBUG` | `false` | Enable debug mode (verbose logging, detailed errors) |
+| `DEBUG` | `false` | Set in `.env.example` and the chart's ConfigMap, but no code reads it: verbosity is `LOG_LEVEL` |
 
 ---
 
@@ -147,7 +147,7 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 | `BACKEND_KEEPALIVE_TIMEOUT` | `75` | Launcher-level (`python -m your_service_name.backend.serve`; the app itself never reads it): seconds Uvicorn keeps an idle connection open. Keep it longer than the gateway's upstream idle timeout (`waf.upstreamIdleTimeoutSeconds`, 60 in the chart), or the gateway can reuse a connection just closed and return a 502. The same holds for ingress-nginx's `upstream-keepalive-timeout` (default 60 s): never raise it past this value. |
 | `BACKEND_GRACEFUL_TIMEOUT` | `30` | Launcher-level: seconds Uvicorn drains in-flight requests after SIGTERM before it exits. |
 | `METRICS_PORT` | `9102` | Launcher-level (`python -m your_service_name.backend.serve`): the port of the Prometheus metrics server, bound on `BACKEND_BIND`. The API app serves no `/metrics`; a scraper must target this port. Must differ from `BACKEND_PORT` and from every other container port in the Pod (the chart's Cloud SQL proxy uses `9090`). Every launcher (the image, `run_backend.sh`, `infra/runtime/entrypoint.sh`) runs the serve module, so every one starts it. |
-| `CUDA_VISIBLE_DEVICES` | _(empty)_ | GPU visibility (leave empty if not using GPU) |
+| `CUDA_VISIBLE_DEVICES` | _(empty)_ | Listed in `.env.example` only; nothing in the template reads it (for an adopter's GPU code) |
 
 ---
 
@@ -179,10 +179,10 @@ believes when it resolves the client IP; the model is in [Client IP](security.md
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TLS_CERT_PEM` | _(empty)_ | TLS certificate in PEM format (enables HTTPS) |
-| `EXTRA_CA_PEM` | _(empty)_ | Custom root CA certificate for internal PKI |
+| `TLS_CERT_PEM` | _(empty)_ | Listed in `.env.example` only; nothing reads it |
+| `EXTRA_CA_PEM` | _(empty)_ | `infra/runtime/entrypoint.sh` only: the path of a custom root CA PEM for internal PKI |
 
-> When `TLS_CERT_PEM` is empty, the service runs in plain HTTP mode. TLS termination is handled by the Ingress controller in production.
+> The backend and the frontend always serve plain HTTP; TLS ends at the edge (the Ingress, the Gateway or the Tunnel).
 
 ---
 
@@ -241,6 +241,7 @@ These variables are managed via Kubernetes ConfigMap and Secret resources:
 | `FRONTEND_HOST` | Frontend bind host | chart `values.yaml` |
 | `FRONTEND_PORT` | Frontend bind port | chart `values.yaml` |
 | `NEXT_PUBLIC_API_URL` | Frontend API URL | `values.<env>.yaml` |
+| `DB_NAME` | Database name | chart `values.yaml` |
 | `RATE_LIMIT_DEFAULT` | Rate limit | chart `values.yaml` |
 | `LOG_REQUESTS` | Request logging | chart `values.yaml` |
 
@@ -248,40 +249,20 @@ These variables are managed via Kubernetes ConfigMap and Secret resources:
 
 | Variable | Purpose | Set In |
 |----------|---------|--------|
-| `DB_PASSWORD` | Database password | Sealed secret / External secret |
-| `DB_USER` | Database username | Sealed secret / External secret |
-| `DB_NAME` | Database name | Sealed secret / External secret |
+| `DB_PASSWORD` | Database password | `secrets.*`: the chart's Secret, `existingSecret` or an ExternalSecret |
+| `DB_USER` | Database username | the same |
 
 ### Per-environment configuration (`values.<env>.yaml`)
 
 > The pre-Helm Kustomize overlays (`k8s/overlays/<env>`) are gone — per-env config now lives in
 > `charts/your-service-name/values.<env>.yaml`, applied with `helm upgrade --install -f
-> charts/your-service-name/values.<env>.yaml` (the `k8s/` tree was removed in Phase 2 Stage C). The
+> charts/your-service-name/values.<env>.yaml` (the `k8s/` tree was removed). The
 > non-secret settings below live under `config:` (rendered into the ConfigMap); see
 > [`values.yaml`](../charts/your-service-name/values.yaml) for the full schema.
 
-**Dev** (`charts/your-service-name/values.dev.yaml`):
-
-```yaml
-environment: dev
-config:
-  ENV: development
-  DEBUG: "true"
-  LOG_LEVEL: DEBUG
-  NEXT_PUBLIC_API_URL: "/api/v1"
-```
-
-**Production** (`charts/your-service-name/values.production.yaml`):
-
-```yaml
-environment: production
-config:
-  ENV: production
-  DEBUG: "false"
-  LOG_LEVEL: WARNING
-  # An auth mode is required in production, e.g. AUTH_MODE: gateway (see Backend settings)
-  NEXT_PUBLIC_API_URL: "/api/v1"
-```
+Each environment's settings are in its own file: [`values.dev.yaml`](../charts/your-service-name/values.dev.yaml),
+[`values.qa.yaml`](../charts/your-service-name/values.qa.yaml), [`values.production.yaml`](../charts/your-service-name/values.production.yaml)
+(production also needs an auth mode: see [Backend settings](#backend-settings)).
 
 ---
 

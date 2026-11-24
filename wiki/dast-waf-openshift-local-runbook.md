@@ -1,7 +1,7 @@
 # DAST + WAF — OpenShift Local Deploy/Test Runbook
 
-> **When to use:** follow this *after* the thin OWASP ZAP DAST job (the baseline scan)
-> is wired into CI and going **green**.
+> **When to use:** to go beyond the advisory OWASP ZAP baseline that
+> [`dast.yml`](../.github/workflows/dast.yml) runs after each release.
 > This runbook stands up the service on a local OpenShift (via `openshift-local`
 > / CRC, or minikube/kind), then exercises the **full DAST** and the **WAF**.
 >
@@ -17,12 +17,8 @@
   `openshift-local` all need it). `openshift-local` (CRC) wants ~9 GB RAM.
 - Tooling on the VM: `openshift-local` (or `minikube` / `kind`), `helm`,
   `kubectl`/`oc`, `docker` (or `podman`).
-- The service-template repo cloned on the VM, with the thin-DAST job
-  changes present in the working tree.
-- The **full-DAST** enhancements in place (or be ready to add them later): `DAST_FULL_SCAN`, OpenAPI feed, auth context.
-- The **WAF** chart changes in place: `waf-proxy.yaml`, the
-  `waf:` values block, the `values.schema.json` entry, and the Ingress API-path
-  swap — with the Coraza image refs reviewed + pinned first (see the §4 caveat).
+- The service-template repo cloned on the VM. The WAF (`templates/waf-proxy.yaml`, the
+  `waf:` values block) is part of the chart; the full-DAST tier (§3) is not built in.
 
 > **Cluster choice matters** (below): **minikube/kind**
 > validate the chart *as written* (vanilla K8s: Ingress, NetworkPolicy).
@@ -72,9 +68,9 @@ Get a reachable URL:
 - **openshift-local (Route):** `oc create route edge --service=mysvc-backend
   -n mysvc-qa` then `oc get route` for the host.
 
-Smoke-check the contract first (the DAST `needs: qa:smoke` gate):
+Smoke-check the target first:
 ```bash
-curl -fsS "$DAST_TARGET_URL/api/health"    # or /openapi.json — must return 200
+curl -fsS "$DAST_TARGET_URL/api/v1/health"    # or /openapi.json — must return 200
 ```
 
 ---
@@ -86,12 +82,14 @@ so local ↔ CI cannot drift):
 
 ```bash
 export DAST_TARGET_URL="<route/ingress host from step 2>"
+export DAST_TARGET_RUNNING=true   # scan the running deploy; start no app container
 bash infra/security/local/scan-dast.sh "$SEC_OUTPUT_DIR" "$(pwd)"
 # baseline: zap-baseline.py  →  report.json + dast.sarif (advisory)
 ```
 
-**Escalate to the "full" tier** (the point of this runbook):
-- **Active scan:** `DAST_FULL_SCAN=true` (slower, deeper).
+**Escalate to the "full" tier** (the point of this runbook). `scan-dast.sh` runs the baseline only; each step
+below means running ZAP yourself (its `zap-full-scan.py` or `zap-api-scan.py`, from the same pinned image):
+- **Active scan:** `zap-full-scan.py` (slower, deeper).
 - **OpenAPI-driven (critical for a FastAPI JSON API):** point ZAP at
   `/openapi.json` / import the OpenAPI definition so it exercises real endpoints
   instead of crawling HTML.
@@ -129,12 +127,12 @@ helm status mysvc -n mysvc-qa        # wait for the WAF pod to be READY
 ```bash
 # ① malicious → expect blocked (403 / WAF response)
 curl -s -o /dev/null -w "%{http_code}\n" \
-  "$DAST_TARGET_URL/api/items?id=1' OR '1'='1"        # SQLi probe
+  "$DAST_TARGET_URL/api/v1/items?id=1' OR '1'='1"        # SQLi probe
 curl -s -o /dev/null -w "%{http_code}\n" \
   --data "q=<script>alert(1)</script>" "$DAST_TARGET_URL/api/search"  # XSS probe
 
 # ② legitimate → expect normal (200)
-curl -s -o /dev/null -w "%{http_code}\n" "$DAST_TARGET_URL/api/health"
+curl -s -o /dev/null -w "%{http_code}\n" "$DAST_TARGET_URL/api/v1/health"
 ```
 Malicious → `403` (blocked); legit → `200` (passed). If malicious slips through
 (200), the rule-set isn't engaged — check the WAF pod logs and that traffic
@@ -154,7 +152,8 @@ via the `chart.apiBackendService` swap).
 
 Only once DAST + WAF are stable:
 - **Kyverno** (admission): `helm install kyverno kyverno/kyverno` — enforce
-  no-`latest`, allowed registries, `runAsNonRoot`, drop caps.
+  no-`latest`, allowed registries, `runAsNonRoot`, drop caps. The repository's example image
+  policies and their test: [Admission control](./admission-control.md).
 - **Falco / Cilium Tetragon** (runtime detection): DaemonSet; watch for a
   compromised container spawning a shell / writing to sensitive paths.
 - **Trivy Operator** (continuous image scan): reconciles deployed workloads
@@ -177,7 +176,7 @@ openshift-local stop        # or: minikube delete / kind delete cluster
 
 | Symptom | Likely cause / fix |
 |---|---|
-| `dast` job never runs (CI) | `dast` not in root `stages:` / `ci/dast.yml` not in `include:` |
+| `dast` job never runs (CI) | it runs only after a successful Release push run of this repository, or by hand: see the header of [`dast.yml`](../.github/workflows/dast.yml) |
 | ZAP finds almost nothing | It crawled HTML, not the API → feed `/openapi.json`; enable active scan |
 | Behind-login surface untested | add a ZAP auth context (login + session) |
 | WAF malicious request returns 200 | WAF pod not READY, or traffic bypasses it (check ingress/route path routing) |

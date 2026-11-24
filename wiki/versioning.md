@@ -91,20 +91,14 @@ API_VERSION=v1
 
 ### Supported Versions
 
-Defined in `src/your_service_name/utils/versioning_api.py`:
-
-```python
-SUPPORTED_VERSIONS = {
-    "v1": "your_service_name.backend.api.routers.v1",
-    # Future: "v2": "your_service_name.backend.api.routers.v2",
-}
-```
+`SUPPORTED_VERSIONS` in [`utils/versioning_api.py`](../src/your_service_name/utils/versioning_api.py) maps each
+version to the routers it mounts; it is the one list of versions.
 
 ### Usage
 
 - **Route prefix**: `/api/v1/health`, `/api/v1/items`
 - **Health endpoint**: `/api/v1/health`
-- **OpenAPI docs**: `/api/v1/docs`
+- **OpenAPI docs**: `/docs` and `/openapi.json`, outside the version prefix (off by default in production)
 - **Frontend API calls**: All typed endpoints use the configured version
 
 ### Version Validation
@@ -112,7 +106,7 @@ SUPPORTED_VERSIONS = {
 | Input | Result |
 |-------|--------|
 | `v1` | Valid — routes loaded |
-| `v2` | Invalid — returns 400 if not in `SUPPORTED_VERSIONS` |
+| `v2` | Invalid — not in `SUPPORTED_VERSIONS`, so the settings refuse it and the app does not start |
 | `""` (empty) | Invalid — falls back to `DEFAULT_API_VERSION` |
 | `  v1  ` (whitespace) | Valid — stripped before validation |
 
@@ -145,7 +139,7 @@ The job writes these to `GITHUB_OUTPUT`; the image matrix is the script's `--mat
 
 ## Image Tagging
 
-Two per-service images are tagged: `backend` and `frontend`, nested under the repository path.
+Every image in [`.github/container-images.yml`](../.github/container-images.yml) (`backend`, `frontend`, `waf`) is tagged, nested under the repository path.
 
 ### Tag Policy
 
@@ -156,7 +150,7 @@ Images are pushed only by `release.yml`, on a push to `main` or a `v*` tag; a pu
 | **Git tag** (`v1.2.3`) | `1.2.3-prod-abc1234` | `latest` |
 | **Push to `main`** | `0.0.0-main-abc1234` (baseline from `VERSION`) | — |
 
-Each tag is applied to both images (backend and frontend).
+Each tag is applied to every image.
 
 ### Tag Format
 
@@ -168,10 +162,9 @@ Example: `1.2.3-prod-abc1234`
 
 ### Kubernetes Image Reference
 
-The Helm chart takes the image tag from `charts/your-service-name/values.<env>.yaml` (`images.*.tag` —
-one tag for both images), or via `--set images.<svc>.tag=<tag>` at deploy; the release workflow passes the
+The Helm chart takes the image tag from `charts/your-service-name/values.<env>.yaml` (`images.<svc>.tag`), or via `--set images.<svc>.tag=<tag>` at deploy; the release workflow passes the
 git-derived version and pins each image by digest. The pre-Helm per-image `newTag` overlay block is gone — the `k8s/` Kustomize tree
-was removed in Phase 2 Stage C. See `charts/your-service-name/values.yaml` for the authoritative schema.
+was removed. See `charts/your-service-name/values.yaml` for the authoritative schema.
 
 ---
 
@@ -186,9 +179,9 @@ flowchart LR
     SCM --> VersionFile["_version.py"]
     SCM --> CI["release.yml: plan"]
     CI --> BuildEnv["version + image_tag"]
-    BuildEnv --> BuildKit["Image build<br/>(2 images)"]
+    BuildEnv --> BuildKit["Image build<br/>(3 images)"]
     BuildKit --> Labels["OCI Image Labels"]
-    BuildKit --> Tags["Docker Tags<br/>(backend, frontend)"]
+    BuildKit --> Tags["Docker Tags<br/>(backend, frontend, waf)"]
     BuildKit --> K8s["Kubernetes Deploy"]
     CI --> ImagePlan["image matrix"]
     ImagePlan --> BuildKit
@@ -196,7 +189,7 @@ flowchart LR
 
 ### OCI Image Labels
 
-Applied in `Dockerfile.backend` and `Dockerfile.frontend`:
+Applied in each `Dockerfile.*` (abridged):
 
 ```dockerfile
 LABEL org.opencontainers.image.title="Your Service Name"

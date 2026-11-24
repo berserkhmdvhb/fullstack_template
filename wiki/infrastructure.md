@@ -53,10 +53,10 @@ flowchart TB
 
 > **Deployed with the Helm chart** `charts/your-service-name/` (deploy pipeline in
 > [`wiki/ci-cd.md`](./ci-cd.md)). The operational
-> surface (`Makefile`, `scripts/`, `ci/deploy.yml`) drives `helm upgrade --install`; namespaces are
+> surface (`Makefile`, `scripts/`, [`deploy.yml`](../.github/workflows/deploy.yml)) drives `helm upgrade --install`; namespaces are
 > per-env (`your-service-name-<env>` app + `<app-ns>-db` db). The resource set below maps 1:1 into the
-> chart's `templates/`; the pre-Helm `k8s/` Kustomize tree was **removed in Phase 2 Stage C** (recoverable
-> from git history, last touched `f72fdd1`) and is no longer part of the deploy flow.
+> chart's `templates/`; the pre-Helm `k8s/` Kustomize tree was **removed** (recoverable
+> from git history) and is no longer part of the deploy flow.
 
 **The deploy refuses placeholders.** The deploy script (`scripts/ci/deploy-env.sh`) runs
 `helm upgrade` with `--set guards.rejectPlaceholders=true`, so the render fails while an

@@ -192,7 +192,7 @@ Run these before every commit / PR. The exact commands (verified against this re
 | Doc links (offline) | `make docs-links` | `ci` / `repo` |
 
 `make check-all-dry` is the pre-commit gate (read-only, with the env-docs check); `make check-all` is the same but
-auto-formats. `mypy` runs with no path args (config-driven). Full table + raw commands + marker
+rewrites files (formats, fixes lint, regenerates the env-docs block). `mypy` runs with no path args (config-driven). Full table + raw commands + marker
 model: [`wiki/code-quality.md`](wiki/code-quality.md).
 
 **Frontend (from `frontend/`):**

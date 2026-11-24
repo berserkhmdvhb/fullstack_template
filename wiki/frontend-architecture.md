@@ -86,7 +86,7 @@ frontend/
 ├── features/                   # Feature modules
 │   └── items/
 │       ├── components/
-│       │   ├── ItemList.tsx    # Item list with search, sort, pagination
+│       │   ├── ItemList.tsx    # Item list with search and pagination
 │       │   └── ItemForm.tsx    # Create/edit form with Zod validation
 │       └── lib/
 │           └── schemas.ts      # Zod schemas for item forms
@@ -123,8 +123,8 @@ frontend/
 ├── next.config.ts              # Next.js configuration
 ├── tsconfig.json               # TypeScript strict config
 ├── eslint.config.mjs           # ESLint 9 flat config
-├── vitest.config.ts            # Base Vitest config
-├── vitest.unit.config.ts       # Unit test config (jsdom)
+├── vitest.config.ts            # Whole-suite Vitest config (coverage)
+├── vitest.unit.config.ts       # Unit test config (no DOM)
 ├── vitest.integration.config.ts # Integration test config (happy-dom + MSW)
 └── playwright.config.ts        # Playwright E2E config
 ```
@@ -188,7 +188,7 @@ flowchart TB
 flowchart TB
     subgraph ItemsPage["items/page.tsx"]
         Header["Page Header<br/>'Items' title"]
-        List["ItemList<br/>Search, sort, table, pagination"]
+        List["ItemList<br/>Search, table, pagination"]
         Form["ItemForm<br/>Create or edit form"]
     end
 
@@ -223,7 +223,7 @@ flowchart TB
 
 | Component | File | Responsibility |
 |-----------|------|---------------|
-| **ItemList** | `features/items/components/ItemList.tsx` | Display items in a table with search, sorting, pagination, and action buttons (Edit, Delete) |
+| **ItemList** | `features/items/components/ItemList.tsx` | Display items in a table with search, pagination, and action buttons (Edit, Delete) |
 | **ItemForm** | `features/items/components/ItemForm.tsx` | Create or edit an item with Zod validation; switches mode based on `editingItem` prop |
 | **ConfirmModal** | `components/ConfirmModal.tsx` | Reusable confirmation dialog for destructive actions |
 | **GlobalHeader** | `app/(ui)/global-header.tsx` | Navigation bar with links and theme toggle |
@@ -251,7 +251,7 @@ flowchart LR
 
 | Hook | Type | Query Key | Purpose |
 |------|------|-----------|---------|
-| `useItems` | query | `['items', search, page, pageSize, sortField, sortDirection]` | List items with pagination/sort |
+| `useItems` | query | `['items', search, page, pageSize]` | List items with search and pagination |
 | `useItem` | query | `['item', id]` | Get single item (enabled only when `id` is truthy) |
 | `useCreateItem` | mutation | — | Create item, invalidates `['items']` |
 | `useUpdateItem` | mutation | — | Update item, invalidates `['items']` and `['item', id]` |
@@ -417,8 +417,8 @@ flowchart TB
 
 | Config | Environment | Purpose |
 |--------|------------|---------|
-| `vitest.config.ts` | Base | Shared settings |
-| `vitest.unit.config.ts` | `jsdom` | Unit tests (pure logic, no DOM) |
+| `vitest.config.ts` | `happy-dom` | The whole suite, and the one place coverage is measured |
+| `vitest.unit.config.ts` | none (no DOM) | Unit tests (pure logic, no DOM) |
 | `vitest.integration.config.ts` | `happy-dom` | Component tests with MSW |
 | `playwright.config.ts` | Chromium | E2E browser tests |
 

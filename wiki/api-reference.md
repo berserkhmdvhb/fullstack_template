@@ -30,9 +30,9 @@ Default: `http://127.0.0.1:8000/api/v1` or `https://api.your-domain.example/api/
 
 ## Authentication
 
-The API currently does **not require authentication**. All endpoints are publicly accessible.
-
-> **Note**: For production deployments, add authentication middleware (e.g., OAuth2, JWT) as needed.
+`AUTH_MODE` picks how a caller is identified ([Backend settings](./environment-variables.md#backend-settings)). The default, `none`,
+is anonymous; with `ENV=production` the backend refuses it unless `ALLOW_ANONYMOUS=true`. The modes and their
+checks: [Security, Authentication](./security.md#authentication--authorization).
 
 ---
 
@@ -128,7 +128,7 @@ List all echo records.
 
 ### GET `/api/v1/items`
 
-List items with pagination, search, and sorting.
+List items with pagination and search, newest first (by `created_at`).
 
 **Query Parameters**:
 
@@ -136,9 +136,7 @@ List items with pagination, search, and sorting.
 |-----------|------|---------|-------------|
 | `search` | string | — | Filter by name/description (case-insensitive); a NUL character is a `422` |
 | `page` | integer | 1 | Page number (1-indexed); a page past the last (however large) is an empty page |
-| `page_size` | integer | 20 | Items per page |
-| `sort_field` | string | `created_at` | Sort by: `name`, `created_at`, `is_active` |
-| `sort_direction` | string | `desc` | `asc` or `desc` |
+| `page_size` | integer | 50 | Items per page, 1 to 100 |
 
 **Response**: `200 OK`
 
@@ -157,7 +155,7 @@ List items with pagination, search, and sorting.
   ],
   "total": 1,
   "page": 1,
-  "page_size": 20,
+  "page_size": 50,
   "total_pages": 1
 }
 ```
@@ -373,15 +371,15 @@ FastAPI's default `HTTPValidationError`.
 ## OpenAPI Documentation
 
 The backend exposes interactive API documentation plus the machine-readable schema
-(the table below). **Swagger UI** (`/docs`) is FastAPI's built-in page; it loads
-Swagger UI from the jsDelivr CDN and inlines its init script. Because the frontend
-serves every page under a strict nonce CSP, it admits that CDN origin and inline
-script **only on `/docs`** — every other page stays CDN-free and nonce-only (see
+(the table below). **Swagger UI** (`/docs`) is the backend's own page
+([`api/routers/docs.py`](../src/your_service_name/backend/api/routers/docs.py)): it loads Swagger UI from the jsDelivr
+CDN at one exact version, with subresource integrity, and its init script from `/docs/init.js`, never inline. The
+frontend admits that CDN origin **only on `/docs`** — every other page stays CDN-free and nonce-only (see
 [Security: CSP](security.md#csp-details) and `frontend/proxy.ts`).
 Set `API_DOCS_URL=` (empty) to disable `/docs`. With `ENV=production` both `/docs` and
 `/openapi.json` are off unless `ALLOW_PRODUCTION_DOCS=true` (the frontend uses the committed
 snapshot, not the live schema). ReDoc is intentionally not shipped
-(same CDN + inline-script CSP problem; `/docs` covers interactive docs).
+(it would need a CSP exemption of its own; `/docs` covers interactive docs).
 
 | Tool | URL (Local) | URL (Kubernetes) |
 |------|-------------|-------------------|

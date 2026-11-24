@@ -56,11 +56,10 @@ flowchart TB
 | `make ruff-lint` | Run linter (never rewrites files) |
 | `make ruff-lint-fix` | Auto-fix lint errors (`make check-all` runs it) |
 
-The scope is `RUFF_PATHS` in the Makefile: `src/ tests/ scripts/ infra/ .github/scripts/`. CI, `make check-all-dry` and the pre-commit hooks never fix; only `make check-all` does.
+The scope is `RUFF_PATHS` in the [Makefile](../Makefile). CI, `make check-all-dry` and the pre-commit hooks never fix; only `make check-all` does.
 
-**Configuration**: `[tool.ruff]` and `[tool.ruff.lint]` in [`pyproject.toml`](../pyproject.toml): line length 100,
-Python 3.12 target, every rule selected with a short ignore list, and per-file ignores for the tests, `infra/adapt`
-and `infra/security`.
+**Configuration**: `[tool.ruff]` and `[tool.ruff.lint]` in [`pyproject.toml`](../pyproject.toml) hold the line length,
+the target version, the selected rules, the ignore list and the per-file ignores.
 
 **Rules**:
 - `ALL` — All Ruff rules enabled
@@ -77,8 +76,8 @@ and `infra/security`.
 | `mypy src/` | Check source only |
 | `mypy tests/` | Check tests only |
 
-**Configuration**: `[tool.mypy]` in [`pyproject.toml`](../pyproject.toml): `strict`, over `files = ["src", "tests"]`
-with `mypy_path = "src"`, so a bare `mypy` checks both.
+**Configuration**: `[tool.mypy]` in [`pyproject.toml`](../pyproject.toml) holds the strictness, the files and the
+search path, so a bare `mypy` checks the configured files.
 
 **Strict mode** enables:
 - `warn_unused_configs`

@@ -43,8 +43,8 @@ infra/adapt/adopt.sh             # 3. apply (backs up every touched file to .ada
 
 `adopt.sh` is a thin wrapper that runs the name adapter and then the stamping step — both read the
 same `adopt.conf`, so one edit applies everywhere — forwarding `--dry-run`. The stamping replaces
-`your-domain.example` / `registry.your-domain.example` across the `Dockerfile*`, `pyproject.toml`,
-`values.*.yaml`, `Chart.yaml`, `ci/deploy.yml` and `infra/security/local/devsec.sh`. The optional
+`your-domain.example` / `registry.your-domain.example` in every file that carries them: the `Dockerfile*`,
+`pyproject.toml`, the chart's `values.*.yaml` and `Chart.yaml`, among others. The optional
 `REPOSITORY` (`owner/name`) replaces `your-org/your-repo` in the `SOURCE_URL` default of the three
 Dockerfiles, the image's OCI `source` label for local and kind builds (CI passes the real URL); unset, the
 placeholder stays. The dry-run lists every file it would change.
@@ -54,7 +54,8 @@ you run on — the ingress controller class, the StorageClass, the TLS mode, the
 names, the pull secret — are not derivable from the name or domain, so the adapter does not set
 them. Start from the committed skeleton `charts/your-service-name/values.cluster.yaml.example`,
 copy it to `values.<cluster>.yaml`, and fill the `<ALL-CAPS>` blanks (`adopt.sh` has already
-stamped your real domain + registry into the copy). It is gitignored once it holds real values.
+stamped your real domain + registry into the copy). `.gitignore` does not cover it: once it holds real values, add
+it there or keep it out of the repository.
 See [Deploying to Kubernetes](getting-started.md#deploying-to-kubernetes-production).
 
 ---
@@ -83,7 +84,7 @@ infra/adapt/replace_service_name.sh -n awesome_solution
 |----------|--------|-------|
 | `src/your_service_name/` | `your_service_name` | `awesome_solution` |
 | `pyproject.toml` | `name = "your_service_name"` | `name = "awesome_solution"` |
-| `pyproject.toml` | `SETUPTOOLS_SCM_PRETEND_VERSION_FOR_YOUR_SERVICE_NAME` | `SETUPTOOLS_SCM_PRETEND_VERSION_FOR_AWESOME_SOLUTION` |
+| `Dockerfile.backend` | `SETUPTOOLS_SCM_PRETEND_VERSION_FOR_YOUR_SERVICE_NAME` | `SETUPTOOLS_SCM_PRETEND_VERSION_FOR_AWESOME_SOLUTION` |
 | Run scripts, entrypoint & CI (`BACKEND_ENTRY`) | `your_service_name.backend.main:app` | `awesome_solution.backend.main:app` |
 | `Dockerfile.backend` | `your_service_name` references | `awesome_solution` references |
 | `Dockerfile.frontend` | `your_service_name` references | `awesome_solution` references |
@@ -99,8 +100,8 @@ the remaining ports are environment-driven. Change them by editing the relevant 
 
 | Variable | Default | Where |
 |----------|---------|-------|
-| `BACKEND_PORT` | 8000 | `.env` / `.env.example`, `docker-compose.yml`, `.github/workflows/deploy.yml` |
-| `FRONTEND_PORT` | 3000 | `.env` / `.env.example`, `docker-compose.yml`, `.github/workflows/deploy.yml` |
+| `BACKEND_PORT` | 8000 | `.env` / `.env.example`, `docker-compose.yml` |
+| `FRONTEND_PORT` | 3000 | `.env` / `.env.example`, `docker-compose.yml` |
 
 > **Note**: In Kubernetes the container ports are fixed (`backend :8000`, `frontend :3000`);
 > external access goes through the Ingress and per-env differences
@@ -117,7 +118,7 @@ the remaining ports are environment-driven. Change them by editing the relevant 
 |---------|-------------|
 | **Dry-run** | `--dry-run` flag shows changes without modifying files |
 | **Backup** | Automatic: every write is backed up to `.adapt-backup/<timestamp>/` before it happens (there is no `--backup` flag; a dry-run writes nothing, so it leaves no backup dir) |
-| **Validation** | Checks that the new name/ports are valid before applying |
+| **Validation** | Checks that the new name is valid before applying |
 | **Idempotent** | Running the same command twice produces the same result |
 
 ### Error Handling

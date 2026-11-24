@@ -225,11 +225,13 @@ kubectl -n your-service-name-<environment> get svc
 # Check endpoints (pods backing services)
 kubectl -n your-service-name-<environment> get endpoints
 
-# Test backend health
-kubectl -n your-service-name-<environment> exec <pod-name> -- curl -fsS http://localhost:8000/api/v1/health
+# The images are distroless (no shell, no curl): each one's own HEALTHCHECK probe
+# Test backend health (calls /api/v1/healthz)
+kubectl -n your-service-name-<environment> exec <backend-pod> -- python -m your_service_name.backend.healthcheck
 
 # Test frontend health
-kubectl -n your-service-name-<environment> exec <pod-name> -- curl -fsS http://localhost:3000/
+kubectl -n your-service-name-<environment> exec <frontend-pod> -- /nodejs/bin/node -e \
+  "fetch('http://localhost:3000/api/healthz').then(r => process.exit(r.ok ? 0 : 1))"
 ```
 
 ### Ingress Health
@@ -815,7 +817,7 @@ namespace and `<db-ns>` the database namespace (`<ns>-db`).
 
 1. **Assess scope** — Is it one pod or all pods?
 2. **Check recent deployments** — Did a deployment cause this?
-3. **Rollback if needed** — `kubectl rollout undo`
+3. **Rollback if needed** — `helm rollback` ([Rolling Back a Deployment](#rolling-back-a-deployment))
 4. **Scale up if possible** — `kubectl scale --replicas=<N>`
 5. **Notify stakeholders** — Update status page
 
@@ -969,15 +971,14 @@ kubectl -n monitoring port-forward svc/grafana 3000:3000
 
 ### Exec into Pod
 
+The images are distroless: no shell, no curl. Run a binary the image has, or attach a debug container:
+
 ```bash
-# Exec into backend pod
-kubectl -n your-service-name-<environment> exec -it <backend-pod> -- bash
+# Run a command in the backend pod (its Python)
+kubectl -n your-service-name-<environment> exec <backend-pod> -- python -m your_service_name.backend.healthcheck
 
-# Exec into frontend pod
-kubectl -n your-service-name-<environment> exec -it <frontend-pod> -- sh
-
-# Run a command in pod
-kubectl -n your-service-name-<environment> exec <pod-name> -- curl -fsS http://localhost:8000/api/v1/health
+# A shell beside the app container, sharing its process namespace (a throwaway debug image)
+kubectl -n your-service-name-<environment> debug -it <backend-pod> --image=busybox:stable --target=backend -- sh
 ```
 
 ### Label Selector

@@ -25,7 +25,7 @@ are the same commands the GitHub Actions workflows run.
 
 ```bash
 # ---------- BACKEND (run from repo root) ----------
-make check-all-dry                 # drift + ruff format --check + ruff check + mypy (read-only)
+make check-all-dry                 # drift + ruff format --check + ruff check + mypy + env-docs (read-only)
 make test-unit                     # unit tests only (default marker filter)
 make test-integration              # integration suite
 make test-e2e                      # e2e suite (ASGI in-process)
@@ -51,8 +51,8 @@ files) instead of `make check-all-dry`.
 | Live | `make test-live` | `pytest tests/ -m live -o addopts="" -v` | `reusable-live` / `live` |
 
 Notes:
-- `make check-all-dry` bundles drift-check + format-check + lint + mypy (read-only, safe for
-  pre-commit). `make check-all` is the same but auto-formats.
+- `make check-all-dry` bundles drift-check + format-check + lint + mypy + env-docs-check (read-only, safe for
+  pre-commit). `make check-all` is the same but rewrites files (formats, fixes lint, regenerates env-docs).
 - `mypy` runs with no path args because `pyproject.toml` sets `files = ["src", "tests"]` under
   `[tool.mypy]` (strict; `mypy_path = "src"`), so the config drives the scope — no path args needed.
 - `make test` (no suffix) runs **unit + integration + e2e** (hermetic: not live, not contract) — it is

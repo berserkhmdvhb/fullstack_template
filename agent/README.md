@@ -55,11 +55,11 @@ agent/
   integrity)
   were working artifacts, not part of the transfer bundle. The delivered docs live in `wiki/`
   (incl. `wiki/supply-chain-tooling-assessment.md`, the tooling decision record); the jobs in
-  `ci/security.yml`, `ci/containerization.yml` and `infra/security/`.
+  `.github/workflows/security.yml`, `.github/workflows/reusable-build.yml` and `infra/security/`.
 - **Excluded on purpose:** general-purpose skills (e.g. `officecli`) — those are not specific to
   this project and belong in the user skills dir, not the repo.
-- **Out of scope for this flavour (roadmap only):** Kyverno admission, distroless backend base,
-  build-level `id_tokens` — see `wiki/ROADMAP-supply-chain.md`.
+- **Roadmap:** what is delivered and what stays outside the repository (admission enforcement on a
+  real cluster, among others) — see `wiki/ROADMAP-supply-chain.md`.
 
 ## Provenance
 

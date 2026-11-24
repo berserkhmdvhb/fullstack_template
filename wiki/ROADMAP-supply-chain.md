@@ -97,7 +97,7 @@ This was the one genuine tool-install debt in the baseline: the pre-existing ima
 (the SBOM job → Syft, the Grype job → Grype, the licence job → Grant) installed their
 binaries with unverified `curl | bash` / `wget`, while every **new** tool went through the
 checksum-verified `infra/security/tools-install.sh`. That split is now closed — all three legacy
-scanners install through `tools-install.sh` too (`ci/security.yml`), so nothing in this repo's
+scanners install through `tools-install.sh` too ([`security.yml`](../.github/workflows/security.yml)), so nothing in this repo's
 supply-chain surface fetches a tool with an unverified `curl | bash` any more. It is recorded here
 only as history, not as outstanding debt.
 
@@ -110,7 +110,7 @@ the job's GitHub Actions OIDC token is exchanged for a short-lived token of the 
 service account ([`.github/actions/cluster-access`](../.github/actions/cluster-access/action.yml)), with no
 stored cloud key. The other mode, `kubeconfig`, reads a stored kubeconfig secret of the environment, and is
 the one left on a long-lived credential. Images are pushed with the job's own `GITHUB_TOKEN`. App secrets can
-come from the External Secrets Operator (`externalSecret.enabled` in the chart). Setup:
+come from the External Secrets Operator (`secrets.externalSecret.enabled` in the chart). Setup:
 [GKE cluster setup](./gke-cluster-setup.md) and [CI/CD, Deploy chain](./ci-cd.md#deploy-chain).
 
 ---

@@ -188,7 +188,7 @@ Component tests with Mock Service Worker for API mocking:
 | `components/ConfirmModal.test.tsx` | Confirmation dialog |
 | `features/items/components/ItemForm.test.tsx` | Create/edit form |
 | `features/items/components/ItemList.test.tsx` | Item list with search/sort |
-| `features/items/page.test.tsx` | Items page composition |
+| `app/items/page.test.tsx` | Items page composition |
 | `lib/hooks/useItems.test.tsx` | React Query hooks |
 | `lib/query.test.tsx` | QueryClient provider |
 | `lib/toast.test.tsx` | Toast notification system |

@@ -50,8 +50,8 @@ Local development workflow, Makefile commands, code quality tools, Kubernetes de
 | `make ruff-format-check` | Check formatting (dry run, no changes) |
 | `make ruff-lint` | Run Ruff linter |
 | `make mypy-check` | Run MyPy strict type checker |
-| `make check-all` | Full check: outdated tools + format + lint + mypy |
-| `make check-all-dry` | Full check without auto-format (format-check) |
+| `make check-all` | Full check: outdated tools + format + lint + mypy + env-docs, rewriting files |
+| `make check-all-dry` | The same, read-only (format-check, env-docs-check) |
 | `make docs-links` | Check every file link and #anchor in the docs, offline (pinned lychee) |
 
 ### Testing
@@ -302,8 +302,8 @@ kubectl -n your-service-name-local logs <pod-name>
 # Check previous container logs (if restarted)
 kubectl -n your-service-name-local logs <pod-name> --previous
 
-# Test backend health from within cluster
-kubectl -n your-service-name-local exec <backend-pod> -- curl -fsS http://localhost:8000/api/v1/health
+# Test backend health from within the Pod (the image has no curl: its HEALTHCHECK probe)
+kubectl -n your-service-name-local exec <backend-pod> -- python -m your_service_name.backend.healthcheck
 ```
 
 ---

@@ -147,14 +147,14 @@ kind get clusters  # kind only — lists created clusters
 
 The chart's `secrets.dbPassword` defaults to empty, and it is **also** the
 password the internal PostgreSQL initializes with (single source — the app and
-the database must match). So copy the gitignored example, fill it in, and layer
+the database must match). So copy the committed example, fill it in, and layer
 it on every deploy with an extra `-f`. **This file is gitignored — never commit
 a real password.**
 
 ```bash
 cp charts/your-service-name/values.secret.yaml.example \
    charts/your-service-name/values.secret.yaml
-# Edit values.secret.yaml → set secrets.dbPassword (and STATS_PASS if present).
+# Edit values.secret.yaml → set secrets.dbPassword (and secrets.statsPass if present).
 ```
 
 This one file is read by **all three** deploy paths below, so set it once.
