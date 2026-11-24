@@ -31,9 +31,14 @@ jobs:
         working-directory: frontend
         run: npm run build
       # The version comes from the lockfile because npx runs the locally installed Playwright.
-      - name: Install the Playwright browser
+      - name: Install the Playwright system deps
+        timeout-minutes: 5
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install-deps chromium
+      - name: Download the Playwright browser
+        timeout-minutes: 5
+        working-directory: frontend
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install chromium
       - name: Start the stack
         id: stack
         run: |

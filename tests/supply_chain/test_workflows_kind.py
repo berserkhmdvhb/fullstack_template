@@ -210,11 +210,12 @@ def test_the_suites_run_against_the_release_blocking_before_the_shutdown_check()
 
 
 def test_playwright_is_installed_as_the_live_workflow_installs_it() -> None:
-    step = _step("Install the Playwright browser")
     live = workflow("reusable-live.yml")["jobs"]["live"]["steps"]
-    theirs = next(s for s in live if s.get("name") == "Install the Playwright browser")
-    assert step["run"] == theirs["run"]
-    assert step["working-directory"] == theirs["working-directory"] == "frontend"
+    for name in ("Install the Playwright system deps", "Download the Playwright browser"):
+        step = _step(name)
+        theirs = next(s for s in live if s.get("name") == name)
+        assert step["run"] == theirs["run"]
+        assert step["working-directory"] == theirs["working-directory"] == "frontend"
     assert "node" in next(ln for ln in _runs().splitlines() if "scripts/tools.sh install" in ln)
 
 
@@ -355,7 +356,7 @@ def _recipe(target: str) -> str:
 def test_the_csp_report_test_runs_after_playwright_is_installed_with_its_own_timeout() -> None:
     names = _names()
     name = next(n for n in names if n.startswith("CSP reports"))
-    assert names.index("Install the Playwright browser") < names.index(name)
+    assert names.index("Download the Playwright browser") < names.index(name)
     assert "timeout-minutes" in _step(name)
     assert "tests/k8s/test_csp_report.py" in _recipe("kind-csp-report-test")
     # The main release stays as the kind values configure it (the live suites pin its exact CSP):

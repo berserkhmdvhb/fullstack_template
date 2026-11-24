@@ -97,10 +97,16 @@ jobs:
           npm ci --ignore-scripts
       # As reusable-live.yml installs it: the version comes from the lockfile because npx runs the
       # locally installed Playwright.
-      - name: Install the Playwright browser
+      - name: Install the Playwright system deps
         if: matrix.leg == 'newest'
+        timeout-minutes: 5
         working-directory: frontend
-        run: npx playwright install --with-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install-deps chromium
+      - name: Download the Playwright browser
+        if: matrix.leg == 'newest'
+        timeout-minutes: 5
+        working-directory: frontend
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install chromium
       - name: Frontend live suite (Playwright, public forward)
         if: matrix.leg == 'newest'
         timeout-minutes: 10

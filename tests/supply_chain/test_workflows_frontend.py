@@ -333,7 +333,10 @@ def test_a11y_job_is_blocking_scoped_and_reaches_ci_ok() -> None:
     runs = _runs(job).splitlines()
     assert "npm run test:a11y" in [ln.strip() for ln in runs]
     # The browser comes from the runner install, with its system packages, like the live job.
-    assert "npx playwright install --with-deps chromium" in [ln.strip() for ln in runs]
+    assert (
+        'bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install chromium'
+        in [ln.strip() for ln in runs]
+    )
     # Reached through the `frontend` job, which CI OK requires on every event.
     assert "frontend" in workflow("ci.yml")["jobs"]["ci-ok"]["needs"]
     assert workflow("ci.yml")["jobs"]["frontend"]["uses"].endswith("reusable-frontend.yml")
