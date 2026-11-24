@@ -582,8 +582,8 @@ helm install monitoring prometheus-community/kube-prometheus-stack \
 
 kubectl get servicemonitor -n your-service-name-local          # confirm discovery
 kubectl port-forward -n monitoring svc/monitoring-grafana 8080:80   # kind (Minikube: `minikube service monitoring-grafana -n monitoring`)
-# The Prometheus Service is named after the stack's release: <release>-kube-prometheus-prometheus
-# for kube-prometheus-stack (the release here is `monitoring`)
+# The stack shortens its Service names, so find Prometheus's with `kubectl get svc -n monitoring`;
+# for the release `monitoring` installed above it is monitoring-kube-prometheus-prometheus
 kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-prometheus 9090:9090   # then :9090/targets
 ```
 

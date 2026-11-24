@@ -138,6 +138,13 @@
 {{- end }}
 {{- end }}
 {{- /*
+  edge.hsts is the one source of the backend's HSTS_ENABLED. A config copy would be a second knob:
+  the env var the chart renders beats envFrom, and with no env var config alone would decide.
+*/ -}}
+{{- if hasKey .Values.config "HSTS_ENABLED" }}
+{{- fail (printf "%s: config.HSTS_ENABLED must not be set: edge.hsts (app, edge or auto) decides who sends Strict-Transport-Security and sets the backend's HSTS_ENABLED from it." (include "chart.fullname" .)) }}
+{{- end }}
+{{- /*
   Deploy-time placeholder guard (guards.rejectPlaceholders; the deploy script sets it). Every CI
   render leaves it off, so the template's own placeholders keep rendering there. It collects every
   placeholder it finds and fails once, naming each, so one failed deploy shows the whole list.

@@ -6,7 +6,8 @@
 # Purpose
 #   Give the local stack real HTTPS on your laptop using a cert-manager
 #   `selfsigned` ClusterIssuer, which this script renders itself. It:
-#     1. applies the ClusterIssuer (cluster-scoped, named by --issuer)
+#     1. applies the ClusterIssuer (cluster-scoped, named by --issuer); refuses
+#        to overwrite one that it did not create
 #     2. reads the chart's values.<env>.yaml Ingress TLS secretName + hosts
 #     3. creates a Certificate (in the app namespace) that fills that secret,
 #        signed by `selfsigned`, for those hosts (+ 127.0.0.1)
@@ -121,6 +122,11 @@ spec:
     run kubectl apply -f -
     printf '%s\n' "${issuer_yaml}" | sed 's/^/      /'
   else
+    # Never overwrite a ClusterIssuer this script did not create (an ACME issuer, say).
+    owner="$(kubectl get clusterissuer "${ISSUER}" --ignore-not-found \
+      -o 'jsonpath={.metadata.name}/{.metadata.labels.app\.kubernetes\.io/managed-by}')"
+    [ -z "${owner}" ] || [ "${owner}" = "${ISSUER}/certs-local.sh" ] \
+      || die "ClusterIssuer ${ISSUER} exists and is not managed by certs-local.sh; use --no-ca to sign with it, or pick another --issuer"
     printf '%s\n' "${issuer_yaml}" | kubectl apply -f -
   fi
 else

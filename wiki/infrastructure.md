@@ -697,7 +697,7 @@ The chart used to carry ingress-nginx annotations. It is controller-agnostic now
 | `ssl-redirect` | The Gateway listener (an HTTP listener with a redirect route), Cloudflare's Always Use HTTPS, or the controller. |
 | `proxy-body-size` (10m) | The backend (`MAX_REQUEST_BODY_BYTES`, 10 MiB). |
 
-Response headers come from the backend and the frontend, never the edge: [Security](./security.md#http-security-headers).
+The chart renders no edge header filter, so response headers come from the backend and the frontend, with one exception: in tunnel mode Cloudflare sets HSTS. [Security](./security.md#http-security-headers).
 
 ### Client IP behind the edge
 

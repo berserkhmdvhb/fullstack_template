@@ -406,8 +406,10 @@ edge:
   # Who sends Strict-Transport-Security, so it has one source: `app` (the backend, over https
   # only), `edge` (the edge sets it; the chart sets the backend's HSTS_ENABLED=false), or `auto`:
   # `edge` in tunnel mode (Cloudflare sets it, wiki/cloudflare-setup.md section 11), `app` in
-  # gateway and ingress modes (the chart renders no edge header). Set `edge` when your Gateway or
-  # controller adds HSTS itself.
+  # gateway and ingress modes (the chart renders no edge header). `app` sends nothing until the
+  # backend sees https: that needs the edge's Pod range in config.TRUSTED_PROXY_CIDRS (empty by
+  # default) and the WAF off. Otherwise set HSTS on your Gateway or controller and `edge` here
+  # (wiki/security.md#hsts). This value is the only source: config.HSTS_ENABLED is refused.
   hsts: auto
 
 # ---- NetworkPolicy -------------------------------------------------------------

@@ -98,7 +98,7 @@ allows it only on proxied paths of the frontend port.
 
 ### Edge headers
 
-The edge adds no response headers: the chart renders no header filter or controller snippet in any edge mode. Every header on a response comes from the app that sent it: the backend's security middleware (`backend/middleware/security.py`) and the frontend's `next.config.ts` and `proxy.ts`. The backend sends `Strict-Transport-Security` over https only, unless the edge owns it (see [HSTS](#hsts)).
+The chart renders no header filter or controller snippet in any edge mode. The headers on a response come from the app that sent it: the backend's security middleware (`backend/middleware/security.py`) and the frontend's `next.config.ts` and `proxy.ts`. The exception is `Strict-Transport-Security`: in tunnel mode Cloudflare sets it, and in the other modes your Gateway or controller may (see [HSTS](#hsts)).
 
 ### CSP Details
 
@@ -932,14 +932,32 @@ helm install cert-manager cert-manager \
 ### HSTS
 
 The frontend does not set `Strict-Transport-Security`: a header from every layer would give the browser
-several competing `max-age` values, so each deployment has one source. The backend sends it over https
-only (`backend/middleware/security.py`) while `HSTS_ENABLED` is on
-([environment variables](./environment-variables.md)); the browser applies it per host, so the pages
-(which call the API same-origin) are covered. The chart's `edge.hsts` picks the source per edge mode,
-and the default turns the backend's copy off in tunnel mode, where Cloudflare sets HSTS
-([Cloudflare setup, section 11](./cloudflare-setup.md#11-hsts-once-everything-is-https)); the values
-and their reasons are in the `edge:` block of
-[`values.yaml`](../charts/your-service-name/values.yaml). With the WAF on the backend sees
-`X-Forwarded-Proto: http` ([Client IP](#client-ip)) and sends none. A test per layer pins the final
+several competing `max-age` values, so each deployment has one source, picked by the chart's
+`edge.hsts`. The values and their reasons are in the `edge:` block of
+[`values.yaml`](../charts/your-service-name/values.yaml); the default turns the backend's copy off in
+tunnel mode, where Cloudflare sets HSTS
+([Cloudflare setup, section 11](./cloudflare-setup.md#11-hsts-once-everything-is-https)).
+
+**Who turns it on in gateway and ingress mode.** The backend sends HSTS while `HSTS_ENABLED` is on
+([environment variables](./environment-variables.md)), and only on a request it sees as https
+(`backend/middleware/security.py`). Behind an edge it sees https only from a peer in
+`TRUSTED_PROXY_CIDRS` that forwards `X-Forwarded-Proto: https` ([Client IP](#client-ip)). The chart
+leaves that list empty, so with the shipped values nothing sends HSTS. Choose one source:
+
+- **The backend:** put the edge's Pod range in `TRUSTED_PROXY_CIDRS` (the per-mode table in
+  [Client IP](#client-ip)). With the WAF on, the backend's peer is the WAF, which forwards
+  `X-Forwarded-Proto: http` ([What the trusted proxies must do](#what-the-trusted-proxies-must-do)),
+  so the backend sends none; use the edge then.
+- **The edge:** set HSTS on your Gateway, controller or Cloudflare, and set `edge.hsts: edge`.
+
+**The app host.** Its pages come from the frontend and carry no HSTS. The browser applies HSTS per
+host, so the app host is covered once one of its responses carries it, such as a same-origin API call
+that the frontend's proxy (`frontend/proxy.ts`) passes to the backend. The proxy forwards the edge's
+`X-Forwarded-Proto` unchanged (Next.js fills in `http`, its own connection, only when the header is
+missing), but the backend's peer is then the frontend: the backend's copy reaches the app host only
+when the frontend's Pod range is in `TRUSTED_PROXY_CIDRS` too (the table's "Every mode, WAF off" row).
+An edge source covers every host directly.
+
+A test per layer pins the final
 header set (`frontend/next.config.test.ts`, `frontend/static-paths.test.ts`, the live
 `tests/live/test_header_set.py`, which runs over http and so sees no HSTS).
