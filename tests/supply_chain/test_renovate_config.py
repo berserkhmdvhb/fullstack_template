@@ -10,6 +10,8 @@ from typing import Any
 import pytest
 import yaml
 
+from tests.supply_chain.test_release_versions import SCM_PACKAGES
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 PINS = (ROOT / "tools" / "pins.tsv").read_text(encoding="utf-8")
 CONFIG = (ROOT / "infra" / "security" / "config.yaml").read_text(encoding="utf-8")
@@ -164,6 +166,24 @@ def test_renovate_maintains_uv_lock_and_moves_the_uv_pin_with_its_image() -> Non
     assert set(rule["matchPackageNames"]) == {"astral-sh/uv", "ghcr.io/astral-sh/uv"}
 
 
+def test_one_pull_request_moves_setuptools_scm_in_the_dev_group_and_the_build_constraints() -> None:
+    rules = renovate()["packageRules"]
+    names = [r["description"] for r in rules]
+    (rule,) = [r for r in rules if set(r.get("matchPackageNames", ())) & set(SCM_PACKAGES)]
+    assert set(rule["matchPackageNames"]) == set(SCM_PACKAGES)
+    assert rule["groupName"]
+    assert not {"matchUpdateTypes", "matchManagers", "matchFileNames", "enabled"} & set(rule)
+    # After the major rule (groupName null), so a major joins the group too.
+    assert names.index(rule["description"]) > names.index(
+        "Major updates: one pull request each, never grouped"
+    )
+    assert "build-constraint-dependencies" in " ".join(rule["prBodyNotes"])
+    # The two places the rule moves (test_release_versions.py keeps their versions equal).
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    for name in SCM_PACKAGES:
+        assert pyproject.count(f'"{name}==') == 2, name  # noqa: PLR2004 - dev group and build constraint
+
+
 def test_uv_lock_maintenance_is_not_blocked_by_the_release_age_check() -> None:
     # A lock refresh has no release timestamp: with minimumReleaseAge set, the default
     # timestamp-required behaviour would create no branch. uv's exclude-newer holds the 7 days.
@@ -241,7 +261,9 @@ def test_every_crd_source_row_is_seen_once_and_its_url_follows_the_version() -> 
 
 
 def test_the_drift_note_covers_the_crd_sources() -> None:
-    rule = next(r for r in renovate()["packageRules"] if "prBodyNotes" in r)
+    rule = next(
+        r for r in renovate()["packageRules"] if "matchFileNames" in r and "prBodyNotes" in r
+    )
     assert "charts/your-service-name/ci/crds/sources.tsv" in rule["matchFileNames"]
 
 

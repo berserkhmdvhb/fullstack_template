@@ -202,6 +202,16 @@
       "minimumReleaseAgeBehaviour": "timestamp-optional"
     },
     {
+      // setuptools-scm and vcs-versioning are pinned twice in pyproject.toml: in the dev group (the release-tag test runs
+      // setuptools_scm) and in [tool.uv] build-constraint-dependencies, with hashes; a test keeps the two equal. One pull
+      // request moves both packages in both places, majors too (this rule comes after the major rule). The build
+      // constraints' hashes are not written by Renovate: the note says what to run.
+      "description": "setuptools-scm: the dev-group pins move with the build constraints",
+      "matchPackageNames": ["setuptools-scm", "vcs-versioning"],
+      "groupName": "setuptools-scm",
+      "prBodyNotes": ["Update the sha256 hashes of `[tool.uv] build-constraint-dependencies` in `pyproject.toml` to the new versions' files, then run `make lock` (wiki/getting-started.md, Build dependencies)."]
+    },
+    {
       // The uv pin in tools/pins.tsv and the uv image tag in Dockerfile.backend must stay equal (a test checks it),
       // so one pull request moves both. The image digest is refreshed by Renovate; the pins.tsv checksum by make pins-refresh.
       "description": "uv: the pins.tsv row and the backend image tag move together",
