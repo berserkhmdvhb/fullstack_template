@@ -180,7 +180,8 @@ markers = [
   "live: tests that require a running external backend server",
   "contract: Schemathesis property tests from the OpenAPI document (make test-contract)",
   "postgres_only: needs PostgreSQL (TEST_DATABASE_URL); skipped on SQLite",
-  "sqlite_only: edits a SQLite database file directly; skipped on PostgreSQL"
+  "sqlite_only: edits a SQLite database file directly; skipped on PostgreSQL",
+  "tree_wide: reads every tracked file; the repo job runs these on every pull request (pytest -m tree_wide)"
 ]
 filterwarnings = [
   # NOTE: PytestUnhandledThreadExceptionWarning is deliberately NOT ignored — an

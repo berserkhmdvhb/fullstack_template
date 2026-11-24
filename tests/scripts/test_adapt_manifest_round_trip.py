@@ -15,7 +15,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
+
+pytestmark = pytest.mark.tree_wide
 
 REPO = Path(__file__).resolve().parents[2]
 MANIFEST = Path(".github/container-images.yml")

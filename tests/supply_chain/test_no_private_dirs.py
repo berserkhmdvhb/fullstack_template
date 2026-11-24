@@ -20,6 +20,8 @@ import pytest
 
 from tests.utils.template_tree import is_template
 
+pytestmark = pytest.mark.tree_wide
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 PLANS = "wiki" + "/" + "plans"
 PRIVATE = (PLANS, "." + "super" + "powers")

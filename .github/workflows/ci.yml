@@ -181,6 +181,10 @@ jobs:
           bats tests/scripts/
       - name: Admission policy tests
         run: kyverno test deploy/policies --require-tests
+      # The tests that read every tracked file (marked tree_wide) run here, on every event, because no path filter can cover them.
+      - uses: ./.github/actions/setup-backend
+      - name: Tree-wide guards
+        run: .venv/bin/python -m pytest -p no:cacheprovider -m tree_wide
 
   # Blocking, always runs: every tracked Dockerfile through the pinned hadolint (scripts/tools.sh).
   hadolint:

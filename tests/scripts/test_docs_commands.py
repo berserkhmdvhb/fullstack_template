@@ -7,7 +7,10 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
+
+pytestmark = pytest.mark.tree_wide
 
 ROOT = Path(__file__).resolve().parents[2]
 

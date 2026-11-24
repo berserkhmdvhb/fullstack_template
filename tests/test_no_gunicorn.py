@@ -7,6 +7,10 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.tree_wide
+
 ROOT = Path(__file__).resolve().parent.parent
 NAME = b"gun" + b"icorn"  # spelled in two parts so this file does not name it
 HISTORY = {"wiki/changelog.md"}  # past entries stay as written

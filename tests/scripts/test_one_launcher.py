@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.tree_wide
+
 ROOT = Path(__file__).resolve().parents[2]
 SERVE = "your_service_name.backend.serve"
 RE_SERVE = re.escape(SERVE)

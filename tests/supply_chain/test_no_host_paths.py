@@ -6,6 +6,10 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.tree_wide
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 # Generic on purpose: nothing here is derived from the machine the test runs on.
 HOST_PATHS = [

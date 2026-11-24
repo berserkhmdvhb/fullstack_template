@@ -8,6 +8,10 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.tree_wide
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 # SHA-256 of the lower-case form of the owner's own project names, kept out of the template.
 # Digests only, so this public file does not carry the words.
