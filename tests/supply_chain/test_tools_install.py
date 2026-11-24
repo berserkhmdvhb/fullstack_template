@@ -120,3 +120,11 @@ def test_dry_run_performs_no_external_mutations(tmp_path: Path) -> None:
     assert "curl" not in called, f"curl must not run under dry-run; calllog={called!r}"
     assert "install" not in called, f"install must not run under dry-run; calllog={called!r}"
     assert not (dest / "cosign").exists(), "nothing must be installed under dry-run"
+
+
+def test_downloads_use_the_same_retry_and_timeout_flags_as_scripts_tools() -> None:
+    flags = "--retry 3 --retry-connrefused --connect-timeout 15 --speed-limit 1024 --speed-time 30"
+    assert flags in (SCRIPT.parent.parent.parent / "scripts/tools.sh").read_text()
+    curls = [ln for ln in SRC.splitlines() if ln.lstrip().startswith("run curl ")]
+    assert curls
+    assert all(flags in ln for ln in curls), curls

@@ -139,8 +139,8 @@ esac
 log "==> ${TOOL} ${VERSION} (asset ${ASSET})"
 # Downloads go to a file, never piped straight into a shell — the whole point of
 # "pin + verify". `run` makes each one a no-op under --dry-run.
-run curl -fsSL -o "${tmp}/${ASSET}"      "${BASE}/${ASSET}"
-run curl -fsSL -o "${tmp}/checksums.txt" "${BASE}/${CHECKSUMS}"
+run curl -fsSL --retry 3 --retry-connrefused --connect-timeout 15 --speed-limit 1024 --speed-time 30 -o "${tmp}/${ASSET}" "${BASE}/${ASSET}"
+run curl -fsSL --retry 3 --retry-connrefused --connect-timeout 15 --speed-limit 1024 --speed-time 30 -o "${tmp}/checksums.txt" "${BASE}/${CHECKSUMS}"
 
 log "==> verifying checksum …"
 if [ "$kind" = "md5" ]; then

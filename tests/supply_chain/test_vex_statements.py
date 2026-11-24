@@ -26,15 +26,16 @@ JUSTIFICATIONS = {
     "vulnerable_code_cannot_be_controlled_by_adversary",
     "inline_mitigations_already_exist",
 }
-# Git blob ids of the seven other frozen scripts; the VEX fix did not touch them. One was changed
-# once since, with the owner's approval (check-ci-hardening.sh: wording only).
+# Git blob ids of the seven other frozen scripts; the VEX fix did not touch them. Two were changed
+# once since, with the owner's approval (check-ci-hardening.sh: wording only;
+# tools-install.sh: download retries).
 FROZEN_BLOBS = {
     "_helpers.sh": "6e0ba1f1e1881b7b7cd4b6d8bf202b73f3aced9a",
     "sbom-generate.sh": "35889cdaf07d3f95ac2a82e9ced6188481159e2f",
     "scan-vulnerabilities.sh": "9dd8bf309318cbff211f6ebb48ac06aa9b702382",
     "scan-licenses.sh": "a35e8dc10ae872be399dcb60f006e3f08b526a00",
     "check-ci-hardening.sh": "7ddce5a99d9bc1dc00a9ea33d93e2cb06123327e",
-    "tools-install.sh": "e16fe9a9125c77bd0b0f0030f5e6772735e84d52",
+    "tools-install.sh": "ad7fd00f6d3f36453bbe5376192d5a8207a79ee0",
     "verify-image-digest.sh": "0c7a9740a2e5b81eff18d6a2e486c733d3161d61",
 }
 TODAY = datetime.now(UTC).date()
