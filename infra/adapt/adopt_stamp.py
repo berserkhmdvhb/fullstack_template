@@ -59,6 +59,10 @@ _REPOSITORY: Final = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 # because the adopter's own releases take that manifest over (wiki/template-upgrades.md).
 TEMPLATE_VERSION: Final[str] = ".template-version"
 RELEASE_MANIFEST: Final[str] = ".release-please-manifest.json"
+RELEASE_CONFIG: Final[str] = "release-please-config.json"
+# The adopter's own version line starts here once the template version is recorded: release-please's
+# default bumps then make the first release v0.1.0 (a feat), v0.0.1 (fixes only) or v1.0.0 (a `!`).
+FIRST_LINE: Final[str] = "0.0.0"
 
 
 class _Config:
@@ -126,9 +130,27 @@ def stamp_template_version(root: Path, *, dry: bool) -> None:
         return
     if dry:
         print(f"[adopt] Would write {TEMPLATE_VERSION}: v{version}")
+        print(f"[adopt] Would reset {RELEASE_MANIFEST} to {FIRST_LINE}")
         return
     target.write_text(f"v{version}\n", encoding="utf-8")
     print(f"[adopt] Wrote {TEMPLATE_VERSION}: v{version}")
+    reset_release_line(root)
+
+
+def reset_release_line(root: Path) -> None:
+    """Start the adopter's own releases: the manifest, and the version file if one exists, go to
+    FIRST_LINE. Only ever called right after the record is first written, so it never runs twice."""
+    manifest = root / RELEASE_MANIFEST
+    manifest.write_text(json.dumps({".": FIRST_LINE}, indent=2) + "\n", encoding="utf-8")
+    print(f"[adopt] Reset {RELEASE_MANIFEST} to {FIRST_LINE}: your releases start their own line")
+    try:
+        name = json.loads((root / RELEASE_CONFIG).read_text(encoding="utf-8"))["version-file"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return
+    version_file = root / str(name)
+    if version_file.is_file():
+        version_file.write_text(f"{FIRST_LINE}\n", encoding="utf-8")
+        print(f"[adopt] Reset {name} to {FIRST_LINE}")
 
 
 def parse_args() -> argparse.Namespace:

@@ -53,6 +53,7 @@ badges, and the links in `SECURITY.md`, the issue forms and the pull request tem
 notice while `CODEOWNERS` still has its placeholder. The dry-run lists every file it would change.
 It also writes `.template-version`, the template release this copy was made from (`v` and the version in
 `.release-please-manifest.json`), once: a re-run keeps it. [Template upgrades](./template-upgrades.md) uses it.
+Right after that first write it resets the manifest (and `.release-please-version`, if present) to `0.0.0`, so your first release starts your own line, `v0.1.0` after a `feat` with release-please's default bumps, instead of continuing the template's.
 
 **Cluster structure is a separate, per-cluster layer.** The values that depend on *which cluster*
 you run on — the ingress controller class, the StorageClass, the TLS mode, the CI short image

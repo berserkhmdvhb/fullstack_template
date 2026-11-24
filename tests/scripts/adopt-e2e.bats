@@ -105,3 +105,9 @@ hits() {
   run bash -c 'cd "$C" && bash scripts/ci/check-placeholder-leftovers.sh'
   [ "$status" -eq 0 ] || { echo "$output"; false; }
 }
+
+@test "the copy records the template's release and starts its own version line" {
+  template="$(jq -r '."."' "$REPO/.release-please-manifest.json")"
+  [ "$(cat "$C/.template-version")" = "v$template" ]
+  [ "$(jq -r '."."' "$C/.release-please-manifest.json")" = "0.0.0" ]
+}
