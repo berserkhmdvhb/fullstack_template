@@ -155,9 +155,9 @@ jobs:
         run: bash scripts/ci/shell-lint.sh
       - name: Secret templates
         run: bash scripts/ci/check-secrets.sh
-      # Blocking: every file link and #anchor in the public docs resolves (lychee.toml: offline, no cache).
+      # Blocking: every file link and #anchor in the tracked Markdown resolves (lychee.toml: offline, no cache).
       - name: Doc links (lychee, offline)
-        run: lychee --config lychee.toml .
+        run: make docs-links
       - name: Security runner tests
         run: |
           LIB_TS=0 bats infra/security/local/tests/

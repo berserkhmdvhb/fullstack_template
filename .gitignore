@@ -61,9 +61,6 @@ crash.log
 .idea/
 *.swp
 
-# --- Agent working files (plans in progress, review packages) ---
-/.superpowers/
-
 # --- Pinned dev toolchain (make tools) ---
 /.tools/
 

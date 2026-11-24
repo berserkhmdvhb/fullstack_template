@@ -55,7 +55,7 @@ def test_release_please_writes_its_version_to_a_file_nothing_reads() -> None:
     name = _config()["version-file"]
     assert name == ".release-please-version"
     readers = subprocess.run(
-        [GIT, "grep", "-l", "-F", name, "--", ".", ":!wiki", ":!.superpowers"],
+        [GIT, "grep", "-l", "-F", name, "--", ".", ":!wiki"],
         cwd=REPO,
         capture_output=True,
         text=True,
