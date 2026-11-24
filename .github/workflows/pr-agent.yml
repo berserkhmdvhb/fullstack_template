@@ -27,8 +27,8 @@ on:
   pull_request:
     # No `synchronize`: PR-Agent ignores a push unless its push trigger is on (wiki/ci-cd.md, AI pull request review).
     types: [opened, reopened, ready_for_review]
-  # A comment trigger, made safe by `gate`: no checkout, collaborators only, forks skipped, and the key only in
-  # the gated `review` job.
+  # A comment trigger, made safe by `gate`: no checkout, owners, members and collaborators only, forks skipped,
+  # and the key only in the gated `review` job.
   issue_comment: # zizmor: ignore[dangerous-triggers]
     types: [created]
 
