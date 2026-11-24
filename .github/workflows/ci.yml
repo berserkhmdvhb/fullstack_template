@@ -315,6 +315,7 @@ jobs:
         run: .tools/bin/uv sync --locked --python "$(command -v python)"
       - name: Adopt a copy
         if: steps.detect.outputs.template == 'true'
+        shell: bash
         run: bash scripts/ci/adopted-copy.sh "$RUNNER_TEMP/adopted" 2>&1 | tee "$RUNNER_TEMP/adopted.log"
       # No placeholder left outside the exclusions, the renamed paths, modes, binaries, a no-op second run.
       # ADOPTED_COPY: the bats checks the copy adopted above (its log beside it) instead of adopting another.

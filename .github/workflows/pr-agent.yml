@@ -71,8 +71,9 @@ jobs:
           set -euo pipefail
           commands='^/(review|describe|improve|ask|help)([[:space:]]|$)'
           # PR-Agent reads `--section.key=value` in a comment as a setting, which could undo .pr_agent.toml
-          # (edit the title, body or labels). Any option token anywhere in the body is refused: fails closed.
-          options='(^|[[:space:]])--[A-Za-z_]'
+          # (edit the title, body or labels). PR-Agent splits the comment like a POSIX shell, which drops quotes and
+          # backslashes (`"--k=v"`, `-""-k=v`, `\--k=v`), so those are removed first and any `--` left refuses it.
+          plain="$(tr -d "\"'\\\\" <<<"${BODY}")"
           head="" reason=""
           if [[ "${SENDER_TYPE}" == Bot ]]; then
             reason="a bot started it"
@@ -84,8 +85,8 @@ jobs:
             reason="the comment's author is not an owner, member or collaborator"
           elif [[ ! "${BODY}" =~ ${commands} ]]; then
             reason="not a supported command"
-          elif [[ "${BODY}" =~ ${options} ]]; then
-            reason="the comment sets an option (--name), which could override .pr_agent.toml"
+          elif [[ "${plain}" == *--* ]]; then
+            reason="the comment holds -- (an option), which could override .pr_agent.toml"
           elif [[ ! "${PR_NUMBER}" =~ ^[0-9]+$ ]]; then
             reason="no pull request number"
           else

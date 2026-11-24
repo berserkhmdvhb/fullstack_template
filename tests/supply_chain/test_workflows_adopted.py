@@ -118,3 +118,11 @@ def test_the_docs_site_runs_off_pull_requests_only() -> None:
     ]
     rest = [s for s in STEPS[2:] if s not in off]
     assert all(s["if"] == TEMPLATE for s in rest)
+
+
+def test_a_step_that_pipes_fails_on_the_first_failing_command() -> None:
+    """`shell: bash` runs `bash -eo pipefail`, so `script | tee` fails when the script does."""
+    for step in STEPS:
+        run = step.get("run", "")
+        if "|" in run.replace("||", ""):
+            assert step.get("shell") == "bash" or run.lstrip().startswith("set -o pipefail"), step

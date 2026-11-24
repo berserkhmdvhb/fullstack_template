@@ -101,6 +101,12 @@ def test_exactly_one_zizmor_ignore_on_the_comment_trigger_with_a_reason() -> Non
 
 
 SAME, FORK, PR = "111", "222", "7"
+OBFUSCATED = [
+    "/describe ---pr_description.publish_description_as_comment=false",
+    '/describe "--k=v"',
+    '/describe -""-k=v',
+    "/describe \\--k=v",
+]
 
 
 def _run_gate(
@@ -151,8 +157,7 @@ def _gate(tmp_path: Path, api_head: str = SAME, **event: str) -> tuple[str, str]
         ({"BODY": "/review"}, SAME),
         ({"BODY": "/ask why this lock?\nmore"}, SAME),
         ({"ASSOCIATION": "OWNER", "BODY": "/improve"}, SAME),
-        ({"BODY": "/ask what does a--b do here?"}, SAME),  # no option token: `--` mid-word
-        ({"BODY": "/ask is -- a separator?"}, SAME),  # a bare `--` names no option
+        ({"BODY": "/ask why this lock?"}, SAME),
         ({"EVENT": "pull_request", "HEAD_REPO_ID": SAME, "ON_PR": "false", "BODY": ""}, FORK),
     ],
 )
@@ -188,6 +193,11 @@ def test_the_gate_lets_a_same_repository_pull_request_or_command_through(
         ),
         ("an option on a later line", {"BODY": "/review\n--pr_reviewer.extra=x"}, SAME),
         ("an option after a tab", {"BODY": "/improve\t--config.model=other"}, SAME),
+        # Quotes and backslashes are dropped by PR-Agent's shell-style split, so these are options.
+        *[(f"obfuscated option {body}", {"BODY": body}, SAME) for body in OBFUSCATED],
+        # The cost of failing closed: any `--` is refused, even where it names no option.
+        ("a double dash mid-word", {"BODY": "/ask what does a--b do here?"}, SAME),
+        ("a bare double dash", {"BODY": "/ask is -- a separator?"}, SAME),
         (
             "an option in an ask",
             {"BODY": "/ask why? --pr_description.generate_ai_title=true"},
@@ -325,3 +335,11 @@ def test_renovate_moves_the_release_commit_line_with_the_image() -> None:
     assert re.fullmatch(r"[0-9a-f]{40}", line["currentDigest"])
     group = next(r for r in renovate()["packageRules"] if r.get("groupName") == "pr-agent")
     assert set(group["matchPackageNames"]) == {"pragent/pr-agent", "The-PR-Agent/pr-agent"}
+
+
+@pytest.mark.parametrize("body", OBFUSCATED)
+def test_the_obfuscated_options_passed_the_old_pattern(body: str) -> None:
+    """Evidence the new check is needed: the old option regex let each of these through."""
+    old = r"(^|[[:space:]])--[A-Za-z_]"
+    done = subprocess.run([BASH, "-c", '[[ "$B" =~ $O ]]'], env={"B": body, "O": old}, check=False)
+    assert done.returncode == 1, body

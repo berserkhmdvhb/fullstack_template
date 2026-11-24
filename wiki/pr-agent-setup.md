@@ -57,8 +57,8 @@ Every step ends with a **Check**. Don't move on until it passes.
 **Why this design:**
 - **The key sits behind the gate.** Only `review` holds it, and only after `gate` passed a same-repository pull
   request or a collaborator's command.
-- **The settings hold.** `.pr_agent.toml` keeps PR-Agent to comments, and the gate refuses a command that carries an
-  option (`--section.key=value`), so a comment cannot turn the title, body or label edits back on
+- **The settings hold.** `.pr_agent.toml` keeps PR-Agent to comments, and the gate refuses any comment that contains `--` once
+  quotes and backslashes are removed, so a comment cannot pass an option (`--section.key=value`) and turn the title, body or label edits back on
   ([CI/CD, AI pull request review](./ci-cd.md#ai-pull-request-review)).
 - **The spend is capped where it is billed.** A dedicated key with a monthly limit bounds the cost, whoever triggers
   a run.
