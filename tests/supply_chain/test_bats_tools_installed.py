@@ -104,6 +104,15 @@ def test_a_bats_file_run_elsewhere_is_run_by_that_job() -> None:
         assert "bats" in repo_job_tools(job), job
 
 
+def test_the_adopted_job_installs_every_tool_the_copys_bats_suites_use() -> None:
+    """The `adopted` job runs the copy's `bats tests/scripts/` off pull requests."""
+    tools = pinned_tools()
+    installed = repo_job_tools("adopted")
+    for bats in sorted((REPO / "tests" / "scripts").glob("*.bats")):
+        missing = not_installed(tools_used(bats, REPO, tools), installed)
+        assert not missing, (bats.name, sorted(missing))
+
+
 def test_the_found_tools_include_the_known_ones() -> None:
     tools = pinned_tools()
     assert "oasdiff" in tools_used(REPO / "tests/scripts/oasdiff.bats", REPO, tools)

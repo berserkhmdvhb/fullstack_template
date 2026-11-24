@@ -27,9 +27,13 @@ setup_file() {
   # adopted-copy.sh needs this tree's ruff and the pinned helm; the Adopted copy CI job installs both.
   [[ -x "$REPO/.venv/bin/ruff" && -x "$REPO/.tools/bin/helm" ]] \
     || skip "needs this tree's backend (.venv/bin/ruff) and the pinned helm (the Adopted copy CI job runs it)"
-  C="$BATS_FILE_TMPDIR/copy"
+  # ADOPTED_COPY: a copy scripts/ci/adopted-copy.sh already made, with its output in "$ADOPTED_COPY.log" (the
+  # Adopted copy CI job sets it, so the tree is adopted once). Unset, the file makes its own copy.
+  C="${ADOPTED_COPY:-$BATS_FILE_TMPDIR/copy}"
   export REPO C
-  if ! (cd "$REPO" && bash scripts/ci/adopted-copy.sh "$C") > "$BATS_FILE_TMPDIR/adopt.log" 2>&1; then
+  if [[ -n "${ADOPTED_COPY:-}" ]]; then
+    cp "$C.log" "$BATS_FILE_TMPDIR/adopt.log"
+  elif ! (cd "$REPO" && bash scripts/ci/adopted-copy.sh "$C") > "$BATS_FILE_TMPDIR/adopt.log" 2>&1; then
     cat "$BATS_FILE_TMPDIR/adopt.log"
     return 1
   fi

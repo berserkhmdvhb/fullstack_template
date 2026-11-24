@@ -137,7 +137,8 @@ working tree as `acme_orders` with every optional value set, and fails if any pl
 list, if a listed path no longer holds one (a stale exclusion), if the chart directory or the package is not renamed,
 if a file's mode or a binary file changed, or if a second run changes anything. The `Adopted copy` CI job runs it,
 then the copy's own suites ([CI/CD](./ci-cd.md#the-adopted-copy)). Both check the template only: in an adopted
-repository the test skips and the job passes without doing anything, and either may be deleted there.
+repository the test skips, and the job succeeds at once with a notice, one short step. Keep both there: the copy's own
+supply-chain tests read the job and the test.
 
 ---
 

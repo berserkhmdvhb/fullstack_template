@@ -76,10 +76,45 @@ def test_the_copy_is_adopted_with_the_tools_and_a_ruff_and_runs_its_suites() -> 
         assert command in runs, command
 
 
+def test_the_copy_runs_the_shell_and_hardening_lints_on_every_event() -> None:
+    step = next(s for s in STEPS if s.get("name") == "The copy's shell lint and CI hardening lint")
+    assert step["if"] == TEMPLATE
+    assert step["working-directory"] == "${{ runner.temp }}/adopted"
+    assert "bash scripts/ci/shell-lint.sh" in step["run"]
+    assert "bash infra/security/check-ci-hardening.sh" in step["run"]
+
+
+def test_the_copy_runs_its_bats_suites_and_doc_links_off_pull_requests() -> None:
+    step = next(s for s in STEPS if s.get("name") == "The copy's bats suites and doc links")
+    assert step["if"] == OFF_PULL_REQUESTS
+    assert step["working-directory"] == "${{ runner.temp }}/adopted"
+    assert "bats tests/scripts/ infra/security/local/tests/" in step["run"]
+    assert "make docs-links" in step["run"]
+
+
+def test_the_tree_is_adopted_once_and_the_end_to_end_checks_reuse_it() -> None:
+    runs = _runs()
+    assert runs.count("scripts/ci/adopted-copy.sh") == 1
+    e2e = next(s for s in STEPS if "adopt-e2e.bats" in s.get("run", ""))
+    assert e2e["env"]["ADOPTED_COPY"] == "${{ runner.temp }}/adopted"
+    adopt = next(s for s in STEPS if s.get("name") == "Adopt a copy")
+    assert '| tee "$RUNNER_TEMP/adopted.log"' in adopt["run"]
+
+
 def test_the_docs_site_runs_off_pull_requests_only() -> None:
     site = [s for s in STEPS if "/adopted/docs-site" in s.get("working-directory", "")]
     assert site
     assert all(s["if"] == OFF_PULL_REQUESTS for s in site)
     assert any("npm run build" in s["run"] for s in site)
-    rest = [s for s in STEPS[2:] if s not in site]
+    off = [s for s in STEPS if s.get("if") == OFF_PULL_REQUESTS]
+    assert [s for s in off if s not in site] == [
+        s
+        for s in STEPS
+        if s.get("name")
+        in (
+            "Install the tools for the copy's bats suites and doc links",
+            "The copy's bats suites and doc links",
+        )
+    ]
+    rest = [s for s in STEPS[2:] if s not in off]
     assert all(s["if"] == TEMPLATE for s in rest)

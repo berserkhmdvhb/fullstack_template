@@ -48,7 +48,7 @@ jobs:
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
           changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
-          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|uv\.lock|Makefile|frontend/lib/api/|\.github/|scripts/|infra/|tools/|deploy/|wiki/)' <<<"$changed"; then
+          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|uv\.lock|Makefile|frontend/lib/api/|frontend/package[^/]*\.json$|\.github/|scripts/|infra/|tools/|deploy/|wiki/|\.devcontainer/|renovate\.json5$|\.pr_agent\.toml$|lychee\.toml$)' <<<"$changed"; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"
@@ -271,11 +271,13 @@ jobs:
 
   # Blocking, always runs, and checks the template only: a copy of this tree adopted by infra/adapt/adopt.sh
   # (scripts/ci/adopted-copy.sh) passes its own suites, so an adopter's first CI run is green. In an adopted
-  # repository the first step finds no template and the job passes after a notice, doing nothing (it may be
-  # deleted there). Pull requests run the end-to-end adoption checks, the backend lint and suite (make test),
-  # the chart's unit tests and lint, and the frontend's lint, types and unit tests; main, tags and manual runs
-  # add the docs site's resolver tests and strict build, which need a second install and the Playwright
-  # browser. No cache: every tool and package installs fresh from its pin and lock file, as in a new repository.
+  # repository the first step finds no template and the job succeeds at once with a notice, one short step; keep
+  # it there, since the copy's own supply-chain tests read this job. Every event runs the end-to-end adoption
+  # checks and, in the copy, the backend lint and suite (make test), the shell lint, the CI hardening lint, the
+  # chart's unit tests and lint, and the frontend's lint, types and unit tests. Main, tags and manual runs add,
+  # in the copy, the bats suites, the offline doc-link check and the docs site's resolver tests and strict build,
+  # which need more tools, a second install and the Playwright browser. No cache: every tool and package installs
+  # fresh from its pin and lock file, as in a new repository.
   adopted:
     name: Adopted copy
     runs-on: ubuntu-24.04
@@ -295,7 +297,7 @@ jobs:
             echo "template=true" >> "$GITHUB_OUTPUT"
           else
             echo "template=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::not the template (src/your_""service_name/ holds no Python): the adopted-copy check is the template's own, so this job does nothing here and may be deleted"
+            echo "::notice::not the template (src/your_""service_name/ holds no Python): the adopted-copy check is the template's own, so this job passes here at once; keep it, the supply-chain tests read it"
           fi
       - if: steps.detect.outputs.template == 'true'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -304,7 +306,7 @@ jobs:
       # Before the adoption: the copy links these, and the adoption renders the chart's snapshots with them.
       - name: Install the pinned tools
         if: steps.detect.outputs.template == 'true'
-        run: scripts/tools.sh install uv helm4 helm-unittest yq node promtool crd-sources bats
+        run: scripts/tools.sh install uv helm4 helm-unittest yq node promtool crd-sources bats shellcheck
       # The adoption sorts and formats the renamed Python with this tree's ruff, from the lock.
       - name: Install this tree's backend from its lock
         if: steps.detect.outputs.template == 'true'
@@ -313,10 +315,13 @@ jobs:
         run: .tools/bin/uv sync --locked --python "$(command -v python)"
       - name: Adopt a copy
         if: steps.detect.outputs.template == 'true'
-        run: bash scripts/ci/adopted-copy.sh "$RUNNER_TEMP/adopted"
+        run: bash scripts/ci/adopted-copy.sh "$RUNNER_TEMP/adopted" 2>&1 | tee "$RUNNER_TEMP/adopted.log"
       # No placeholder left outside the exclusions, the renamed paths, modes, binaries, a no-op second run.
+      # ADOPTED_COPY: the bats checks the copy adopted above (its log beside it) instead of adopting another.
       - name: The end-to-end adoption checks
         if: steps.detect.outputs.template == 'true'
+        env:
+          ADOPTED_COPY: ${{ runner.temp }}/adopted
         run: .tools/bin/bats tests/scripts/adopt-e2e.bats
       - name: Install the copy's backend from its lock
         if: steps.detect.outputs.template == 'true'
@@ -329,6 +334,12 @@ jobs:
         if: steps.detect.outputs.template == 'true'
         working-directory: ${{ runner.temp }}/adopted
         run: make ruff-format-check ruff-lint mypy-check env-docs-check
+      - name: The copy's shell lint and CI hardening lint
+        if: steps.detect.outputs.template == 'true'
+        working-directory: ${{ runner.temp }}/adopted
+        run: |
+          PATH="$PWD/.tools/bin:$PATH" bash scripts/ci/shell-lint.sh
+          PATH="$PWD/.venv/bin:$PATH" bash infra/security/check-ci-hardening.sh
       - name: The copy's backend suite (unit, integration, e2e and the supply-chain tests)
         if: steps.detect.outputs.template == 'true'
         working-directory: ${{ runner.temp }}/adopted
@@ -355,6 +366,16 @@ jobs:
           npm run lint
           npm run typecheck
           npm run test
+      # The tools the copy's bats suites and doc-link check run, beyond those installed above.
+      - name: Install the tools for the copy's bats suites and doc links
+        if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
+        run: scripts/tools.sh install kyverno squawk oasdiff lychee
+      - name: The copy's bats suites and doc links
+        if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
+        working-directory: ${{ runner.temp }}/adopted
+        run: |
+          PATH="$PWD/.tools/bin:$PATH" LIB_TS=0 bats tests/scripts/ infra/security/local/tests/
+          make docs-links
       - name: Install the copy's docs site
         if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
         working-directory: ${{ runner.temp }}/adopted/docs-site
