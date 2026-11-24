@@ -110,7 +110,9 @@ def test_every_blocking_pull_request_job_is_gated() -> None:
         # preview.yml deploys a labelled pull request's preview; it is not a check of the code.
         # pr-title.yml lints the title, which an edit changes without a commit: CI OK (ci.yml does
         # not run on edits) cannot wait on it, and it reads no code.
-        if "pull_request" not in doc["on"] or path.name in ("preview.yml", "pr-title.yml"):
+        # pr-agent.yml is the optional AI reviewer: advisory by design, off by default (ADR-0040).
+        exempt = ("preview.yml", "pr-title.yml", "pr-agent.yml")
+        if "pull_request" not in doc["on"] or path.name in exempt:
             continue
         needs = set(doc["jobs"].get("ci-ok", {}).get("needs", []))
         for key, job in doc["jobs"].items():

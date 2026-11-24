@@ -44,10 +44,11 @@ infra/adapt/adopt.sh             # 3. apply (backs up every touched file to .ada
 `adopt.sh` is a thin wrapper that runs the name adapter and then the stamping step — both read the
 same `adopt.conf`, so one edit applies everywhere — forwarding `--dry-run`. The stamping replaces
 `your-domain.example` / `registry.your-domain.example` in every file that carries them: the `Dockerfile*`,
-`pyproject.toml`, the chart's `values.*.yaml` and `Chart.yaml`, among others. The optional
-`REPOSITORY` (`owner/name`) replaces `your-org/your-repo` in the `SOURCE_URL` default of the three
-Dockerfiles, the image's OCI `source` label for local and kind builds (CI passes the real URL); unset, the
-placeholder stays. The dry-run lists every file it would change.
+`pyproject.toml`, the chart's `values.*.yaml` and `Chart.yaml`, and the conduct contact in `CODE_OF_CONDUCT.md`,
+among others. The optional `REPOSITORY` (`owner/name`) replaces `your-org/your-repo` in the `SOURCE_URL` default of
+the three Dockerfiles (the image's OCI `source` label for local and kind builds; CI passes the real URL), the README
+badges, and the links in `SECURITY.md`, the issue forms and the pull request template; its owner replaces `@your-org`
+in `.github/CODEOWNERS`. Unset, those placeholders stay. The dry-run lists every file it would change.
 
 **Cluster structure is a separate, per-cluster layer.** The values that depend on *which cluster*
 you run on — the ingress controller class, the StorageClass, the TLS mode, the CI short image

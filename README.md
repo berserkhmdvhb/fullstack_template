@@ -1,8 +1,10 @@
 # Service Template
 
 [![Python](https://img.shields.io/badge/python-3.12%20|%203.13-blue)](pyproject.toml)
-[![CI](https://github.com/<owner>/<your-service-name>/actions/workflows/ci.yml/badge.svg)](https://github.com/<owner>/<your-service-name>/actions/workflows/ci.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/<owner>/<your-service-name>/badge)](https://scorecard.dev/viewer/?uri=github.com/<owner>/<your-service-name>)
+[![CI](https://github.com/your-org/your-repo/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/your-repo/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/your-org/your-repo/badge)](https://scorecard.dev/viewer/?uri=github.com/your-org/your-repo)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![SLSA 3](https://slsa.dev/images/gh-badge-level3.svg)](wiki/adr/0016-slsa-build-l3-for-release-images.md)
 
 This repository provides a standardized template that standardizes architecture, CI/CD, containerization, and documentation for new API-based services.
 

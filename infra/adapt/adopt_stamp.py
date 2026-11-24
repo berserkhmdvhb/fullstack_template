@@ -39,6 +39,11 @@ OLD_DOMAIN: Final[str] = "your-domain.example"
 OLD_REGISTRY: Final[str] = "registry.your-domain.example"
 # The GitHub repository in the SOURCE_URL default of every Dockerfile (the OCI `source` label).
 OLD_REPOSITORY: Final[str] = "your-org/your-repo"
+# The owner half alone, as a CODEOWNERS owner (`@your-org`), takes the repository's owner.
+OLD_OWNER: Final[str] = "@" + OLD_REPOSITORY.split("/", maxsplit=1)[0]
+# README.md is excluded from the rewrites (it explains the placeholders), but its badges carry
+# the repository.
+REPOSITORY_ALSO: Final[str] = "README.md"
 # The whole placeholder URL; scripts/ci/image-checks.sh reads it to refuse the template source.
 OLD_SOURCE_URL: Final[str] = f"https://github.com/{OLD_REPOSITORY}"
 _REPOSITORY: Final = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
@@ -73,10 +78,19 @@ def build_patterns(
         (re.compile(rf"\b{re.escape(OLD_DOMAIN)}\b"), domain),
     ]
     if repository:
-        patterns.append(
-            (re.compile(rf"(?<![\w.-]){re.escape(OLD_REPOSITORY)}(?![\w.-])"), repository)
-        )
+        patterns += repository_patterns(repository)
     return patterns
+
+
+def repository_patterns(repository: str) -> list[tuple[re.Pattern[str], str]]:
+    """``your-org/your-repo`` -> the repository, and the ``@your-org`` owner -> ``@<owner>``."""
+    return [
+        (re.compile(rf"(?<![\w.-]){re.escape(OLD_REPOSITORY)}(?![\w.-])"), repository),
+        (
+            re.compile(rf"(?<![\w.-]){re.escape(OLD_OWNER)}(?![\w./-])"),
+            "@" + repository.split("/", maxsplit=1)[0],
+        ),
+    ]
 
 
 def parse_args() -> argparse.Namespace:
@@ -93,7 +107,8 @@ def parse_args() -> argparse.Namespace:
         "--repository",
         default="",
         help="GitHub repository as owner/name (replaces your-org/your-repo in the image "
-        "source label); unset keeps the placeholder",
+        "source label, the README badges and the governance files, and @your-org in "
+        "CODEOWNERS); unset keeps the placeholder",
     )
     parser.add_argument("--root", default=None, help="Repo root (default: the current directory)")
     parser.add_argument("--dry-run", action="store_true", help="Show changes only")
@@ -131,6 +146,13 @@ def main() -> int:
 
     patterns = build_patterns(args.domain, args.registry, args.repository)
     changed = rewrite_tree(root=root, patterns=patterns, config=config)
+    if args.repository:
+        config.excludes = excludes - {REPOSITORY_ALSO}
+        changed += [
+            f
+            for f in rewrite_tree(root, repository_patterns(args.repository), config)
+            if f not in changed
+        ]
 
     if not changed:
         print(

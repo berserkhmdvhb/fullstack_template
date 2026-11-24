@@ -1,0 +1,52 @@
+name: Bug report
+description: Something does not work as the docs say it should.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A security vulnerability? Don't file it here: report it privately (SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The commands or requests, smallest first. Redact secrets, hosts and project ids.
+      placeholder: |
+        1. make kind-up kind-deploy
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release tag (vX.Y.Z) or the commit SHA.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Backend (FastAPI)
+        - Frontend (Next.js)
+        - Helm chart or Kubernetes
+        - CI/CD or supply chain
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      description: The relevant part only, redacted.
+      render: text

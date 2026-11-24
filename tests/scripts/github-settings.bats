@@ -110,7 +110,8 @@ mutating() { grep -cE '^gh (api )?-X (POST|PUT|PATCH|DELETE)|^gh api -X (POST|PU
   run "$SCRIPT" --repo o/r --vars-file "$VARS" --apply
   [ "$status" -eq 0 ]
   main="$(grep '^BODY {"name":"main"' "$LOG")"
-  [[ "$main" == *'"bypass_mode":"pull_request"'* ]]
+  [[ "$main" == *'"bypass_actors":[]'* ]]  # no bypass: the admin merges only with the check green
+  [[ "$main" != *'RepositoryRole'* ]]
   [[ "$main" == *'"required_approving_review_count":0'* ]]
   [[ "$main" == *'{"type":"non_fast_forward"}'* ]]
   [[ "$main" == *'{"type":"deletion"}'* ]]
@@ -409,6 +410,7 @@ applied_state() {
   [[ "$output" == *'"github/codeql-action/init@*"'* ]]
   [[ "$output" == *'"actions/cache/restore@*"'* ]]
   [[ "$output" != *'"./.github'* ]]
+  [[ "$output" != *'pragent'* ]]  # a docker:// step is pinned by digest, not an allowlisted action
 }
 
 @test "secrets are never set and are listed for the owner" {
@@ -416,6 +418,15 @@ applied_state() {
   [ "$status" -eq 0 ]
   [ "$(count '/secrets')" -eq 0 ]
   [[ "$output" == *"RELEASE_APP_PRIVATE_KEY"* ]]
+  [[ "$output" == *"ai-review"*"ANTHROPIC_KEY"* ]]
+}
+
+@test "private vulnerability reporting is turned on, and PR_AGENT_ENABLED is a repository variable" {
+  echo 'PR_AGENT_ENABLED=true' >> "$VARS"
+  run "$SCRIPT" --repo o/r --vars-file "$VARS" --apply
+  [ "$status" -eq 0 ]
+  grep -q 'gh api -X PUT .*/repos/o/r/private-vulnerability-reporting' "$LOG"
+  grep -q 'BODY {"name":"PR_AGENT_ENABLED","value":"true"}' "$LOG"
 }
 
 @test "a missing RELEASE_APP_ID blocks --apply, before any change" {

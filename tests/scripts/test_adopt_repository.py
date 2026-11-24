@@ -100,3 +100,51 @@ def test_the_placeholder_source_url_is_defined_once_and_matches_the_dockerfiles(
     assert out[0] == f"https://github.com/{out[1]}"
     for name in DOCKERFILES:
         assert f"ARG SOURCE_URL={out[0]}\n" in (ROOT / name).read_text(encoding="utf-8")
+
+
+# The governance files and the README carry the repository too; CODEOWNERS takes its owner.
+GOVERNANCE = (
+    "README.md",
+    "SECURITY.md",
+    ".github/ISSUE_TEMPLATE/config.yml",
+    ".github/pull_request_template.md",
+)
+
+
+@pytest.fixture
+def governance(tmp_path: Path) -> Path:
+    root = tmp_path / "repo"
+    for name in (*GOVERNANCE, ".github/CODEOWNERS", "CODE_OF_CONDUCT.md"):
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / name, root / name)
+    return root
+
+
+def test_the_badges_and_governance_links_carry_the_placeholder_repository() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for badge in ("ci.yml/badge.svg", "api.scorecard.dev", "license-Apache", "gh-badge-level3"):
+        assert badge in readme, badge
+    assert "github.com/<owner>" not in readme
+    for name in GOVERNANCE:
+        assert "your-org/your-repo" in (ROOT / name).read_text(encoding="utf-8"), name
+    assert "@your-org\n" in (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
+
+
+def test_the_repository_and_its_owner_and_the_domain_are_stamped(governance: Path) -> None:
+    out = _stamp(governance, "--repository", "acme/shop")
+    for name in GOVERNANCE:
+        text = (governance / name).read_text(encoding="utf-8")
+        assert "github.com/acme/shop" in text, name
+        assert "your-org" not in text, name
+        assert name in out.stdout
+    owners = (governance / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
+    assert "*                    @acme\n" in owners
+    assert "@your-org" not in owners
+    conduct = (governance / "CODE_OF_CONDUCT.md").read_text(encoding="utf-8")
+    assert "conduct@example.test" in conduct
+
+
+def test_without_a_repository_the_governance_placeholders_stay(governance: Path) -> None:
+    _stamp(governance)
+    for name in (*GOVERNANCE, ".github/CODEOWNERS"):
+        assert "your-org" in (governance / name).read_text(encoding="utf-8"), name

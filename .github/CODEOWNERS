@@ -1,0 +1,15 @@
+# CODEOWNERS: who GitHub asks to review a pull request that touches a path.
+#
+# It routes reviews and enforces nothing here. The `main` ruleset (scripts/github-settings.sh) requires 0 approvals
+# and does not turn on "require review from code owners": GitHub never lets you approve your own pull request, so
+# with a single owner that rule would block every merge (or force an admin bypass, which the ruleset doesn't have).
+# A team with a second reviewer can raise the approvals and turn the rule on (wiki/github-repository-settings.md).
+#
+# `@your-org` is a placeholder: infra/adapt/adopt.sh stamps the owner of REPOSITORY (adopt.conf) over it. Use a
+# user or a team (@org/team); GitHub ignores an owner without write access.
+
+*                    @your-org
+/.github/            @your-org
+/scripts/            @your-org
+/infra/security/     @your-org
+/charts/             @your-org

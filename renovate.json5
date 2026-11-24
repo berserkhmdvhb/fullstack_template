@@ -165,6 +165,18 @@
         "# renovate: image=(?<depName>[^\\s]+)[^\\n]*\\n\\s*(?:tag: |[A-Z]+_TAG = )\"(?<currentValue>[^@\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
       ],
       "datasourceTemplate": "docker"
+    },
+    {
+      // The provenance line of .github/workflows/pr-agent.yml: the PR-Agent release (tag and commit) its image
+      // corresponds to. Nothing runs it; it moves with the image in the pr-agent group below.
+      "customType": "regex",
+      "description": "The PR-Agent release commit beside its image",
+      "managerFilePatterns": ["/^\\.github/workflows/pr-agent\\.yml$/"],
+      "matchStrings": [
+        "# The image corresponds to release (?<currentValue>v[0-9][^,\\s]*), commit (?<currentDigest>[0-9a-f]{40})\\."
+      ],
+      "depNameTemplate": "The-PR-Agent/pr-agent",
+      "datasourceTemplate": "github-tags"
     }
   ],
 
@@ -235,6 +247,21 @@
       "matchPackageNames": ["envoyproxy/envoy"],
       "versioning": "regex:^distroless-v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
       "pinDigests": true
+    },
+    {
+      // .github/workflows/pr-agent.yml runs the PR-Agent image by tag and digest (docker://, the github-actions manager).
+      // Only the `<X.Y.Z>-github_action` tags are versions: the rolling `github_action` tag and the other image variants
+      // are never proposed. Read the release notes: a new version can change what is sent to the model provider.
+      "description": "PR-Agent's GitHub Action image follows its X.Y.Z-github_action tags",
+      "matchPackageNames": ["pragent/pr-agent"],
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-github_action$",
+      "pinDigests": true
+    },
+    {
+      // One pull request moves the image and the release line beside it.
+      "description": "PR-Agent: the image and its release commit move together",
+      "matchPackageNames": ["pragent/pr-agent", "The-PR-Agent/pr-agent"],
+      "groupName": "pr-agent"
     },
     {
       "description": "Tell the reviewer why pin drift is red",

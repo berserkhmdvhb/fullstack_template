@@ -37,7 +37,7 @@ The threat model, which several of these decisions serve, is in [Threat model](.
 | [0019](./0019-attestations-and-release-assets.md) | Attestations in the registry, SBOMs and VEX as release assets | Accepted | Provenance and SBOM attestations pushed to the registry; SBOMs, VEX and digests on the release. |
 | [0020](./0020-deploy-by-digest.md) | Every environment deploys by digest | Accepted | Digests flow from the build to every deploy and are checked after it. |
 | [0021](./0021-keyless-deploys-per-environment.md) | Keyless deploys through Workload Identity Federation, one deployer per environment | Accepted | OIDC to WIF pinned by owner, repository and workflow; DNS endpoint; one deployer per environment. |
-| [0022](./0022-repository-settings-as-a-script.md) | Repository settings ship as a script, with rules for a single owner | Accepted | `github-settings.sh` sets rulesets, pinning and environments; 0 approvals for a single owner. |
+| [0022](./0022-repository-settings-as-a-script.md) | Repository settings ship as a script, with rules for a single owner | Accepted | `github-settings.sh` sets rulesets, pinning and environments; 0 approvals for a single owner, no bypass actor. |
 | [0023](./0023-release-flow.md) | Releases are cut by release-please with a GitHub App token, as drafts with forced tags | Accepted | App token from the `release` environment; drafts with forced tags; the tag is the version. |
 | [0024](./0024-signed-chart-from-its-own-workflow.md) | The chart is published and signed from its own workflow, at a repository-scoped path | Accepted | `reusable-chart-release.yml`, on `v*` tags, to `ghcr.io/<owner>/<repo>/charts`. |
 | [0025](./0025-renovate-for-updates.md) | Renovate proposes every version update, after a seven-day wait | Accepted | Regex managers for every pin; Dependabot for security updates only. |
@@ -55,7 +55,7 @@ The threat model, which several of these decisions serve, is in [Threat model](.
 | [0037](./0037-weekly-rescan-scope.md) | The weekly re-scan covers what runs and the latest release | Accepted | Deployed digests and the latest release, weekly. |
 | [0038](./0038-generic-names-only.md) | The template and its guides use generic names only | Accepted | Placeholders only; tests keep the owner's names and private paths out. |
 | [0039](./0039-copier-deferred.md) | Template upgrades are not Copier-based yet | Deferred | Upstream sync by merge now; revisit Copier under stated conditions. |
-| [0040](./0040-optional-ai-pr-review.md) | An optional, advisory AI reviewer for pull requests | Accepted | PR-Agent, off by default, advisory, minimal rights; not yet implemented. |
+| [0040](./0040-optional-ai-pr-review.md) | An optional, advisory AI reviewer for pull requests | Accepted | PR-Agent, off by default, advisory, minimal rights ([`pr-agent.yml`](../../.github/workflows/pr-agent.yml)). |
 
 A status is **Accepted** (in force; a note may follow, such as "not yet implemented"), **Deferred** (considered and
 postponed, with the conditions to revisit) or **Superseded** (replaced; it names the ADR that replaced it).

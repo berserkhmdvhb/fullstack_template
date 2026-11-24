@@ -104,9 +104,10 @@ def should_edit(name: str, include_exts: set[str]) -> bool:
     # which would leave the build-script patterns (SETUPTOOLS_SCM_PRETEND_VERSION
     # _FOR_<NAME>, image-name defaults, …) dead for the very files they target.
     # A ".example" template (.env.example, values.secret.yaml.example) is judged by the name
-    # under it; the dotfiles have no usable suffix, so they are matched by name.
+    # under it; the dotfiles (and CODEOWNERS) have no usable suffix, so they are matched by name.
     name = name.removesuffix(".example")
-    if name in {"Makefile", ".env", ".prettierignore"} or name.startswith(("Dockerfile", ".env.")):
+    by_name = {"Makefile", ".env", ".prettierignore", "CODEOWNERS"}
+    if name in by_name or name.startswith(("Dockerfile", ".env.")):
         return True
     # Otherwise filter by extension
     ext = Path(name).suffix.lower()

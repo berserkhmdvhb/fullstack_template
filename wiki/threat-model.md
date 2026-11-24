@@ -173,8 +173,9 @@ The boundary between code anyone can propose and the credentials that build, sig
 | S | A workflow from another repository or branch obtains deploy credentials | the WIF condition pins owner id, repository id and the workflow file; one deployer per environment, bound to `environment:<env>`; environment branch policies ([ADR-0021](./adr/0021-keyless-deploys-per-environment.md), [GKE §12](./gke-cluster-setup.md#12-keyless-access-for-github-actions)) | kubeconfig mode stores a long-lived credential ([kubeconfig mode](./platform-setup.md#kubeconfig-mode)) |
 | E | The deployer escalates in the cluster | namespace-scoped Helm verbs only; namespaces, RBAC and quotas come from the admin bootstrap ([ADR-0011](./adr/0011-namespace-bootstrap-scoped-deployer.md)) | the deployer can still change anything the chart renders in its namespaces |
 | E | A same-repository pull request abuses a preview | previews off by default; the `preview` environment, its own WIF provider and deployer, quotas, restricted Pod Security, a separate database tier ([ADR-0031](./adr/0031-optional-pr-previews.md)) | **not mitigated within the preview namespaces**: see the [preview trust boundary](./ci-cd.md#pull-request-previews) |
-| T | Someone merges without checks or forges a release tag | the `main` ruleset (required check, no direct push or force-push), the tag ruleset (only the release App creates `v*`) ([ADR-0022](./adr/0022-repository-settings-as-a-script.md), [ADR-0023](./adr/0023-release-flow.md)) | 0 required approvals and the admin's pull-request bypass: a single owner's account is the gate |
+| T | Someone merges without checks or forges a release tag | the `main` ruleset (required check, no direct push or force-push), the tag ruleset (only the release App creates `v*`) ([ADR-0022](./adr/0022-repository-settings-as-a-script.md), [ADR-0023](./adr/0023-release-flow.md)) | 0 required approvals, and an admin can turn the ruleset off: a single owner's account is the gate |
 | R | A deploy or release cannot be traced | GitHub deployment records per environment, the release's `provenance.md`, Rekor entries for every signature ([Releasing](./releasing.md)) | the GitHub audit log's retention is GitHub's |
+| I | The optional AI reviewer is prompt-injected or leaks code | off by default; same-repository pull requests and collaborators' commands only; one job with comment rights only, no checkout, the model key alone in its `ai-review` environment; the image pinned by digest ([ADR-0040](./adr/0040-optional-ai-pr-review.md), [AI pull request review](./ci-cd.md#ai-pull-request-review)) | when on, diffs go to the model provider, and an injected pull request can make its comments misleading |
 | I | A secret leaks into logs or the repo | gitleaks, the secret-template check, push protection, environment-scoped secrets enforced by the lint ([Security](./security.md#supply-chain-security-ci)) | a secret in a form the scanners do not recognise |
 
 ## 6. The registry and the supply chain
@@ -209,7 +210,7 @@ Stated plainly, each with where it is documented:
 - **Admission is opt-in.** Until the policies are applied, the cluster runs any image the deployer names.
 - **Other registries' images run even with the policies applied.** The shipped policies match only this
   repository's path; a registry allowlist is the adopter's to add ([What is enforced](./admission-control.md#what-is-enforced)).
-- **A single owner is the gate.** With 0 required approvals and the admin bypass
+- **A single owner is the gate.** With 0 required approvals, and an admin able to turn the ruleset off
   ([ADR-0022](./adr/0022-repository-settings-as-a-script.md)), a compromised owner account can merge and release.
 - **In-cluster traffic is plain HTTP** between the edge, the WAF, the frontend and the backend; the
   NetworkPolicies limit who can see it, nothing encrypts it.

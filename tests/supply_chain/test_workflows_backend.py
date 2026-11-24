@@ -210,6 +210,9 @@ WRITE_ALLOWLIST = {
     ("preview.yml", "sweep", "id-token"),
     # The weekly re-scan: only its report job writes, and only issues.
     ("rescan.yml", "report", "issues"),
+    # The optional AI reviewer: its comments (pull requests, and the issues API for replies).
+    ("pr-agent.yml", "review", "pull-requests"),
+    ("pr-agent.yml", "review", "issues"),
 }
 
 
@@ -229,6 +232,8 @@ READ_ALLOWLIST = {
     ("preview.yml", "digests", "actions", "read"),
     ("preview.yml", "digests", "deployments", "read"),
     ("preview.yml", "open-prs", "pull-requests", "read"),
+    # The PR-Agent gate: the head repository of a commented pull request (forks are skipped).
+    ("pr-agent.yml", "gate", "pull-requests", "read"),
 }
 
 

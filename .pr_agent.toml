@@ -1,0 +1,30 @@
+# PR-Agent settings (.github/workflows/pr-agent.yml). PR-Agent reads this file from the default branch, so a pull
+# request cannot change them for its own review. Every key is in PR-Agent's pr_agent/settings/configuration.toml.
+# What is sent to the model provider, the cost and how to cap it: wiki/ci-cd.md, AI pull request review.
+
+[config]
+# Claude by default (the key is the ai-review environment's ANTHROPIC_KEY); both ids are in PR-Agent's model
+# registry at the pinned release. A fallback must differ from the model. For a lower cost, set the model to
+# "anthropic/claude-sonnet-5-5" and drop the fallback (fallback_models = []).
+model = "anthropic/claude-opus-5-5"
+fallback_models = ["anthropic/claude-sonnet-5-5"]
+# Advisory only: never approve a pull request.
+enable_auto_approval = false
+# The token has no contents: write, so skip what would need it.
+restricted_mode = true
+
+# Never resolve review threads: off in every place PR-Agent has the switch (the [gitlab] two only act on GitLab,
+# and are set so that a copy moved there keeps the rule).
+[pr_questions]
+resolve_threads = false
+
+[gitlab]
+resolve_outdated_inline_threads = false
+auto_resolve_fixed_inline_threads = false
+
+[pr_update_changelog]
+push_changelog_changes = false
+
+[github]
+# No checks: write is granted; the review stays a comment, never a check run.
+publish_as_check_run = false

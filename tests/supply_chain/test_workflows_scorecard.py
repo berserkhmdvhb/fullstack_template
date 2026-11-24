@@ -103,6 +103,6 @@ def test_readme_has_the_scorecard_badge_with_placeholders() -> None:
     readme = (REPO / "README.md").read_text(encoding="utf-8")
     assert (
         "[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/"
-        "<owner>/<your-service-name>/badge)]"
-        "(https://scorecard.dev/viewer/?uri=github.com/<owner>/<your-service-name>)"
+        "your-org/your-repo/badge)]"
+        "(https://scorecard.dev/viewer/?uri=github.com/your-org/your-repo)"
     ) in readme

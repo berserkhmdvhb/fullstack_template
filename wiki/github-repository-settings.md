@@ -23,15 +23,16 @@ These warn and don't block. They are never listed as required:
 - `ZAP baseline (advisory)`
 - `Licences (grant, advisory)`
 - `VEX (advisory)`
+- `PR-Agent review (advisory)`
 
-The advisory scanner legs of `security.yml` (named `<id> (advisory)`) are the same. `Live suites (full stack)` is advisory on pull requests and blocking on `main` and tags. `Unit (Python 3.14)` is the one advisory leg of the unit matrix. DAST, grant and VEX run only on `main`, tags or by hand, so they never gate a pull request.
+The advisory scanner legs of `security.yml` (named `<id> (advisory)`) are the same. `Live suites (full stack)` is advisory on pull requests and blocking on `main` and tags. `Unit (Python 3.14)` is the one advisory leg of the unit matrix. DAST, grant and VEX run only on `main`, tags or by hand, so they never gate a pull request. `PR-Agent review (advisory)` is the optional AI reviewer, off by default ([CI/CD](./ci-cd.md#ai-pull-request-review)); it comments and never approves.
 
 ## What the script sets
 
 | Area | Setting | Why |
 |---|---|---|
-| `main` ruleset | a pull request is required, 0 approvals; the check `CI OK`; no force pushes; no deletion | one owner, so no approval count, but nothing lands without a green gate. CODEOWNERS routes reviews and enforces nothing |
-| `main` ruleset | bypass: the repository **admin** role, mode **pull request** only | the owner can merge a pull request over a pending check, and can't push straight to `main`. GitHub can't scope this to the release PR, so it covers **every** pull request |
+| `main` ruleset | a pull request is required, 0 approvals; the check `CI OK`; no force pushes; no deletion | one owner, so no approval count, but nothing lands without a green gate. [`CODEOWNERS`](../.github/CODEOWNERS) routes reviews and enforces nothing: GitHub doesn't let the only owner approve their own pull request, so a required code-owner review would block every merge |
+| `main` ruleset | **no bypass actor**: the admin, like everyone, merges only through a pull request with `CI OK` green | the gate holds for every merge. With 0 approvals the owner still merges their own pull requests, and the release pull request, opened by the release App, gets its CI run. In an emergency an admin can set the ruleset's enforcement to **Disabled** (**Settings → Rules**), a visible, deliberate step, and turn it back on after ([ADR-0022](./adr/0022-repository-settings-as-a-script.md)) |
 | `release-tags` ruleset | only the release GitHub App may create, update or delete `v*` tags | a tag is a release; the App is the only identity that can make one |
 | Environments | `dev` and `qa`: deployment rules **branch** `main` and **tag** `v*`; any other rule is deleted | the deploy chain runs from `main` and from release tags |
 | Environments | `production`: **tag** `v*` only; you as the required reviewer; self-review allowed | one owner has to approve their own deploys (a single-owner repository) |
@@ -42,7 +43,7 @@ The advisory scanner legs of `security.yml` (named `<id> (advisory)`) are the sa
 | Actions policy | allowed actions: selected, the list derived from the `uses:` lines | one source of truth: the workflows |
 | Actions policy | full-length SHA pinning required; approval for all outside contributors | a fork can't run workflows unreviewed |
 | Merges | squash only (merge commits and rebase merges off); the squash commit takes the pull request **title** and body | the title lands on `main` as the commit message, so `pr-title.yml` can hold it to Conventional Commits ([Pull request titles](./releasing.md#pull-request-titles)) |
-| Security | immutable releases; secret scanning and push protection; private vulnerability reporting; Dependabot alerts and security updates | a published release can't be changed; a leaked secret is blocked at push; a vulnerable dependency gets a fix pull request while Renovate is off or between runs |
+| Security | immutable releases; secret scanning and push protection; private vulnerability reporting; Dependabot alerts and security updates | a published release can't be changed; a leaked secret is blocked at push; a vulnerable dependency gets a fix pull request while Renovate is off or between runs. [`SECURITY.md`](../SECURITY.md) and the issue forms send reporters to private vulnerability reporting |
 | Template | marked as a template, only with `--template` | the upstream template repository sets it; an adopter's copy leaves it off |
 | Runners | none self-hosted (checked, never set) | the repository settings script; `--apply` refuses while any exist |
 
@@ -103,7 +104,7 @@ The accepted names are the `REPO_VARS` and `ENV_VARS` lists at the top of the sc
 
 - **Before any change**, `--apply` validates the vars-file, checks that `RELEASE_APP_ID` is set, checks that the app behind `CI OK` is the pinned one, resolves the reviewer and checks for self-hosted runners.
 - **Backups:** `--apply` first saves the rulesets, the Actions permissions, the allowlist, the environments and the deployment rules it is about to overwrite or delete, to a timestamped directory under `$XDG_STATE_HOME/github-settings-backups` (`~/.local/state` when unset) (or `--backup-dir`, which must also be outside the repo). The path is printed.
-- **Two values are not in GitHub's docs:** the admin role id 5 in the ruleset bypass (the convention everyone uses), and the GitHub Actions app id 15368 that the required check is pinned to. The script looks the app up (a real `CI OK` run on the default branch, else `GET /apps/github-actions`), prints `CI OK: pinned app id N; resolved <app> (id M)`, and `--apply` refuses on a mismatch; `--actions-app-id N` overrides. Confirm both in the first `--diff`, and check **Settings → Rules** after the first `--apply`. A refused admin role aborts the run.
+- **One value is not in GitHub's docs:** the GitHub Actions app id 15368 that the required check is pinned to. The script looks the app up (a real `CI OK` run on the default branch, else `GET /apps/github-actions`), prints `CI OK: pinned app id N; resolved <app> (id M)`, and `--apply` refuses on a mismatch; `--actions-app-id N` overrides. Confirm it in the first `--diff`, and check **Settings → Rules** after the first `--apply`.
 - **Production reviewers:** a 422 on a private repository (plan limit) is a soft skip; any other failure, or a 422 on a public repository, stops the run, so the approval gate is never dropped silently. After the update the script reads the reviewers back and prints them; none on a public repository is an error, and none on a private one is a skip (exit 3).
 - **Soft skips:** immutable releases, the fork approval policy, secret scanning, private vulnerability reporting and the production reviewers record a skip when GitHub refuses them. A 422 on `sha_pinning_required` is retried without it. The script then prints the value GitHub reports, and a summary of every skip, and exits 3.
 - **Deployment rules** that aren't wanted are deleted (a stray `v*` branch rule would let a branch reach production's secrets). `--diff` shows each as `DRY-RUN DELETE`.

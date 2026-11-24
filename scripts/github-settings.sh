@@ -22,9 +22,8 @@
 #   actions       https://docs.github.com/en/rest/actions/permissions
 #   runners       https://docs.github.com/en/rest/actions/self-hosted-runners
 #   repo          https://docs.github.com/en/rest/repos/repos
-# Two values are not in those pages: the RepositoryRole id 5 for "admin" (the convention everyone uses), and
-# the id of the GitHub Actions app (15368) that must produce the required check. The second is verified against
-# GitHub in the pre-flight (and can be set with --actions-app-id); confirm the bypass actor in the first --diff.
+# One value is not in those pages: the id of the GitHub Actions app (15368) that must produce the required check.
+# It is verified against GitHub in the pre-flight (and can be set with --actions-app-id).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -50,7 +49,7 @@ RESOLVED_ID=""
 # Names the vars-file may carry. Repository-scoped, then environment-scoped (as ENV_<env>_<NAME>); kept in
 # step with wiki/platform-setup.md by tests/supply_chain/test_required_checks.py. The opt-in `preview`
 # environment is not one of ENVS: its owner creates it by hand (wiki/ci-cd.md, Pull request previews).
-REPO_VARS=" GCP_PROJECT_ID GKE_CLUSTER GKE_LOCATION DEPLOY_ENABLED DEPLOY_ENVS SERVICE_NAME HELM_TIMEOUT HISTORY_KEEP CODE_SECURITY SCORECARD_ENABLED BUILD_ARM64 CLOUDFLARE_ACCOUNT_ID PREVIEWS_ENABLED PREVIEW_TTL_DAYS RELEASE_APP_ID "
+REPO_VARS=" GCP_PROJECT_ID GKE_CLUSTER GKE_LOCATION DEPLOY_ENABLED DEPLOY_ENVS SERVICE_NAME HELM_TIMEOUT HISTORY_KEEP CODE_SECURITY SCORECARD_ENABLED BUILD_ARM64 CLOUDFLARE_ACCOUNT_ID PREVIEWS_ENABLED PREVIEW_TTL_DAYS RELEASE_APP_ID PR_AGENT_ENABLED "
 ENV_VARS=" GCP_WIF_PROVIDER GCP_DEPLOYER_SA DEPLOY_MODE DEPLOY_URL GCP_PROJECT_ID GKE_CLUSTER GKE_LOCATION "
 # Script inputs that are never sent as variables. REVIEWER_USER_ID: the numeric id of the production reviewer;
 # ACTIONS_APP_ID: the app that must produce the required check (default 15368, GitHub Actions).
@@ -228,11 +227,11 @@ ruleset() {
 }
 
 main_ruleset() {
-  # bypass_mode pull_request: the admin may merge a pull request over the gate; there is no direct push.
-  # GitHub can't scope this to the release PR, so it covers every pull request. No linear-history rule.
+  # No bypass actor: everyone, the admin included, merges only through a pull request with the check green.
+  # 0 approvals, so a single owner still merges their own pull requests. No linear-history rule.
   ruleset "main" "$(jq -n --arg c "$REQUIRED_CHECK" --argjson app "$ACTIONS_APP_ID" '{
     name: "main", target: "branch", enforcement: "active",
-    bypass_actors: [{actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "pull_request"}],
+    bypass_actors: [],
     conditions: {ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}},
     rules: [
       {type: "pull_request", parameters: {required_approving_review_count: 0, dismiss_stale_reviews_on_push: false,
@@ -394,6 +393,7 @@ secrets_list() {
 #   release:     RELEASE_APP_PRIVATE_KEY  (the release GitHub App's private key)
 #   dev/qa/production, only with DEPLOY_MODE=kubeconfig: KUBECONFIG_B64
 #   production, only if the site deploy is used: CLOUDFLARE_API_TOKEN (and the optional R2 keys)
+#   ai-review (an environment you create), only with PR_AGENT_ENABLED=true: ANTHROPIC_KEY
 LIST
 }
 

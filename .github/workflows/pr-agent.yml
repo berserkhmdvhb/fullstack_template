@@ -1,0 +1,111 @@
+name: PR-Agent
+
+# An optional AI reviewer (PR-Agent, https://github.com/The-PR-Agent/pr-agent), advisory only: it comments on a
+# pull request and answers slash commands, and is never a required check (wiki/adr/0040-optional-ai-pr-review.md).
+# Off unless the repository variable PR_AGENT_ENABLED is `true`; the model key is the ANTHROPIC_KEY secret of the
+# `ai-review` environment (wiki/ci-cd.md, AI pull request review).
+# Trust:
+# - `gate` decides, with no environment, no secret and read rights only; `review` holds the key and runs only
+#   when `gate` says `run=true`.
+# - `pull_request` from this repository only: a fork's pull request gets a notice and no review. Never the
+#   trigger that runs a fork's pull request with the base repository's secrets.
+# - `issue_comment`: only a supported slash command, on a pull request, from an owner, member or collaborator,
+#   not a bot, and only on a pull request from this repository (looked up through the API), so fork content
+#   never reaches the job with the key.
+# - Nothing is checked out: PR-Agent reads the diff through the API and its settings (.pr_agent.toml) from the
+#   default branch, so no pull request code is fetched or run.
+# Pin: the image, by tag and digest, is what runs. The upstream action only builds
+# `FROM pragent/pr-agent:github_action`, a rolling tag, so pinning the action by SHA would still pull a
+# mutable image. Renovate moves the tag and digest, and the provenance line below with them (renovate.json5).
+# The image corresponds to release v0.50.0, commit e673a02076ce09a4726c3d0c3cc85780e59ca52b.
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  # A comment trigger, made safe by `gate`: no checkout, collaborators only, forks skipped, and the key only in
+  # the gated `review` job.
+  issue_comment: # zizmor: ignore[dangerous-triggers]
+    types: [created]
+
+permissions: {}
+
+# A literal prefix. A pull request's newer push replaces its running review; each comment is its own group.
+concurrency:
+  group: pr-agent-${{ github.event_name }}-${{ github.event.comment.id || github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: PR-Agent gate
+    if: vars.PR_AGENT_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      pull-requests: read # the head repository of a commented pull request
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - name: Decide whether PR-Agent runs
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          SENDER_TYPE: ${{ github.event.sender.type }}
+          BASE_REPO_ID: ${{ github.repository_id }}
+          HEAD_REPO_ID: ${{ github.event.pull_request.head.repo.id }}
+          ON_PR: ${{ github.event.issue.pull_request && 'true' || 'false' }}
+          ASSOCIATION: ${{ github.event.comment.author_association }}
+          BODY: ${{ github.event.comment.body }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          commands='^/(review|describe|improve|ask|help)([[:space:]]|$)'
+          head="" reason=""
+          if [[ "${SENDER_TYPE}" == Bot ]]; then
+            reason="a bot started it"
+          elif [[ "${EVENT}" == pull_request ]]; then
+            head="${HEAD_REPO_ID}"
+          elif [[ "${EVENT}" != issue_comment || "${ON_PR}" != true ]]; then
+            reason="not a pull request"
+          elif [[ ! "${ASSOCIATION}" =~ ^(OWNER|MEMBER|COLLABORATOR)$ ]]; then
+            reason="the comment's author is not an owner, member or collaborator"
+          elif [[ ! "${BODY}" =~ ${commands} ]]; then
+            reason="not a supported command"
+          elif [[ ! "${PR_NUMBER}" =~ ^[0-9]+$ ]]; then
+            reason="no pull request number"
+          else
+            head="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '.head.repo.id // ""')"
+          fi
+          if [[ -z "${reason}" && ( -z "${head}" || "${head}" != "${BASE_REPO_ID}" ) ]]; then
+            reason="a fork's pull request"
+          fi
+          if [[ -n "${reason}" ]]; then
+            echo "::notice::PR-Agent skipped: ${reason}."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  review:
+    name: PR-Agent review (advisory)
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Holds the model key; create it by hand (wiki/ci-cd.md, AI pull request review).
+    environment: ai-review
+    permissions:
+      contents: read
+      pull-requests: write # the review, description and suggestion comments
+      issues: write # the replies to slash commands (pull request comments go through the issues API)
+    steps:
+      - name: Run PR-Agent
+        uses: docker://pragent/pr-agent:0.50.0-github_action@sha256:548e894a88071180832b2f4233f734d0acd0db1a879e2fcbaa70bac8b8372ebe
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ANTHROPIC.KEY: ${{ secrets.ANTHROPIC_KEY }}
+          # On a pull request event: review and describe; code suggestions only on request (/improve).
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "true"
+          github_action_config.auto_improve: "false"
