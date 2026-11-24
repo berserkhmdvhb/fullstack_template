@@ -57,7 +57,7 @@ Only the release App creates `v*` tags, so a pre-release is cut through release-
 Release-As: 1.2.3-rc.1
 ```
 
-The next release pull request then proposes exactly that version, and its merge creates the `v1.2.3-rc.1` tag, which runs the release workflow like any `v*` tag ([`container_matrix.py`](../.github/scripts/container_matrix.py) accepts `-<pre>`), with two differences: it deploys to dev and qa, **never to production** (the plan's `prerelease` output, any `-` after `MAJOR.MINOR.PATCH`; build metadata alone does not count, and the deploy summary says production was skipped), and its GitHub Release is marked a **pre-release** (`prerelease` in [`release-please-config.json`](../release-please-config.json) marks release-please's draft; `release-assets` passes `--prerelease` when it has to create the draft itself). The bundled release-please library (v5.0.0 of the action) reads the footer and parses a `-<pre>` suffix, but its next bump keeps the suffix (a `fix` after `1.2.3-rc.1` proposes `1.2.4-rc.1`), so cut the final release with another footer, `Release-As: 1.2.3`.
+The next release pull request then proposes exactly that version, and its merge creates the `v1.2.3-rc.1` tag, which runs the release workflow like any `v*` tag ([`container_matrix.py`](../.github/scripts/container_matrix.py) accepts `-<pre>`), with three differences, all from the plan's `prerelease` output (any `-` after `MAJOR.MINOR.PATCH`; build metadata alone does not count): it deploys to dev and qa, **never to production** (the deploy summary says production was skipped); its images do not move `latest`, which stays on the last final release; and `release-assets` marks its GitHub Release a **pre-release**, on release-please's draft or one it creates (a final tag's draft is set to not be one). The bundled release-please library (v5.0.0 of the action) reads the footer and parses a `-<pre>` suffix, but its next bump keeps the suffix (a `fix` after `1.2.3-rc.1` proposes `1.2.4-rc.1`), so cut the final release with another footer, `Release-As: 1.2.3`.
 
 ---
 
@@ -84,7 +84,7 @@ flowchart TB
 | Aspect | Push to `main` | `v*` tag (release) |
 |--------|-----------|---------------|
 | **Grype scan** | blocking | blocking |
-| **Image tags** | immutable `<version>-main-<sha>` | immutable `<version>-prod-<sha>` plus `latest` |
+| **Image tags** | immutable `<version>-main-<sha>` | immutable `<version>-prod-<sha>` plus `latest` (a final release only, never a pre-release) |
 | **Deploy** | `dev`, then `qa` (when `DEPLOY_ENABLED` is `true`) | + `production`, behind the environment's reviewer; not for a pre-release tag |
 
 On a `v*` tag, `release-assets` reuses the **draft** GitHub Release that release-please made for the tag (it creates a draft only if none exists), and uploads the SBOMs, the OpenVEX document, the licence report, the image digests (`image-digests.env`, `scan.env`; the weekly re-scan reads them), the chart's reference (`chart.env`) and `provenance.md` (each signed digest, a link to the repository's attestations and the verify commands) to it. The workflow never publishes it: edit the notes and publish by hand once the run is green (immutable releases reject assets added after publication, so the draft must be complete first; if the release is already published the job fails with a message). To check a released image, see [Verifying an image](./security.md#verifying-an-image).

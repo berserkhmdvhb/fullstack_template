@@ -24,6 +24,10 @@ on:
         description: "'true' on a release tag, which also moves the latest tag"
         type: string
         required: true
+      prerelease:
+        description: "'true' on a v* tag with a pre-release suffix (container_matrix.py): latest stays on the last final release"
+        type: string
+        required: true
 
 permissions: {}
 
@@ -119,7 +123,7 @@ jobs:
           retention-days: 90
 
   # One leg per image: creates the index from the platform digests, tags it (the immutable tag, plus latest on a
-  # release tag) and resolves the index digest. Everything downstream (signing, deploys) uses that digest.
+  # final release tag, never a pre-release) and resolves the index digest. Everything downstream (signing, deploys) uses that digest.
   merge:
     name: Merge the platforms (${{ matrix.id }})
     needs: build
@@ -137,6 +141,7 @@ jobs:
       REPOSITORY: ${{ matrix.repository }}
       IMAGE_REF: ${{ matrix.repository }}:${{ inputs.image_tag }}
       IMMUTABLE: ${{ inputs.immutable }}
+      PRERELEASE: ${{ inputs.prerelease }}
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -167,7 +172,7 @@ jobs:
             exit 1
           fi
           tags=(--tag "${IMAGE_REF}")
-          if [[ "${IMMUTABLE}" == "true" ]]; then
+          if [[ "${IMMUTABLE}" == "true" && "${PRERELEASE}" == "false" ]]; then
             tags+=(--tag "${REPOSITORY}:latest")
           fi
           docker buildx imagetools create "${tags[@]}" "${sources[@]}"

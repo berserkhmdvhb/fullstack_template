@@ -96,7 +96,7 @@ Build, push, sign, attest and digest resolution happen only in [`reusable-build.
 4. Every `reusable-build.yml` job refuses to run unless the caller's event is a push to `main` or a `v*` tag. `digests` merges the per-image digests; `grant`, `vex` and `deploy` run after `images`, so nothing deploys unless the gate passed and the images are signed.
 5. `grant` and `vex` now start only after `images` succeeded, so a release that fails the gate leaves no licence or VEX evidence (by design). On a `v*` tag `release-assets` puts the SBOMs, the OpenVEX document, the licence report, the image digests (`image-digests.env`, `scan.env`), the chart's reference (`chart.env`) and `provenance.md` (every signed digest and how to verify it) on a **draft** GitHub Release (created with `--verify-tag`, never published by the workflow).
 
-Tags: the immutable `<version>-<channel>-<sha>` on every release run, plus `latest` on a `v*` tag; both point at the index.
+Tags: the immutable `<version>-<channel>-<sha>` on every release run, plus `latest` on a final `v*` tag (never a pre-release such as `v1.2.3-rc.1`); both point at the index.
 
 ### Multi-architecture flow
 

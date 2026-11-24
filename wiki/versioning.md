@@ -148,6 +148,7 @@ Images are pushed only by `release.yml`, on a push to `main` or a `v*` tag; a pu
 | Trigger | Immutable Tag | Mutable Tags |
 |---------|--------------|-------------|
 | **Git tag** (`v1.2.3`) | `1.2.3-prod-abc1234` | `latest` |
+| **Pre-release tag** (`v1.2.3-rc.1`) | `1.2.3-rc.1-prod-abc1234` | — |
 | **Push to `main`** | `0.0.0-main-abc1234` (baseline from `VERSION`) | — |
 
 Each tag is applied to every image.

@@ -4,7 +4,6 @@
   "include-v-in-tag": true,
   "include-component-in-tag": false,
   "draft": true,
-  "prerelease": true,
   "force-tag-creation": true,
   "skip-changelog": true,
   "version-file": ".release-please-version",
