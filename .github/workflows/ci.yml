@@ -475,7 +475,7 @@ jobs:
     with:
       base-sha: ${{ github.event.pull_request.base.sha }}
 
-  # The one required status check. Path-filtered jobs that are skipped and the matrix legs of the reusable
+  # One of the two required status checks (the other is pr-title.yml's job, which a title edit re-runs). Path-filtered jobs that are skipped and the matrix legs of the reusable
   # workflows have no stable check names, so the branch ruleset requires this job instead (see
   # wiki/github-repository-settings.md). Only backend, frontend, live, pins and docs-site may be skipped, and only on a pull
   # request (their path filter); image-plan, images and kind may be skipped on any event (they run on pull

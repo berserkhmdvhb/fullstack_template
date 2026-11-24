@@ -55,7 +55,7 @@ def _is_advisory(job: dict[str, Any]) -> bool:
 
 def test_required_checks_are_real_job_names() -> None:
     required = _listed("Required status checks")
-    assert required == ["CI OK"]
+    assert required == ["CI OK", "PR title (Conventional Commits)"]
     assert set(required) <= _job_names()
 
 
@@ -109,7 +109,7 @@ def test_every_blocking_pull_request_job_is_gated() -> None:
         doc = load(path)
         # preview.yml deploys a labelled pull request's preview; it is not a check of the code.
         # pr-title.yml lints the title, which an edit changes without a commit: CI OK (ci.yml does
-        # not run on edits) cannot wait on it, and it reads no code.
+        # not run on edits) cannot wait on it, so its job is required by its own name.
         # pr-agent.yml is the optional AI reviewer: advisory by design, off by default (ADR-0040).
         exempt = ("preview.yml", "pr-title.yml", "pr-agent.yml")
         if "pull_request" not in doc["on"] or path.name in exempt:
@@ -201,6 +201,26 @@ def test_script_variable_lists_match_the_platform_setup_table() -> None:
 
 def test_script_required_check_equals_the_doc_list() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
-    match = re.search(r'^REQUIRED_CHECK="([^"]*)"', script, re.MULTILINE)
-    assert match
-    assert _listed("Required status checks") == [match.group(1)]
+    checks = [
+        re.search(rf'^{var}="([^"]*)"', script, re.MULTILINE)
+        for var in ("REQUIRED_CHECK", "TITLE_CHECK")
+    ]
+    assert all(checks)
+    assert _listed("Required status checks") == [m.group(1) for m in checks if m]
+
+
+def test_the_title_check_runs_on_every_event_a_merge_can_need() -> None:
+    """A required check must report on every pull request: no path filter, and every event that can
+    change the title, the head or the breaking-change label re-runs it."""
+    doc = load(WORKFLOWS / "pr-title.yml")
+    trigger = doc["on"]["pull_request"]
+    assert set(trigger) == {"types"}
+    assert set(trigger["types"]) >= {
+        "opened",
+        "edited",
+        "synchronize",
+        "reopened",
+        "labeled",
+        "unlabeled",
+    }
+    assert "if" not in doc["jobs"]["title"]

@@ -206,7 +206,7 @@ flowchart TB
 
 Defined in `.github/workflows/`; the full map is in [`wiki/ci-cd.md`](wiki/ci-cd.md).
 
-*   **ci** → backend (`ruff`, `mypy`, unit on Python 3.12 and 3.13, integration, e2e), frontend (`eslint`, `prettier`, `tsc`, build, Vitest, Playwright config), chart lint, live suites, security scans, workflow hardening; the required check is **`CI OK`**
+*   **ci** → backend (`ruff`, `mypy`, unit on Python 3.12 and 3.13, integration, e2e), frontend (`eslint`, `prettier`, `tsc`, build, Vitest, Playwright config), chart lint, live suites, security scans, workflow hardening; the required checks are **`CI OK`** and the pull request title (`pr-title.yml`)
 *   **release** (`main` and `v*` tags only) → **buildx** build & push, immutable digest check, SBOM, Grype (blocking), licence check, OpenVEX; then keyless signing and SLSA provenance attestations, by digest
 *   **deploy** → Helm `upgrade --install` by digest (`--wait-for-jobs`, so a failed migration Job fails the release) + verify + smoke test, with a rollback to the recorded revision; `deploy-ops` rolls back by hand
 *   **docs-site** → the [documentation site](docs-site/README.md), built strictly and scanned with axe on pull requests, published from `main` to GitHub Pages (`https://<owner>.github.io/<repo>/`, or your custom domain)

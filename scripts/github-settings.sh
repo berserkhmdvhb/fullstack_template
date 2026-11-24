@@ -42,9 +42,11 @@ REVIEWER_ID='"<id of the reviewer, looked up at --apply>"'
 REPO_PRIVATE=unknown
 APP_SLUG=unverified
 
-# The required status check, and the app that must produce it (integration_id; the REST field is documented,
-# the value 15368 for GitHub Actions is the well-known id). The pre-flight checks it against GitHub.
+# The required status checks, and the app that must produce them (integration_id; the REST field is documented,
+# the value 15368 for GitHub Actions is the well-known id). The pre-flight checks it against GitHub on CI OK.
+# TITLE_CHECK is pr-title.yml's job: it enforces the breaking-change marker that release-please reads.
 REQUIRED_CHECK="CI OK"
+TITLE_CHECK="PR title (Conventional Commits)"
 ACTIONS_APP_ID=""
 RESOLVED_ID=""
 # Names the vars-file may carry. Repository-scoped, then environment-scoped (as ENV_<env>_<NAME>); kept in
@@ -172,6 +174,8 @@ preflight() {
     BACKUP_DIR="${BACKUP_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/github-settings-backups/${REPO//\//-}/$(date -u +%Y%m%dT%H%M%SZ)}"
     outside_repo "$BACKUP_DIR" "the backup directory"
   fi
+  # A plain dry run does no reads, but shows the reviewer the vars-file names.
+  [[ -z "${VARS[REVIEWER_USER_ID]:-}" ]] || REVIEWER_ID="${VARS[REVIEWER_USER_ID]}"
   reads || return 0
   local id login owner_json runners repo_json branch run app_id
   if [[ -n "${VARS[REVIEWER_USER_ID]:-}" ]]; then
@@ -228,9 +232,9 @@ ruleset() {
 }
 
 main_ruleset() {
-  # No bypass actor: everyone, the admin included, merges only through a pull request with the check green.
+  # No bypass actor: everyone, the admin included, merges only through a pull request with both checks green.
   # 0 approvals, so a single owner still merges their own pull requests. No linear-history rule.
-  ruleset "main" "$(jq -n --arg c "$REQUIRED_CHECK" --argjson app "$ACTIONS_APP_ID" '{
+  ruleset "main" "$(jq -n --arg c "$REQUIRED_CHECK" --arg t "$TITLE_CHECK" --argjson app "$ACTIONS_APP_ID" '{
     name: "main", target: "branch", enforcement: "active",
     bypass_actors: [],
     conditions: {ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}},
@@ -238,7 +242,7 @@ main_ruleset() {
       {type: "pull_request", parameters: {required_approving_review_count: 0, dismiss_stale_reviews_on_push: false,
         require_code_owner_review: false, require_last_push_approval: false, required_review_thread_resolution: false}},
       {type: "required_status_checks", parameters: {strict_required_status_checks_policy: false,
-        required_status_checks: [{context: $c, integration_id: $app}]}},
+        required_status_checks: [{context: $c, integration_id: $app}, {context: $t, integration_id: $app}]}},
       {type: "non_fast_forward"},
       {type: "deletion"}
     ]}')"

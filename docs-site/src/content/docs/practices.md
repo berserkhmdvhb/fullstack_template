@@ -15,7 +15,7 @@ Each practice below is enforced by a gate, a script or a test, not by goodwill. 
 | Configuration, not constants | ports, hosts and URLs differ per environment | [Conventions §4](../../../../CONVENTIONS.md#4-config-driven-not-hard-coded) |
 | The version comes from Git tags | the tag is the release, so nothing else can disagree with it | [Conventions §6](../../../../CONVENTIONS.md#6-version-comes-from-git-never-from-a-literal), [Versioning](../../../../wiki/versioning.md) |
 | Test first, then the gates, then the pull request | a failing test proves the change is needed and done | [Contributing](../../../../CONTRIBUTING.md#the-workflow-tdd--gates--pr), [Testing](../../../../wiki/testing.md) |
-| One required check, `CI OK` | a skipped or matrix job reports no stable name to require | [Repository settings](../../../../wiki/github-repository-settings.md#required-status-checks) |
+| Two required checks, `CI OK` and the title | a skipped or matrix job reports no stable name to require, so one gate job stands for them; the title check runs on a title edit, which `CI OK` does not | [Repository settings](../../../../wiki/github-repository-settings.md#required-status-checks) |
 | Conventional Commit titles, squash merges | the title becomes the commit on `main`, and the release notes come from it | [Pull request titles](../../../../wiki/releasing.md#pull-request-titles) |
 | The API contract is checked on every pull request | a breaking change must be deliberate and move the major version | [ADR-0027](../../../../wiki/adr/0027-api-contract-and-versioning.md), [API lifecycle](../../../../wiki/api-lifecycle.md) |
 | Decisions are recorded | an adopter can keep a choice knowingly or replace it on purpose | [ADR index](../../../../wiki/adr/README.md) |

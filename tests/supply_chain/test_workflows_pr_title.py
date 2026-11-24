@@ -112,3 +112,20 @@ def test_the_breaking_change_label_requires_the_breaking_marker(
 def test_without_the_label_the_marker_stays_optional(tmp_path: Path) -> None:
     assert _check("feat(api): add a field", tmp_path) == 0
     assert _check("feat(api)!: drop a field", tmp_path) == 0
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "chore(main): release 3.1.0",  # release-please's default title for this config
+        "fix(deps): bump urllib3 from 2.5.0 to 2.6.0",  # Dependabot, prefix fix(deps)
+        "fix(deps): bump the npm_and_yarn group across 2 directories with 3 updates",
+        "fix(deps): update dependency fastapi to v0.130.0",  # Renovate, semantic commits
+        "fix(deps): lock file maintenance",
+        "fix(deps): update actions/checkout action to v7.0.2",
+    ],
+)
+def test_the_bots_titles_pass_so_the_required_check_never_blocks_them(
+    title: str, tmp_path: Path
+) -> None:
+    assert _check(title, tmp_path) == 0, title

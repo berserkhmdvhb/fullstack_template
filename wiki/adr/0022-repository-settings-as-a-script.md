@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted.
+Accepted. The `main` ruleset was refined on 2026-11-24: no bypass actor, and the pull-request title check
+required beside `CI OK`.
 
 ## Date
 
@@ -20,10 +21,10 @@ reviewed. The template's first owner works alone, so a rule that needs a second 
 `--apply`), with a checklist doc. It sets, among others: approval for outside contributors' workflow runs; a
 read-only default token; full-SHA pinning and an actions allowlist; immutable releases; push protection; squash-only
 merges with the pull-request title; the `main` ruleset (a pull request with **0 approvals** and the required status
-check, no force-push or deletion) and the `release-tags` ruleset (only the release GitHub App may create, update or
+checks, `CI OK` and the pull-request title, no force-push or deletion) and the `release-tags` ruleset (only the release GitHub App may create, update or
 delete `v*` tags); the environments and their branch policies. It refuses to apply when self-hosted runners exist.
 The `main` ruleset has **no bypass actor**: everyone, the admin included, merges only through a pull request whose
-required check has passed. With 0 approvals the single owner still merges their own pull requests, and the release
+required checks have passed. With 0 approvals the single owner still merges their own pull requests, and the release
 pull request is opened with the release App's token, so CI runs on it. In an emergency an admin can set the
 ruleset's enforcement to Disabled in **Settings → Rules** and back afterwards: a visible, deliberate step, not a
 silent merge. The production environment sets `prevent_self_review: false`, so the single owner, as its required

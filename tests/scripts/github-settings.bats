@@ -82,6 +82,15 @@ mutating() { grep -cE '^gh (api )?-X (POST|PUT|PATCH|DELETE)|^gh api -X (POST|PU
   [ "$(mutating)" -eq 0 ]
 }
 
+@test "a plain dry run shows the vars-file's production reviewer id, not a placeholder" {
+  echo REVIEWER_USER_ID=77 >> "$VARS"
+  run "$SCRIPT" --repo o/r --vars-file "$VARS"
+  [ "$status" -eq 0 ]
+  [ ! -s "$LOG" ]
+  [[ "$output" == *'"reviewers":[{"type":"User","id":77}]'* ]]
+  [[ "$output" != *'looked up at --apply'* ]]
+}
+
 @test "--apply issues the expected calls" {
   run "$SCRIPT" --repo o/r --vars-file "$VARS" --apply
   [ "$status" -eq 0 ]
@@ -115,7 +124,7 @@ mutating() { grep -cE '^gh (api )?-X (POST|PUT|PATCH|DELETE)|^gh api -X (POST|PU
   [[ "$main" == *'"required_approving_review_count":0'* ]]
   [[ "$main" == *'{"type":"non_fast_forward"}'* ]]
   [[ "$main" == *'{"type":"deletion"}'* ]]
-  [[ "$main" == *'"required_status_checks":[{"context":"CI OK","integration_id":15368}]'* ]]
+  [[ "$main" == *'"required_status_checks":[{"context":"CI OK","integration_id":15368},{"context":"PR title (Conventional Commits)","integration_id":15368}]'* ]]
   [[ "$main" != *'"bypass_mode":"always"'* ]]
   tag="$(grep '^BODY {"name":"release-tags"' "$LOG")"
   [[ "$tag" == *'"refs/tags/v*"'* && "$tag" == *'{"type":"creation"}'* && "$tag" == *'{"type":"update"}'* ]]

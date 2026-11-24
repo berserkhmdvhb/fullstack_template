@@ -4,13 +4,16 @@ The repository's GitHub settings are code: [`scripts/github-settings.sh`](../scr
 
 ## Required status checks
 
-The `main` ruleset requires one check:
+The `main` ruleset requires two checks:
 
 - `CI OK`
+- `PR title (Conventional Commits)`
 
-`CI OK` is the `ci-ok` job in [`ci.yml`](../.github/workflows/ci.yml); read its comment and `needs:` list for the exact rules. In short: it depends on every blocking job, runs even when one of them failed, and fails on any result that isn't a success. Only the path-filtered `backend`, `frontend`, `pins` (pin drift) and `docs-site` jobs may be skipped, and only on a pull request; the image structure checks (`image-plan`, `images`) and the `kind` job run on pull requests only, so they may be skipped on any event, but a failure blocks; `live` is ignored on a pull request, where it is advisory. The check is pinned to the GitHub Actions app (`integration_id`), so no other app can report it.
+`CI OK` is the `ci-ok` job in [`ci.yml`](../.github/workflows/ci.yml); read its comment and `needs:` list for the exact rules. In short: it depends on every blocking job, runs even when one of them failed, and fails on any result that isn't a success. Only the path-filtered `backend`, `frontend`, `pins` (pin drift) and `docs-site` jobs may be skipped, and only on a pull request; the image structure checks (`image-plan`, `images`) and the `kind` job run on pull requests only, so they may be skipped on any event, but a failure blocks; `live` is ignored on a pull request, where it is advisory. Both checks are pinned to the GitHub Actions app (`integration_id`), so no other app can report them.
 
-Why one aggregate check and not a list: a path-filtered job that is skipped, and the matrix legs of a reusable workflow, report check names that aren't stable, so GitHub can't require them reliably. `tests/supply_chain/test_required_checks.py` pins the name against the real job names, checks that every blocking pull request job sits behind the gate, and runs the gate's script against sample results.
+`PR title (Conventional Commits)` is the `title` job of [`pr-title.yml`](../.github/workflows/pr-title.yml). It runs on every pull request, with no path filter, and again on each title edit, push and label change. It is required on its own because `ci.yml` does not run on a title edit, so `CI OK` cannot wait for it. It enforces the `!` marker that the `breaking-change` label demands, so a labelled pull request cannot merge as a minor or patch release ([Releasing](./releasing.md#pull-request-titles)). The bots' titles pass it.
+
+Why one aggregate check and not a list: a path-filtered job that is skipped, and the matrix legs of a reusable workflow, report check names that aren't stable, so GitHub can't require them reliably. `tests/supply_chain/test_required_checks.py` pins both names against the real job names, checks that every blocking pull request job sits behind the gate, and runs the gate's script against sample results.
 
 ## Advisory checks (never required)
 
@@ -107,8 +110,8 @@ The accepted names are the `REPO_VARS` and `ENV_VARS` lists at the top of the sc
 
 - **Before any change**, `--apply` validates the vars-file, checks that `RELEASE_APP_ID` is set, checks that the app behind `CI OK` is the pinned one, resolves the reviewer and checks for self-hosted runners.
 - **Backups:** `--apply` first saves the rulesets, the Actions permissions, the allowlist, the environments and the deployment rules it is about to overwrite or delete, to a timestamped directory under `$XDG_STATE_HOME/github-settings-backups` (`~/.local/state` when unset) (or `--backup-dir`, which must also be outside the repo). The path is printed.
-- **One value is not in GitHub's docs:** the GitHub Actions app id 15368 that the required check is pinned to. The script looks the app up (a real `CI OK` run on the default branch, else `GET /apps/github-actions`), prints `CI OK: pinned app id N; resolved <app> (id M)`, and `--apply` refuses on a mismatch; `--actions-app-id N` overrides. Confirm it in the first `--diff`, and check **Settings → Rules** after the first `--apply`.
+- **One value is not in GitHub's docs:** the GitHub Actions app id 15368 that both required checks are pinned to. The script looks the app up (a real `CI OK` run on the default branch, else `GET /apps/github-actions`), prints `CI OK: pinned app id N; resolved <app> (id M)`, and `--apply` refuses on a mismatch; `--actions-app-id N` overrides. Confirm it in the first `--diff`, and check **Settings → Rules** after the first `--apply`.
 - **Production reviewers:** a 422 on a private repository (plan limit) is a soft skip; any other failure, or a 422 on a public repository, stops the run, so the approval gate is never dropped silently. After the update the script reads the reviewers back and prints them; none on a public repository is an error, and none on a private one is a skip (exit 3).
-- **Soft skips:** immutable releases, the fork approval policy, secret scanning, private vulnerability reporting and the production reviewers record a skip when GitHub refuses them. A 422 on `sha_pinning_required` is retried without it. The script then prints the value GitHub reports, and a summary of every skip, and exits 3.
+- **Soft skips:** immutable releases, the fork approval policy, secret scanning, private vulnerability reporting, Dependabot alerts, Dependabot security updates, GitHub Pages (a plan that refuses it, or a site that builds from a branch, which is left as it is) and the production reviewers record a skip when GitHub refuses them. A 422 on `sha_pinning_required` is retried without it. The script then prints the value GitHub reports, and a summary of every skip, and exits 3.
 - **Deployment rules** that aren't wanted are deleted (a stray `v*` branch rule would let a branch reach production's secrets). `--diff` shows each as `DRY-RUN DELETE`.
 - The cluster-side variables and the deployer identities are in [GKE §13.1](./gke-cluster-setup.md#131-variables-and-secrets).

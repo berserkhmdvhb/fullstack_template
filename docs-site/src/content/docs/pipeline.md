@@ -3,7 +3,7 @@ title: The CI/CD pipeline
 description: From the pull request checks through main and release-please to the signed release, the deploys to dev, qa and production, and the previews.
 ---
 
-Every change reaches `main` through a pull request with one required check, `CI OK`. What runs after the merge
+Every change reaches `main` through a pull request with two required checks, `CI OK` and the pull request title. What runs after the merge
 depends on the ref: `main` builds and signs images and deploys to dev and qa, and a release tag adds the chart, the
 release assets and production.
 
@@ -25,7 +25,8 @@ flowchart LR
 
 ## On a pull request
 
-- **`CI OK` is the one required check.** It waits for every blocking job, among them the backend and frontend gates, the chart
+- **`CI OK` and the title are the required checks.** The title check enforces a Conventional Commit, with the
+  breaking marker when the `breaking-change` label is on. `CI OK` waits for every blocking job, among them the backend and frontend gates, the chart
   lint and render, the security scans, the workflow hardening lint, the image structure checks, the chart in a kind
   cluster, the API contract check and the documentation site. Path filters skip what a change cannot affect.
 - **Nothing leaves the runner.** A pull request's checks may build images into the runner's own daemon (the kind
