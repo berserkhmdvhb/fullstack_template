@@ -342,6 +342,7 @@ The `plan` job of `release.yml` generates the tag from the Git ref (see [Version
 | Trigger | Tags |
 |---------|------|
 | **Git tag** (e.g., `v1.2.3`) | `1.2.3-prod-abc1234`, `latest` |
+| **Pre-release tag** (e.g., `v1.2.3-rc.1`) | `1.2.3-rc.1-prod-abc1234` only |
 | **Push to `main`** | `0.0.0-main-abc1234` (baseline from the `VERSION` file) |
 
 A pull request never pushes an image. The tags name the multi-architecture index. The tag is the same for both images; each image has its own repository (`ghcr.io/<owner>/<repo>/backend` and `/frontend`).

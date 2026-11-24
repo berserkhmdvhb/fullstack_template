@@ -20,6 +20,7 @@ from tests.supply_chain._workflows import (
     ARTIFACT_RETENTION_DAYS,
     REPO,
     WORKFLOWS,
+    plan_for,
     steps_of,
     unpinned_uses,
     workflow,
@@ -71,7 +72,7 @@ def _index(job: dict[str, Any], needle: str) -> int:
 def test_it_is_a_reusable_workflow_with_empty_top_permissions() -> None:
     assert set(_wf()["on"]) == {"workflow_call"}
     inputs = set(_wf()["on"]["workflow_call"]["inputs"])
-    assert inputs == {"matrix", "platform_matrix", "image_tag", "immutable"}
+    assert inputs == {"matrix", "platform_matrix", "image_tag", "immutable", "prerelease"}
     assert _wf()["permissions"] == {}
 
 
@@ -279,10 +280,64 @@ def test_latest_only_on_immutable_releases_and_only_on_the_index() -> None:
     job = _jobs()["merge"]
     assert job["env"]["IMAGE_REF"] == "${{ matrix.repository }}:${{ inputs.image_tag }}"
     assert job["env"]["IMMUTABLE"] == "${{ inputs.immutable }}"
+    assert job["env"]["PRERELEASE"] == "${{ inputs.prerelease }}"
     run = _runs(job)
-    assert '"${IMMUTABLE}" == "true"' in run
     assert run.count(":latest") == 1
     assert not [n for n, j in _jobs().items() if n != "merge" and ":latest" in _runs(j)]
+
+
+def _tags_for(
+    tag: str,
+    ref_type: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    prerelease: str | None = None,
+) -> list[str]:
+    """The tags the merge step applies, for a ref planned by container_matrix.py (stub docker)."""
+    plan = plan_for(tag, monkeypatch, ref_type)
+    step = next(
+        s for s in _jobs()["merge"]["steps"] if s.get("name") == "Create the index and tag it"
+    )
+    work = tmp_path / tag
+    (work / "platform").mkdir(parents=True)
+    (work / "platform" / "backend.linux-amd64.digest.env").write_text(
+        f"BACKEND_IMAGE_DIGEST=sha256:{'b' * 64}\n"
+    )
+    bin_dir = work / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "docker").write_text('#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$CALLS"\n')
+    (bin_dir / "docker").chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "CALLS": str(work / "calls"),
+        "IMAGE_ID": "backend",
+        "REPOSITORY": "ghcr.io/o/r/backend",
+        "IMAGE_REF": f"ghcr.io/o/r/backend:{plan['image_tag']}",
+        "IMMUTABLE": plan["immutable"],
+        "PRERELEASE": plan["prerelease"] if prerelease is None else prerelease,
+    }
+    subprocess.run([BASH, "-e", "-c", step["run"]], cwd=work, env=env, check=True)
+    args = (work / "calls").read_text().splitlines()
+    return [args[i + 1] for i, a in enumerate(args) if a == "--tag"]
+
+
+@pytest.mark.parametrize(
+    ("ref", "ref_type", "latest"),
+    [("v1.2.3", "tag", True), ("v1.2.3-rc.1", "tag", False), ("main", "branch", False)],
+)
+def test_latest_moves_only_for_a_final_release(
+    ref: str, ref_type: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, latest: bool
+) -> None:
+    tags = _tags_for(ref, ref_type, tmp_path, monkeypatch)
+    assert tags[0].startswith("ghcr.io/o/r/backend:")
+    assert ("ghcr.io/o/r/backend:latest" in tags) is latest
+    assert len(tags) == (2 if latest else 1)
+
+
+def test_latest_fails_closed_without_the_prerelease_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert len(_tags_for("v1.2.3", "tag", tmp_path, monkeypatch, prerelease="")) == 1
 
 
 def test_every_upload_keeps_90_days() -> None:

@@ -4,7 +4,10 @@
 Version policy: the committed ``VERSION`` file (``0.0.0`` when absent) is the baseline; a ``v*``
 Git tag overrides it (channel ``prod``). On ``main`` the channel is ``main``; on any other branch
 (or a pull request or dispatch ref) it is the sanitised ref name, at most 20 characters. The image
-tag is ``{version}-{channel}-{short_sha}``. ``immutable`` is ``true`` exactly for ``v*`` tags.
+tag is ``{version}-{channel}-{short_sha}``. ``immutable`` is ``true`` exactly for ``v*`` tags, and
+``prerelease`` exactly for a ``v*`` tag with a SemVer pre-release suffix (``-<pre>`` after the core;
+build metadata alone is not one): it deploys to dev and qa, never production, and its release is
+marked a pre-release.
 
 Platforms: each image lists the platforms it supports and the manifest's ``runners`` map names the
 native runner of each platform. ``BUILD_ARM64=true`` builds every listed platform; anything else
@@ -51,7 +54,7 @@ ID_RE = re.compile(r"[a-z0-9-]+")
 # probe with. scripts/ci/image-checks.sh holds the same list (a test keeps the two equal).
 HEALTHCHECK_EXEMPT_IDS = ("waf",)
 VERSION_RE = re.compile(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?")
-TAG_RE = re.compile(r"v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)")
+TAG_RE = re.compile(r"v(\d+\.\d+\.\d+(?P<pre>-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)")
 SHA_RE = re.compile(r"[0-9a-f]{7,64}")
 NAME_RE = re.compile(r"[a-z0-9][a-z0-9._-]*")
 PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -95,12 +98,14 @@ def compute_version(root: Path) -> dict[str, str]:
         raise InputError(msg)
     baseline = read_baseline(root)
     immutable = ref_type == "tag"
+    prerelease = False
     if immutable:
         match = TAG_RE.fullmatch(ref_name)
         if not match:
             msg = f"tag {ref_name!r} does not match v<major>.<minor>.<patch>[-pre][+build]"
             raise InputError(msg)
         version, channel = match[1], "prod"
+        prerelease = match["pre"] is not None
     elif ref_name == "main":
         version, channel = baseline, "main"
     else:
@@ -112,6 +117,7 @@ def compute_version(root: Path) -> dict[str, str]:
         "channel": channel,
         "image_tag": f"{version}-{channel}-{sha[:7]}",
         "immutable": "true" if immutable else "false",
+        "prerelease": "true" if prerelease else "false",
     }
 
 

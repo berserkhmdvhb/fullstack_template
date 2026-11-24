@@ -71,7 +71,8 @@ def test_images_job_calls_the_reusable_build_with_the_union_of_its_permissions()
         "id-token": "write",
         "attestations": "write",
     }
-    assert set(job["with"]) == {"matrix", "platform_matrix", "image_tag", "immutable"}
+    assert set(job["with"]) == {"matrix", "platform_matrix", "image_tag", "immutable", "prerelease"}
+    assert job["with"]["prerelease"] == "${{ needs.plan.outputs.prerelease }}"
     assert job["with"]["platform_matrix"] == "${{ needs.plan.outputs.platform_matrix }}"
 
 
@@ -167,7 +168,9 @@ def test_release_assets_only_ever_create_or_extend_a_draft() -> None:
     assert "--draft" in text
     assert "--verify-tag" in text
     assert "gh release upload" in text
-    assert "gh release edit" not in text
+    # The one edit sets only the pre-release flag: it can never publish or retitle the draft.
+    edits = [ln.strip() for ln in text.splitlines() if "gh release edit" in ln]
+    assert edits == ['gh release edit "${TAG}" --prerelease="${pre}"']
     assert "--draft=false" not in text
     assert "--latest" not in text
     assert "::error::" in text  # a published release is refused with a message
@@ -199,7 +202,11 @@ echo "gh $*" >> "$CALLS"
 
 
 def _run_upload(
-    tmp_path: Path, releases: list[dict[str, Any]], *, api_fails: bool = False
+    tmp_path: Path,
+    releases: list[dict[str, Any]],
+    *,
+    api_fails: bool = False,
+    prerelease: str = "false",
 ) -> tuple[int, str, str]:
     step = next(s for s in _assets()["steps"] if s.get("name") == "Upload to the draft release")
     bin_dir = tmp_path / "bin"
@@ -218,6 +225,7 @@ def _run_upload(
         "TAG": "v1.0.0",
         "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
         "API_FAILS": "1" if api_fails else "",
+        "PRERELEASE": prerelease,
     }
     done = subprocess.run(
         [BASH, "-e", "-c", step["run"]],
@@ -240,6 +248,39 @@ def test_upload_creates_a_draft_when_there_is_no_release_for_the_tag(tmp_path: P
     assert code == 0
     assert "gh release create v1.0.0 --draft --verify-tag" in calls
     assert "gh release upload v1.0.0" in calls
+
+
+@pytest.mark.parametrize("reuse", [False, True], ids=["create", "reuse"])
+@pytest.mark.parametrize(
+    ("prerelease", "flag"),
+    [("true", "--prerelease=true"), ("false", "--prerelease=false")],
+)
+def test_the_draft_is_a_pre_release_exactly_for_a_suffixed_tag(
+    tmp_path: Path, prerelease: str, flag: str, *, reuse: bool
+) -> None:
+    """Created or reused (release-please's draft), the flag is set either way: a final release is
+    never left marked, and a pre-release is marked whoever made its draft."""
+    releases = [_rel("v1.0.0", draft=True)] if reuse else []
+    code, _, calls = _run_upload(tmp_path, releases, prerelease=prerelease)
+    assert code == 0
+    verb = "edit" if reuse else "create"
+    (call,) = [
+        c for c in calls.splitlines() if c.startswith(("gh release create", "gh release edit"))
+    ]
+    assert call.startswith(f"gh release {verb} v1.0.0")
+    assert [a for a in call.split() if a.startswith("--prerelease")] == [flag]
+    assert _assets()["env"]["PRERELEASE"] == "${{ needs.plan.outputs.prerelease }}"
+    assert "plan" in _assets()["needs"]
+
+
+@pytest.mark.parametrize("prerelease", ["", "TRUE", "yes"])
+def test_an_unknown_prerelease_value_is_refused_before_any_release_call(
+    tmp_path: Path, prerelease: str
+) -> None:
+    code, out, calls = _run_upload(tmp_path, [_rel("v1.0.0", draft=True)], prerelease=prerelease)
+    assert code != 0
+    assert "::error::PRERELEASE must be 'true' or 'false'" in out
+    assert calls == ""
 
 
 def test_upload_extends_the_single_draft_without_creating_another(tmp_path: Path) -> None:

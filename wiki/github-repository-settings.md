@@ -50,14 +50,17 @@ Environment rules and reviewers need a public repository, or a private one on a 
 
 ## The release GitHub App
 
-The release job opens the release pull request and pushes the `v*` tag. It can't use the workflow's `GITHUB_TOKEN`, because a pull request or tag made with that token triggers no workflows: the release PR would have no checks and the tag would build nothing.
+The `release-please` job of [`release-please.yml`](../.github/workflows/release-please.yml) opens the release pull request and creates the `v*` tag. It can't use the workflow's `GITHUB_TOKEN`, because a pull request or tag made with that token triggers no workflows: the release PR would have no checks and the tag would build nothing.
 
 Create a GitHub App under your account (**Settings → Developer settings → GitHub Apps**):
 
-- **Permissions (repository):** Contents: read and write; Pull requests: read and write; Metadata: read. Nothing else.
+- **Permissions (repository):** Contents: read and write (the tag and the release); Pull requests: read and write (the release pull request); Issues: read and write (release-please labels its pull request through the issues API); Metadata: read. Nothing else. The workflow's token asks for exactly these ([`release-please.yml`](../.github/workflows/release-please.yml)).
 - Webhooks off. Install it on this repository only.
-- Its **App ID** goes in the vars-file as `RELEASE_APP_ID` (a variable, not a secret). The script uses it as the bypass actor of the `release-tags` ruleset and refuses `--apply` without it.
+- Its **App ID** goes in the vars-file as `RELEASE_APP_ID` (a variable, not a secret). The script uses it as the bypass actor of the `release-tags` ruleset and refuses `--apply` without it; the workflow passes it to `actions/create-github-app-token` as `client-id`, which GitHub accepts as the App ID.
 - Generate a **private key** and store it as the `release` environment secret `RELEASE_APP_PRIVATE_KEY` (**Settings → Environments → release → Environment secrets**). The script never sets secrets.
+- **Before the first run, on a repository with history** (not one fresh from **Use this template**, which starts at one commit): add `"bootstrap-sha": "<sha>"` to [`release-please-config.json`](../release-please-config.json), the newest commit the first release leaves out (it collects the commits after it). With no `v<manifest version>` tag to find, release-please otherwise reads up to its commit search depth (500 commits) into the first release pull request. It reads the key only until it finds a release. The template commits none: a SHA names a commit of one repository, and a copy has other SHAs.
+- **Watch on the first run.** If GitHub refuses the numeric App ID through `client-id`, switch that input of the token step to `app-id` (deprecated, same variable). If release-please's force-push of its release branch is refused after a workflow file changed on `main`, the token probably needs `permission-workflows: write` in the token step and the App the Workflows: read and write permission; neither is confirmed.
+- Until `RELEASE_APP_ID` is set, `release-please.yml` is a green run with a notice; once it is, every push to `main` updates the release pull request ([Creating a Release](./releasing.md#creating-a-release)).
 
 ## Run it
 

@@ -28,6 +28,8 @@ flowchart LR
     PR["Pull request"] --> CI["ci.yml"]
     Main["Push to main / v* tag"] --> CI
     Main --> Rel["release.yml"]
+    Main -. "main only" .-> RP["release-please.yml"]
+    RP -. "v* tag" .-> Rel
     Rel --> Dep["deploy.yml"]
     Rel -. "workflow_run" .-> Dast["dast.yml"]
     Manual["Manual"] --> Ops["deploy-ops.yml"]
@@ -47,6 +49,7 @@ flowchart LR
 | [`release.yml`](../.github/workflows/release.yml) | push to `main` and `v*` | `plan`, `images` (calls `reusable-build.yml`), `chart` (`v*` tags; calls `reusable-chart-release.yml`), `digests`, `grant`, `vex`, `release-assets` (`v*` tags), then `deploy` |
 | [`reusable-build.yml`](../.github/workflows/reusable-build.yml) | called by `release` | `build` (one leg per image and platform, on that platform's native runner: push by digest, verify it), `merge` (one leg per image: the index, the tags, the index digest), `sbom` and `grype` (blocking gate; per platform), `image-checks` (the structure checks on each platform's pushed digest, natively), `sign-attest` (signs the index and attests its provenance), `attest-sbom` (one leg per image and platform: that platform's SBOM attestation, after the same gate) |
 | [`reusable-chart-release.yml`](../.github/workflows/reusable-chart-release.yml) | called by `release` (`v*` tags, after `images`) | `chart` (the chart packaged at the tag's version, pushed to `ghcr.io/<owner>/<repo>/charts`, signed and attested; only `release-assets` waits for it; see [Releasing, The chart](./releasing.md#the-chart)) |
+| [`release-please.yml`](../.github/workflows/release-please.yml) | push to `main` | `release-please` (in the `release` environment, with the release GitHub App's token: the release pull request, and on its merge the `v*` tag and a draft release), or `notice` when `RELEASE_APP_ID` is unset. See [Creating a Release](./releasing.md#creating-a-release) |
 | [`pr-title.yml`](../.github/workflows/pr-title.yml) | pull request (opened, edited, synchronize, reopened) | `title`: the title must be a Conventional Commit, because a squash merge makes it the commit message on `main`. Reads only the event; never behind `CI OK`, since an edit re-runs it without a commit. See [Releasing, Pull request titles](./releasing.md#pull-request-titles) |
 | [`deploy.yml`](../.github/workflows/deploy.yml) | called by `release` | `helm-checks`, `deploy-notice` (the skip notice), then `deploy-dev`, `deploy-qa`, `deploy-production` |
 | [`preview.yml`](../.github/workflows/preview.yml) | pull request (labelled, unlabelled, synchronize, reopened, closed); daily (04:23 UTC) | Off unless `PREVIEWS_ENABLED` is `true`: `digests` and `deploy` (a `preview`-labelled same-repository pull request's preview), `bot-skip` (a notice instead, for a run Dependabot starts), `cleanup` (closed or unlabelled), `open-prs` and `sweep` (the daily TTL cleanup). Never a check. See [Pull request previews](#pull-request-previews) |
@@ -93,7 +96,7 @@ Build, push, sign, attest and digest resolution happen only in [`reusable-build.
 4. Every `reusable-build.yml` job refuses to run unless the caller's event is a push to `main` or a `v*` tag. `digests` merges the per-image digests; `grant`, `vex` and `deploy` run after `images`, so nothing deploys unless the gate passed and the images are signed.
 5. `grant` and `vex` now start only after `images` succeeded, so a release that fails the gate leaves no licence or VEX evidence (by design). On a `v*` tag `release-assets` puts the SBOMs, the OpenVEX document, the licence report, the image digests (`image-digests.env`, `scan.env`), the chart's reference (`chart.env`) and `provenance.md` (every signed digest and how to verify it) on a **draft** GitHub Release (created with `--verify-tag`, never published by the workflow).
 
-Tags: the immutable `<version>-<channel>-<sha>` on every release run, plus `latest` on a `v*` tag; both point at the index.
+Tags: the immutable `<version>-<channel>-<sha>` on every release run, plus `latest` on a final `v*` tag (never a pre-release such as `v1.2.3-rc.1`); both point at the index.
 
 ### Multi-architecture flow
 
@@ -120,7 +123,7 @@ flowchart LR
 `release.yml` calls `deploy.yml` with the verified digests. Everything is skipped, with a summary line saying why, unless the repository variable `DEPLOY_ENABLED` is `true`, so a fresh fork with no cluster stays green.
 
 1. `helm-checks` lints and renders the chart.
-2. `deploy-dev`, then `deploy-qa` (only after dev succeeded, and only if `DEPLOY_ENVS` is empty or lists `qa`; `DEPLOY_ENVS` gates nothing else), then `deploy-production` (only on a `v*` tag with an immutable tag, after dev succeeded and after QA succeeded or was skipped by `DEPLOY_ENVS`, behind the `production` environment's required reviewer).
+2. `deploy-dev`, then `deploy-qa` (only after dev succeeded, and only if `DEPLOY_ENVS` is empty or lists `qa`; `DEPLOY_ENVS` gates nothing else), then `deploy-production` (only on a `v*` tag with an immutable tag and no pre-release suffix, [Pre-release Tags](./releasing.md#pre-release-tags), after dev succeeded and after QA succeeded or was skipped by `DEPLOY_ENVS`, behind the `production` environment's required reviewer).
 3. Each job installs the pinned Helm 4 (the `helm4` row of [`tools/pins.tsv`](../tools/pins.tsv), checksum-verified, Renovate-bumped; `scripts/tools.sh install helm4`, first on `PATH`, so a runner's own Helm is never used), then runs [`scripts/ci/deploy-env.sh`](../scripts/ci/deploy-env.sh): it records the last deployed Helm revision, runs the Helm upgrade by digest, waiting up to `HELM_TIMEOUT` with `--rollback-on-failure` (the flags are in the script; `--rollback-on-failure` is Helm 4's name for 3's `--atomic`: Helm rolls a failed upgrade back and uninstalls a failed first install, and the script prints the failed migration Job's logs), then [`scripts/ci/deploy-verify.sh`](../scripts/ci/deploy-verify.sh) (pods, health routes over a port-forward, running image digest equals the expected one) and the smoke test. If verify or smoke fails, it **rolls back to the recorded revision** and fails the job.
 4. Cluster access comes from [`.github/actions/cluster-access`](../.github/actions/cluster-access/action.yml): Workload Identity Federation by default (`DEPLOY_MODE=gke`), or a kubeconfig from the environment secret `KUBECONFIG_B64`. A job that logs in declares `environment:`.
 5. **Deployment records.** Each deploy job declares its environment with `url: ${{ vars.DEPLOY_URL }}` (an optional environment variable, [Platform setup](./platform-setup.md#variables-and-secrets)), so GitHub records one deployment per job in that environment's history, linking the URL, with the job's result: *success* when the upgrade, verify and smoke passed; *failure* when any of them failed, a failed verify or smoke that the script rolled back included (the record does not say it rolled back: the job's log and step summary name the revision it returned to). A `rollback` from `deploy-ops.yml` records its own deployment (the other operations record none).
@@ -245,7 +248,7 @@ The template used to run on GitLab CI (`ci/*.yml`). Every old job key is mapped 
 | `verify:registry` | `reusable-build.yml` / `build` (digest step) and `release.yml` / `digests` | blocking -> blocking | |
 | `helm:lint` | `reusable-chart.yml` / `chart` (called by `ci` and `deploy`) | blocking on MRs -> blocking | |
 | `.deploy` (template), `deploy:dev`, `deploy:qa` (alias `deploy:k8s`) | `deploy.yml` / `deploy-dev`, `deploy-qa` | blocking -> blocking, only when `DEPLOY_ENABLED` is `true` | |
-| `deploy:production` (alias `deploy:k8s`) | `deploy.yml` / `deploy-production` | manual -> required reviewer on the `production` environment | `v*` tag only |
+| `deploy:production` (alias `deploy:k8s`) | `deploy.yml` / `deploy-production` | manual -> required reviewer on the `production` environment | `v*` tag only, never a pre-release |
 | `.verify` (template), `dev:verify`, `qa:verify`, `production:verify` | `scripts/ci/deploy-verify.sh`, run inside each deploy job | blocking -> blocking | compares the running digest |
 | `.smoke` (template), `dev:smoke`, `qa:smoke`, `production:smoke` | the smoke step of `scripts/ci/deploy-env.sh` | blocking -> blocking | a failure rolls back to the recorded revision |
 | `deploy:rollback` | `deploy-ops.yml` / operation `rollback` | manual -> manual | needs `confirm: ROLLBACK` |
