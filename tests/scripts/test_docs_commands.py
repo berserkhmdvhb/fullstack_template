@@ -7,6 +7,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -220,8 +222,31 @@ def code_paths(text: str, top: set[str]) -> set[str]:
     return found
 
 
+# The pages the adapter leaves alone (infra/adapt/excludes.txt) keep the template's placeholder
+# paths, which an adopted copy has renamed. Spelt as a class so the adapter leaves this one alone.
+_PLACEHOLDER_PATH = re.compile(r"(src/your[_]service[_]name|charts/your[-]service[-]name)(/.*)?")
+_KEPT = [
+    ln.strip()
+    for ln in (ROOT / "infra/adapt/excludes.txt").read_text(encoding="utf-8").splitlines()
+    if ln.strip() and not ln.startswith("#")
+]
+
+
+def keeps_the_placeholder(doc: str, path: str) -> bool:
+    """A placeholder path in a page the adapter leaves alone, which an adopted copy has renamed."""
+    kept = any(doc == k or doc.startswith(k.rstrip("/") + "/") for k in _KEPT)
+    return kept and bool(_PLACEHOLDER_PATH.fullmatch(path))
+
+
+def _chart_hosts() -> list[str]:
+    """A URL on one of the chart's hosts (api.<domain>/openapi.json): the template's placeholder
+    hosts, or the adopter's once infra/adapt/adopt.sh has stamped the domain."""
+    values = yaml.safe_load(next(ROOT.glob("charts/*/values.yaml")).read_text(encoding="utf-8"))
+    return [re.escape(host) + "/.*" for host in values["edge"]["hosts"].values()]
+
+
 def missing_paths(named: set[str], known: set[str]) -> set[str]:
-    allowed = [re.compile(p) for p in _UNTRACKED]
+    allowed = [re.compile(p) for p in (*_UNTRACKED, *_chart_hosts())]
     return {p for p in named if not _exists(p, known) and not any(a.fullmatch(p) for a in allowed)}
 
 
@@ -236,6 +261,7 @@ def test_every_repo_path_the_docs_name_in_code_exists() -> None:
         for p, found in named.items()
         if str(p.relative_to(ROOT)) not in _HISTORY
         for path in sorted(missing_paths(found, known))
+        if not keeps_the_placeholder(str(p.relative_to(ROOT)), path)
     ]
     assert offenders == []
 
@@ -247,6 +273,18 @@ def test_the_path_scan_skips_urls_placeholders_and_expressions() -> None:
     assert missing_paths({"ci/security.yml", "path/to/x.py"}, {"/run_backend.sh"}) == {
         "ci/security.yml"
     }
+    host = _chart_hosts()[0].removesuffix("/.*").replace("\\", "")
+    assert missing_paths({f"{host}/openapi.json", f"{host}.x/a.json"}, set()) == {
+        f"{host}.x/a.json"
+    }
+
+
+def test_only_a_page_the_adapter_leaves_alone_may_keep_a_placeholder_path() -> None:
+    package, chart = "src/your_" + "service_name/main.py", "charts/your-" + "service-name"
+    assert keeps_the_placeholder("CONTRIBUTING.md", package)
+    assert keeps_the_placeholder("wiki/adaptation.md", chart)
+    assert not keeps_the_placeholder("wiki/operations-runbook.md", chart)
+    assert not keeps_the_placeholder("CONTRIBUTING.md", "src/acme/main.py")
 
 
 def test_the_make_target_scan_reads_code_only_and_skips_placeholders() -> None:

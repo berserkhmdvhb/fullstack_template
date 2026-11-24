@@ -22,13 +22,21 @@ docs-site/.astro
 output
 htmlcov
 test-results
-# The adapter itself and its tests:
+# The adapter itself and its tests: they hold the placeholder forms they replace.
 infra/adapt
 infra/security/local/tests/adapt.bats
-# Instructional text that explains the placeholder to template contributors:
-wiki
+tests/scripts/test_adopt_repository.py
+# Text that explains the placeholder, so it must keep it: the front page (its badges are still
+# stamped), the contributor and agent rules, and the agent skills, which describe the template.
 agent
 README.md
 CONTRIBUTING.md
 CONVENTIONS.md
 AGENTS.md
+# The wiki pages that explain the placeholder or run the adapter against the template: adoption,
+# the upgrade steps (they rename an upstream merge), the generic-names decision, and the changelog,
+# a record of the template's own releases. Every other page is the adopter's and is stamped.
+wiki/adaptation.md
+wiki/template-upgrades.md
+wiki/adr/0038-generic-names-only.md
+wiki/changelog.md

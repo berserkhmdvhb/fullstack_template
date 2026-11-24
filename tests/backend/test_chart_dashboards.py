@@ -59,9 +59,6 @@ GRAFANA_VARS = {
 }
 # The variables list the labels of the service's own info metric, not a series every service
 # built from the template exports (wiki/operations-runbook.md, "Grafana Dashboards": Variables).
-# The runbook stays generic after adaptation: it names the placeholder, spelt in capitals so the
-# adapter leaves this file's copy alone.
-RUNBOOK_BUILD_INFO = "YOUR_SERVICE_NAME_BUILD_INFO".lower()
 VARIABLE_QUERIES = {
     "cluster": f"label_values({BUILD_INFO_METRIC}, cluster)",
     "namespace": f'label_values({BUILD_INFO_METRIC}{{cluster=~"$cluster"}}, namespace)',
@@ -131,7 +128,7 @@ def _allowed() -> tuple[set[str], tuple[str, ...]]:
             elif "Summaries" in description:
                 names |= {f"{name}_count", f"{name}_sum"}
             else:
-                names.add(BUILD_INFO_METRIC if name == RUNBOOK_BUILD_INFO else name)
+                names.add(name)
     return names, tuple(prefixes)
 
 

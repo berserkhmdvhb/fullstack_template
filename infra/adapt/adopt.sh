@@ -92,6 +92,41 @@ stamp_args=( --domain "${DOMAIN}" --registry "${REGISTRY}" )
 python3 "${SCRIPT_DIR}/adopt_stamp.py" "${stamp_args[@]}" "${common_args[@]}"
 echo
 
+# ---- Then: the chart's helm-unittest snapshots ------------------------------
+# The steps above stamp the names inside them, but a renamed host changes the width of a padded
+# column (NOTES' route table), so the snapshots are rendered again from the adopted chart with the
+# pinned helm and plugin (scripts/tools.sh install helm4 helm-unittest), when they are installed.
+ROOT_DIR="${ADAPT_ROOT:-$PWD}"
+CHART_DIR="charts/${SERVICE_NAME//_/-}"
+HELM="${ROOT_DIR}/.tools/bin/helm"
+if [ "${DRY_RUN}" != "true" ] && [ -d "${ROOT_DIR}/${CHART_DIR}/tests/__snapshot__" ]; then
+  if [ -x "${HELM}" ] && [ -d "${ROOT_DIR}/.tools/helm-plugins" ]; then
+    echo "==> Chart snapshots (${CHART_DIR})…"
+    (cd "${ROOT_DIR}" && HELM_PLUGINS="${ROOT_DIR}/.tools/helm-plugins" "${HELM}" unittest -u "${CHART_DIR}" >/dev/null)
+    echo
+  else
+    echo "[adopt] NOTE: render the chart's snapshots again once the tools are installed:"
+    echo "        HELM_PLUGINS=.tools/helm-plugins .tools/bin/helm unittest -u ${CHART_DIR}"
+    echo
+  fi
+fi
+
+# ---- And the Python formatting -----------------------------------------------
+# A new name sorts elsewhere among the imports and, of another length, moves where ruff wraps a line,
+# so the Python the repo owns has its imports sorted and is formatted again (make ruff-lint-fix
+# ruff-format) with the project's ruff: .venv/bin/ruff, or RUFF, when it is installed.
+RUFF="${RUFF:-${ROOT_DIR}/.venv/bin/ruff}"
+if [ "${DRY_RUN}" != "true" ] && [ -f "${ROOT_DIR}/Makefile" ]; then
+  if [ -x "${RUFF}" ]; then
+    echo "==> Python imports and formatting (make ruff-lint-fix ruff-format)…"
+    (cd "${ROOT_DIR}" && PATH="$(dirname "${RUFF}"):${PATH}" make -s ruff-lint-fix ruff-format)
+    echo
+  else
+    echo "[adopt] NOTE: sort and format the Python again once the backend is installed: make ruff-lint-fix ruff-format"
+    echo
+  fi
+fi
+
 if [ "${DRY_RUN}" == "true" ]; then
   echo "✅ Adoption preview complete. Re-run without --dry-run to apply."
 else

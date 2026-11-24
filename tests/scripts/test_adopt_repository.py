@@ -16,6 +16,14 @@ STAMP = ROOT / "infra" / "adapt" / "adopt_stamp.py"
 DOCKERFILES = ("Dockerfile.backend", "Dockerfile.frontend", "Dockerfile.waf")
 BASH = shutil.which("bash") or "/usr/bin/bash"
 PLACEHOLDER = "ARG SOURCE_URL=https://github.com/your-org/your-repo\n"
+# The placeholder package, split so the adapter never rewrites it (check-placeholder-leftovers.sh).
+PLACEHOLDER_PACKAGE = "your_" + "service_name"
+# The stamping tests run over copies of the template's own files, so they need its placeholders; an
+# adopted copy has stamped them already (tests/scripts/adopt-e2e.bats checks the whole copy).
+TEMPLATE_ONLY = pytest.mark.skipif(
+    not any((ROOT / "src" / PLACEHOLDER_PACKAGE).glob("*.py")),
+    reason="an adopted copy: the template's placeholders are already stamped",
+)
 
 
 @pytest.fixture
@@ -49,11 +57,13 @@ def _stamp(root: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+@TEMPLATE_ONLY
 def test_every_dockerfile_ships_the_one_placeholder(tree: Path) -> None:
     for name in DOCKERFILES:
         assert PLACEHOLDER in (tree / name).read_text(encoding="utf-8"), name
 
 
+@TEMPLATE_ONLY
 def test_the_repository_is_stamped_into_every_dockerfile(tree: Path) -> None:
     out = _stamp(tree, "--repository", "acme/shop")
     for name in DOCKERFILES:
@@ -63,6 +73,7 @@ def test_the_repository_is_stamped_into_every_dockerfile(tree: Path) -> None:
         assert name in out.stdout
 
 
+@TEMPLATE_ONLY
 def test_a_dry_run_lists_the_rewrites_and_changes_nothing(tree: Path) -> None:
     out = _stamp(tree, "--repository", "acme/shop", "--dry-run")
     for name in DOCKERFILES:
@@ -70,12 +81,14 @@ def test_a_dry_run_lists_the_rewrites_and_changes_nothing(tree: Path) -> None:
         assert PLACEHOLDER in (tree / name).read_text(encoding="utf-8")
 
 
+@TEMPLATE_ONLY
 def test_without_a_repository_the_placeholder_stays(tree: Path) -> None:
     _stamp(tree)
     for name in DOCKERFILES:
         assert PLACEHOLDER in (tree / name).read_text(encoding="utf-8"), name
 
 
+@TEMPLATE_ONLY
 @pytest.mark.parametrize("bad", ["shop", "a/b/c", "acme/", "/shop", "ac me/shop"])
 def test_a_repository_that_is_not_owner_slash_name_is_refused(tree: Path, bad: str) -> None:
     with pytest.raises(subprocess.CalledProcessError) as err:
@@ -83,6 +96,7 @@ def test_a_repository_that_is_not_owner_slash_name_is_refused(tree: Path, bad: s
     assert "owner/name" in err.value.stderr
 
 
+@TEMPLATE_ONLY
 def test_the_placeholder_source_url_is_defined_once_and_matches_the_dockerfiles() -> None:
     """image-checks.sh reads OLD_SOURCE_URL from the adapter; the Dockerfiles carry the same."""
     out = subprocess.run(
@@ -123,6 +137,7 @@ def governance(tmp_path: Path) -> Path:
     return root
 
 
+@TEMPLATE_ONLY
 def test_the_badges_and_governance_links_carry_the_placeholder_repository() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     for badge in ("ci.yml/badge.svg", "api.scorecard.dev", "license-Apache", "gh-badge-level3"):
@@ -133,6 +148,7 @@ def test_the_badges_and_governance_links_carry_the_placeholder_repository() -> N
     assert "@your-org\n" in (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
 
 
+@TEMPLATE_ONLY
 def test_the_repository_the_code_owner_and_the_domain_are_stamped(governance: Path) -> None:
     out = _stamp(governance, "--repository", "acme/shop", "--codeowner", "@acme/core")
     for name in GOVERNANCE:
@@ -148,12 +164,14 @@ def test_the_repository_the_code_owner_and_the_domain_are_stamped(governance: Pa
     assert "conduct@example.test" in conduct
 
 
+@TEMPLATE_ONLY
 def test_without_a_repository_the_governance_placeholders_stay(governance: Path) -> None:
     _stamp(governance)
     for name in (*GOVERNANCE, ".github/CODEOWNERS"):
         assert "your-org" in (governance / name).read_text(encoding="utf-8"), name
 
 
+@TEMPLATE_ONLY
 def test_the_repository_alone_keeps_the_code_owner_placeholder_with_a_notice(
     governance: Path,
 ) -> None:
@@ -164,6 +182,7 @@ def test_the_repository_alone_keeps_the_code_owner_placeholder_with_a_notice(
     assert "[adopt] NOTE: CODEOWNER is unset" in out.stdout
 
 
+@TEMPLATE_ONLY
 @pytest.mark.parametrize("owner", ["@octocat", "@acme/core-team", "dev@example.test"])
 def test_a_user_a_team_or_an_email_is_a_code_owner(governance: Path, owner: str) -> None:
     _stamp(governance, "--codeowner", owner)
@@ -171,6 +190,7 @@ def test_a_user_a_team_or_an_email_is_a_code_owner(governance: Path, owner: str)
     assert f"*                    {owner}\n" in owners
 
 
+@TEMPLATE_ONLY
 @pytest.mark.parametrize("bad", ["octocat", "@", "@a/b/c", "@ac me", "a@b", "@a\\1", "a\\1@b.c"])
 def test_a_code_owner_of_another_shape_is_refused(governance: Path, bad: str) -> None:
     with pytest.raises(subprocess.CalledProcessError) as err:
@@ -179,6 +199,7 @@ def test_a_code_owner_of_another_shape_is_refused(governance: Path, bad: str) ->
     assert "@your-org" in (governance / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
 
 
+@TEMPLATE_ONLY
 def test_adopt_sh_passes_codeowner_from_the_config(governance: Path) -> None:
     shutil.copy(ROOT / "pyproject.toml", governance / "pyproject.toml")
     conf = governance.parent / "adopt.conf"
@@ -198,8 +219,6 @@ def test_adopt_sh_passes_codeowner_from_the_config(governance: Path) -> None:
     assert "*                    @acme/core\n" in owners
 
 
-# The placeholder package, split so the adapter never rewrites it (check-placeholder-leftovers.sh).
-PLACEHOLDER_PACKAGE = "your_" + "service_name"
 RECORD = re.compile(r"v\d+\.\d+\.\d+\n")
 
 
@@ -236,6 +255,7 @@ def test_the_record_check_tells_a_template_from_an_adopted_copy(tmp_path: Path) 
     assert template_version_problem(adopted) is not None
 
 
+@TEMPLATE_ONLY
 def test_the_repository_is_stamped_into_the_docs_site_config(tmp_path: Path) -> None:
     """docs-site/site.json is the one repository value the site's links and address come from."""
     root = tmp_path / "repo"

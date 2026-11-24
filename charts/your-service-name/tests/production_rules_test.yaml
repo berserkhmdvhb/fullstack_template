@@ -292,6 +292,7 @@ tests:
   - it: with the guard and real digests, the placeholder OIDC issuer and audience are refused, each named
     set:
       guards: {rejectPlaceholders: true}
+      config: {OIDC_ISSUER: "https://idp.Your-Domain.Example"}
       images:
         backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
@@ -322,11 +323,13 @@ tests:
 
   # The header line and its count are asserted by tests/backend/test_chart_production_guard.py: this
   # plugin's error matcher drops the first line of a multi-line message.
-  - it: with the guard, every placeholder is named in one refusal (production values as committed, the proxy and the ExternalSecret on)
+  # The hosts and the issuer are set in mixed case, which infra/adapt/adopt.sh does not stamp (guards_test.yaml).
+  - it: with the guard, every placeholder is named in one refusal (production values, the placeholder hosts and issuer, the proxy and the ExternalSecret on)
     set:
       guards: {rejectPlaceholders: true}
       externalDatabase: {enabled: false}
-      config: {DB_SSLMODE: disable}
+      config: {DB_SSLMODE: disable, OIDC_ISSUER: "https://idp.Your-Domain.Example"}
+      edge: {hosts: {api: api.Your-Domain.Example, app: app.Your-Domain.Example, root: Your-Domain.Example}}
       cloudSqlProxy: {enabled: true, egressCIDRs: [199.36.153.8/30]}
       secrets: {existingSecret: "", externalSecret: {enabled: true}}
     asserts:
@@ -337,11 +340,11 @@ tests:
       - failedTemplate:
           errorPattern: 'cloudSqlProxy\.instanceConnectionName is the placeholder "your-project:your-region:your-instance"'
       - failedTemplate:
-          errorPattern: 'edge\.hosts\.api is "api\.your-domain\.example"'
+          errorPattern: 'edge\.hosts\.api is "api\.Your-Domain\.Example"'
       - failedTemplate:
-          errorPattern: 'edge\.hosts\.app is "app\.your-domain\.example"'
+          errorPattern: 'edge\.hosts\.app is "app\.Your-Domain\.Example"'
       - failedTemplate:
-          errorPattern: 'edge\.hosts\.root is "your-service-name\.your-domain\.example"'
+          errorPattern: 'edge\.hosts\.root is "Your-Domain\.Example"'
       - failedTemplate:
           errorPattern: 'images\.backend\.digest, images\.frontend\.digest still hold the placeholder digest'
       - failedTemplate:
@@ -369,10 +372,12 @@ tests:
           errorPattern: 'environment is production but tests\.enabled is true\. The helm test hooks .* set tests\.enabled=false'
 
   # ---- the runbook link under the deploy guard (the rules render) ----
-  - it: with the guard and the rules on, the placeholder runbook URL is refused
+  # The placeholder link is set in mixed case (owner and repository names ignore case, and so does the
+  # guard): infra/adapt/adopt.sh stamps the adopter's repository over the lower-case form.
+  - it: with the guard and the rules on, the placeholder runbook URL, in any case, is refused
     set:
       guards: {rejectPlaceholders: true}
-      monitoring: {prometheusRule: true}
+      monitoring: {prometheusRule: true, runbookUrl: &placeholder_runbook "https://github.com/Your-Org/Your-Repo/blob/main/wiki/operations-runbook.md"}
       images: &real_digests
         backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
@@ -382,14 +387,14 @@ tests:
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
-          errorPattern: '^\s*- monitoring\.runbookUrl is the placeholder "https://github\.com/your-org/your-repo/blob/main/wiki/operations-runbook\.md"'
+          errorPattern: '^\s*- monitoring\.runbookUrl is the placeholder "https://github\.com/Your-Org/Your-Repo/blob/main/wiki/operations-runbook\.md"'
 
   # The deploy never sets clusterRules.enabled, so the gmp flavour alone counts: the deploy's render
   # refuses what the admin bootstrap's ClusterRules would carry.
   - it: with the guard, the placeholder runbook URL is refused for the gmp flavour (its ClusterRules carry it)
     set:
       guards: {rejectPlaceholders: true}
-      monitoring: {flavour: gmp}
+      monitoring: {flavour: gmp, runbookUrl: *placeholder_runbook}
       images: *real_digests
       config: *real_oidc
       edge: *real_edge
@@ -400,6 +405,7 @@ tests:
   - it: with the guard and the rules off, the placeholder runbook URL is not a refusal
     set:
       guards: {rejectPlaceholders: true}
+      monitoring: {runbookUrl: *placeholder_runbook}
       images: *real_digests
       config: *real_oidc
       edge: *real_edge

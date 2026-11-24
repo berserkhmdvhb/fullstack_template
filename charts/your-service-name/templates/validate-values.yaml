@@ -151,6 +151,10 @@
 */ -}}
 {{- if .Values.guards.rejectPlaceholders }}
 {{- $found := list }}
+{{- /* The template's placeholder domain and repository, built in pieces: infra/adapt/adopt.sh stamps
+     the adopter's own values over every whole copy, which would turn this guard against them. */}}
+{{- $placeholderDomain := printf "%s.%s" "your-domain" "example" }}
+{{- $placeholderRepo := printf "github.com/%s/%s/" "your-org" "your-repo" }}
 {{- if eq .Values.edge.mode "gateway" }}
 {{- range .Values.edge.gateway.parentRefs }}
 {{- if eq .name "your-gateway" }}
@@ -170,8 +174,8 @@
 {{- end }}
 {{- range $role, $host := .Values.edge.hosts }}
 {{- $name := lower (trimSuffix "." $host) }}{{- /* one trailing dot: the absolute (FQDN) form; DNS names ignore case */}}
-{{- if or (eq $name "your-domain.example") (hasSuffix ".your-domain.example" $name) }}
-{{- $found = append $found (printf "edge.hosts.%s is %q, which still holds the placeholder domain your-domain.example (set your real hostnames; infra/adapt/adopt.sh stamps them)" $role $host) }}
+{{- if or (eq $name $placeholderDomain) (hasSuffix (printf ".%s" $placeholderDomain) $name) }}
+{{- $found = append $found (printf "edge.hosts.%s is %q, which still holds the placeholder domain %s (set your real hostnames; infra/adapt/adopt.sh stamps them)" $role $host $placeholderDomain) }}
 {{- end }}
 {{- end }}
 {{- /* The placeholder digest (values.production.yaml) on any image that renders. */}}
@@ -191,13 +195,13 @@
 {{- if regexMatch "(?i)^[a-z][a-z0-9+.-]*://([^/?#@]*\\.)?your-domain\\.example\\.?(:[0-9]+)?([/?#].*)?$" (trim (toString (get .Values.config "OIDC_ISSUER"))) }}{{- $authHeld = append $authHeld "config.OIDC_ISSUER" }}{{- end }}
 {{- if regexMatch "(^|,)\\s*your-oidc-audience\\s*(,|$)" (toString (get .Values.config "OIDC_AUDIENCE")) }}{{- $authHeld = append $authHeld "config.OIDC_AUDIENCE" }}{{- end }}
 {{- if $authHeld }}
-{{- $found = append $found (printf "%s still %s (an issuer on your-domain.example, the audience your-oidc-audience; set your OIDC provider's issuer and the API's audience)" (join ", " $authHeld) (ternary "holds a placeholder" "hold placeholders" (eq (len $authHeld) 1))) }}
+{{- $found = append $found (printf "%s still %s (an issuer on %s, the audience your-oidc-audience; set your OIDC provider's issuer and the API's audience)" (join ", " $authHeld) (ternary "holds a placeholder" "hold placeholders" (eq (len $authHeld) 1)) $placeholderDomain) }}
 {{- end }}
 {{- /* The placeholder runbook link, in production while the rules render. With gmp the admin
      bootstrap renders the ClusterRules (which the deploy never does), so the flavour alone counts:
      the deploy refuses what those rules would carry. */}}
 {{- $rules := or .Values.monitoring.prometheusRule (eq .Values.monitoring.flavour "gmp") }}
-{{- if and (eq (toString .Values.environment) "production") $rules (contains "github.com/your-org/your-repo/" .Values.monitoring.runbookUrl) }}
+{{- if and (eq (toString .Values.environment) "production") $rules (contains $placeholderRepo (lower .Values.monitoring.runbookUrl)) }}
 {{- $found = append $found (printf "monitoring.runbookUrl is the placeholder %q (set your repository's wiki/operations-runbook.md; every alert links it)" .Values.monitoring.runbookUrl) }}
 {{- end }}
 {{- if $found }}

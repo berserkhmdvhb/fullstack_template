@@ -211,7 +211,7 @@ ruff-format-check:
 ruff-lint:
 	ruff check --no-fix $(RUFF_PATHS)
 
-# Auto-fixing lint, used only by check-all (never by CI, check-all-dry or pre-commit).
+# Auto-fixing lint, used only by check-all and infra/adapt/adopt.sh (never by CI, check-all-dry or pre-commit).
 ruff-lint-fix:
 	ruff check --fix $(RUFF_PATHS)
 

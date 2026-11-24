@@ -391,7 +391,19 @@ def build_patterns(old: str, new: str) -> list[tuple[re.Pattern[str], str]]:
     pats += _patterns_yaml_config_values(cfg)
     pats += _patterns_frontend_package_json(cfg)
     pats += _patterns_frontend_next_config(cfg)
+    pats += _patterns_display_and_bare(cfg)
     return pats
+
+
+def _patterns_display_and_bare(cfg: ServiceNameConfig) -> list[tuple[re.Pattern[str], str]]:
+    """The display name (``Your Service Name`` -> ``Acme Orders``: the page title, the image title
+    label) and any bare mention the patterns above leave (a path in a test's allow-list)."""
+    title = " ".join(word.capitalize() for word in cfg.new.split("_"))
+    old_title = " ".join(word.capitalize() for word in cfg.old.split("_"))
+    return [
+        (re.compile(rf"\b{re.escape(old_title)}\b"), title),
+        (re.compile(rf"\b{re.escape(cfg.old)}\b"), cfg.new),
+    ]
 
 
 def rename_package_dir(root: Path, old: str, new: str, backup: Path, *, dry: bool) -> None:

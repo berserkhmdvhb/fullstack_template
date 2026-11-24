@@ -20,15 +20,18 @@ tests:
       - failedTemplate:
           errorPattern: 'edge\.gateway\.parentRefs names the placeholder Gateway "your-gateway"'
 
-  - it: on - a placeholder host is refused
+  # The placeholder hosts are written in mixed case (DNS names ignore case, and so does the guard):
+  # infra/adapt/adopt.sh stamps the adopter's domain over the lower-case form, so these inputs, and the
+  # guard's own copy, stay the template's placeholder in an adopted copy too.
+  - it: on - a placeholder host, in any case, is refused
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.svc.test, app: app.your-domain.example, root: svc.test}
+        hosts: {api: api.svc.test, app: app.Your-Domain.Example, root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
-          errorPattern: 'edge\.hosts\.app is "app\.your-domain\.example", which still holds the placeholder domain your-domain\.example'
+          errorPattern: 'edge\.hosts\.app is "app\.Your-Domain\.Example", which still holds the placeholder domain your-domain[.]example'
 
   - it: on - real values render
     set:
@@ -52,7 +55,7 @@ tests:
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.notyour-domain.example.com, app: app.svc.test, root: your-domain.example.svc.test}
+        hosts: {api: api.notyour-domain.example.com, app: app.svc.test, root: Your-Domain.Example.svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - notFailedTemplate: {}
@@ -61,48 +64,23 @@ tests:
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.svc.test, app: app.svc.test, root: your-domain.example}
+        hosts: {api: api.svc.test, app: app.svc.test, root: Your-Domain.Example}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
-          errorPattern: 'edge\.hosts\.root is "your-domain\.example"'
+          errorPattern: 'edge\.hosts\.root is "Your-Domain\.Example"'
 
-  - it: on - values.dev.yaml's placeholder hosts are refused
-    values: [../values.dev.yaml]
-    set:
-      guards: {rejectPlaceholders: true}
-      edge: {gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}}
-    asserts:
-      - failedTemplate:
-          errorPattern: 'still holds the placeholder domain your-domain\.example'
-
-  - it: on - values.qa.yaml's placeholder hosts are refused
-    values: [../values.qa.yaml]
-    set:
-      guards: {rejectPlaceholders: true}
-      edge: {gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}}
-    asserts:
-      - failedTemplate:
-          errorPattern: 'still holds the placeholder domain your-domain\.example'
-
-  - it: on - values.production.yaml's placeholder hosts are refused
-    values: [../values.production.yaml]
-    set:
-      guards: {rejectPlaceholders: true}
-      edge: {gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}}
-    asserts:
-      - failedTemplate:
-          errorPattern: 'still holds the placeholder domain your-domain\.example'
-
+  # Whether each committed values.<env>.yaml still holds the placeholder hosts, and so is refused, is
+  # tests/backend/test_chart_production_guard.py's: the answer is yes in the template, no once adopted.
   - it: on - a placeholder host with a trailing dot is refused
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.your-domain.example., app: app.notyour-domain.example.com, root: svc.test}
+        hosts: {api: api.Your-Domain.Example., app: app.notyour-domain.example.com, root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
-          errorPattern: 'edge\.hosts\.api is "api\.your-domain\.example\."'
+          errorPattern: 'edge\.hosts\.api is "api\.Your-Domain\.Example\."'
 
   - it: on - a real host with a trailing dot passes
     set:

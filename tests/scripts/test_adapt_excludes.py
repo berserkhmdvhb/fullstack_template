@@ -73,15 +73,17 @@ def test_the_adapter_rewrites_uv_lock_so_the_locked_project_name_follows_the_ren
 
 
 def test_a_rename_keeps_pyproject_and_uv_lock_consistent(tmp_path: Path) -> None:
+    """From the current name: the placeholder in the template, the adopter's name in a copy."""
+    old = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["name"]
     root = tmp_path / "repo"
-    (root / "src" / "your_service_name").mkdir(parents=True)
-    (root / "src" / "your_service_name" / "__init__.py").write_text("")
+    (root / "src" / old).mkdir(parents=True)
+    (root / "src" / old / "__init__.py").write_text("")
     for name in ("pyproject.toml", "uv.lock"):
         (root / name).write_text((ROOT / name).read_text(encoding="utf-8"), encoding="utf-8")
     result = subprocess.run(
         [  # noqa: S607
             "bash", str(ADAPT / "replace_service_name.sh"),
-            "-n", "my_svc", "-o", "your_service_name", "-r", str(root),
+            "-n", "my_svc", "-o", old, "-r", str(root),
         ],
         cwd=root, capture_output=True, text=True, check=False,
     )  # fmt: skip
@@ -94,5 +96,5 @@ def test_a_rename_keeps_pyproject_and_uv_lock_consistent(tmp_path: Path) -> None
     assert local == [normalised]
     for name in ("pyproject.toml", "uv.lock"):
         text = (root / name).read_text(encoding="utf-8")
-        assert "your-service-name" not in text
-        assert "your_service_name" not in text
+        assert old.replace("_", "-") not in text
+        assert old not in text

@@ -94,6 +94,45 @@ infra/adapt/replace_service_name.sh -n awesome_solution
 | `Dockerfile.backend` | `your_service_name` references | `awesome_solution` references |
 | `Dockerfile.frontend` | `your_service_name` references | `awesome_solution` references |
 | All Python imports | `from your_service_name...` | `from awesome_solution...` |
+| The display name (page title, image title labels) | `Your Service Name` | `Awesome Solution` |
+| Any other mention (a path, a test's allow-list) | `your_service_name` / `your-service-name` | `awesome_solution` / `awesome-solution` |
+
+### What the Adapters Stamp, and What They Leave
+
+Both adapters walk every file outside [`infra/adapt/excludes.txt`](../infra/adapt/excludes.txt) whose type they
+know: `.py`, `.sh`, `.bats`, `.yml`, `.yaml`, `.toml`, `.cfg`, `.ini`, `.env`, `.def`, `.json`, `.json5`, `.ts`,
+`.tsx`, `.md`, `.mdx`, `.lock` (`uv.lock`) and `.snap` (the chart's helm-unittest snapshots), plus the `Makefile`,
+every `Dockerfile*`, the dotfiles `.env` and `.prettierignore`, `CODEOWNERS`, and any of these with an `.example`
+suffix. A file that is not UTF-8 text is skipped with a warning, so no binary file is ever edited, and a rewritten
+script keeps its mode. The service-name forms are `your_service_name`, `your-service-name` and `Your Service Name`;
+the stamping forms are `your-domain.example` and `registry.your-domain.example` (also with their dots escaped, as a
+test's regex names them), `your-org/your-repo` and `YourOrg` (the image vendor labels and the chart maintainer, which
+take the repository's owner) with `REPOSITORY`, and `@your-org` in `CODEOWNERS` with `CODEOWNER`.
+
+A name or a domain of another length moves two things the text rewrite cannot: the padded columns of a rendered chart
+snapshot, and where ruff sorts an import or wraps a Python line. So `adopt.sh` then renders the chart's helm-unittest
+snapshots again with the pinned helm and plugin, and runs `make ruff-lint-fix ruff-format` with the project's ruff
+(`.venv/bin/ruff`, or the `RUFF` variable). Either tool missing, it prints the command to run once it is installed.
+
+`excludes.txt` is the one list of what keeps the placeholder, each group with its reason; the leftover check
+(`scripts/ci/check-placeholder-leftovers.sh`) allows exactly those paths:
+
+- caches, tool installs and build output (`.venv`, `node_modules`, `.tools`, …): not the adopter's text;
+- the adapter and its tests (`infra/adapt`, its two test files): they hold the forms they replace;
+- the pages that explain the placeholder: `README.md`, `CONTRIBUTING.md`, `CONVENTIONS.md`, `AGENTS.md`, `agent/`, this
+  page, [Template upgrades](./template-upgrades.md) (its steps rename an upstream merge), the generic-names decision
+  record and the [changelog](./changelog.md), a record of the template's own releases.
+
+Every other wiki page documents the adopter's service, so it is stamped like the code: its commands, names and links
+follow the rename. A guard that must still recognise the template's placeholder after adoption (the chart's
+`guards.rejectPlaceholders`, the bootstrap's runbook check, the leftover check) spells it in pieces, so the adapter never
+turns it against the adopter's own values.
+
+**The end-to-end check.** [`tests/scripts/adopt-e2e.bats`](../tests/scripts/adopt-e2e.bats) adopts a copy of the
+working tree as `acme_orders` with every optional value set, and fails if any placeholder form is left outside the
+list, if a listed path no longer holds one (a stale exclusion), if the chart directory or the package is not renamed,
+if a file's mode or a binary file changed, or if a second run changes anything. The `Adopted copy` CI job then runs
+the copy's own suites ([CI/CD](./ci-cd.md#the-adopted-copy)).
 
 ---
 
@@ -160,7 +199,8 @@ projectName = "your_actual_service_name"
 
 ### 3. Docker Image Labels
 
-Edit `Dockerfile.backend` and `Dockerfile.frontend`:
+The adapter derives the title label from the service name (`acme_orders` becomes `Acme Orders`). For another
+wording, edit the `LABEL` in each `Dockerfile.*`:
 
 ```dockerfile
 LABEL org.opencontainers.image.title="Your Actual Service Name"

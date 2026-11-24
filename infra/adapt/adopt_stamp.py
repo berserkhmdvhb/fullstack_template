@@ -51,6 +51,8 @@ _CODEOWNER: Final = re.compile(r"@[A-Za-z0-9-]+(/[A-Za-z0-9_.-]+)?|[^@\s\\]+@[^@
 REPOSITORY_ALSO: Final[str] = "README.md"
 # The whole placeholder URL; scripts/ci/image-checks.sh reads it to refuse the template source.
 OLD_SOURCE_URL: Final[str] = f"https://github.com/{OLD_REPOSITORY}"
+# The organisation name in the image labels and Chart.yaml, stamped with the repository's owner.
+OLD_VENDOR: Final[str] = "YourOrg"
 _REPOSITORY: Final = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 # The template release an adopted copy was made from, written once at adoption. Its source is
 # release-please's manifest (the last release the copy contains; tags are v<version>), read here
@@ -87,6 +89,11 @@ def build_patterns(
         (re.compile(rf"\b{re.escape(OLD_REGISTRY)}\b"), registry),
         (re.compile(rf"\b{re.escape(OLD_DOMAIN)}\b"), domain),
     ]
+    # The hosts with their dots escaped, as a test's regex names them (api\.your-domain\.example).
+    patterns += [
+        (re.compile(rf"\b{re.escape(old.replace('.', r'\.'))}\b"), new.replace(".", r"\."))
+        for old, new in ((OLD_REGISTRY, registry), (OLD_DOMAIN, domain))
+    ]
     if repository:
         patterns += repository_patterns(repository)
     if codeowner:
@@ -95,8 +102,12 @@ def build_patterns(
 
 
 def repository_patterns(repository: str) -> list[tuple[re.Pattern[str], str]]:
-    """``your-org/your-repo`` -> the repository."""
-    return [(re.compile(rf"(?<![\w.-]){re.escape(OLD_REPOSITORY)}(?![\w.-])"), repository)]
+    """``your-org/your-repo`` -> the repository; ``YourOrg`` (the image vendor and author labels,
+    the chart maintainer) -> its owner."""
+    return [
+        (re.compile(rf"(?<![\w.-]){re.escape(OLD_REPOSITORY)}(?![\w.-])"), repository),
+        (re.compile(rf"\b{OLD_VENDOR}\b"), repository.split("/", maxsplit=1)[0]),
+    ]
 
 
 def stamp_template_version(root: Path, *, dry: bool) -> None:

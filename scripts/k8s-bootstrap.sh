@@ -182,9 +182,12 @@ if [[ "$gmp_rules" == "true" ]]; then
   cluster_rules="$(helm template "$release" "$CHART" "${chart_args[@]}" \
     --set monitoring.gmp.clusterRules.enabled=true --show-only templates/gmp-cluster-rules.yaml)"
   # The chart's deploy guard refuses the placeholder runbook link in production, but this render is
-  # not the deploy (and runs without guards.rejectPlaceholders), so refuse it here too.
-  if [[ "$ENV_NAME" == production ]] && grep -Eq 'runbook_url: "[^"]*github\.com/your-org/your-repo/' <<<"$cluster_rules"; then
-    die "the ClusterRules' runbook links still use the placeholder monitoring.runbookUrl (github.com/your-org/your-repo/...): set it in values.production.yaml (or --chart-values / --chart-set)"
+  # not the deploy (and runs without guards.rejectPlaceholders), so refuse it here too. Like the
+  # guard, the placeholder is built in pieces (infra/adapt/adopt.sh stamps every whole copy) and
+  # matched in any case.
+  placeholder_repo="your-org/""your-repo"
+  if [[ "$ENV_NAME" == production ]] && grep -Eiq "runbook_url: \"[^\"]*github\\.com/${placeholder_repo}/" <<<"$cluster_rules"; then
+    die "the ClusterRules' runbook links still use the placeholder monitoring.runbookUrl (github.com/${placeholder_repo}/...): set it in values.production.yaml (or --chart-values / --chart-set)"
   fi
 fi
 printf '%s\n%s\n' "$boot" "$app_rbac"

@@ -24,9 +24,13 @@ SITES = [
     ("reusable-kind.yml", "kind"),
     ("reusable-live.yml", "live"),
     ("reusable-docs-site.yml", "build"),
+    ("ci.yml", "adopted"),
 ]
 # Each install runs where that job's Playwright is installed.
-WORKDIR = {"reusable-docs-site.yml": "docs-site"}
+WORKDIR = {
+    "reusable-docs-site.yml": "docs-site",
+    "ci.yml": "${{ runner.temp }}/adopted/docs-site",
+}
 STEP_MINUTES = 5
 ATTEMPT_SECONDS = 130
 KILL_AFTER_SECONDS = 10

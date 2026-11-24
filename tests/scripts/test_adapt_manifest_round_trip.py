@@ -20,6 +20,8 @@ import yaml
 REPO = Path(__file__).resolve().parents[2]
 MANIFEST = Path(".github/container-images.yml")
 SCAN = Path("infra/security/config.yaml")
+# The name the adapter renames from: the placeholder in the template, the adopter's name in a copy.
+OLD: str = yaml.safe_load((REPO / MANIFEST).read_text(encoding="utf-8"))["version"]["package_name"]
 
 
 def _run(root: Path) -> subprocess.CompletedProcess[str]:
@@ -30,7 +32,7 @@ def _run(root: Path) -> subprocess.CompletedProcess[str]:
             "--root",
             str(root),
             "--old",
-            "your_service_name",
+            OLD,
             "--new",
             "acme",
             "--backup-dir",
@@ -55,7 +57,7 @@ def _adapt(root: Path) -> str:
             "--root",
             str(root),
             "--old",
-            "your_service_name",
+            OLD,
             "--new",
             "acme",
             "--backup-dir",
@@ -75,7 +77,7 @@ def test_the_adapter_only_renames_the_manifest(tmp_path: Path) -> None:
     expected: dict[str, Any] = yaml.safe_load(before)
     expected["version"]["package_name"] = "acme"
     assert yaml.safe_load(after) == expected
-    assert after == before.replace("package_name: your_service_name", "package_name: acme"), (
+    assert after == before.replace(f"package_name: {OLD}", "package_name: acme"), (
         "comments and formatting survive too"
     )
 
@@ -125,8 +127,7 @@ def test_a_blank_line_inside_the_images_block_is_refused_clearly(tmp_path: Path)
     assert (tmp_path / MANIFEST).read_text(encoding="utf-8") == text
 
 
-# Spelt in capitals so the adapter, which rewrites this file, leaves the placeholder alone.
-_OLD_METRIC = "YOUR_SERVICE_NAME_BUILD_INFO".lower()
+_OLD_METRIC = f"{OLD}_build_info"
 # The tests that read wiki/ (which the adapter leaves generic) against the code and the chart.
 _DOC_TESTS = (
     "tests/backend/test_chart_dashboards.py",

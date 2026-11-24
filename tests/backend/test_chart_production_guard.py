@@ -206,11 +206,57 @@ def test_the_chart_reads_production_from_the_backends_env_names() -> None:
     assert set(re.findall(r'"([^"]+)"', match[1])) == set(PRODUCTION_ENVS)
 
 
+# The placeholder hosts and issuer in mixed case (the guard ignores case): infra/adapt/adopt.sh
+# stamps the adopter's domain over the lower-case form, so these stay placeholders once adopted.
+PLACEHOLDER_HOSTS = (
+    *(
+        "--set",
+        "edge.hosts.api=api.Your-Domain.Example",
+        "--set",
+        "edge.hosts.app=app.Your-Domain.Example",
+    ),
+    *("--set", "edge.hosts.root=Your-Domain.Example"),
+    *("--set", "config.OIDC_ISSUER=https://idp.Your-Domain.Example"),
+)
+# The template's placeholders, in pieces so the adapter leaves them alone.
+PLACEHOLDER_DOMAIN = re.compile(r"(?<![\w-])your-domain[.]example\b")
+PLACEHOLDER_REPO = "github.com/your-org/" + "your-repo/"
+GATEWAY = "edge.gateway.parentRefs[0].name=edge"
+
+
+@pytest.mark.parametrize("env", ["dev", "qa", "production"])
+def test_the_committed_hosts_are_refused_exactly_while_they_hold_the_placeholder(
+    helm: str, env: str
+) -> None:
+    """The template ships placeholder hosts, which the deploy guard refuses; once
+    infra/adapt/adopt.sh has stamped the adopter's domain, the guard lets them through."""
+    values = CHART / f"values.{env}.yaml"
+    held = bool(PLACEHOLDER_DOMAIN.search(values.read_text(encoding="utf-8")))
+    template = (ROOT / "src" / ("your_" + "service_name")).is_dir()
+    assert held or not template, f"the template's values.{env}.yaml lost its placeholder hosts"
+    args = ("-f", str(values), "--set", "guards.rejectPlaceholders=true", "--set", GATEWAY)
+    result = _template(helm, *args)
+    assert ("still holds the placeholder domain" in result.stderr) is held, result.stderr
+
+
+def test_the_committed_runbook_link_is_refused_exactly_while_it_holds_the_placeholder(
+    helm: str,
+) -> None:
+    """The same for the runbook link every alert carries, in production with the rules on."""
+    default = yaml.safe_load((CHART / "values.yaml").read_text(encoding="utf-8"))
+    held = PLACEHOLDER_REPO in default["monitoring"]["runbookUrl"]
+    template = (ROOT / "src" / ("your_" + "service_name")).is_dir()
+    assert held or not template, "the template's monitoring.runbookUrl lost its placeholder"
+    args = ("-f", str(CHART / "values.production.yaml"), "--set", "guards.rejectPlaceholders=true")
+    result = _template(helm, *args, "--set", "monitoring.prometheusRule=true")
+    assert ("monitoring.runbookUrl is the placeholder" in result.stderr) is held, result.stderr
+
+
 def test_one_guard_refusal_lists_one_placeholder_per_line_and_the_count_matches(
     helm: str,
 ) -> None:
-    """The committed production values with the proxy and the ExternalSecret on, under the deploy
-    guard: one refusal whose header count equals the item lines below it."""
+    """The production values with the placeholder hosts and issuer, the proxy and the ExternalSecret
+    on, under the deploy guard: one refusal whose header count equals the item lines below it."""
     result = _template(
         helm,
         *("-f", str(CHART / "values.production.yaml"), "--set", "guards.rejectPlaceholders=true"),
@@ -218,6 +264,7 @@ def test_one_guard_refusal_lists_one_placeholder_per_line_and_the_count_matches(
         *("--set", "cloudSqlProxy.enabled=true"),
         *("--set", "cloudSqlProxy.egressCIDRs={199.36.153.8/30}"),
         *("--set", "secrets.existingSecret=", "--set", "secrets.externalSecret.enabled=true"),
+        *PLACEHOLDER_HOSTS,
     )
     assert result.returncode != 0
     header = re.search(

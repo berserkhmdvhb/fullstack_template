@@ -20,7 +20,7 @@
 environment: dev
 
 # Deploy-time guards. rejectPlaceholders refuses to render while edge.hosts still holds the
-# your-domain.example placeholder, or (gateway mode) edge.gateway.parentRefs still names
+# template's placeholder domain, or (gateway mode) edge.gateway.parentRefs still names
 # your-gateway. Off here so every CI render passes; the deploy script (scripts/ci/deploy-env.sh)
 # turns it on, and a hand-run `helm upgrade` should pass --set guards.rejectPlaceholders=true too.
 guards:
@@ -685,9 +685,10 @@ monitoring:
     # readiness probe, /api/v1/healthz the liveness probe.
     excludeHandlers: '.*/(health|healthz|readyz|livez|metrics)$'
   # Every alert's runbook_url is <runbookUrl>#<the alert's section>: one `### <AlertName>` per
-  # alert under "Alerts" in wiki/operations-runbook.md. Point it at your repository's copy (the
-  # placeholder is your-org/your-repo, as in the Dockerfiles' SOURCE_URL); guards.rejectPlaceholders
-  # refuses it in production while the rules render.
+  # alert under "Alerts" in wiki/operations-runbook.md. Point it at your repository's copy
+  # (infra/adapt/adopt.sh stamps REPOSITORY here, as in the Dockerfiles' SOURCE_URL);
+  # guards.rejectPlaceholders refuses the template's placeholder in production while the rules
+  # render.
   runbookUrl: https://github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md
   alerts:
     # BackupTooOld and BackupVerifyTooOld (with the backup CronJobs: postgresql.enabled and

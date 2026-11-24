@@ -46,9 +46,9 @@ def norm_rel(p: Path) -> str:
 
 
 # The file types the adapters rewrite (the default of every --include-exts flag). .lock is uv.lock,
-# which names the project.
+# which names the project; .snap is a helm-unittest snapshot, which names the chart's objects.
 DEFAULT_INCLUDE_EXTS: Final = (
-    ".py,.sh,.yml,.yaml,.toml,.cfg,.ini,.env,.def,.json,.ts,.bats,.md,.lock"
+    ".py,.sh,.yml,.yaml,.toml,.cfg,.ini,.env,.def,.json,.json5,.ts,.tsx,.bats,.md,.mdx,.lock,.snap"
 )
 EXCLUDES_FILE: Final = Path(__file__).with_name("excludes.txt")
 
@@ -174,6 +174,7 @@ def rewrite_tree(
                 backup_file(config.backup, relf, full)
                 tmp_path = Path(str(full) + ".adapt.tmp")
                 tmp_path.write_text(new_text, encoding="utf-8")
+                shutil.copymode(full, tmp_path)  # a script stays executable
                 try:
                     tmp_path.replace(full)
                 except OSError as exc:

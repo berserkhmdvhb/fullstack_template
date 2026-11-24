@@ -15,6 +15,7 @@ GitHub Actions workflows: what runs when, what blocks a merge, how an image is b
 - [Pull request previews](#pull-request-previews)
 - [AI pull request review](#ai-pull-request-review)
 - [Documentation site](#documentation-site)
+- [The adopted copy](#the-adopted-copy)
 - [Caches](#caches)
 - [Where each tool is pinned](#where-each-tool-is-pinned)
 - [Job map from the old GitLab pipeline](#job-map-from-the-old-gitlab-pipeline)
@@ -41,7 +42,7 @@ flowchart LR
 
 | Workflow | Runs on | What it does |
 |---|---|---|
-| [`ci.yml`](../.github/workflows/ci.yml) | pull request, push to `main` and `v*`, manual | The quality gate. Jobs: `changes` (path filter), `backend`, `frontend`, `chart`, `live`, `security`, `repo`, `hadolint`, `api-compat` (the oasdiff gate), `workflows`, `pins` (pin drift), `image-plan` and `images` (the image structure checks, pull requests only), `kind` (the chart in a real cluster, pull requests only), `docs-site` (the documentation site), and the `CI OK` gate |
+| [`ci.yml`](../.github/workflows/ci.yml) | pull request, push to `main` and `v*`, manual | The quality gate. Jobs: `changes` (path filter), `backend`, `frontend`, `chart`, `live`, `security`, `repo`, `hadolint`, `api-compat` (the oasdiff gate), `workflows`, `adopted` (an adopted copy's own suites, [The adopted copy](#the-adopted-copy)), `pins` (pin drift), `image-plan` and `images` (the image structure checks, pull requests only), `kind` (the chart in a real cluster, pull requests only), `docs-site` (the documentation site), and the `CI OK` gate |
 | [`reusable-backend.yml`](../.github/workflows/reusable-backend.yml) | called by `ci` | `lint` (ruff format, ruff lint, mypy, the env-docs check, squawk), `unit` (Python 3.12, 3.13 and the advisory 3.14), `integration` (with the contract tests) and `e2e`, both on a PostgreSQL service container |
 | [`reusable-frontend.yml`](../.github/workflows/reusable-frontend.yml) | called by `ci` | `eslint`, `prettier`, `type-check`, `openapi-drift` (with the npm install-scripts guard), `build`, `unit`, `integration`, `playwright-list`, `a11y` (axe, blocking) and `lighthouse` (Lighthouse CI, advisory) |
 | [`reusable-docs-site.yml`](../.github/workflows/reusable-docs-site.yml) | called by `ci` and `docs-site` | `build`: the documentation site's resolver tests, strict build and axe scan; for `docs-site`, the Pages artifact too. `guards` (every `ci` call, never the Pages run): the site's configuration tests. See [Documentation site](#documentation-site) |
@@ -74,7 +75,7 @@ flowchart LR
 - **`kind`** runs on a pull request only, when the chart, the bootstrap, a path the images copy in, a Dockerfile, `.github/`, `scripts/`, `tools/` or the `Makefile` changed. It builds the images into the runner's daemon through the images job's build path (`scripts/ci/build-image.sh`), with no push, registry or cache; building them there, rather than handing over the `images` job's, keeps it independent of that job's path filter and avoids moving image archives between jobs.
 - **`image-plan` and `images`** run on a pull request only, when a path the Dockerfiles copy in (`src/`, `frontend/`, `pyproject.toml`, `uv.lock`, `alembic.ini`, `README.md`, `LICENSE`, `VERSION`, `.dockerignore`), a Dockerfile, `.github/`, `scripts/` or `tools/` changed. A push to `main` or a `v*` tag skips them: the release build checks the pushed image instead. They never log in, push, read a secret or use a build cache.
 - **`docs-site`** runs on a pull request when `docs-site/`, any Markdown file, `tools/pins.tsv`, `.github/` or `scripts/` changed, or when a file was deleted or renamed: a loaded page may link any tracked file.
-- **Always run:** `chart`, `security`, `repo`, `hadolint`, `api-compat`, `workflows`. `api-compat` skips itself with a summary line on a push.
+- **Always run:** `chart`, `security`, `repo`, `hadolint`, `api-compat`, `workflows`, `adopted`. `api-compat` skips itself with a summary line on a push.
 - **Label events.** `labeled` and `unlabeled` are pull request event types, and on them every job runs as on any other event (a test asserts no job's `if:` looks at the event action), so `CI OK` can never pass over a failing test job. They exist because `api-compat` reads the `breaking-change` label ([API lifecycle](./api-lifecycle.md)).
 - **`CODE_SECURITY=off`** (a repository variable, for a private copy without GitHub code security) makes `codeql` and `dependency-review` skip, and a `code-security-off` job says so in the summary. See [Platform setup](./platform-setup.md#variables-and-secrets).
 - **`live`** waits for `backend` and `frontend` (a skipped one does not stop it) and runs when either side changed.
@@ -86,7 +87,7 @@ flowchart LR
 
 | Kind | Behaviour | Jobs |
 |---|---|---|
-| Blocking, required | Fails the run on a finding; behind `CI OK` | ruff, mypy, unit (3.12, 3.13), integration, e2e, the frontend gates, `chart`, `codeql`, `dependency-review`, `gitleaks`, `repo` (its steps: [Workflow map](#workflow-map)), `hadolint`, `api-compat`, `workflows`, `pins`, `image-plan`, `images` (image structure checks, pull requests only), `kind` (pull requests only), `docs-site`; `live` on `main` and tags |
+| Blocking, required | Fails the run on a finding; behind `CI OK` | ruff, mypy, unit (3.12, 3.13), integration, e2e, the frontend gates, `chart`, `codeql`, `dependency-review`, `gitleaks`, `repo` (its steps: [Workflow map](#workflow-map)), `hadolint`, `api-compat`, `workflows`, `adopted`, `pins`, `image-plan`, `images` (image structure checks, pull requests only), `kind` (pull requests only), `docs-site`; `live` on `main` and tags |
 | Blocking, release | Fails the release run (`main` and `v*` tags, where the images exist; a pull request builds no image to scan, so none of these runs there) | `build` (digest check), `image-checks` (structure checks on the pushed digest, before signing), `grype` (threshold `policy.fail_level` in `infra/security/config.yaml`) |
 | Advisory | Findings become a `::warning` annotation and a step-summary line; fails only on a tool error; never a required check | `pip-audit`, the `advisory` matrix (`osv`, `guarddog`, `checkov`, `kubescape`), `Unit (Python 3.14)`, `live` on pull requests, `grant`, `vex`, DAST |
 
@@ -225,6 +226,23 @@ Optional, off by default, and advisory: [`pr-agent.yml`](../.github/workflows/pr
 - **Checks.** On a pull request that changes the site's inputs, and on every push to `main`, `v*` tag and manual run, the `docs-site` job of `ci.yml` (behind `CI OK`) builds the site strictly and runs axe over every built page in both themes, failing on a serious or critical violation. It installs with `npm ci --ignore-scripts`, uses no cache, and downloads the Playwright Chromium through `scripts/ci/retry.sh` for the build-time diagrams and the scan. Its `guards` job runs the site's configuration tests (`tests/docs_site/` and the version rule of `tests/test_adr_index.py`), which the `backend` job's path filter would leave out of a docs-only pull request; it is one short job on the backend setup (with that setup's uv cache, as every backend job has; it never runs in the Pages deploy), where adding `docs-site/` to that filter would run the whole backend, frontend and `live` chain.
 - **Deploy.** [`docs-site.yml`](../.github/workflows/docs-site.yml) runs on a push to `main` that changes the site's inputs, and never on a pull request or in a fork. Its `deploy` job is the only one with `pages: write` and `id-token: write`, in the `github-pages` environment; the hardening lint knows it by name. When Pages is not enabled, or builds from a branch, the run ends green with a notice; [`scripts/github-settings.sh`](../scripts/github-settings.sh) turns Pages on with Source: GitHub Actions, and leaves a branch-built site as it is. The build takes its URL and base path from the Pages API's `html_url`, so a custom domain needs no change here; an address that is not a plain `https://` URL is ignored, with a warning. Turning Pages on, the first deploy, a custom domain and what each notice means: [GitHub Pages setup](./github-pages-setup.md).
 - **Pinned actions.** `actions/upload-pages-artifact` is a composite action that pins its own `actions/upload-artifact`, which can differ from the version the other workflows pin; that inner pin moves only with a new upload-pages-artifact release.
+
+## The adopted copy
+
+The `adopted` job of `ci.yml` (`Adopted copy`, behind `CI OK`, on every event) proves that a repository made from this
+template passes its own suites. [`scripts/ci/adopted-copy.sh`](../scripts/ci/adopted-copy.sh) copies the checkout to
+`$RUNNER_TEMP/adopted` and runs `infra/adapt/adopt.sh` on it with a test identity (`acme_orders`) and every optional
+value set ([Adaptation](./adaptation.md#what-the-adapters-stamp-and-what-they-leave)). In the copy the job installs the
+backend from its lock (`uv sync --locked`, so a lock the rename left stale fails), then runs the backend lint job's
+ruff, mypy and env-docs targets, `make test` (unit,
+integration, e2e and the supply-chain tests), the chart's unit tests and `helm lint`, and the frontend's lint, type check
+and unit tests. A push to `main`, a `v*` tag and a manual run add the docs site's resolver tests and strict build, which
+resolve every link into the renamed tree; they need a second install and the Playwright browser, so pull requests leave
+them to those runs, and the end-to-end adoption test (`tests/scripts/adopt-e2e.bats`, in the `repo` job) still checks the
+copy's names and paths on every pull request. The job has `contents: read`, reads no secret and uses no cache: every
+tool and package installs from its pin and lock, as in a new repository. Its 30-minute budget is sized from the local wall
+times (the suites take about four minutes on a workstation with everything installed) for a hosted runner that is slower
+and installs everything uncached.
 
 ## Caches
 

@@ -60,13 +60,15 @@ flowchart TB
 
 **The deploy refuses placeholders.** The deploy script (`scripts/ci/deploy-env.sh`) runs
 `helm upgrade` with `--set guards.rejectPlaceholders=true`, so the render fails while an
-`edge.hosts` value still contains `your-domain.example`, or, in gateway mode, an
+`edge.hosts` value still contains the template's placeholder domain, or, in gateway mode, an
 `edge.gateway.parentRefs` entry still names `your-gateway`, or an image the release renders still
 has the placeholder digest (`sha256:` and 64 zeros), or `config.OIDC_ISSUER` is on
-`your-domain.example` or `config.OIDC_AUDIENCE` is `your-oidc-audience` (or the Cloud SQL
+the placeholder domain or `config.OIDC_AUDIENCE` is `your-oidc-audience` (or the Cloud SQL
 instance or the ExternalSecret store is still the placeholder, `secrets.dbPassword` is empty with
 the in-cluster PostgreSQL and the chart's own Secret, or, in production with the rules on,
-`monitoring.runbookUrl` still points at `your-org/your-repo`). It collects every placeholder it
+`monitoring.runbookUrl` still points at the placeholder repository). Each match ignores case, and
+the guard spells the placeholders in pieces, so `infra/adapt/adopt.sh` never stamps your own values
+into it ([Adaptation](./adaptation.md#what-the-adapters-stamp-and-what-they-leave)). It collects every placeholder it
 finds and fails once, naming each field, so one refused render lists them all. CI renders and the admin bootstrap leave the guard off, so the template's own values keep
 rendering; so does the deploy's first render, which only finds the images that run, before the
 release digests are set. Pass the same `--set` to a `helm upgrade` you run by hand.

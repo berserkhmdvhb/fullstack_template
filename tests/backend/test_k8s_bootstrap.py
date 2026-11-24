@@ -687,12 +687,18 @@ def test_gmp_cluster_rules_with_no_gmp_flavour_anywhere_fail_clearly(
     assert "monitoring.flavour" in result.stderr
 
 
+# The placeholder runbook link, in mixed case (the check ignores case): infra/adapt/adopt.sh
+# stamps the adopter's repository over the lower-case form, so it stays a placeholder once adopted.
+PLACEHOLDER_RUNBOOK = "https://github.com/Your-Org/Your-Repo/blob/main/wiki/operations-runbook.md"
+
+
 def test_production_clusterrules_with_the_placeholder_runbook_url_are_refused(
     helm: str, tmp_path: Path
 ) -> None:
     """The ClusterRules carry every cluster alert's runbook link, and the bootstrap applies them
-    without the deploy: production refuses the placeholder here too."""
-    result = run_bootstrap(helm, "production", *_gmp_args(tmp_path))
+    without the deploy: production refuses the placeholder here too, in any case."""
+    args = (*_gmp_args(tmp_path), "--chart-set", f"monitoring.runbookUrl={PLACEHOLDER_RUNBOOK}")
+    result = run_bootstrap(helm, "production", *args)
     assert result.returncode != 0
     assert "monitoring.runbookUrl" in result.stderr
     assert "ClusterRules" not in result.stdout
@@ -701,8 +707,8 @@ def test_production_clusterrules_with_the_placeholder_runbook_url_are_refused(
 def test_a_placeholder_runbook_url_on_any_host_is_refused_like_the_chart_guard(
     helm: str, tmp_path: Path
 ) -> None:
-    """The chart guard refuses any URL containing github.com/your-org/your-repo/; so does this."""
-    url = "https://www.github.com/your-org/your-repo/blob/main/wiki/operations-runbook.md"
+    """The chart guard refuses any URL containing the placeholder repository; so does this."""
+    url = PLACEHOLDER_RUNBOOK.replace("//github", "//www.github")
     args = (*_gmp_args(tmp_path), "--chart-set", f"monitoring.runbookUrl={url}")
     result = run_bootstrap(helm, "production", *args)
     assert result.returncode != 0
