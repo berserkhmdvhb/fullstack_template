@@ -97,6 +97,42 @@ def test_no_adr_restates_a_pinned_version(doc: Path) -> None:
     )
 
 
+# The same rule for counts over the published docs: the image list is .github/container-images.yml
+# and the ADR list is wiki/adr/, so a doc names neither count.
+COUNT_SCOPE = ("wiki/", "docs-site/src/content/", "README.md", "CONTRIBUTING.md")
+RESTATED_COUNT = re.compile(
+    r"\b(?:two|both|three) images\b"
+    r"|(?<![\d.])\d+ (?:ADRs|architecture decision records|decision records|records)\b",
+    re.IGNORECASE,
+)
+
+
+def restated_counts(text: str) -> list[str]:
+    return [m.group() for m in RESTATED_COUNT.finditer(text)]
+
+
+def _count_docs() -> list[Path]:
+    paths = [ROOT / "README.md", ROOT / "CONTRIBUTING.md"]
+    for top in ("wiki", "docs-site/src/content"):
+        paths += sorted(p for p in (ROOT / top).rglob("*.md*") if "plans" not in p.parts)
+    return [p for p in paths if p.suffix in (".md", ".mdx")]
+
+
+@pytest.mark.parametrize("doc", _count_docs(), ids=lambda p: p.relative_to(ROOT).as_posix())
+def test_no_doc_restates_the_image_count_or_the_adr_count(doc: Path) -> None:
+    assert restated_counts(doc.read_text("utf-8")) == [], (
+        f"{doc.name}: link .github/container-images.yml or wiki/adr/ instead of the count"
+    )
+
+
+def test_the_count_matcher_flags_the_phrasings() -> None:
+    text = "Both images. The two images. three images.\n40 records; 41 ADRs; 12 decision records"
+    assert len(restated_counts(text)) == 6  # noqa: PLR2004
+    assert restated_counts("every image in .github/container-images.yml; the ADR index") == []
+    assert restated_counts("### 6.3 Records that stop spoofing") == []  # a section number
+    assert set(COUNT_SCOPE) >= {"README.md", "CONTRIBUTING.md"}
+
+
 def test_the_template_has_the_sections() -> None:
     body = sections((ADR_DIR / "0000-template.md").read_text("utf-8"))
     assert all(s in body for s in SECTIONS)
