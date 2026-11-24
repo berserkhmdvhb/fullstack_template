@@ -18,7 +18,8 @@ What was verified must be exactly what runs, in every environment, including the
 The release workflow resolves each image's digest once, verifies it, and passes the digests to every deploy. The
 deploy script sets each image by `sha256:<64 hex>` (and refuses any other form), and the post-deploy check compares
 the running digest with the expected one. With `environment: production` the chart refuses to render an image
-without a digest. Admission replaces any tag it sees by its digest. Previews read the digests dev runs.
+without a digest. Where the admission policies are applied, admission replaces a tag by its digest for this repository's image path
+(`ghcr.io/<owner>/<repo>/*`) only. Previews read the digests dev runs.
 
 ## Consequences
 

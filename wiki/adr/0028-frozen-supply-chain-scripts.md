@@ -16,12 +16,10 @@ behaviour. Each edit risks a silent change to what the release claims.
 
 ## Decision
 
-The eight scripts (`_helpers.sh`, `sbom-generate.sh`, `scan-vulnerabilities.sh`, `scan-licenses.sh`,
-`generate-vex.sh`, `check-ci-hardening.sh`, `tools-install.sh`, `verify-image-digest.sh`) are frozen. New
-supply-chain logic goes under `infra/security/local/`, through the `add-supply-chain-scanner` skill. An edit to a
-frozen script is a one-time, owner-approved exception, recorded in [`AGENTS.md`](../../AGENTS.md) with its reason; so
-far: one re-baseline to remove the old forge's coupling, a VEX correctness fix, and passing large scanner JSON to jq
-through files.
+The eight scripts are frozen. New supply-chain logic goes under `infra/security/local/`, through the
+`add-supply-chain-scanner` skill. An edit to a frozen script is a one-time, owner-approved exception, recorded with its
+reason. The list of the eight and the record of the exceptions are [`AGENTS.md`](../../AGENTS.md#mandatory-rules-each-with-a-why),
+rule 6.
 
 ## Consequences
 

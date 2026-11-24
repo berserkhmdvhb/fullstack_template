@@ -16,7 +16,7 @@ tmpl = json.loads((REPO / "infra/security/sample-vex.json").read_text())
 
 
 def test_valid_openvex_v020() -> None:
-    # Real OpenVEX namespace is openvex.dev (the plan's "openvex.org" is a typo).
+    # The real OpenVEX namespace is openvex.dev, not openvex.org.
     assert tmpl["@context"] == "https://openvex.dev/ns/v0.2.0"
     assert "author" in tmpl
     assert "timestamp" in tmpl

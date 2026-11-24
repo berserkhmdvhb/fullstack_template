@@ -26,14 +26,14 @@ their caches.
 
 ## Consequences
 
-- Good: the [Build L3 claim](./0016-slsa-build-l3-for-release-images.md) holds; each release is built from the
+- Good: it serves the [Build L3 aim](./0016-slsa-build-l3-for-release-images.md); each release is built from the
   commit, the pinned bases and the locked dependencies only.
 - Bad: release builds are slower, every layer cold.
 - Bad: a new action on the release path needs review and an entry on the lint's list of cache-free actions.
 
 ## Alternatives considered
 
-- Keep the cache and document the risk: rejected, the L3 claim would be false.
+- Keep the cache and document the risk: rejected, it would put the L3 aim out of reach.
 - A registry cache that only the release build can write: rejected, one compromised release build could still
   poison the next.
 

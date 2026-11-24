@@ -27,7 +27,9 @@ expand/contract, and squawk lints their SQL in CI.
 
 - Good: exactly one migrator per release; the schema leads the code through readiness; a failure is visible as a
   failed release with the Job's logs printed.
-- Good: the Job is part of the release (`helm get manifest` lists it), so it is rolled back and uninstalled with it.
+- Good: the Job is part of the release's manifest (`helm get manifest` lists it), but it carries
+  `helm.sh/resource-policy: keep`, so a rollback or an uninstall leaves it in place and its logs survive; its TTL
+  removes it, and for a preview the preview cleanup deletes it.
 - Bad: during the Job, new Pods start and stay unready until it finishes; the rollout is as slow as the migration.
 - Bad: the Job is named per revision (`<fullname>-migrate-r<revision>`, a Job's spec is immutable) and kept for 24 hours
   (`ttlSecondsAfterFinished`); `helm upgrade` is the supported path, and a tool that applies rendered manifests
@@ -46,7 +48,8 @@ expand/contract, and squawk lints their SQL in CI.
 ## Links
 
 - [`charts/your-service-name/templates/migration-job.yaml`](../../charts/your-service-name/templates/migration-job.yaml)
-- [`scripts/ci/deploy-env.sh`](../../scripts/ci/deploy-env.sh), [`scripts/ci/squawk.sh`](../../scripts/ci/squawk.sh)
+- [`scripts/ci/deploy-env.sh`](../../scripts/ci/deploy-env.sh), [`scripts/ci/squawk.sh`](../../scripts/ci/squawk.sh),
+  [`scripts/ci/preview-cleanup.sh`](../../scripts/ci/preview-cleanup.sh)
 - [Database: the migration Job](../database.md#the-migration-job),
   [expand/contract policy](../database.md#expandcontract-policy),
   [readiness and liveness](../database.md#readiness-and-liveness)

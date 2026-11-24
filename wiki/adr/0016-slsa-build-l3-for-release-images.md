@@ -12,9 +12,10 @@ Accepted.
 
 A signature proves who signed, not how the artifact was built. SLSA's Build track grades that: L2 asks for signed
 provenance from a hosted build; L3 adds a hardened build platform where one build cannot influence another and the
-signing material is out of the build's reach. GitHub documents a path to Build L3 for artifact attestations: build
-in a reusable workflow, so the provenance names the reusable workflow rather than the calling one, and isolate that
-workflow from the rest of the repository.
+signing material is out of the build's reach. GitHub's documentation (the artifact attestations guide "Using
+artifact attestations and reusable workflows to achieve SLSA v1 Build Level 3") describes reaching Build L3 when the
+build runs in a reusable workflow and verifiers pin the signer workflow, so the provenance names the reusable
+workflow rather than the calling one. Admission and `gh attestation verify --signer-workflow` do pin it.
 
 ## Decision
 

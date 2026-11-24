@@ -91,8 +91,11 @@ flowchart LR
     User -- "HTTPS" --> CF
     CF -- "Tunnel or public LB" --> GW
     GW -- "edge.routes" --> FE
-    GW -- "/api, /docs" --> WAF --> BE
-    FE -- "same-origin API proxy" --> BE
+    GW -- "/api, /docs (WAF off, the default)" --> BE
+    GW -. "/api, /docs (WAF on)" .-> WAF
+    FE -- "API proxy, BACKEND_URL (WAF off)" --> BE
+    FE -. "API proxy, BACKEND_URL (WAF on)" .-> WAF
+    WAF -. "WAF on" .-> BE
     BE -- "SQL (TLS optional)" --> DB
     JOB --> DB
     GH -- "OIDC token" --> Cloud
@@ -102,7 +105,8 @@ flowchart LR
     ADM -- "verify signature + provenance" --> REG
 ```
 
-The trust boundaries are the arrows that cross a box: the Internet to the edge, the edge to the app namespace, the
+Dotted arrows exist only with the WAF on (`waf.enabled`); then both the gateway and the frontend's API proxy
+reach the backend through it. The trust boundaries are the arrows that cross a box: the Internet to the edge, the edge to the app namespace, the
 app to the database namespace, GitHub to the cloud and the cluster, and the registry to the cluster at admission.
 
 ---
@@ -128,7 +132,7 @@ The optional WAF (`waf.enabled`) sits between the edge and the backend.
 | STRIDE | Threat | Mitigation | Residual risk |
 |--------|--------|------------|---------------|
 | T | Injection payloads (SQLi, XSS) in requests | Coraza with the OWASP CRS, pinned image and Wasm by digest ([Runtime application protection](./security.md#runtime-application-protection-dast--waf)); parameterised SQL in the repositories | the WAF is off by default; with it on, the CSP-report route skips body inspection for two content types ([ADR-0032](./adr/0032-waf-csp-report-exception.md)) and relies on the backend's caps |
-| S | The backend believes the WAF's forwarded scheme or client | the WAF forwards `X-Forwarded-Proto: http`, so the backend never sends HSTS through it ([what the proxies must do](./security.md#what-the-trusted-proxies-must-do)) | HSTS must come from the edge when the WAF is on |
+| S | A client forges the scheme or client address the WAF passes to the backend | Envoy trusts zero hops, so it overwrites `X-Forwarded-Proto` from its own connection, and the NetworkPolicy admits only the edge peers and the frontend to the WAF Pod ([what the proxies must do](./security.md#what-the-trusted-proxies-must-do), [NetworkPolicy](./security.md#networkpolicy)) | the backend sees `X-Forwarded-Proto: http` for https clients, so HSTS must come from the edge when the WAF is on; an admitted peer that passes a client's headers through makes them trusted |
 | D | A Pod shutdown turns requests into 503s | idempotent methods retried, writes on a one-request-per-connection cluster ([changelog](./changelog.md)) | high write rates may exhaust ephemeral ports (the TIME_WAIT note in the security page) |
 | E | The WAF container is a weak workload | the same securityContext, probes and digest pins as the app ([`waf-proxy.yaml`](../charts/your-service-name/templates/waf-proxy.yaml)) | none beyond the app's |
 
@@ -180,9 +184,9 @@ The boundary between code anyone can propose and the credentials that build, sig
 | S | An image or chart that was not built here passes as ours | keyless cosign signatures by digest, with the build workflow's identity; the chart signed by its own workflow ([Verifying an image](./security.md#verifying-an-image), [Verifying the chart](./security.md#verifying-the-chart), [ADR-0024](./adr/0024-signed-chart-from-its-own-workflow.md)) | a verifier who checks the issuer but not the identity and repository claim |
 | T | A tag is moved to another image after testing | deploys by digest, checked after the deploy; admission pins tags to digests ([ADR-0020](./adr/0020-deploy-by-digest.md)) | a hand deploy by tag outside CI |
 | T | A dependency or base image is malicious or vulnerable | hashed locks, seven-day release age, Grype gate on Critical and High, licence gate, OSV and typosquat checks, Debian fixes before the base ships them ([Supply-chain security](./supply-chain-security.md), [ADR-0014](./adr/0014-debian-fixes-over-the-base.md)) | a malicious package older than seven days with no advisory yet |
+| T | The frozen supply-chain scripts are changed in passing, altering what a release claims | the freeze rule and its recorded exceptions ([ADR-0028](./adr/0028-frozen-supply-chain-scripts.md)) | a reviewer who misses a change |
 | R | Nobody can say how an image was built | SLSA provenance and SBOM attestations pushed to the registry; SBOMs, VEX and digests on the release ([ADR-0019](./adr/0019-attestations-and-release-assets.md)) | attestations need a public repository (or `ATTESTATIONS_ENABLED`) |
-| I | A vulnerability appears after release | the weekly re-scan of deployed digests and the latest release, issues with an SLA ([Vulnerability management](./vulnerability-management.md), [ADR-0037](./adr/0037-weekly-rescan-scope.md)) | older releases run elsewhere are not re-scanned |
-| E | The frozen supply-chain scripts are changed in passing | the freeze rule and its recorded exceptions ([ADR-0028](./adr/0028-frozen-supply-chain-scripts.md)) | a reviewer who misses a change |
+| E | A vulnerability published after release is exploited in a running image | the weekly re-scan of deployed digests and the latest release, issues with an SLA ([Vulnerability management](./vulnerability-management.md), [ADR-0037](./adr/0037-weekly-rescan-scope.md)) | older releases run elsewhere are not re-scanned; the window until the next re-scan and the fix |
 
 ## 7. Cluster admission
 
@@ -203,6 +207,8 @@ Stated plainly, each with where it is documented:
   Secrets and the Access service token, and change any preview. The bounds and the reasons are in the
   [preview trust boundary](./ci-cd.md#pull-request-previews); previews are off by default.
 - **Admission is opt-in.** Until the policies are applied, the cluster runs any image the deployer names.
+- **Other registries' images run even with the policies applied.** The shipped policies match only this
+  repository's path; a registry allowlist is the adopter's to add ([What is enforced](./admission-control.md#what-is-enforced)).
 - **A single owner is the gate.** With 0 required approvals and the admin bypass
   ([ADR-0022](./adr/0022-repository-settings-as-a-script.md)), a compromised owner account can merge and release.
 - **In-cluster traffic is plain HTTP** between the edge, the WAF, the frontend and the backend; the

@@ -19,8 +19,8 @@ reporting.
 ## Decision
 
 The template targets GitHub only. CI is GitHub Actions on GitHub-hosted runners (no self-hosted runners). Images go to
-`ghcr.io/<owner>/<repo>/<image>`, the path proven in CI; Google Artifact Registry (`*.pkg.dev`) is supported and
-documented, not proven in CI. Nothing in the template refers to the old forge except deliberate history.
+`ghcr.io/<owner>/<repo>/<image>`, the path proven in CI. Google Artifact Registry (`*.pkg.dev`) is documented as a
+future option and is not wired up: nothing in the template can push to it today. Nothing in the template refers to the old forge except deliberate history.
 
 ## Consequences
 
@@ -28,8 +28,8 @@ documented, not proven in CI. Nothing in the template refers to the old forge ex
   bolted on.
 - Good: a fork or a new repository from the template runs green with no extra setup.
 - Bad: an adopter on another forge must port the workflows themselves; nothing here helps.
-- Bad: the registry path an adopter is most likely to use in production (Artifact Registry) is the one CI does not
-  exercise.
+- Bad: an adopter who wants Artifact Registry (the usual registry on Google Cloud) must wire up the push path, and the
+  admission policy for it, themselves.
 
 ## Alternatives considered
 

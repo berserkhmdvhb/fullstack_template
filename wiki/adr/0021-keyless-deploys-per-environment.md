@@ -22,8 +22,9 @@ The provider's condition pins the numeric `repository_owner_id` and `repository_
 `preview.yml`). There is one deployer service account per environment, bound to the subject
 `repo:<owner>/<repo>:environment:<env>`, with namespace-scoped RBAC only
 ([ADR-0011](./0011-namespace-bootstrap-scoped-deployer.md)). Jobs reach the cluster over GKE's DNS-based control-plane
-endpoint with IAM (`use_dns_based_endpoint: true`), so no IP allowlist is needed. The hardening lint fails a job that
-uses a secret or an OIDC token without declaring its `environment:`. A kubeconfig mode remains for other clusters.
+endpoint with IAM (`use_dns_based_endpoint: true`), so no IP allowlist is needed. The hardening lint fails any job
+that uses a secret or an OIDC token without declaring its `environment:`, except the keyless signing jobs and the
+Scorecard job, which need an OIDC token but no cloud credential. A kubeconfig mode remains for other clusters.
 
 ## Consequences
 

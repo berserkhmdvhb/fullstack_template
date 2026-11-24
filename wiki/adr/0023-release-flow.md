@@ -2,8 +2,7 @@
 
 ## Status
 
-Accepted. The configuration and the App's settings are in place; the workflow that runs release-please is added
-separately.
+Accepted.
 
 ## Date
 
@@ -18,7 +17,8 @@ until the build has attached everything. The version must have one source: the t
 
 ## Decision
 
-- release-please, configured in [`release-please-config.json`](../../release-please-config.json), opens the release
+- release-please runs on every push to `main` ([`release-please.yml`](../../.github/workflows/release-please.yml)).
+  Configured in [`release-please-config.json`](../../release-please-config.json), it opens the release
   pull request from Conventional Commit titles (squash merges with the checked pull-request title) and, on merge,
   creates a **draft** release with a **forced tag** (`force-tag-creation`), so the `v*` tag exists while the release
   is still a draft. The hand-written changelog is kept (`skip-changelog`).
@@ -45,7 +45,8 @@ until the build has attached everything. The version must have one source: the t
 
 ## Links
 
-- [`release-please-config.json`](../../release-please-config.json), [`.github/workflows/release.yml`](../../.github/workflows/release.yml),
+- [`.github/workflows/release-please.yml`](../../.github/workflows/release-please.yml),
+  [`release-please-config.json`](../../release-please-config.json), [`.github/workflows/release.yml`](../../.github/workflows/release.yml),
   [`.github/workflows/pr-title.yml`](../../.github/workflows/pr-title.yml)
 - [Releasing](../releasing.md), [GitHub repository settings: the release GitHub App](../github-repository-settings.md#the-release-github-app)
 - [Versioning](../versioning.md)

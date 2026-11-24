@@ -16,7 +16,7 @@ publishes node images only for recent minors. A floor nobody tests is a guess.
 ## Decision
 
 "Support what you test." The chart's `kubeVersion` is `>=1.34.0-0`, and the kind job runs two legs: the floor
-(1.34) and kind's newest (1.37), node images pinned by digest. kubeconform validates against the 1.34 OpenAPI spec,
+(1.34) and kind's newest node image, both pinned by digest in [`tools/kind-nodes.tsv`](../../tools/kind-nodes.tsv). kubeconform validates against the 1.34 OpenAPI spec,
 and the namespaces' Pod Security version labels are `v1.34`. At 1.34 every feature the chart uses is GA (native
 sidecars, the preStop `sleep` action).
 

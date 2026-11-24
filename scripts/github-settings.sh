@@ -206,10 +206,10 @@ preflight() {
     note "WARNING: the \"$REQUIRED_CHECK\" check comes from ${APP_SLUG:-an app} (id $app_id), not $ACTIONS_APP_ID; --apply would refuse"
   fi
   note "production reviewer: $login (id $id)"
-  # Design section 11.4: no self-hosted runners.
+  # No self-hosted runners: a hosted runner is fresh for every job, a self-hosted one keeps state between jobs.
   runners="$(get "/repos/$REPO/actions/runners" | jq -r '.total_count // 0')"
   if ((runners > 0)); then
-    [[ "$MODE" != apply ]] || die "the repository has $runners self-hosted runner(s); the design allows none (remove them first)"
+    [[ "$MODE" != apply ]] || die "the repository has $runners self-hosted runner(s); the template allows none (remove them first)"
     note "WARNING: the repository has $runners self-hosted runner(s); --apply would refuse"
   fi
 }

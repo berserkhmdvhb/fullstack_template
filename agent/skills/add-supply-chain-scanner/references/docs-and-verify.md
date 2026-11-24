@@ -44,7 +44,7 @@ do the identical thing on the identical target from the identical feed.
 - **CI↔local map** (`## CI ↔ local job map`): add `| devsec.sh <name> | <ci_job> |`.
 
 The eight-frozen / local-adaptation invariant is documented in three sites
-(`local/README.md`, the plan ledger, `supply-chain-tooling-assessment.md` §7):
+(`local/README.md`, `AGENTS.md` rule 6, `supply-chain-tooling-assessment.md` §7):
 `devsec.sh` invokes the eight `infra/security/*.sh` verbatim (never edited); all
 local adaptation lives under `infra/security/local/`.
 

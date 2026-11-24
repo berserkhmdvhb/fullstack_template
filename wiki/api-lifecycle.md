@@ -22,6 +22,10 @@ locally is in [Testing](./testing.md#postgresql-contract-tests-and-the-two-gates
   label (`scripts/github-settings.sh` creates it). Only users with triage permission or above can
   add or remove a label, so the author of a fork's pull request cannot wave their own change through. Adding or
   removing the label re-runs the whole workflow (every job), so the gate sees it.
+- **The major version.** The label also requires the Conventional Commit breaking marker in the pull request title
+  (`type(scope)!: subject`): [`pr-title.yml`](../.github/workflows/pr-title.yml) refuses a labelled pull request
+  without it, and re-runs when the label is added or removed. The squash commit on `main` then carries the `!`, and
+  release-please proposes the next major version ([Pull request titles](./releasing.md#pull-request-titles)).
 
 ## Deprecating an endpoint
 

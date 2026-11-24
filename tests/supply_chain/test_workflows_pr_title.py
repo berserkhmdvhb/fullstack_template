@@ -20,10 +20,12 @@ def _wf() -> dict[str, Any]:
     return workflow("pr-title.yml")
 
 
-def test_runs_on_pull_request_events_including_title_edits_never_pull_request_target() -> None:
+def test_runs_on_pull_request_title_and_label_events_never_pull_request_target() -> None:
     on = _wf()["on"]
     assert set(on) == {"pull_request"}
-    assert set(on["pull_request"]["types"]) == {"opened", "edited", "synchronize", "reopened"}
+    assert set(on["pull_request"]["types"]) == {
+        "opened", "edited", "synchronize", "reopened", "labeled", "unlabeled",
+    }  # fmt: skip
 
 
 def test_one_read_only_job_with_no_secret_no_checkout_and_no_action() -> None:
@@ -38,15 +40,23 @@ def test_one_read_only_job_with_no_secret_no_checkout_and_no_action() -> None:
     assert unpinned_uses(WORKFLOWS / "pr-title.yml") == []
 
 
-def test_the_title_reaches_the_shell_through_env_only() -> None:
+def test_the_title_and_the_label_reach_the_shell_through_env_only() -> None:
     (step,) = next(iter(_wf()["jobs"].values()))["steps"]
-    assert step["env"] == {"TITLE": "${{ github.event.pull_request.title }}"}
+    assert step["env"] == {
+        "TITLE": "${{ github.event.pull_request.title }}",
+        "BREAKING": "${{ contains(github.event.pull_request.labels.*.name, 'breaking-change') }}",
+    }
     assert "${{" not in step["run"]
 
 
-def _check(title: str, tmp_path: Path) -> int:
+def _check(title: str, tmp_path: Path, *, breaking: bool = False) -> int:
     (step,) = next(iter(_wf()["jobs"].values()))["steps"]
-    env = {"PATH": "/usr/bin:/bin", "TITLE": title, "GITHUB_STEP_SUMMARY": str(tmp_path / "s")}
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "TITLE": title,
+        "BREAKING": str(breaking).lower(),
+        "GITHUB_STEP_SUMMARY": str(tmp_path / "s"),
+    }
     return subprocess.run(
         [BASH, "-e", "-c", step["run"]], env=env, capture_output=True, check=False
     ).returncode
@@ -81,3 +91,24 @@ def test_a_title_cannot_inject_shell(tmp_path: Path) -> None:
     marker = tmp_path / "pwned"
     assert _check(f"fix: $(touch {marker})", tmp_path) == 0
     assert not marker.exists()
+
+
+@pytest.mark.parametrize(
+    ("title", "code"),
+    [
+        ("feat!: drop the v1 items route", 0),
+        ("feat(api)!: drop the v1 items route", 0),
+        ("feat: drop the v1 items route", 1),
+        ("feat(api): drop the v1 items route", 1),
+        ("fix(api): x!: y", 1),  # the marker belongs after the type or scope
+    ],
+)
+def test_the_breaking_change_label_requires_the_breaking_marker(
+    title: str, code: int, tmp_path: Path
+) -> None:
+    assert _check(title, tmp_path, breaking=True) == code, title
+
+
+def test_without_the_label_the_marker_stays_optional(tmp_path: Path) -> None:
+    assert _check("feat(api): add a field", tmp_path) == 0
+    assert _check("feat(api)!: drop a field", tmp_path) == 0

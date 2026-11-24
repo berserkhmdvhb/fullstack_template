@@ -24,7 +24,7 @@ def _tracked() -> list[str]:
     return [p for p in out.stdout.decode().split("\0") if p]
 
 
-def test_no_tracked_file_except_the_changelog_names_the_old_server() -> None:
+def test_no_tracked_file_but_the_changelog_decisions_and_locks_names_the_old_server() -> None:
     offenders = [
         path
         for path in _tracked()

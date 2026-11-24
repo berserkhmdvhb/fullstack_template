@@ -3,10 +3,12 @@ name: PR title
 # A squash merge makes the pull request title the commit message on main (scripts/github-settings.sh sets
 # squash-only, title as the message), and release-please reads those messages to pick the next version and
 # write the release notes. So the title must be a Conventional Commit: `type(scope)!: subject`, scope and `!`
-# optional. It runs on title edits too, reads only the event payload: no checkout, no token use, no secret.
+# optional. With the `breaking-change` label (which lets api-compat pass a breaking API change) the `!` is
+# required, so release-please bumps the major version; the label events re-run the check. It runs on title
+# edits too, reads only the event payload: no checkout, no token use, no secret.
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
 
 permissions: {}
 
@@ -25,12 +27,19 @@ jobs:
       - name: Check the title
         env:
           TITLE: ${{ github.event.pull_request.title }}
+          BREAKING: ${{ contains(github.event.pull_request.labels.*.name, 'breaking-change') }}
         run: |
           types="build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test"
           pattern="^(${types})(\([a-z0-9][a-z0-9,._/-]*\))?!?: [^ ].*$"
           if [[ ! "${TITLE}" =~ ${pattern} ]]; then
             echo "::error::the pull request title is not a Conventional Commit. Use type(scope)!: subject, type one of ${types//|/, }"
             echo "- title refused: \`${TITLE}\`" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          marker="^[a-z]+(\([^)]*\))?!: "
+          if [[ "${BREAKING}" == true && ! "${TITLE}" =~ ${marker} ]]; then
+            echo "::error::the pull request carries the breaking-change label, so the title needs the breaking marker: type(scope)!: subject"
+            echo "- title refused (breaking-change label, no \`!\`): \`${TITLE}\`" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           echo "- title ok: \`${TITLE}\`" >> "$GITHUB_STEP_SUMMARY"

@@ -29,7 +29,7 @@
 #                 (pkg:pypi/*, pkg:npm/*, pkg:golang/*, pkg:cargo/*, …). Fixed by
 #                 upgrading the dependency in your lockfile / requirements.
 #   unknown     — an ecosystem this map does not recognise. Named explicitly
-#                 rather than mis-bucketed, so a gap is visible (see Review Focus).
+#                 rather than mis-bucketed, so a gap is visible.
 #
 # origin_of   "<purl>" "<space-separated location paths>"  ->  echoes <bucket>
 # origin_rows "<grype-raw-json...>"                        ->  TSV, one row per match
