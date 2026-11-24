@@ -80,6 +80,8 @@ describe('the docs page', () => {
       expect(policy).toContain("style-src 'self';");
       expect(policy).not.toContain('cdn.jsdelivr.net');
       expect(policy).not.toContain('unsafe-');
+      // form-action has no default-src fallback (ZAP rule 10055): set it, or any form target is allowed.
+      expect(policy).toContain("form-action 'self'");
     },
   );
 });

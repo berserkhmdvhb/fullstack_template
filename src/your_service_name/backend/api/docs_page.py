@@ -40,7 +40,8 @@ CSP: Final[str] = (
     "script-src 'self' https://cdn.jsdelivr.net; "
     "connect-src 'self'; "
     "frame-ancestors 'none'; "
-    "base-uri 'self'"
+    "base-uri 'self'; "
+    "form-action 'self'"
 )
 
 # The reporting group the page's CSP names; the same name `frontend/proxy.ts` uses for its pages.

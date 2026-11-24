@@ -55,7 +55,8 @@ _TRANSPORT_PREFIXES: Final[tuple[str, ...]] = ("x-nextjs-",)
 
 _NEXT_CSP: Final[str] = (
     "default-src 'self'; img-src 'self' blob: data:; style-src 'self'; "
-    "script-src 'self' 'nonce-X'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+    "script-src 'self' 'nonce-X'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
+    "form-action 'self'"
 )
 _FRONTEND_LAYER: Final[dict[str, str]] = {
     "referrer-policy": "no-referrer",

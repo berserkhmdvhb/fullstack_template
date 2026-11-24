@@ -113,6 +113,8 @@ export function proxy(request: NextRequest) {
       "connect-src 'self'",
       "frame-ancestors 'none'",
       "base-uri 'self'",
+      // form-action does not fall back to default-src: without it a form may post anywhere.
+      "form-action 'self'",
       // `report-uri` for browsers that only know it, `report-to` (with the
       // Reporting-Endpoints header below) for the rest.
       ...(reporting ? [`report-uri ${CSP_REPORT_PATH}`, `report-to ${CSP_REPORT_GROUP}`] : []),

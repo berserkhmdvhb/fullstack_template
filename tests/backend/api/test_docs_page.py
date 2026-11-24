@@ -94,6 +94,7 @@ async def test_the_docs_send_their_own_strict_csp_once(path: str) -> None:
     assert directives["style-src"] == "'self' https://cdn.jsdelivr.net"
     assert directives["frame-ancestors"] == "'none'"
     assert directives["base-uri"] == "'self'"
+    assert directives["form-action"] == "'self'"  # no default-src fallback (ZAP rule 10055)
     assert directives["connect-src"] == "'self'"
 
 

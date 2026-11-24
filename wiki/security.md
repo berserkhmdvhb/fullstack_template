@@ -112,6 +112,7 @@ script-src 'self' 'nonce-<per request>'
 connect-src 'self'
 frame-ancestors 'none'
 base-uri 'self'
+form-action 'self'
 ```
 
 No `unsafe-eval`/`unsafe-inline` and no third-party (`https:`, CDN) origins: the
@@ -173,7 +174,7 @@ Two kinds of header are believed only from listed senders, and each kind has its
   drops the configured identity and roles header names, and every `x-authenticated-*` header, from
   the browser's request before it forwards, in every auth mode. It reads the names from the same
   `AUTH_USER_ID_HEADER` and `AUTH_ROLES_HEADER` variables as the backend; the chart's ConfigMap
-  gives both images one value.
+  gives the backend and the frontend one value.
 
 Set `AUTH_PROXY_CIDRS` to the Pod range of the authenticating proxy, the one that connects to the
 backend, in every edge mode. **Never list a hop that does not both authenticate and strip client
