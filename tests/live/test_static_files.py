@@ -35,6 +35,7 @@ from tests.live.test_header_set import (
     _STATIC_LAYER,
     _assert_final_set,
 )
+from tests.utils.static_paths import parse_backend_paths
 
 pytestmark = pytest.mark.live
 
@@ -268,20 +269,7 @@ def _raw_get(client: httpx.Client, path: str) -> httpx.Response:
 
 def _backend_paths() -> list[str]:
     """`BACKEND_PATHS` read from its one definition in static-paths.ts."""
-    source = (_ROOT / "static-paths.ts").read_text(encoding="utf-8")
-    docs = re.search(r"DOCS_PATH = '([^']+)'", source)
-    listed = re.search(r"BACKEND_PATHS[^=]*= \[([^\]]+)\]", source)
-    assert docs, "static-paths.ts no longer defines DOCS_PATH"
-    assert listed, "static-paths.ts no longer defines BACKEND_PATHS"
-    body = listed.group(1)
-    paths = []
-    for item in (item.strip() for item in body.split(",")):
-        quoted = re.fullmatch(r"'([^']*)'", item)
-        paths.append(docs.group(1) if item == "DOCS_PATH" else quoted.group(1) if quoted else item)
-    elements = re.findall(r"'[^']*'|\"[^\"]*\"|[A-Za-z_]\w*", body)
-    assert len(paths) == len(elements), f"BACKEND_PATHS read as {paths}, defined as {elements}"
-    assert all(p.startswith("/") for p in paths), f"BACKEND_PATHS read as {paths}: not all paths"
-    return paths
+    return parse_backend_paths((_ROOT / "static-paths.ts").read_text(encoding="utf-8"))
 
 
 def _mixed(text: str) -> str:
