@@ -11,7 +11,7 @@
 
 import { expect, test } from '@playwright/test';
 
-const API_BASE = '/api/v1';
+import { API_PATH as API_BASE } from '../static-paths';
 
 test.describe('Frontend (Next.js)', () => {
   test('should load the home page', async ({ page }) => {

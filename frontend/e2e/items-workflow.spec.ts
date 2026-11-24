@@ -10,7 +10,7 @@
 
 import { expect, test } from '@playwright/test';
 
-const API_BASE = '/api/v1';
+import { API_PATH as API_BASE } from '../static-paths';
 
 // Clean up all items before running tests to ensure a clean state
 test.beforeAll(async ({ request }) => {

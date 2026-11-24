@@ -10,7 +10,7 @@
 
 import { http, HttpResponse } from 'msw/http';
 
-const API_BASE = '/api/v1';
+import { API_PATH as API_BASE } from '../../../static-paths';
 
 /**
  * Mock handlers for all API endpoints.
@@ -114,7 +114,7 @@ export const handlers = [
       },
       {
         status: 201,
-        headers: { Location: `/api/v1/items/33333333-3333-3333-3333-333333333333` },
+        headers: { Location: `${API_BASE}/items/33333333-3333-3333-3333-333333333333` },
       },
     );
   }),
