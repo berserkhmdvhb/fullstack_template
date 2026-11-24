@@ -189,11 +189,11 @@ jobs:
       - name: Install the Playwright system deps
         timeout-minutes: 5
         working-directory: frontend
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 140 npx playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install-deps chromium
       - name: Download the Playwright browser
         timeout-minutes: 5
         working-directory: frontend
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 140 npx playwright install chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install chromium
       - name: axe accessibility scan
         working-directory: frontend
         run: npm run test:a11y
@@ -232,11 +232,11 @@ jobs:
       - name: Install the Playwright system deps
         timeout-minutes: 5
         working-directory: frontend
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 140 npx playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install-deps chromium
       - name: Download the Playwright browser
         timeout-minutes: 5
         working-directory: frontend
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 140 npx playwright install chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install chromium
       # Lighthouse drives the Playwright Chromium (CHROME_PATH), so there is no second browser download.
       - name: Collect the Lighthouse runs
         working-directory: frontend

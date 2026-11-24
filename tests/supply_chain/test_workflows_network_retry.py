@@ -25,7 +25,8 @@ SITES = [
     ("reusable-live.yml", "live"),
 ]
 STEP_MINUTES = 5
-ATTEMPT_SECONDS = 140
+ATTEMPT_SECONDS = 130
+KILL_AFTER_SECONDS = 10
 ATTEMPTS = 2
 DELAY_SECONDS = 10
 
@@ -50,7 +51,7 @@ def test_each_playwright_install_is_two_bounded_retried_steps(file: str, job: st
             f"{ATTEMPT_SECONDS} npx playwright {cmd}"
         )
         # Every attempt, with its pause, fits the step's own budget.
-        worst = ATTEMPTS * ATTEMPT_SECONDS + (ATTEMPTS - 1) * DELAY_SECONDS
+        worst = ATTEMPTS * (ATTEMPT_SECONDS + KILL_AFTER_SECONDS) + (ATTEMPTS - 1) * DELAY_SECONDS
         assert worst <= STEP_MINUTES * 60
 
 
@@ -128,6 +129,17 @@ def test_retry_helper_fails_after_the_last_attempt(tmp_path: Path) -> None:
     assert count == 3  # noqa: PLR2004
     assert "failed after 3 attempts" in done.stderr
     assert (tmp_path / "sleeps").read_text().split() == ["4", "4"]  # none after the last
+
+
+@pytest.mark.parametrize(
+    "args", [["0", "1", "1"], ["x", "1", "1"], ["2", "-1", "1"], ["2", "1", ""], ["2", "1.5", "1"]]
+)
+def test_retry_helper_refuses_bad_numbers(tmp_path: Path, args: list[str]) -> None:
+    bin_dir = _flaky(tmp_path, "tool", fail_first=0)
+    done, count = _run(tmp_path, [BASH, str(RETRY), *args, "tool"], bin_dir)
+    assert done.returncode == 2  # noqa: PLR2004
+    assert count == 0
+    assert "retry.sh:" in done.stderr
 
 
 def test_retry_helper_cuts_off_a_stalled_attempt(tmp_path: Path) -> None:
