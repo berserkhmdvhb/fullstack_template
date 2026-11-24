@@ -39,7 +39,7 @@ of them (see [Citations](#citations)). The template's controls map onto those st
 | **Materials / dependencies** | Third-party packages | typosquats, compromised / malicious deps | OSV-Scanner, GuardDog |
 | **Build / CI pipeline** | The reproducible build | a compromised builder or pipeline step | buildx on GitHub-hosted runners, SHA-pinned actions, pinned + checksum-verified tools, `main` and `v*` gating |
 | **Artifacts** | Built images + their metadata | impersonation / drift, known CVEs, license risk | SBOM (Syft), Grype, grant, digest-pin, keyless image signing, SLSA provenance and SBOM attestations |
-| **Deployment & distribution** | Registries, clusters, runtime | an unsigned or drifted image actually running | digest-pin, admission *(roadmap)*, VEX actuation |
+| **Deployment & distribution** | Registries, clusters, runtime | an unsigned or drifted image actually running | digest-pin, admission (example Kyverno policies, applied by a cluster admin), the weekly re-scan |
 
 ```mermaid
 flowchart LR
@@ -47,7 +47,7 @@ flowchart LR
     Mat["Materials / deps<br/>OSV-Scanner · GuardDog"]
     Bld["Build / CI<br/>buildx · pinned tools · main and v* gating"]
     Art["Artifacts<br/>SBOM · Grype · grant · digest-pin"]
-    Dep["Deploy & distribute<br/>digest-pin · admission* · VEX"]
+    Dep["Deploy & distribute<br/>digest-pin · admission · VEX · re-scan"]
 
     Src --> Mat --> Bld --> Art --> Dep
 ```
@@ -159,10 +159,10 @@ intentional overlaps are in the [tooling assessment](./supply-chain-tooling-asse
 
 Everything in the control table above is **delivered**, and the image-touching jobs run only on
 `main` and `v*` tags (a pull request author can never resolve a production digest). Image **signing +
-SLSA provenance are delivered** too (see [Verifying an image](./security.md#verifying-an-image)). What is **not** implemented yet, in
-[`ROADMAP-supply-chain.md`](./ROADMAP-supply-chain.md) —
-cryptographic **admission enforcement** (Kyverno), OpenSSF Scorecard,
-and the SBOM-consumption / VEX-actuation loop — is that same roadmap. Together they cover the known gaps: signing, provenance and admission, malicious dependencies, the CI's own
+SLSA provenance are delivered** too (see [Verifying an image](./security.md#verifying-an-image)). What lies beyond the
+table — **admission enforcement** (example Kyverno policies a cluster admin applies), OpenSSF Scorecard, workload
+identity for the deploys and the re-scan's issue loop — is in [`ROADMAP-supply-chain.md`](./ROADMAP-supply-chain.md),
+with what each delivers and what stays outside the repository. Together they cover the known gaps: signing, provenance and admission, malicious dependencies, the CI's own
 supply chain, and the adjacent runtime and cluster items.
 
 ## Reproduce any job locally

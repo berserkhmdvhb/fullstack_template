@@ -55,7 +55,7 @@ Notes:
   pre-commit). `make check-all` is the same but auto-formats.
 - `mypy` runs with no path args because `pyproject.toml` sets `files = ["src", "tests"]` under
   `[tool.mypy]` (strict; `mypy_path = "src"`), so the config drives the scope — no path args needed.
-- `make test` (no suffix) runs **unit + integration + e2e** (hermetic, `-m "not live"`) — it is
+- `make test` (no suffix) runs **unit + integration + e2e** (hermetic: not live, not contract) — it is
   **not** unit-only here. Unit-only is `make test-unit`, which relies on the default `addopts` marker
   filter.
 - Integration/e2e/live pass `-o addopts=""` to **clear** the default marker filter, otherwise the

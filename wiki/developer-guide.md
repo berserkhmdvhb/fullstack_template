@@ -52,12 +52,14 @@ Local development workflow, Makefile commands, code quality tools, Kubernetes de
 | `make mypy-check` | Run MyPy strict type checker |
 | `make check-all` | Full check: outdated tools + format + lint + mypy |
 | `make check-all-dry` | Full check without auto-format (format-check) |
+| `make docs-links` | Check every file link and #anchor in the docs, offline (pinned lychee) |
 
 ### Testing
 
 | Command | Description |
 |---------|-------------|
-| `make test` | Run unit tests (pytest) |
+| `make test` | Run the unit, integration and e2e tests (hermetic: not live, not contract) |
+| `make test-unit` | Run the unit tests only, with the coverage gate |
 | `make test-integration` | Run integration tests (`-m integration`) |
 | `make test-e2e` | Run E2E tests (`-m e2e`) |
 | `make test-live` | Run live tests against running stack (`-m live`) |

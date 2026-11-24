@@ -187,11 +187,9 @@ flowchart TB
 
 ### Health Probes
 
-| Probe | Backend | Frontend |
-|-------|---------|----------|
-| **startupProbe** | `/api/v1/healthz` (30×5s) | `/api/healthz` (20×5s) |
-| **readinessProbe** | `/api/v1/health` (10s interval) | `/api/healthz` (10s interval) |
-| **livenessProbe** | `/api/v1/healthz` (15s interval) | `/api/healthz` (15s interval) |
+The backend's liveness and startup probes use `/api/v1/healthz` (the process only) and its readiness probe
+`/api/v1/health` (the database, and the schema at head); the frontend's three use `/api/healthz`, a cheap
+route with no server-side render. Timings: [Infrastructure, Kubernetes Probes](./infrastructure.md#kubernetes-probes).
 
 ---
 

@@ -1,6 +1,6 @@
 # Service Template
 
-[![Python](https://img.shields.io/badge/python-3.12%20|%203.13-blue)]()
+[![Python](https://img.shields.io/badge/python-3.12%20|%203.13-blue)](pyproject.toml)
 [![CI](https://github.com/<owner>/<your-service-name>/actions/workflows/ci.yml/badge.svg)](https://github.com/<owner>/<your-service-name>/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/<owner>/<your-service-name>/badge)](https://scorecard.dev/viewer/?uri=github.com/<owner>/<your-service-name>)
 
@@ -41,13 +41,14 @@ It ensures:
 ├── Makefile
 ├── pyproject.toml
 ├── .env.example
+├── frontend/               # Next.js 16 app
 ├── src/
 │   └── your_service_name/
 │       ├── backend/        # routers/schemas/services/models/repos/entities/middleware
-│       ├── frontend/       # Next.js 16 app
+│       ├── scripts/        # the sample-data seed
 │       ├── utils/          # validators, API versioning
 │       └── __init__.py     # runtime version resolution
-├── tests/                  # unit/e2e/integration/live (subfolders)
+├── tests/                  # unit/integration/e2e/live/contract, and the kind tests (subfolders)
 └── wiki                    # extended documentation
 ```
 
@@ -63,7 +64,7 @@ Follow [`wiki/getting-started.md`](wiki/getting-started.md) for a proper and det
 
 * Git installed and configured
 * Python ≥ 3.12
-* Node.js ≥ 22
+* Node.js 26 (the pinned version: `tools/pins.tsv`, `frontend/.nvmrc`)
 * Docker or Podman (for local container builds)
 * kubectl + Helm (for Kubernetes deployment)
 * A Kubernetes cluster (kind, minikube, or production cluster)
@@ -130,16 +131,16 @@ Or run what CI's kind job runs, in a kind cluster of its own (`fst`, kubeconfig 
 ### C) Kubernetes deployment (production)
 
 ```bash
-# Build and push images (registry flow — see wiki/containerization.md)
-#   …<registry>/your-service-name:<tag>
-
-# Deploy with the Helm chart (reads charts/your-service-name/values.production.yaml).
+# The release workflow builds, signs and pushes the images (ghcr.io/<owner>/<repo>/backend, …/frontend, …/waf)
+# and deploys them by digest with scripts/ci/deploy-env.sh (wiki/ci-cd.md#deploy-chain). By hand:
 # Production needs an auth mode first: wiki/getting-started.md#production-needs-an-auth-mode
 # Once per environment, as a cluster admin: the namespaces, quota and deployer RBAC (wiki/infrastructure.md)
 scripts/k8s-bootstrap.sh production | kubectl apply -f -
+# Production refuses an image without a digest (the release's image-digests.env has them)
 helm upgrade --install your-service-name ./charts/your-service-name \
   -f ./charts/your-service-name/values.production.yaml \
-  --namespace your-service-name-production
+  --namespace your-service-name-production --wait --wait-for-jobs \
+  --set images.backend.digest=sha256:<backend digest> --set images.frontend.digest=sha256:<frontend digest>
 
 # Verify rollout
 kubectl -n your-service-name-production rollout status deployment/your-service-name-backend
@@ -214,7 +215,7 @@ Defined in `.github/workflows/`; the full map is in [`wiki/ci-cd.md`](wiki/ci-cd
 *   **deploy** → Helm `upgrade --install` by digest (`--wait-for-jobs`, so a failed migration Job fails the release) + verify + smoke test, with a rollback to the recorded revision; `deploy-ops` rolls back by hand
 *   **security** → CodeQL, gitleaks, dependency review, `pip-audit`, OSV-Scanner, GuardDog, Checkov, Kubescape, and a ZAP baseline (`dast`)
 
-> **Build method**: CI builds with `docker/build-push-action` (buildx) on GitHub-hosted runners, with no Docker-in-Docker and a GitHub Actions layer cache.
+> **Build method**: the release builds with `docker/build-push-action` (buildx) on GitHub-hosted runners, with no Docker-in-Docker and no build cache (the hardening lint refuses one); a pull request builds into the runner's local daemon, with no cache either.
 
 ---
 
@@ -224,8 +225,8 @@ Beyond the built-in scanners, the pipeline hardens its own supply chain:
 
 - **Image signing + provenance** — every image that passes the Grype gate is signed keyless and
   carries SLSA provenance and SBOM attestations; verify one by hand as described in
-  [`wiki/security.md`](wiki/security.md#verifying-an-image). Admission enforcement is on
-  [`wiki/ROADMAP-supply-chain.md`](wiki/ROADMAP-supply-chain.md).
+  [`wiki/security.md`](wiki/security.md#verifying-an-image). Example Kyverno policies make a cluster refuse
+  an unsigned or unattested image: [`wiki/admission-control.md`](wiki/admission-control.md).
 - **Immutable digest-pin** — the release workflow captures each built image's immutable manifest
   digest (`<ID>_IMAGE_DIGEST=sha256:…`, never a mutable `:latest` / `:main`) and verifies it against
   the registry. The **helm** deploy jobs pin the image by that digest and `scripts/ci/deploy-verify.sh`

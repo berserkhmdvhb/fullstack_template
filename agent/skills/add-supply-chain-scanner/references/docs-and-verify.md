@@ -56,7 +56,7 @@ Run all four; a scanner is done only when all are green.
   - all: `LIB_TS=0 bats infra/security/local/tests/` (the CI form, the `repo` job of `ci.yml`) — or locally `bats infra/security/local/tests/`.
   - one file: `bats infra/security/local/tests/devsec-<name>.bats`.
 - **pytest (config/artifact contract):** `pytest tests/supply_chain/test_ci_security_jobs.py`
-  (whole suite: `make test` → `pytest tests/ -o addopts="" -m "not live" -v`;
+  (whole suite: `make test`, unit + integration + e2e; its exact command is in the Makefile;
   one test: `pytest tests/supply_chain/test_ci_security_jobs.py::test_<name>`).
   It parses the committed YAML and asserts the new job's contract — it does NOT
   run the scanner.

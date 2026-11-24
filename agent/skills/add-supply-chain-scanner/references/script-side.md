@@ -90,19 +90,21 @@ text on CI). `DRY_RUN=true` gates `run`/`confirm`; `run_ro` ignores it.
 
 ## `config.yaml` — where the pin goes
 
+The shape (the real pins and policy are in `infra/security/config.yaml`; never copy versions from here):
+
 ```yaml
 output:
   base: output/security          # .output.base — read by resolve_sec_output_dir()
 tools:                            # checksum-verified release binaries (tools-install.sh)
-  cosign: v3.1.4
-  syft: v1.55.0
-  grype: v0.121.3
-  grant: v0.6.8
-  osv-scanner: v2.7.0            # <-- new checksum binary: .tools.<name>
+  # renovate: datasource=github-releases depName=<org>/<repo>
+  <name>: v<version>             # <-- new checksum binary: .tools.<name>
 tools_pip:                        # pip-only (integrity via pinned wheel + PyPI hash)
-  guarddog: 3.2.0                # <-- new pip tool: .tools_pip.<name>
-policy: { fail_level: high, only_fixed: true }
+  # renovate: datasource=pypi depName=<package>
+  <name>: <version>              # <-- new pip tool: .tools_pip.<name>
+policy: { fail_level: <level>, only_fixed: <bool> }
 ```
+
+Every pin carries its `# renovate:` line directly above it (a test fails on one without it).
 
 - **Checksum binary** → flat key under `tools:`; add a matching case in
   `tools-install.sh`.

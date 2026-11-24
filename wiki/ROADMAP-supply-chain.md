@@ -3,8 +3,9 @@
 The supply-chain controls **delivered today** are documented in
 [`wiki/security.md`](./security.md) (CI scanning), [`wiki/containerization.md`](./containerization.md)
 (signing / provenance / digest-pin) and [`wiki/ci-cd.md`](./ci-cd.md) (jobs + variables).
-This page is the honest list of what is **not yet implemented** — the remaining gaps against
-the supply-chain and CI/CD pipeline practices this template aims for — and why each item is deferred.
+This page is the honest list of the items beyond that baseline — the gaps against the supply-chain and
+CI/CD pipeline practices this template aims for: what each now delivers, and what stays outside the
+repository and why.
 
 > **Rule of thumb:** signing, provenance and admission form a chain — admission
 > can only *enforce* what signing and provenance *produce*. The items below are ordered so each
@@ -26,9 +27,9 @@ Everything in this table runs on **`main` and `v*` tags only** for the image-tou
 (`vex`) — a pull request author can never resolve a production digest. The source-level checks
 (`osv`, `workflows`) also run on pull requests for fast feedback.
 
-> **Image signing + SLSA provenance are delivered** (item `0`): `reusable-build.yml` signs every image
-> digest keyless and attaches provenance and SBOM attestations. Admission enforcement (item `1`) is
-> what is still missing, so nothing yet *refuses* an unsigned image at runtime.
+> **Image signing + SLSA provenance are delivered** (item `0`), and so are example admission policies
+> that refuse an unsigned or unattested image (item `1`). The chart does not install them: nothing
+> refuses an unsigned image until a cluster admin applies them.
 
 ---
 
@@ -48,23 +49,18 @@ See [`wiki/supply-chain-security.md`](./supply-chain-security.md).
 
 ---
 
-## 1. Kubernetes admission (Kyverno) — *roadmap*
+## 1. Kubernetes admission (Kyverno) — *delivered as example policies*
 
 **Depends on:** keyless cosign signing + SLSA provenance (delivered — item `0`).
 
-Add a **Kyverno** admission policy that *denies* a pod unless its image is **signed** and carries
-an **SLSA provenance attestation** (verify at admission time, not just at build time). This closes
-the loop that leaves a structural hole: the registry can hold a signed image,
-but nothing *enforces* that only signed/provenanced images run.
+Two Kyverno policies in [`deploy/policies/`](../deploy/policies/) deny a pod unless its image from this
+repository is **signed** and carries an **SLSA provenance attestation** by the release build, and deny
+alias spellings of the image path. They are tested offline (`kyverno test`, the `repo` job) and on kind
+(`make kind-admission-test`). See [Admission control](./admission-control.md).
 
-Why it is deferred:
-
-- The template's deploy surface is **Helm-native** (`charts/`), and admission is a **cluster-level**
-  concern (Kyverno / Gatekeeper / Sigstore policy-controller) that lives outside the service repo.
-- It needs a running policy engine and a verified root of trust (the Rekor/Fulcio issuer the jobs
-  already pin via `COSIGN_OIDC_ISSUER` / `COSIGN_CERT_IDENTITY`).
-- **Kubernetes admission is out of scope for this template's Compose / `main` flavour** by design;
-  it belongs to the cluster platform, not the service.
+What stays outside the repository: admission is a **cluster-level** concern. The chart does not
+install the policies or Kyverno; a cluster admin renders and applies them
+(`scripts/render-admission-policy.sh`), and only then is an unsigned image refused at runtime.
 
 ---
 
@@ -107,47 +103,34 @@ only as history, not as outstanding debt.
 
 ---
 
-## 5. Workload identity / short-lived deploy credentials — *roadmap*
+## 5. Workload identity / short-lived deploy credentials — *delivered on GKE*
 
-Replace the long-lived deploy secrets (registry push tokens, etc.) with **short-lived, workload-
-scoped credentials**: in-cluster sealed-secrets / External Secrets Operator (ESO) / SOPS, or cloud
-workload-identity federation that exchanges the GitHub Actions OIDC token for a time-limited cloud IAM
-token — so a deploy authenticates with a credential bound to the workload and expiring in minutes,
-not a stored secret that survives an attacker.
-
-**Why it is deferred / cluster-level:** this lives in the **cluster platform**, not the service repo.
-It needs the GitHub OIDC issuer to be a trusted identity provider in the cloud IAM, and an in-cluster secrets
-operator to be installed — none of which a service-repo edit can deliver. The repo can at most
-reference the issuer; the federation and rotation are platform concerns. It is the deploy-side
-counterpart of the keyless OIDC build-identity work (item I).
+The deploy jobs authenticate with **workload identity federation**: on GKE (`DEPLOY_MODE=gke`, the default)
+the job's GitHub Actions OIDC token is exchanged for a short-lived token of the environment's deployer
+service account ([`.github/actions/cluster-access`](../.github/actions/cluster-access/action.yml)), with no
+stored cloud key. The other mode, `kubeconfig`, reads a stored kubeconfig secret of the environment, and is
+the one left on a long-lived credential. Images are pushed with the job's own `GITHUB_TOKEN`. App secrets can
+come from the External Secrets Operator (`externalSecret.enabled` in the chart). Setup:
+[GKE cluster setup](./gke-cluster-setup.md) and [CI/CD, Deploy chain](./ci-cd.md#deploy-chain).
 
 ---
 
-## 6. OpenSSF Scorecard / CII Best Practices Badge — *roadmap*
+## 6. OpenSSF Scorecard / CII Best Practices Badge — *Scorecard delivered; the badge is not*
 
-Run **OpenSSF Scorecard** against the repo (and/or earn the **CII Best Practices Badge**) as
-**read-only assurance**: a periodic, scored assessment of supply-chain hygiene (pinned dependencies,
-signed releases, token permissions, …) that *reports* a score rather than gating the build.
-
-**Why it is deferred / not a service-repo change:** it is an **assurance layer that measures the
-repo**, typically on a schedule in a separate job or an external service — it produces a score, not
-a shipped artifact, and does not change the service. An adopter should not expect a repo stub to
-"deliver" a Scorecard score; it is run against the repo, not built into it. Deferred as read-only
-assurance, not a hard gate.
+[`scorecard.yml`](../.github/workflows/scorecard.yml) runs **OpenSSF Scorecard** weekly and on every push to
+`main`, publishes the result and uploads it as SARIF: **read-only assurance**, never a gate, on public
+repositories only. The **CII (OpenSSF) Best Practices Badge** is a self-assessment on an external site, not
+a repository change; it stays with the adopter.
 
 ---
 
-## 7. SBOM-consumption / VEX-actuation loop — *roadmap*
+## 7. SBOM-consumption / VEX-actuation loop — *partly delivered*
 
-Close the loop from the **SBOM + VEX** the pipeline already produces to **remediation**: when a
-*fixable* CVE appears in the SBOM and is `affected` in the VEX, drive a
-remediation SLA (open an issue, bump the dependency, re-attest the VEX) on a cadence — rather than
-publishing the SBOM/VEX once and treating that as done.
-
-**Why it is deferred / not a service-repo change:** the repo *produces* the SBOM and VEX (delivered);
-**consuming** them on a schedule with a remediation SLA is a **delivery/ops process** (dependency-
-update automation, triage, VEX re-attestation cadence) that lives downstream of the repo. It depends
-on the SBOM + VEX work being in place first.
+The weekly re-scan ([`rescan.yml`](../.github/workflows/rescan.yml)) scans the running and released images
+by digest and opens or updates one issue per fixable critical or high finding, with an SLA
+([Vulnerability management](./vulnerability-management.md)). What stays a **delivery/ops process** outside
+the repository: working those issues to the SLA, bumping the dependency, and re-reviewing the VEX
+`not_affected` list on a cadence.
 
 ---
 
@@ -163,13 +146,11 @@ flowchart LR
         M["osv<br/>MAL-*"] & H["workflows<br/>hardening lint"]
     end
 
-    subgraph Roadmap["Roadmap"]
-        K["Kyverno admission<br/>(enforces the delivered signatures)"]
-        I["OIDC build identity"]
-        P["environment-scoped secrets<br/>(repository setting)"]
-        W["Workload identity<br/>(deploy-side of I)"]
+    subgraph Roadmap["Delivered, applied outside the repository"]
+        K["Kyverno admission<br/>(example policies, applied by a cluster admin)"]
+        W["Workload identity<br/>(GKE deploys; kubeconfig mode keeps a secret)"]
         SC["OpenSSF Scorecard<br/>(read-only assurance)"]
-        SB["SBOM-consumption /<br/>VEX-actuation"]
+        SB["Re-scan issues<br/>(the SLA work is a process)"]
     end
 
     Delivered --> Roadmap

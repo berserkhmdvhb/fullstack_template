@@ -160,16 +160,15 @@ The `SUPPORTED_VERSIONS` dict in `versioning_api.py` controls which versions are
 Services contain **business logic** and orchestrate repository calls:
 
 ```python
-# Example: ItemService
+# Abridged from services/item_service.py
 class ItemService:
-    def __init__(self, repo: ItemRepositoryProtocol):
-        self.repo = repo
+    def __init__(self, repo: ItemRepository) -> None:
+        self.repo: ItemRepository = repo
 
-    async def list_items(self, ...) -> list[Item]:
-        return await self.repo.list_items(...)
-
-    async def create_item(self, data: ItemCreate) -> Item:
-        return await self.repo.create_item(data)
+    async def create_item(self, name: str, description: str, *, is_active: bool) -> ItemEntity:
+        item = await self.repo.create_item(name, description, is_active=is_active)
+        # ... an audit log line, then
+        return item
 ```
 
 **Principles**:
@@ -186,14 +185,14 @@ Repositories handle **data access** using SQLAlchemy 2.0 async patterns:
 ```mermaid
 flowchart TB
     Service["Service"] -->|"calls"| Repo["Repository Protocol"]
-    Repo -->|"implements"| SA["SQLAlchemyItemRepository"]
+    Repo -->|"implements"| SA["SqlAlchemyItemRepository"]
     SA -->|"uses"| Session["AsyncSession"]
     Session -->|"executes"| SQL["SQL Queries"]
     SQL --> DB[("PostgreSQL")]
 ```
 
 **Key patterns**:
-- **Protocol-based** — `ItemRepositoryProtocol` defines the interface; `SQLAlchemyItemRepository` implements it
+- **Protocol-based** — `ItemRepository` (a `Protocol`, `repositories/item_protocol.py`) defines the interface; `SqlAlchemyItemRepository` implements it
 - **Soft delete** — Items are soft-deleted (`deleted_at` set) rather than hard-deleted
 - **Search** — `ilike` filtering on name/description
 - **Pagination** — Offset/limit with total count
@@ -255,20 +254,9 @@ flowchart LR
 
 ### Models
 
-SQLAlchemy ORM models map to database tables:
-
-```python
-class ItemModel(Base):
-    __tablename__ = "items"
-
-    id = Column(String(36), primary_key=True, default=uuid4)
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    deleted_at = Column(DateTime, nullable=True)  # Soft delete
-```
+SQLAlchemy ORM models map to database tables: `Item` in
+[`db/models.py`](../src/your_service_name/backend/db/models.py), with a native UUID key and timezone-aware UTC
+timestamps (`UTCDateTime`). Its columns are in [Database](./database.md#column-reference).
 
 ### Migrations
 

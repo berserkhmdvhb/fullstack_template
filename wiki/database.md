@@ -70,32 +70,17 @@ services:
 
 ### Item Model
 
-```python
-# src/your_service_name/backend/db/models.py
-
-class ItemModel(Base):
-    __tablename__ = "items"
-
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
-    deleted_at = Column(DateTime(timezone=True), nullable=True)
-```
+The model is `Item` in [`models.py`](../src/your_service_name/backend/db/models.py) (SQLAlchemy 2.0
+`Mapped` columns); the table it maps is created by the first migration,
+[`0001_create_items.py`](../src/your_service_name/backend/db/migrations/versions/0001_create_items.py).
 
 ### Column Reference
 
 | Column | Type | Nullable | Default | Notes |
 |--------|------|----------|---------|-------|
-| `id` | `String(36)` | No | UUID v4 | Primary key |
+| `id` | `Uuid` | No | UUID v4 | Primary key (native `UUID` on PostgreSQL, `CHAR(36)` on SQLite) |
 | `name` | `String(255)` | No | — | Item name (1-255 chars) |
-| `description` | `Text` | Yes | — | Optional description |
+| `description` | `String` | No | `""` | Optional in the API; stored as an empty string |
 | `is_active` | `Boolean` | No | `True` | Active status |
 | `created_at` | `UTCDateTime` | No | `now()` | Auto-set on create |
 | `updated_at` | `UTCDateTime` | No | `now()` | Auto-updated on change |
@@ -432,7 +417,7 @@ All list queries automatically exclude soft-deleted items:
 
 ```python
 # Repository: list_items
-stmt = select(ItemModel).where(ItemModel.deleted_at.is_(None))
+stmt = select(Item).where(Item.deleted_at.is_(None))
 ```
 
 ### Restore
@@ -473,21 +458,17 @@ class ItemRepository(Protocol):
 ```python
 # src/your_service_name/backend/repositories/sqlalchemy_item.py
 
-class SQLAlchemyItemRepository:
-    def __init__(self, session: AsyncSession):
-        self.session = session
+class SqlAlchemyItemRepository(ItemRepository):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
 
-    async def list_items(self, ...) -> tuple[list[Item], int]:
-        # Build query with search, pagination, sorting
-        stmt = select(ItemModel).where(ItemModel.deleted_at.is_(None))
+    async def list_items(self, search=None, *, offset=0, limit=50) -> tuple[list[ItemEntity], int]:
+        # Base query with the optional search filter (soft-deleted rows excluded)
+        base_stmt = select(Item).where(Item.deleted_at.is_(None))
         if search:
-            stmt = stmt.where(
-                or_(
-                    ItemModel.name.ilike(f"%{search}%"),
-                    ItemModel.description.ilike(f"%{search}%"),
-                )
-            )
-        # ... pagination, sorting, execute
+            pattern = f"%{search}%"
+            base_stmt = base_stmt.where(Item.name.ilike(pattern) | Item.description.ilike(pattern))
+        # ... the total count, then offset and limit, newest first
 ```
 
 ### In-Memory Repository (Testing)

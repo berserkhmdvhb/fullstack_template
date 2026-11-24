@@ -12,13 +12,14 @@ service built from it**, not just this checkout. See [`CONVENTIONS.md`](./CONVEN
 ## Commands (the ones you can't guess)
 
 ```bash
-make check-all-dry        # pre-commit gate: drift + ruff format --check + ruff check + mypy (read-only)
+make check-all-dry        # pre-commit gate: drift + ruff format --check + ruff check + mypy + env-docs (read-only)
 make check-all            # same, but auto-formats (rewrites files)
 make precommit            # every pre-commit hook on all files (install the git hook once: .tools/bin/pre-commit install)
 make test                 # backend unit + integration + e2e (hermetic; excludes live)
 make test-unit            # backend unit only
 make test-integration / test-e2e / test-contract / test-live
 make shellcheck           # lint every tracked *.sh + *.bats
+make docs-links           # every file link and #anchor in the docs, offline (pinned lychee)
 make pins-refresh         # after bumping a pin: write the vendor checksums and regenerate the hashed locks
 cd frontend && npm run lint && npm run typecheck && npm run test   # frontend gates
 ```

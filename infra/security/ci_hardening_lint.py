@@ -11,8 +11,8 @@ prints a structured report instead (used by ``check-ci-hardening.sh``).
 
 Checks (ids are stable):
   pinned-uses, top-permissions, no-prt-checkout, no-inline-secrets, image-digest,
-  image-push-isolation (only reusable-build.yml pushes, signs or attests images, and
-  reusable-chart-release.yml the release chart), provenance
+  image-push-isolation (only the two signing workflows push, sign or attest: reusable-build.yml
+  the images, reusable-chart-release.yml the release chart), provenance
   (when a workflow calls reusable-build.yml, it must sign, verify and attest), osv-coverage,
   environment-for-secrets, timeouts, no-dry-run-env, documented-permissions, no-release-cache
   (the release path uses no build cache, no actions/cache and no setup-* cache).
@@ -50,6 +50,7 @@ SCORECARD_WORKFLOW = ".github/workflows/scorecard.yml"
 SCORECARD_JOB = "analysis"
 _REUSABLE_REF = "./" + REUSABLE_BUILD
 _SIGNING_REFS = {"./" + w for w in SIGNING_WORKFLOWS}
+_SIGNERS = " or ".join(w.rsplit("/", 1)[-1] for w in SIGNING_WORKFLOWS)  # for the messages
 _CLOUD_LOGIN_REF = (
     "./.github/workflows/deploy.yml"  # its caller grants id-token for the cloud login
 )
@@ -398,25 +399,25 @@ def _caller_isolation(doc: Doc, job_id: str, job: LDict, perms: Any) -> list[Fin
 
 
 def _runner_isolation(doc: Doc, job_id: str, job: LDict, perms: Any) -> list[Finding]:
-    """A job that runs steps, outside reusable-build.yml."""
+    """A job that runs steps, outside the signing workflows."""
     found = [
-        _isolation(doc, job.line, f"job {job_id} holds {scope}: write; only reusable-build.yml may")
+        _isolation(doc, job.line, f"job {job_id} holds {scope}: write; only {_SIGNERS} may")
         for scope in ("packages", "attestations")
         if _grants(perms, scope)
     ]
     for step in job.get("steps", []):
         what = _pushes_images(step) if isinstance(step, LDict) else None
         if what:
-            msg = f"job {job_id} runs {what}; only reusable-build.yml may push, sign or attest"
+            msg = f"job {job_id} runs {what}; only {_SIGNERS} may push, sign or attest"
             found.append(_isolation(doc, job.line, msg))
     return found
 
 
 def check_image_push_isolation(doc: Doc) -> list[Finding]:
-    """Only reusable-build.yml pushes, signs or attests images; only its signing job attests."""
+    """Only the signing workflows push, sign or attest; in each, only its named jobs attest."""
     if not doc.is_workflow:  # a composite action: its steps run inside whatever job calls it
         return [
-            _isolation(doc, step.line, f"composite action runs {what}; only reusable-build.yml may")
+            _isolation(doc, step.line, f"composite action runs {what}; only {_SIGNERS} may")
             for step in doc.steps()
             if (what := _pushes_images(step))
         ]

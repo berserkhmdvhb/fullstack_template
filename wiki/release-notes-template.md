@@ -8,8 +8,8 @@
 **Tag:** `v3.0.0`
 **Date:** YYYY-MM-DD *(set to the day you push the tag)*
 **Channel:** main (production)
-**Image tag:** `3.0.0-prod-<short-sha>` — the same tag for all three images
-  (`your-service-name-backend`, `your-service-name-frontend`, `your-service-name-nginx`)
+**Image tag:** `3.0.0-prod-<short-sha>` — the same tag for every image of the release
+  (`ghcr.io/<owner>/<repo>/backend`, `…/frontend` and `…/waf`: [`.github/container-images.yml`](../.github/container-images.yml))
 
 ---
 

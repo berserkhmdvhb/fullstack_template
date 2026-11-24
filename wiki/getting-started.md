@@ -203,7 +203,10 @@ The PEP 517 build backend (setuptools, setuptools-scm and their build dependenci
 included to verify downloaded build dependency archives ... uv records these hashes in uv.lock"). This
 covers what the project's own build requests; build requirements of any future source-only dependency
 are not hash-locked until they are added to that list. Update the list with the floor in
-`[build-system] requires` (versions at least 7 days old), then run `make lock`.
+`[build-system] requires` (versions at least 7 days old): each entry's hashes are the sha256 of that version's files
+on PyPI (its project page lists them per file), then run `make lock`. `setuptools-scm` and `vcs-versioning` are also
+pinned in the dev group, and a test keeps both places equal; the notes of a Renovate pull request that moves them say
+what to do when it changed only the dev group.
 
 ### 3. Initialize the Database
 

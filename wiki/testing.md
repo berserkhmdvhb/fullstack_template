@@ -71,9 +71,9 @@ Pure logic tests with no external dependencies:
 | `middleware/test_rate_limiting.py` | Rate limiting middleware |
 | `utils/test_versioning_api.py` | API version resolution |
 
-**Run**:
+**Run** (`make test` runs these with the integration and e2e layers):
 ```bash
-make test
+make test-unit
 # or
 pytest tests/ -v
 ```
@@ -267,12 +267,9 @@ Deterministic: Hypothesis `derandomize` and 50 examples per operation. A failure
 | `postgres_only` | Needs PostgreSQL; skipped on SQLite | Runs with its layer |
 | `sqlite_only` | Edits a SQLite database file directly; skipped on PostgreSQL | Runs with its layer |
 
-Default `pytest` run excludes integration, e2e, and live tests (runs unit only):
-
-```toml
-# pyproject.toml
-addopts = "-v --maxfail=1 -m 'not integration and not e2e and not live'"
-```
+A bare `pytest` run is unit only: the default `addopts` in `pyproject.toml` (`[tool.pytest.ini_options]`)
+excludes the integration, e2e, live and contract markers. The `make` targets clear it (`-o addopts=""`) and pass
+their own `-m` ([Makefile](../Makefile)).
 
 ### Frontend Configs
 
@@ -383,8 +380,11 @@ above (or below) the measured one.
 ### Quick Reference
 
 ```bash
-# Backend — all unit tests
+# Backend — unit, integration and e2e (hermetic; not live, not contract)
 make test
+
+# Backend — unit only, with the coverage gate
+make test-unit
 
 # Backend — specific test file
 make test-file FILE=tests/backend/schemas/test_item.py

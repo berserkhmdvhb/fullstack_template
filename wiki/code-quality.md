@@ -58,23 +58,9 @@ flowchart TB
 
 The scope is `RUFF_PATHS` in the Makefile: `src/ tests/ scripts/ infra/ .github/scripts/`. CI, `make check-all-dry` and the pre-commit hooks never fix; only `make check-all` does.
 
-**Configuration** (`pyproject.toml`):
-
-```toml
-[tool.ruff]
-line-length = 100
-target-version = "py312"
-show-fixes = true
-exclude = ["tests/exclude/*", "**/_version.py"]
-
-[tool.ruff.lint]
-select = ["ALL"]
-ignore = ["D", "TD", "FIX002", "TC003", "COM812", "CPY001", "F821", "ASYNC240"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "S603", "SLF001", "T201"]
-"infra/adapt/*" = ["T201"]
-```
+**Configuration**: `[tool.ruff]` and `[tool.ruff.lint]` in [`pyproject.toml`](../pyproject.toml): line length 100,
+Python 3.12 target, every rule selected with a short ignore list, and per-file ignores for the tests, `infra/adapt`
+and `infra/security`.
 
 **Rules**:
 - `ALL` — All Ruff rules enabled
@@ -91,19 +77,8 @@ ignore = ["D", "TD", "FIX002", "TC003", "COM812", "CPY001", "F821", "ASYNC240"]
 | `mypy src/` | Check source only |
 | `mypy tests/` | Check tests only |
 
-**Configuration** (`pyproject.toml`):
-
-```toml
-[tool.mypy]
-files = ["src", "tests"]
-exclude = "\\.ipynb$"
-strict = true
-show_error_codes = true
-pretty = true
-mypy_path = "src"
-follow_imports = "normal"
-ignore_missing_imports = true
-```
+**Configuration**: `[tool.mypy]` in [`pyproject.toml`](../pyproject.toml): `strict`, over `files = ["src", "tests"]`
+with `mypy_path = "src"`, so a bare `mypy` checks both.
 
 **Strict mode** enables:
 - `warn_unused_configs`
@@ -187,41 +162,14 @@ ignore_missing_imports = true
 
 ### Backend CI
 
-```yaml
-ruff:
-  stage: lint
-  script:
-    - make ruff-format-check
-    - make ruff-lint
-
-mypy:
-  stage: type-check
-  script:
-    - mypy
-```
-
-Both jobs are **blocking** — the pipeline fails if they don't pass.
+The `lint` job of [`reusable-backend.yml`](../.github/workflows/reusable-backend.yml) runs `make ruff-format-check`,
+`make ruff-lint`, `make mypy-check`, `make env-docs-check` and squawk. It is **blocking**, behind `CI OK` ([CI/CD](./ci-cd.md#advisory-vs-blocking)).
 
 ### Frontend CI
 
-```yaml
-frontend:eslint:
-  stage: lint
-  script:
-    - npm run lint  # 0 warnings allowed
-
-frontend:prettier:
-  stage: lint
-  script:
-    - npm run format-check
-
-frontend:type-check:
-  stage: type-check
-  script:
-    - npm run typecheck
-```
-
-All three jobs are **blocking** and must pass before the build stage.
+[`reusable-frontend.yml`](../.github/workflows/reusable-frontend.yml) runs `eslint` (`npm run lint`, 0 warnings),
+`prettier` (`npm run format-check`) and `type-check` (`npm run typecheck`) as separate jobs, beside the build,
+the tests and the OpenAPI drift check. All of them are **blocking**, behind `CI OK`.
 
 ---
 

@@ -8,6 +8,10 @@ same conventions so they compose into a predictable workflow.
 > These are **local developer tools**, not production deployment automation.
 > They favour clear output and safety (dry-runs, confirmations, no leaked
 > secrets) over raw speed.
+>
+> The CI helpers in `scripts/ci/` are documented with the jobs that run them
+> ([CI/CD](../wiki/ci-cd.md)); the toolchain scripts (`tools.sh`, `pins-refresh.sh`)
+> with the pins ([Getting started](../wiki/getting-started.md), `tools/pins.tsv`).
 
 ---
 

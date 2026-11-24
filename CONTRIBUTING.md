@@ -163,7 +163,8 @@ Keep `wiki/` in sync with the code; one home per fact
 ([`CONVENTIONS.md`](./CONVENTIONS.md#3-one-source-of-truth-single-source--dry)).
 
 - A doc **links** to a `wiki/` page; it does not restate it.
-- Every internal link must resolve — verify with the doc-link checker before you open the PR.
+- Every internal link must resolve — verify with `make docs-links` (the pinned lychee, offline: file links and
+  in-repo anchors; the `repo` job runs the same) before you open the PR.
 - Examples use the placeholder name and env-driven values; no secrets or real internal URLs.
 
 ---
@@ -188,8 +189,9 @@ Run these before every commit / PR. The exact commands (verified against this re
 | Live | `make test-live` | `reusable-live` / `live` |
 | Coverage (≥85%) | `make test-coverage` | coverage in `reusable-backend` / `unit` |
 | Shell lint | `make shellcheck` | `ci` / `repo` |
+| Doc links (offline) | `make docs-links` | `ci` / `repo` |
 
-`make check-all-dry` is the pre-commit gate (read-only); `make check-all` is the same but
+`make check-all-dry` is the pre-commit gate (read-only, with the env-docs check); `make check-all` is the same but
 auto-formats. `mypy` runs with no path args (config-driven). Full table + raw commands + marker
 model: [`wiki/code-quality.md`](wiki/code-quality.md).
 

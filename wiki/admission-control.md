@@ -90,7 +90,8 @@ variant, [`kyverno-verify-images-kind.yaml`](../deploy/policies/test/kyverno-ver
 A test keeps the variant equal to the policy except for the attestor (an ephemeral cosign key, no
 transparency log), the image glob (the test's registry) and the scope (the test's namespace only).
 The keys are generated in a temporary directory and the images live in a throwaway TLS registry; the
-test removes everything it created.
+test removes everything it created. The registry is TLS, not plain HTTP, because Kyverno 1.20.0 fetched an
+image's signature and attestation referrers over https even with insecure registries allowed.
 
 Proven there, with the policy's own validations:
 

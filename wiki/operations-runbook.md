@@ -387,6 +387,11 @@ OpenTelemetry/trace pipeline (that is opt-in: see [Tracing](backend-architecture
   absent one is ignored, never a 400, and no trace id is generated here, unless [tracing](backend-architecture.md#tracing) is on: then `trace_id` and `span_id` come from the active span, which continues a valid `traceparent`.
 - If the caller sends no valid id, the middleware **generates** one — a UUID4 hex
   string (32 chars, e.g. `2f1c9a7b…`). It is never blank and never the sentinel.
+- With the WAF on (`waf.enabled`), its Envoy sees the request first. It passes a client's `X-Request-Id`
+  through unchanged (the backend's check above still applies), and gives a request without one a dashed
+  UUID (36 chars, e.g. `4de3c846-2c9a-…`), so on that path a generated id is Envoy's, not the 32-hex one.
+  The WAF's connection manager keeps Envoy's defaults here (`generate_request_id` on, `use_remote_address`
+  off); with `use_remote_address` on, Envoy would replace a client's id at the edge.
 - The id is injected onto every log record emitted while handling the request (application, request
   and audit logs) via a `logging.Filter` on the root logger's handler — no call site has to pass it.
 - Outside a request the field renders as the sentinel `-` (constant `NO_REQUEST_ID`).

@@ -11,11 +11,11 @@ Production-grade template for API-based services with a FastAPI backend, Next.js
 | **Getting Started** | [Getting Started](./getting-started.md) · [Environment Variables](./environment-variables.md) · [Adaptation](./adaptation.md) |
 | **Architecture** | [System Overview](./architecture.md) · [Backend](./backend-architecture.md) · [Frontend](./frontend-architecture.md) · [Infrastructure](./infrastructure.md) |
 | **API** | [API Reference](./api-reference.md) · [API lifecycle](./api-lifecycle.md) |
-| **Development** | [Developer Guide](./developer-guide.md) · [Code Quality](./code-quality.md) · [Database](./database.md) |
+| **Development** | [Developer Guide](./developer-guide.md) · [Code Quality](./code-quality.md) · [Database](./database.md) · [Local development on minikube](./local-development-minikube.md) |
 | **Testing** | [Testing Strategy](./testing.md) |
-| **CI/CD & Deploy** | [CI/CD Pipeline](./ci-cd.md) · [Supply-Chain Security](./supply-chain-security.md) · [Containerization](./containerization.md) · [Frontend Deployment](./frontend-deployment.md) |
-| **Operations** | [Platform Setup](./platform-setup.md) · [GKE Cluster Setup](./gke-cluster-setup.md) · [Cloudflare Setup](./cloudflare-setup.md) · [Operations Runbook](./operations-runbook.md) · [Disaster Recovery](./disaster-recovery.md) · [Security](./security.md) · [Admission control](./admission-control.md) · [Vulnerability management](./vulnerability-management.md) · [Versioning](./versioning.md) · [Releasing](./releasing.md) · [Troubleshooting](./troubleshooting.md) |
-| **Reference** | [Changelog](./changelog.md) · [Doc Templates](./doc-templates.md) |
+| **CI/CD & Deploy** | [CI/CD Pipeline](./ci-cd.md) · [GitHub repository settings](./github-repository-settings.md) · [Supply-Chain Security](./supply-chain-security.md) · [Supply-chain roadmap](./ROADMAP-supply-chain.md) · [Supply-chain tooling assessment](./supply-chain-tooling-assessment.md) · [Containerization](./containerization.md) · [Frontend Deployment](./frontend-deployment.md) |
+| **Operations** | [Platform Setup](./platform-setup.md) · [GKE Cluster Setup](./gke-cluster-setup.md) · [Cloudflare Setup](./cloudflare-setup.md) · [Operations Runbook](./operations-runbook.md) · [Disaster Recovery](./disaster-recovery.md) · [Security](./security.md) · [Admission control](./admission-control.md) · [Vulnerability management](./vulnerability-management.md) · [Versioning](./versioning.md) · [Releasing](./releasing.md) · [Troubleshooting](./troubleshooting.md) · [DAST and WAF on OpenShift Local](./dast-waf-openshift-local-runbook.md) |
+| **Reference** | [Changelog](./changelog.md) · [Release notes template](./release-notes-template.md) · [Doc Templates](./doc-templates.md) |
 
 ---
 
@@ -79,12 +79,15 @@ flowchart TB
 ├── alembic.ini                 # Database migration config
 ├── .env.example                  # Environment variable reference
 │
+├── scripts/                    # Local ops tools, the toolchain installer (tools.sh) and pin refresh
 ├── scripts/ci/                 # Scripts the workflows call (deploy-env, deploy-verify, shell-lint, check-secrets)
+├── tools/pins.tsv              # The pinned, checksum-verified dev toolchain
+├── deploy/policies/            # Example Kyverno admission policies, with their tests
 │
 ├── charts/your-service-name/   # Helm chart (the deploy mechanism; values.<env>.yaml per environment)
 ├── infra/                      # Infrastructure scripts & configs
 │   ├── runtime/                # Entrypoint for local dev: starts backend and frontend (--mode all)
-│   ├── db/
+│   ├── k8s/bootstrap/          # The one-time admin bootstrap chart (namespaces, quota, deployer RBAC)
 │   ├── adapt/                  # Service name adaptation
 │   └── security/               # SBOM, Grype, Grant scan scripts
 │
@@ -117,7 +120,9 @@ flowchart TB
 │   ├── backend/                # Unit tests (db, entities, schemas, services, ...)
 │   ├── integration/            # In-process ASGI integration tests
 │   ├── e2e/                    # End-to-end API tests
-│   └── live/                   # Live tests against running stack
+│   ├── live/                   # Live tests against running stack
+│   ├── contract/               # Schemathesis contract tests (make test-contract)
+│   └── k8s/                    # Tests against the kind cluster (make kind-*-test)
 │
 └── wiki/                       # This documentation
 ```
@@ -131,7 +136,7 @@ flowchart TB
 3. **API-first** — Backend exposes OpenAPI spec; frontend generates typed API client from it.
 4. **Testing pyramid** — Four layers: unit → integration → e2e → live, for both backend and frontend.
 5. **Security by default** — Rate limiting, security headers, CORS, NetworkPolicy, PodSecurity, SBOM generation, vulnerability scanning, and license compliance in CI.
-6. **buildx on hosted runners** — Container images are built without Docker-in-Docker, by `docker/build-push-action`, only on `main` and `v*` tags.
+6. **buildx on hosted runners** — Container images are built without Docker-in-Docker; they are pushed, by `docker/build-push-action`, only on `main` and `v*` tags (a pull request builds them into the runner's local daemon to check them).
 7. **Dual versioning** — Package version from Git tags (`setuptools_scm`), API version from `API_VERSION` env var.
 8. **Kubernetes-native** — Helm chart with per-env values for multi-environment strategy, HPA for autoscaling, PDB for availability, NetworkPolicy for network isolation.
 

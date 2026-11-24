@@ -97,7 +97,7 @@ bash infra/security/local/scan-dast.sh "$SEC_OUTPUT_DIR" "$(pwd)"
   instead of crawling HTML.
 - **Authenticated:** supply a ZAP context (login + session) so behind-login
   endpoints are covered.
-- Inspect findings: `make report` / `report.sh` over `$SEC_OUTPUT_DIR/dast/`.
+- Inspect findings: `make security-report` / `infra/security/local/report.sh` over `$SEC_OUTPUT_DIR/dast/`.
 
 Expect: baseline = advisory reds, pipeline-equivalent exit 0; active = more
 findings, still advisory unless you flip the release path to blocking.
