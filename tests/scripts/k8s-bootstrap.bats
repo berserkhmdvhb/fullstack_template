@@ -122,8 +122,9 @@ STUB
 
 # ---- preview --create-secrets: the previews' database Secrets, once, through the admin's kubectl ----
 
-# A kubectl that keeps Secrets as files under $SECRETS/<namespace>/<name>/<key>; KUBECTL_FAILS fails a get,
-# NO_NAMESPACE=<ns> fails a create there (the namespace is not applied yet).
+# A kubectl that keeps Secrets as files under $SECRETS/<namespace>/<name>/<key>, and every value it
+# stores in $SECRETS.values; KUBECTL_FAILS fails a get, NO_NAMESPACE=<ns> fails a create there (the
+# namespace is not applied yet), DELETE_FAILS fails a delete.
 secrets_kubectl() {
   export SECRETS="$BATS_TEST_TMPDIR/secrets"
   mkdir -p "$SECRETS"
@@ -140,11 +141,27 @@ case "$1 $2" in
     [[ "$ns" != "${NO_NAMESPACE:-}" ]] || { echo "Error: namespaces \"$ns\" not found" >&2; exit 1; }
     [[ ! -d "$SECRETS/$ns/$name" ]] || { echo "AlreadyExists" >&2; exit 1; }
     mkdir -p "$SECRETS/$ns/$name"
-    for a in "$@"; do kv="${a#--from-file=}"; cp "${kv#*=}" "$SECRETS/$ns/$name/${kv%%=*}"; done ;;
-  "delete secret") rm -r "$SECRETS/$ns/$3" ;;
+    for a in "$@"; do
+      kv="${a#--from-file=}"; cp "${kv#*=}" "$SECRETS/$ns/$name/${kv%%=*}"
+      { cat "${kv#*=}"; echo; } >> "$SECRETS.values"
+    done ;;
+  "delete secret")
+    [[ -z "${DELETE_FAILS:-}" ]] || { echo "Error: forbidden" >&2; exit 1; }
+    rm -r "$SECRETS/$ns/$3" ;;
 esac
 STUB
   chmod +x "$B/kubectl"
+}
+
+# No value the stub stored (the 48-hex password and stats password) is in $1 (the output) or the kubectl log.
+no_secret_values() {
+  local out="$1" v n=0
+  while read -r v; do
+    [[ "$v" =~ ^[0-9a-f]{48}$ ]] || continue
+    n=$((n + 1))
+    if [[ "$out" == *"$v"* ]] || grep -qF -- "$v" "$LOG"; then echo "a secret value is in the output or the log" >&2; return 1; fi
+  done < "$SECRETS.values"
+  [ "$n" -gt 0 ]
 }
 
 @test "--create-secrets creates the two Secrets values.preview.yaml names, with one password, never on a command line or the output" {
@@ -196,7 +213,18 @@ STUB
   [[ "$output" == *"cannot create your-service-name-preview-db/preview-db-password (is the bootstrap applied?)"* ]]
   [[ "$output" == *"removed your-service-name-preview/preview-app-secret again"* ]]
   [ ! -e "$SECRETS/your-service-name-preview/preview-app-secret" ]
+  no_secret_values "$output"
   run bash "$SCRIPT" preview --create-secrets
   [ "$status" -eq 0 ]
   [[ "$output" == "k8s-bootstrap: created "* ]]
+}
+
+@test "--create-secrets names the Secret to delete when it cannot remove it again, and prints no secret value" {
+  secrets_kubectl
+  NO_NAMESPACE=your-service-name-preview-db DELETE_FAILS=1 run bash "$SCRIPT" preview --create-secrets
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"cannot create your-service-name-preview-db/preview-db-password, nor remove your-service-name-preview/preview-app-secret again: delete it, then re-run"* ]]
+  [[ "$output" != *"so nothing was kept"* ]]
+  [ -d "$SECRETS/your-service-name-preview/preview-app-secret" ]
+  no_secret_values "$output"
 }
