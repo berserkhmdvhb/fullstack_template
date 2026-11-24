@@ -19,8 +19,9 @@
 
 import { expect, test } from '@playwright/test';
 
+import { CSP_REPORT_PATH as REPORT_PATH } from '../static-paths';
+
 const marker = process.env['CSP_REPORT_MARKER'];
-const REPORT_PATH = '/api/v1/csp-report';
 
 test.skip(!marker, 'CSP_REPORT_MARKER is unset (make kind-csp-report-test sets it)');
 

@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
-import { BACKEND_PATHS, DOCS_PATH } from './static-paths';
+import { BACKEND_PATHS, CSP_REPORT_PATH, DOCS_PATH } from './static-paths';
 
 // Runtime backend proxy.
 //
@@ -31,10 +31,9 @@ const resolveBackend = () =>
 const proxiesToBackend = (pathname: string) =>
   BACKEND_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
-// CSP violation reports go to the backend's opt-in endpoint (same-origin, so `'self'` already allows
+// CSP violation reports go to the backend's opt-in endpoint, CSP_REPORT_PATH (same-origin, so `'self'` allows
 // it). The backend serves it only when its CSP_REPORT_ENABLED is on; this flag, read per request,
 // is the frontend half (the chart sets both from one value).
-const CSP_REPORT_PATH = '/api/v1/csp-report';
 const CSP_REPORT_GROUP = 'csp-endpoint';
 const cspReportingEnabled = () =>
   (process.env['CSP_REPORTING_ENABLED'] ?? '').trim().toLowerCase() === 'true';

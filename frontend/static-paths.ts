@@ -39,8 +39,12 @@
 
 /** The path of the backend's docs page; the proxy hands it the backend's own policy. */
 export const DOCS_PATH = '/docs';
+/** The versioned API prefix (the backend's /api/<API_VERSION>). */
+export const API_PATH = '/api/v1';
+/** The backend's CSP report endpoint; the page policy names it (proxy.ts), the e2e spec checks it. */
+export const CSP_REPORT_PATH = `${API_PATH}/csp-report`;
 /** Same-origin paths the proxy rewrites onto the backend (the one definition; proxy.ts imports it). */
-export const BACKEND_PATHS: readonly string[] = ['/api/v1', DOCS_PATH, '/openapi.json'];
+export const BACKEND_PATHS: readonly string[] = [API_PATH, DOCS_PATH, '/openapi.json'];
 
 /** Directories of build output (the directory itself and everything below it). */
 export const DIRECTORIES = ['_next/static', '_next/image'] as const;
