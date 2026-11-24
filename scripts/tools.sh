@@ -151,7 +151,8 @@ install_pin() { # uses NAME VER URL SHA
       echo "==> $NAME $VER: keeping the verified download ($URL)"
       TMP="$(mktemp -d)"
       file="$TMP/${URL##*/}"
-      curl -fsSL --proto "${TOOLS_PROTO:-=https}" --proto-redir =https -o "$file" "$URL"
+      curl -fsSL --retry 3 --retry-connrefused --connect-timeout 15 --speed-limit 1024 --speed-time 30 \
+        --proto "${TOOLS_PROTO:-=https}" --proto-redir =https -o "$file" "$URL"
       verify "$file" "$SHA"
       keep_download "$file" "$kept"
       rm -rf "$TMP"
@@ -164,7 +165,8 @@ install_pin() { # uses NAME VER URL SHA
     else
       TMP="$(mktemp -d)"
       file="$TMP/${URL##*/}"
-      curl -fsSL --proto "${TOOLS_PROTO:-=https}" --proto-redir =https -o "$file" "$URL"
+      curl -fsSL --retry 3 --retry-connrefused --connect-timeout 15 --speed-limit 1024 --speed-time 30 \
+        --proto "${TOOLS_PROTO:-=https}" --proto-redir =https -o "$file" "$URL"
       verify "$file" "$SHA"
       [[ " $KEEP_DOWNLOAD " != *" $NAME "* ]] || keep_download "$file" "$kept"
       PART="$dest.part"

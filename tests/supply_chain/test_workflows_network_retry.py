@@ -228,3 +228,16 @@ def test_index_validation_stays_outside_the_retry() -> None:
 def test_the_helper_is_a_tracked_executable_script() -> None:
     assert RETRY.stat().st_mode & 0o111
     assert WORKFLOWS.is_dir()
+
+
+def test_every_tool_download_retries_and_times_out() -> None:
+    # Every job installs through this script; a flaky mirror must not fail the run on one try.
+    lines = [
+        line
+        for line in (REPO / "scripts" / "tools.sh").read_text().replace("\\\n", " ").splitlines()
+        if line.lstrip().startswith("curl ")
+    ]
+    assert lines
+    for line in lines:
+        for flag in ("--retry ", "--retry-connrefused", "--connect-timeout ", "--speed-limit "):
+            assert flag in line, (flag, line)
