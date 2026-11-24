@@ -175,7 +175,18 @@ jobs:
           if [[ "${IMMUTABLE}" == "true" && "${PRERELEASE}" == "false" ]]; then
             tags+=(--tag "${REPOSITORY}:latest")
           fi
-          docker buildx imagetools create "${tags[@]}" "${sources[@]}"
+          # The call builds an index from exact digests, so repeating it is safe; ghcr.io token timeouts are transient.
+          for attempt in 1 2 3; do
+            if docker buildx imagetools create "${tags[@]}" "${sources[@]}"; then
+              exit 0
+            fi
+            echo "::warning::imagetools create failed (attempt ${attempt}/3)"
+            if (( attempt < 3 )); then
+              sleep "$(( attempt == 1 ? 10 : 30 ))"
+            fi
+          done
+          echo "::error::imagetools create failed after 3 attempts"
+          exit 1
       - name: Resolve the index digest
         run: |
           set -euo pipefail
