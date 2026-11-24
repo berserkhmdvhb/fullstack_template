@@ -14,7 +14,8 @@ name: PR-Agent
 #   repository ID, not name: an ID survives a rename and has no case to get wrong.
 # - Ordinary comments start no runner: the gate's `if:` passes only a pull request event or a comment that starts
 #   with `/`; the shell step below decides.
-# - `issue_comment`: only a supported slash command, on a pull request, from an owner, member or collaborator,
+# - `issue_comment`: only a supported slash command with no option token (`--name`, which would override
+#   .pr_agent.toml), on a pull request, from an owner, member or collaborator,
 #   not a bot, and only on a pull request from this repository (looked up through the API), so fork content
 #   never reaches the job with the key.
 # - Nothing is checked out: PR-Agent reads the diff through the API and its settings (.pr_agent.toml) from the
@@ -69,6 +70,9 @@ jobs:
         run: |
           set -euo pipefail
           commands='^/(review|describe|improve|ask|help)([[:space:]]|$)'
+          # PR-Agent reads `--section.key=value` in a comment as a setting, which could undo .pr_agent.toml
+          # (edit the title, body or labels). Any option token anywhere in the body is refused: fails closed.
+          options='(^|[[:space:]])--[A-Za-z_]'
           head="" reason=""
           if [[ "${SENDER_TYPE}" == Bot ]]; then
             reason="a bot started it"
@@ -80,6 +84,8 @@ jobs:
             reason="the comment's author is not an owner, member or collaborator"
           elif [[ ! "${BODY}" =~ ${commands} ]]; then
             reason="not a supported command"
+          elif [[ "${BODY}" =~ ${options} ]]; then
+            reason="the comment sets an option (--name), which could override .pr_agent.toml"
           elif [[ ! "${PR_NUMBER}" =~ ^[0-9]+$ ]]; then
             reason="no pull request number"
           else

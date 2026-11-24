@@ -151,6 +151,8 @@ def _gate(tmp_path: Path, api_head: str = SAME, **event: str) -> tuple[str, str]
         ({"BODY": "/review"}, SAME),
         ({"BODY": "/ask why this lock?\nmore"}, SAME),
         ({"ASSOCIATION": "OWNER", "BODY": "/improve"}, SAME),
+        ({"BODY": "/ask what does a--b do here?"}, SAME),  # no option token: `--` mid-word
+        ({"BODY": "/ask is -- a separator?"}, SAME),  # a bare `--` names no option
         ({"EVENT": "pull_request", "HEAD_REPO_ID": SAME, "ON_PR": "false", "BODY": ""}, FORK),
     ],
 )
@@ -179,6 +181,18 @@ def test_the_gate_lets_a_same_repository_pull_request_or_command_through(
         ("a command not at the start", {"BODY": "please /review"}, SAME),
         ("a prefix of a command", {"BODY": "/reviewer"}, SAME),
         ("another event", {"EVENT": "push"}, SAME),
+        (
+            "an option override",
+            {"BODY": "/describe --pr_description.publish_description_as_comment=false"},
+            SAME,
+        ),
+        ("an option on a later line", {"BODY": "/review\n--pr_reviewer.extra=x"}, SAME),
+        ("an option after a tab", {"BODY": "/improve\t--config.model=other"}, SAME),
+        (
+            "an option in an ask",
+            {"BODY": "/ask why? --pr_description.generate_ai_title=true"},
+            SAME,
+        ),
     ],
 )
 def test_the_gate_says_no(tmp_path: Path, case: str, event: dict[str, str], api_head: str) -> None:
