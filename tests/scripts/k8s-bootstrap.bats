@@ -122,7 +122,8 @@ STUB
 
 # ---- preview --create-secrets: the previews' database Secrets, once, through the admin's kubectl ----
 
-# A kubectl that keeps Secrets as files under $SECRETS/<namespace>/<name>/<key>; KUBECTL_FAILS fails a get.
+# A kubectl that keeps Secrets as files under $SECRETS/<namespace>/<name>/<key>; KUBECTL_FAILS fails a get,
+# NO_NAMESPACE=<ns> fails a create there (the namespace is not applied yet).
 secrets_kubectl() {
   export SECRETS="$BATS_TEST_TMPDIR/secrets"
   mkdir -p "$SECRETS"
@@ -136,9 +137,11 @@ case "$1 $2" in
     [[ ! -d "$SECRETS/$ns/$3" ]] || echo "secret/$3" ;;
   "create secret")
     name="$4"; shift 4
+    [[ "$ns" != "${NO_NAMESPACE:-}" ]] || { echo "Error: namespaces \"$ns\" not found" >&2; exit 1; }
     [[ ! -d "$SECRETS/$ns/$name" ]] || { echo "AlreadyExists" >&2; exit 1; }
     mkdir -p "$SECRETS/$ns/$name"
     for a in "$@"; do kv="${a#--from-file=}"; cp "${kv#*=}" "$SECRETS/$ns/$name/${kv%%=*}"; done ;;
+  "delete secret") rm -r "$SECRETS/$ns/$3" ;;
 esac
 STUB
   chmod +x "$B/kubectl"
@@ -184,4 +187,16 @@ STUB
   [ "$status" -ne 0 ]
   [[ "$output" == *"cannot read secret preview-app-secret in your-service-name-preview"* ]]
   run ! grep -q "create secret" "$LOG"
+}
+
+@test "--create-secrets before the database namespace exists keeps neither Secret, and the re-run then creates both" {
+  secrets_kubectl
+  NO_NAMESPACE=your-service-name-preview-db run bash "$SCRIPT" preview --create-secrets
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"cannot create your-service-name-preview-db/preview-db-password (is the bootstrap applied?)"* ]]
+  [[ "$output" == *"removed your-service-name-preview/preview-app-secret again"* ]]
+  [ ! -e "$SECRETS/your-service-name-preview/preview-app-secret" ]
+  run bash "$SCRIPT" preview --create-secrets
+  [ "$status" -eq 0 ]
+  [[ "$output" == "k8s-bootstrap: created "* ]]
 }

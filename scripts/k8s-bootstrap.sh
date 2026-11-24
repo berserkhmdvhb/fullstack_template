@@ -39,7 +39,8 @@
 #   --create-secrets (preview only, after the apply) create the Secrets the chart's values.preview.yaml
 #                    names (secrets.existingSecret in the app namespace, postgresql.existingSecret in
 #                    the database namespace) with one random password, never printed; both kept when
-#                    they exist, so a re-run changes nothing; refused when only one exists
+#                    they exist, so a re-run changes nothing; refused when only one exists; when the
+#                    second cannot be created, the first is removed again
 # Needs helm and yq (scripts/tools.sh install helm4 yq), used only to render and read the config;
 # --create-secrets needs yq and kubectl.
 # ===========================================================================
@@ -132,7 +133,12 @@ if [[ -n "$create_secrets" ]]; then
     od -An -N24 -tx1 /dev/urandom | tr -d ' \n' > "$secret_dir/stats" )
   kubectl -n "$namespace" create secret generic "$app_secret" --from-file="DB_USER=$secret_dir/user" \
     --from-file="DB_PASSWORD=$secret_dir/password" --from-file="STATS_PASS=$secret_dir/stats" >/dev/null
-  kubectl -n "$db_namespace" create secret generic "$db_secret" --from-file="$db_key=$secret_dir/password" >/dev/null
+  # Both or neither: a failed second create (its namespace not applied yet, say) removes the first again.
+  if ! kubectl -n "$db_namespace" create secret generic "$db_secret" --from-file="$db_key=$secret_dir/password" >/dev/null; then
+    kubectl -n "$namespace" delete secret "$app_secret" >/dev/null ||
+      die "cannot create ${db_namespace}/${db_secret}, nor remove ${namespace}/${app_secret} again: delete it, then re-run"
+    die "cannot create ${db_namespace}/${db_secret} (is the bootstrap applied?); removed ${namespace}/${app_secret} again, so nothing was kept"
+  fi
   echo "k8s-bootstrap: created ${namespace}/${app_secret} and ${db_namespace}/${db_secret}"
   exit 0
 fi
