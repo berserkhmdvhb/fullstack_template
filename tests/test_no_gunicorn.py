@@ -1,5 +1,6 @@
 # your-service-name — adaptable service template (see wiki/getting-started.md)
-"""The backend is served by Uvicorn only: no tracked file but the changelog names the old server."""
+"""The backend is served by Uvicorn only: no tracked file names the old server, except the
+changelog and the decision records."""
 
 from __future__ import annotations
 
@@ -9,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 NAME = b"gun" + b"icorn"  # spelled in two parts so this file does not name it
 HISTORY = {"wiki/changelog.md"}  # past entries stay as written
+DECISIONS = "wiki/adr/"  # the decision records name what they removed, and why
 LOCKS = {"uv.lock", "package-lock.json"}
 
 
@@ -27,6 +29,7 @@ def test_no_tracked_file_except_the_changelog_names_the_old_server() -> None:
         path
         for path in _tracked()
         if path not in HISTORY
+        and not path.startswith(DECISIONS)
         and Path(path).name not in LOCKS
         and not path.endswith(".lock")
         and NAME in (ROOT / path).read_bytes().lower()

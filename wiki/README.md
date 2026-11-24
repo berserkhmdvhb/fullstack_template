@@ -15,6 +15,7 @@ Production-grade template for API-based services with a FastAPI backend, Next.js
 | **Testing** | [Testing Strategy](./testing.md) |
 | **CI/CD & Deploy** | [CI/CD Pipeline](./ci-cd.md) · [GitHub repository settings](./github-repository-settings.md) · [Supply-Chain Security](./supply-chain-security.md) · [Supply-chain roadmap](./ROADMAP-supply-chain.md) · [Supply-chain tooling assessment](./supply-chain-tooling-assessment.md) · [Containerization](./containerization.md) · [Frontend Deployment](./frontend-deployment.md) |
 | **Operations** | [Platform Setup](./platform-setup.md) · [GKE Cluster Setup](./gke-cluster-setup.md) · [Cloudflare Setup](./cloudflare-setup.md) · [Operations Runbook](./operations-runbook.md) · [Disaster Recovery](./disaster-recovery.md) · [Security](./security.md) · [Admission control](./admission-control.md) · [Vulnerability management](./vulnerability-management.md) · [Versioning](./versioning.md) · [Releasing](./releasing.md) · [Troubleshooting](./troubleshooting.md) · [DAST and WAF on OpenShift Local](./dast-waf-openshift-local-runbook.md) |
+| **Decisions & threats** | [Architecture decision records](./adr/README.md) · [Threat model](./threat-model.md) |
 | **Reference** | [Changelog](./changelog.md) · [Release notes template](./release-notes-template.md) · [Doc Templates](./doc-templates.md) |
 
 ---

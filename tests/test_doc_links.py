@@ -12,7 +12,7 @@ import pytest
 from tests.utils.markdown_headings import anchors, links, prose_lines, unclosed_fence
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCS = sorted((ROOT / "wiki").glob("*.md"))
+DOCS = sorted((ROOT / "wiki").glob("*.md")) + sorted((ROOT / "wiki" / "adr").glob("*.md"))
 
 
 @pytest.mark.parametrize("doc", DOCS, ids=lambda p: p.name)
