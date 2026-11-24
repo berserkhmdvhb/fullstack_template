@@ -151,3 +151,13 @@ def test_setuptools_scm_reads_the_release_tag_and_versions_a_later_commit_as_dev
     sha = _git(root, "rev-parse", "--short", "HEAD")
     version = _scm_version(root)
     assert re.fullmatch(rf"1\.2\.4\.dev1\+g{sha}[0-9a-f]*", version), version
+
+
+def test_an_adopted_copys_first_release_is_the_configured_initial_version() -> None:
+    """The adapter resets the manifest to 0.0.0 (adopt_stamp.py `FIRST_LINE`); release-please
+    then sees no previous release and uses `initial-version` here: the first release is v0.1.0."""
+    stamp = (REPO / "infra" / "adapt" / "adopt_stamp.py").read_text(encoding="utf-8")
+    reset = re.search(r'^FIRST_LINE: Final\[str\] = "([^"]+)"$', stamp, re.MULTILINE)
+    assert reset is not None
+    assert reset.group(1) == "0.0.0"
+    assert _config()["initial-version"] == "0.1.0"

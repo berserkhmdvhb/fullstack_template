@@ -1,7 +1,8 @@
 """Doc guards over the published docs (wiki/, docs-site/src/content/, README.md, CONTRIBUTING.md).
 
-- No `kubectl exec ... -- bash|sh|curl|env` into an app pod: the images are distroless, so the
-  command fails; the operations runbook's `kubectl debug` form is the one that works.
+- No `kubectl exec ... -- bash|sh|curl|env|nslookup|/bin/sh|/bin/bash` into an app pod: the
+  images are distroless, so the command fails; the operations runbook's `kubectl debug` form
+  is the one that works.
 - No numbered list skips a number (1, 2, 4): a lost step reads as a complete list. A list that a
   code fence or a heading interrupts starts again, and so does one that restarts at 1.
 """
@@ -17,7 +18,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SCOPE = ("wiki/", "docs-site/src/content/", "README.md", "CONTRIBUTING.md")
 # The database Pod runs PostgreSQL's own image, which has a shell.
-EXEC = re.compile(r"\bkubectl\b.*\bexec\b.*\s--\s+(?:bash|sh|curl|env)\b")
+EXEC = re.compile(
+    r"\bkubectl\b.*\bexec\b.*\s--\s+(?:bash|sh|curl|env|nslookup|/bin/sh|/bin/bash)\b"
+)
 ITEM = re.compile(r"^( *)(\d+)\. ")
 FENCE = re.compile(r"^\s*(```|~~~)")
 
@@ -32,7 +35,11 @@ def docs() -> list[Path]:
 
 def exec_into_app_pods(text: str) -> list[int]:
     lines = text.replace("\\\n", " ").splitlines()
-    return [n for n, line in enumerate(lines, 1) if EXEC.search(line) and "postgres" not in line]
+    return [
+        n
+        for n, line in enumerate(lines, 1)
+        if EXEC.search(line) and "postgres" not in re.split(r"\s--\s", line)[0]
+    ]
 
 
 def list_gaps(text: str) -> list[str]:
@@ -90,6 +97,11 @@ def test_the_exec_matcher_flags_app_pods_only() -> None:
     assert exec_into_app_pods("kubectl -n db exec <n>-postgresql-0 -- sh -c 'psql'\n") == []
     assert exec_into_app_pods("kubectl debug -it <pod> --image=x --target=backend -- sh\n") == []
     assert exec_into_app_pods("kubectl exec <pod> -- python -m x.healthcheck\n") == []
+    assert exec_into_app_pods("kubectl -n ns exec <pod> -- nslookup host\n") == [1]
+    assert exec_into_app_pods("kubectl -n ns exec -it <pod> -- /bin/sh\n") == [1]
+    assert exec_into_app_pods("kubectl exec <pod> -- /bin/bash -c x\n") == [1]
+    assert exec_into_app_pods("kubectl debug -it <pod> --image=x -- nslookup host\n") == []
+    assert exec_into_app_pods("kubectl exec <pod> -- nslookup db-postgresql.svc\n") == [1]
 
 
 def test_the_list_matcher_flags_a_gap_and_nothing_else() -> None:

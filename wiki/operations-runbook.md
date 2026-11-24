@@ -523,11 +523,11 @@ kubectl -n your-service-name-<environment> describe resourcequota
 kubectl -n your-service-name-<environment> get networkpolicy
 
 # Test connectivity from backend to database
-kubectl -n your-service-name-<environment> exec <backend-pod> -- \
-  curl -v postgresql://user:pass@your-service-name-postgresql.your-service-name-db.svc.cluster.local:5432/db
+kubectl -n your-service-name-<environment> debug -it <backend-pod> --image=busybox:stable --target=backend -- \
+  nc -zv -w 3 your-service-name-postgresql.your-service-name-db.svc.cluster.local 5432
 
 # Check DNS resolution
-kubectl -n your-service-name-<environment> exec <pod-name> -- nslookup your-service-name-postgresql.your-service-name-db.svc.cluster.local
+kubectl -n your-service-name-<environment> debug -it <pod-name> --image=busybox:stable --target=backend -- nslookup your-service-name-postgresql.your-service-name-db.svc.cluster.local
 ```
 
 ---

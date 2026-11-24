@@ -60,8 +60,9 @@ _REPOSITORY: Final = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 TEMPLATE_VERSION: Final[str] = ".template-version"
 RELEASE_MANIFEST: Final[str] = ".release-please-manifest.json"
 RELEASE_CONFIG: Final[str] = "release-please-config.json"
-# The adopter's own version line starts here once the template version is recorded: release-please's
-# default bumps then make the first release v0.1.0 (a feat), v0.0.1 (fixes only) or v1.0.0 (a `!`).
+# The adopter's own version line starts here once the template version is recorded.
+# With the manifest at 0.0.0 release-please sees no previous release and uses `initial-version` from
+# release-please-config.json (0.1.0): the first release is v0.1.0 whatever the commit types.
 FIRST_LINE: Final[str] = "0.0.0"
 
 
