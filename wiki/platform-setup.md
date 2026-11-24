@@ -64,6 +64,8 @@ This is the single list. Every `vars.*` and `secrets.*` that a template workflow
 | `PREVIEW_TTL_DAYS` | variable | repository | optional: the daily sweep removes a preview last deployed this many days ago (default `7`) | you |
 | `PREVIEW_DOMAIN` | variable | environment `preview` | optional: the zone of the previews' hostnames (`<SERVICE_NAME>-pr-<N>.<PREVIEW_DOMAIN>`); unset, previews get no public URL | you |
 | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | **secret** | environment `preview`, with `PREVIEW_DOMAIN` | the Cloudflare Access service token the smoke test sends through the preview's URL | [Cloudflare §9](./cloudflare-setup.md#9-keep-previews-private-with-cloudflare-access) |
+| `RELEASE_APP_ID` | variable | repository | the release GitHub App's ID: [`release-please.yml`](../.github/workflows/release-please.yml) mints its token with it, and the `release-tags` ruleset names it as the one actor that may create a `v*` tag. Unset skips release-please, with a notice | [The release GitHub App](./github-repository-settings.md#the-release-github-app) |
+| `RELEASE_APP_PRIVATE_KEY` | **secret** | environment `release` | the release GitHub App's private key | [The release GitHub App](./github-repository-settings.md#the-release-github-app) |
 | `GITHUB_TOKEN` | secret | automatic | the workflow token; you set nothing | GitHub |
 
 Google Cloud needs no secret at all: GitHub Actions logs in with a short-lived token through Workload Identity Federation. The environment variables above aren't sensitive; a job reads its environment's values only after the environment's branch policy (and, for `production`, its approval) has passed.
@@ -127,7 +129,7 @@ These are the rules the guides apply. The pipeline will follow the same ones.
 Deploys stay off until the platform rollout. The work between now and then, in order:
 
 1. **The first push** of the code to the empty repository.
-2. **The settings script:** the `main` ruleset and a `v*` tag ruleset, the four environments and their branch policies, the repository variables, the Actions policy, and the release GitHub App.
+2. **The settings script:** the `main` ruleset and a `v*` tag ruleset, the four environments and their branch policies, the repository variables, the Actions policy, and the release GitHub App with its one-time steps ([The release GitHub App](./github-repository-settings.md#the-release-github-app)).
 3. **A green `check`** for each environment ([GKE §13.3](./gke-cluster-setup.md#133-the-first-check-deploy-ops-check)); production's runs from the first `v*` tag.
 4. **The namespace and RBAC bootstrap:** the namespaces (with Pod Security labels, quota and LimitRange) and the deployer RBAC for each environment, rendered by `scripts/k8s-bootstrap.sh <env>` and applied by an admin ([GKE §13.2](./gke-cluster-setup.md#132-the-namespaces-and-the-deployer-rbac-come-from-the-bootstrap)). Don't create the namespaces by hand.
 5. **The image pull secret** in each app namespace, if your GHCR images are private ([GKE §13.4](./gke-cluster-setup.md#134-an-image-pull-secret-for-private-ghcr-images)).

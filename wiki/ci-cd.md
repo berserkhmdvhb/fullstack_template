@@ -28,6 +28,8 @@ flowchart LR
     PR["Pull request"] --> CI["ci.yml"]
     Main["Push to main / v* tag"] --> CI
     Main --> Rel["release.yml"]
+    Main -. "main only" .-> RP["release-please.yml"]
+    RP -. "v* tag" .-> Rel
     Rel --> Dep["deploy.yml"]
     Rel -. "workflow_run" .-> Dast["dast.yml"]
     Manual["Manual"] --> Ops["deploy-ops.yml"]
@@ -47,6 +49,7 @@ flowchart LR
 | [`release.yml`](../.github/workflows/release.yml) | push to `main` and `v*` | `plan`, `images` (calls `reusable-build.yml`), `chart` (`v*` tags; calls `reusable-chart-release.yml`), `digests`, `grant`, `vex`, `release-assets` (`v*` tags), then `deploy` |
 | [`reusable-build.yml`](../.github/workflows/reusable-build.yml) | called by `release` | `build` (one leg per image and platform, on that platform's native runner: push by digest, verify it), `merge` (one leg per image: the index, the tags, the index digest), `sbom` and `grype` (blocking gate; per platform), `image-checks` (the structure checks on each platform's pushed digest, natively), `sign-attest` (signs the index and attests its provenance), `attest-sbom` (one leg per image and platform: that platform's SBOM attestation, after the same gate) |
 | [`reusable-chart-release.yml`](../.github/workflows/reusable-chart-release.yml) | called by `release` (`v*` tags, after `images`) | `chart` (the chart packaged at the tag's version, pushed to `ghcr.io/<owner>/<repo>/charts`, signed and attested; only `release-assets` waits for it; see [Releasing, The chart](./releasing.md#the-chart)) |
+| [`release-please.yml`](../.github/workflows/release-please.yml) | push to `main` | `release-please` (in the `release` environment, with the release GitHub App's token: the release pull request, and on its merge the `v*` tag and a draft release), or `notice` when `RELEASE_APP_ID` is unset. See [Creating a Release](./releasing.md#creating-a-release) |
 | [`pr-title.yml`](../.github/workflows/pr-title.yml) | pull request (opened, edited, synchronize, reopened) | `title`: the title must be a Conventional Commit, because a squash merge makes it the commit message on `main`. Reads only the event; never behind `CI OK`, since an edit re-runs it without a commit. See [Releasing, Pull request titles](./releasing.md#pull-request-titles) |
 | [`deploy.yml`](../.github/workflows/deploy.yml) | called by `release` | `helm-checks`, `deploy-notice` (the skip notice), then `deploy-dev`, `deploy-qa`, `deploy-production` |
 | [`preview.yml`](../.github/workflows/preview.yml) | pull request (labelled, unlabelled, synchronize, reopened, closed); daily (04:23 UTC) | Off unless `PREVIEWS_ENABLED` is `true`: `digests` and `deploy` (a `preview`-labelled same-repository pull request's preview), `bot-skip` (a notice instead, for a run Dependabot starts), `cleanup` (closed or unlabelled), `open-prs` and `sweep` (the daily TTL cleanup). Never a check. See [Pull request previews](#pull-request-previews) |

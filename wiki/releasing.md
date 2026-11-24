@@ -18,14 +18,15 @@ Git tag policy, the release workflow, GitHub release notes, Kubernetes deploymen
 
 ## Overview
 
-Releases are triggered by **Git tags**. A `v*` tag runs [`release.yml`](../.github/workflows/release.yml): it computes the version from the tag, builds and pushes the two images, verifies their digests, scans them, signs and attests them, attaches the SBOMs, the VEX document, the licence report and the image digests to a draft GitHub Release, and deploys to Kubernetes by digest. The quality gate ([`ci.yml`](../.github/workflows/ci.yml)) runs on the same tag.
+Releases are triggered by **Git tags**, and [`release-please.yml`](../.github/workflows/release-please.yml) makes them: on each push to `main` it updates a release pull request from the Conventional Commit titles merged since the last release; merging that pull request creates the `v*` tag and a draft GitHub Release. The tag runs [`release.yml`](../.github/workflows/release.yml): it computes the version from the tag, builds and pushes the images, verifies their digests, scans them, signs and attests them, packages, signs and attests the chart, attaches the SBOMs, the VEX document, the licence report, the digests and the provenance list to the draft, and deploys to Kubernetes by digest. The quality gate ([`ci.yml`](../.github/workflows/ci.yml)) runs on the same tag.
 
 ```mermaid
 flowchart LR
-    Dev["Development<br/>on feature branches"] --> PR["Pull Request<br/>Code review + CI OK"]
-    PR --> Main["Merge to main<br/>CI + Release run"]
-    Main --> Tag["Git Tag<br/>v1.2.3"]
-    Tag --> Release["Release workflow<br/>Build + Scan + Deploy"]
+    PR["Pull request<br/>Conventional Commit title, CI OK"] --> Main["Squash merge to main<br/>CI + Release run"]
+    Main --> RP["release-please.yml<br/>release pull request"]
+    RP -- "merged" --> Tag["v1.2.3 tag + draft release<br/>(the release App's token)"]
+    Tag --> Release["release.yml<br/>images + chart: build, scan, sign, attest; deploy"]
+    Release --> Assets["Assets on the draft<br/>publish by hand"]
 ```
 
 ---
@@ -97,7 +98,7 @@ Only `release-assets` waits for the chart: the digests, the deploys (dev, qa, pr
 
 ### Pull request titles
 
-The repository merges by squash only, with the pull request title as the commit title ([GitHub repository settings](./github-repository-settings.md#what-the-script-sets)), so the title is what lands on `main`. [`pr-title.yml`](../.github/workflows/pr-title.yml) checks it is a Conventional Commit, `type(scope)!: subject` with the scope and `!` optional; the allowed types are the `types` list in that workflow (`build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`). It is not a required check: an owner merging over a red title lands a commit message that release tooling cannot classify. The bots' titles are fixed to `fix(deps): …` ([`renovate.json5`](../renovate.json5), [`dependabot.yml`](../.github/dependabot.yml); the comment in each says why), so a merged dependency update is a patch release.
+The repository merges by squash only, with the pull request title as the commit title ([GitHub repository settings](./github-repository-settings.md#what-the-script-sets)), so the title is what lands on `main`. [`pr-title.yml`](../.github/workflows/pr-title.yml) checks it is a Conventional Commit, `type(scope)!: subject` with the scope and `!` optional; the allowed types are the `types` list in that workflow (`build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`). It is not a required check: an owner merging over a red title lands a commit message that release-please cannot classify. The bots' titles are fixed to `fix(deps): …` ([`renovate.json5`](../renovate.json5), [`dependabot.yml`](../.github/dependabot.yml); the comment in each says why), so a merged dependency update makes the next release a patch release ([Review the release pull request](#2-review-the-release-pull-request)).
 
 A pull request never reaches `release.yml`: no image is built, pushed, signed or deployed from one.
 
@@ -114,27 +115,15 @@ make test
 make test-coverage
 ```
 
-### 2. Update Changelog
+### 2. Review the release pull request
 
-Add entries to `wiki/changelog.md` under the new version heading.
+[`release-please.yml`](../.github/workflows/release-please.yml) keeps one open release pull request on `main`. It proposes the next version from the commit types since the last release (`fix` a patch, `feat` a minor, `!` or a `BREAKING CHANGE` footer a major; [release-please](https://github.com/googleapis/release-please#how-should-i-write-my-commits)) and bumps only [`.release-please-manifest.json`](../.release-please-manifest.json) and the inert `.release-please-version` ([Versioning](./versioning.md)). It writes no changelog: [`release-please-config.json`](../release-please-config.json) sets `skip-changelog`, so [`changelog.md`](./changelog.md) stays the one changelog. Before merging, move the `[Unreleased]` entries under the version the pull request proposes, in a pull request of its own.
 
-### 3. Create and Push Tag
+The one-time setup (the App, its permissions, the `release` environment and its secret, `RELEASE_APP_ID`, and a `bootstrap-sha` on a repository with history) is in [The release GitHub App](./github-repository-settings.md#the-release-github-app). Until it is done, the workflow is a green run with a notice.
 
-```bash
-# Create annotated tag
-git tag -a v1.2.3 -m "Release v1.2.3"
+### 3. Merge it
 
-# Push tag (triggers the release workflow)
-git push origin v1.2.3
-```
-
-> **Who may push the tag.** The `release-tags` ruleset allows only the release GitHub App to create,
-> update or delete `v*` tags, and it has no owner bypass
-> ([GitHub repository settings](./github-repository-settings.md)). The job that does this
-> automatically is not implemented yet. Until then a manual `git push origin v1.2.3` is refused once
-> `scripts/github-settings.sh --apply` has run. So either push the first tag before applying the
-> settings, or create the tag with the App's credentials (its installation token). The owner's own
-> credentials do not work.
+Merging creates the `v*` tag and a **draft** GitHub Release with the App's token (`draft` and `force-tag-creation` in the config: a draft alone gets no tag until published). A tag made with `GITHUB_TOKEN` would trigger no workflow, so the token comes from the App, and the `release-tags` ruleset lets only that App create, update or delete `v*` tags ([GitHub repository settings](./github-repository-settings.md)): a `git push origin v1.2.3` by the owner is refused.
 
 ### 4. Monitor the Run
 
@@ -147,12 +136,11 @@ Watch the runs in the repository's **Actions** tab. Both must pass:
 
 ## GitHub Release Notes
 
-After the release run succeeds, create a GitHub release:
+release-please writes the draft's notes from the commit titles, and `release-assets` attaches the assets to it. After the release run succeeds, edit the notes and publish:
 
 1. Go to **Releases** in the repository on GitHub
-2. Click **Draft a new release**
-3. Select the tag (`v1.2.3`)
-4. Add release notes:
+2. Open the draft for the tag (`v1.2.3`)
+3. Edit the notes, for example into this shape:
 
 ```markdown
 ## Changes
@@ -174,7 +162,7 @@ After the release run succeeds, create a GitHub release:
 - Added new NetworkPolicy rules
 ```
 
-5. Attach artifacts if needed (the SBOM is a CycloneDX file in the `sbom-*` run artifacts)
+4. Publish it. Immutable releases freeze it, assets included
 
 > A pre-filled template for the next release lives at
 > [`release-notes-template.md`](./release-notes-template.md). Copy its category bodies from the

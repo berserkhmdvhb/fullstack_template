@@ -77,10 +77,14 @@ def test_release_please_creates_a_draft_and_still_creates_the_tag() -> None:
 def test_the_tag_release_please_creates_triggers_release_and_passes_the_plan(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    assert _config()["include-v-in-tag"] is True  # explicit, not the default
     tag = _tag("1.2.3")
     assert tag == "v1.2.3"
     patterns = workflow("release.yml")["on"]["push"]["tags"]
     assert patterns == ["v*"]
+    # The release-tags ruleset, which lets only the App create the tag, guards the same pattern.
+    settings = (REPO / "scripts" / "github-settings.sh").read_text(encoding="utf-8")
+    assert re.findall(r'include: \["refs/tags/([^"]+)"\]', settings) == patterns
     assert any(re.fullmatch(p.replace("*", ".*"), tag) for p in patterns)
     scripts = str(REPO / ".github" / "scripts")
     sys.path.insert(0, scripts)

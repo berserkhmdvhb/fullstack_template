@@ -193,7 +193,7 @@ def test_script_variable_lists_match_the_platform_setup_table() -> None:
     assert "PREVIEW_DOMAIN" in set(table) - env_scoped
     assert repo_scoped <= repo_vars
     assert env_scoped <= env_vars
-    assert repo_vars - {"RELEASE_APP_ID"} <= set(table)
+    assert repo_vars <= set(table)
     assert env_vars <= set(table)
 
 

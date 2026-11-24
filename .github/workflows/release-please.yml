@@ -1,0 +1,67 @@
+name: Release please
+
+# On every push to main, release-please (release-please-config.json, .release-please-manifest.json) opens or
+# updates the release pull request from the Conventional Commit messages since the last release. Merging it
+# makes release-please create the v* tag and a draft GitHub Release; the tag runs release.yml, which attaches
+# the assets to that draft (wiki/releasing.md). The token is the release GitHub App's: a tag or pull request
+# made with GITHUB_TOKEN triggers no workflow, so the release would never build. The App's ID is the
+# repository variable RELEASE_APP_ID and its private key the `release` environment secret
+# RELEASE_APP_PRIVATE_KEY (wiki/github-repository-settings.md#the-release-github-app). Without the variable
+# (a fresh copy) the run stays green and a notice says release-please was skipped.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+# One release-please run at a time, never cancelled mid-way (it may be creating a tag and a release).
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  notice:
+    name: Release please status
+    if: vars.RELEASE_APP_ID == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - name: Say why release-please was skipped
+        run: |
+          msg="vars.RELEASE_APP_ID is not set (no release GitHub App configured), so release-please was skipped; set it up per wiki/github-repository-settings.md#the-release-github-app"
+          echo "::notice::${msg}"
+          echo "- ${msg}" >> "$GITHUB_STEP_SUMMARY"
+
+  release-please:
+    name: Release please
+    if: vars.RELEASE_APP_ID != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # The App's private key is a secret of this environment; its branch policy allows main only.
+    environment: release
+    # The job's own GITHUB_TOKEN is unused (the repository's read-only floor): every API call goes through
+    # the App's token.
+    permissions:
+      contents: read
+    steps:
+      # The token is scoped to this repository and to the three permissions release-please uses, and is
+      # revoked when the job ends. Only the next step reads it.
+      - name: Mint the release App token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          # `app-id` is deprecated at this version; `client-id` is the JWT issuer, which GitHub accepts as
+          # the App ID too. One variable, since the release-tags ruleset needs the numeric App ID.
+          client-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+      - name: Open the release pull request, or tag and draft the release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
