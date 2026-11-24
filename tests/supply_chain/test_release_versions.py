@@ -72,6 +72,8 @@ def test_release_please_creates_a_draft_and_still_creates_the_tag() -> None:
     config = _config()
     assert config["draft"] is True
     assert config["force-tag-creation"] is True  # a draft alone creates no tag, so no release run
+    # Marks only a version with a pre-release suffix (or a 0.x one) as a pre-release.
+    assert config["prerelease"] is True
 
 
 def test_the_tag_release_please_creates_triggers_release_and_passes_the_plan(

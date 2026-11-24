@@ -28,6 +28,11 @@ on:
         type: string
         required: false
         default: ""
+      prerelease:
+        description: "'true' on a v* tag with a SemVer pre-release suffix (container_matrix.py): no production deploy"
+        type: string
+        required: false
+        default: ""
       digests:
         description: JSON object of <ID>_IMAGE_DIGEST keys to sha256 digests, from the release workflow
         type: string
@@ -72,6 +77,8 @@ jobs:
         env:
           DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED }}
           HAVE_DIGESTS: ${{ inputs.digests != '' }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          VERSION: ${{ inputs.version }}
         run: |
           if [[ "${DEPLOY_ENABLED}" != "true" ]]; then
             reason="vars.DEPLOY_ENABLED is not 'true' (it is a fresh copy with no cluster configured); set it per wiki/platform-setup.md to deploy"
@@ -79,6 +86,11 @@ jobs:
             reason="this run produced no image digests (only the release workflow on main or a v* tag deploys)"
           else
             echo "- Deploys are enabled for this run." >> "$GITHUB_STEP_SUMMARY"
+            if [[ "${PRERELEASE}" == "true" ]]; then
+              msg="Production skipped: ${VERSION} is a pre-release; it deploys to dev and qa only"
+              echo "::notice::${msg}"
+              echo "- ${msg}" >> "$GITHUB_STEP_SUMMARY"
+            fi
             exit 0
           fi
           echo "::notice::Deploys skipped: ${reason}"
@@ -207,7 +219,7 @@ jobs:
   deploy-production:
     name: Deploy production
     needs: [helm-checks, deploy-dev, deploy-qa]
-    if: ${{ !cancelled() && github.event_name == 'push' && inputs.digests != '' && vars.DEPLOY_ENABLED == 'true' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v') && inputs.immutable == 'true' && needs.deploy-dev.result == 'success' && (needs.deploy-qa.result == 'success' || needs.deploy-qa.result == 'skipped') }}
+    if: ${{ !cancelled() && github.event_name == 'push' && inputs.digests != '' && vars.DEPLOY_ENABLED == 'true' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v') && inputs.immutable == 'true' && inputs.prerelease == 'false' && needs.deploy-dev.result == 'success' && (needs.deploy-qa.result == 'success' || needs.deploy-qa.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     # The deployment record GitHub keeps per run links the environment variable DEPLOY_URL.

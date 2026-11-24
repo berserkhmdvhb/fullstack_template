@@ -119,6 +119,7 @@ def test_main_branch_policy(run: Runner) -> None:
         "channel": "main",
         "image_tag": "1.2.3-main-0123456",
         "immutable": "false",
+        "prerelease": "false",
         "arm64": "false",
     }
 
@@ -135,6 +136,7 @@ def test_tag_overrides_baseline(run: Runner) -> None:
         "channel": "prod",
         "image_tag": "2.0.1-prod-0123456",
         "immutable": "true",
+        "prerelease": "false",
         "arm64": "false",
     }
 
@@ -142,6 +144,23 @@ def test_tag_overrides_baseline(run: Runner) -> None:
 def test_tag_with_build_metadata_is_docker_safe(run: Runner) -> None:
     env = {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "v2.0.1-rc.1+build5"}
     assert run("--matrix", env=env).outputs["version"] == "2.0.1-rc.1-build5"
+
+
+@pytest.mark.parametrize(
+    ("tag", "prerelease"),
+    [
+        ("v1.2.3", "false"),
+        ("v1.2.3+build-5", "false"),  # build metadata, even with a dash, is no pre-release
+        ("v1.2.3-rc.1", "true"),
+        ("v2.0.0-rc1", "true"),
+        ("v1.2.3-rc.1+build5", "true"),
+    ],
+)
+def test_prerelease_is_a_tag_with_a_semver_pre_release_suffix(
+    run: Runner, tag: str, prerelease: str
+) -> None:
+    env = {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": tag}
+    assert run("--matrix", env=env).outputs["prerelease"] == prerelease
 
 
 @pytest.mark.parametrize("tag", ["2.0.1", "v2", "vx.y.z", "v1.2.3;rm", "v1.2.3\n"])

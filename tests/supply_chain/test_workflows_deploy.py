@@ -6,6 +6,10 @@ Static, offline.
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
+import sys
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -14,6 +18,9 @@ from tests.supply_chain._workflows import ACTIONS, REPO, WORKFLOWS, load, steps_
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
+
+BASH: str = shutil.which("bash") or "/usr/bin/bash"
 
 DEPLOY_ENVIRONMENT_JOBS = 7  # cluster logins: deploy.yml 3, deploy-ops.yml 1, preview.yml 3
 SHA256_HEX_LENGTH = 64
@@ -115,6 +122,75 @@ def test_production_runs_only_on_v_tags_that_are_immutable() -> None:
         "!cancelled()",
     ):
         assert part in cond, part
+
+
+def _plan(tag: str, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """The release plan's outputs for a pushed tag, from container_matrix.py itself."""
+    scripts = str(REPO / ".github" / "scripts")
+    sys.path.insert(0, scripts)
+    try:
+        import container_matrix  # noqa: PLC0415
+    finally:
+        sys.path.remove(scripts)
+    for name, value in (
+        ("GITHUB_REF_NAME", tag),
+        ("GITHUB_REF_TYPE", "tag"),
+        ("GITHUB_SHA", "a" * 40),
+    ):
+        monkeypatch.setenv(name, value)
+    return dict(container_matrix.compute_version(REPO))
+
+
+def _production_runs(tag: str, prerelease: str) -> bool:
+    """Evaluate deploy-production's `if` for a green tag push with every other guard met."""
+    expr = _if(_jobs()["deploy-production"]).removeprefix("${{").removesuffix("}}")
+    expr = expr.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or ")
+    expr = re.sub(r"needs\.deploy-(\w+)\.result", r"needs_\1", expr)
+    expr = re.sub(r"startsWith\(([\w.]+), '([^']*)'\)", r"\1.startswith('\2')", expr)
+    names = {
+        "github": SimpleNamespace(event_name="push", ref_type="tag", ref_name=tag),
+        "inputs": SimpleNamespace(
+            digests='{"BACKEND_IMAGE_DIGEST": "x"}', immutable="true", prerelease=prerelease
+        ),
+        "vars": SimpleNamespace(DEPLOY_ENABLED="true"),
+        "needs_dev": "success",
+        "needs_qa": "success",
+    }
+    return bool(eval(expr, {"__builtins__": {}}, names))  # noqa: S307  (our own workflow's expression)
+
+
+@pytest.mark.parametrize(
+    ("tag", "deploys"), [("v1.2.3", True), ("v1.2.3+build-5", True), ("v1.2.3-rc.1", False)]
+)
+def test_a_pre_release_tag_never_deploys_to_production(
+    tag: str, monkeypatch: pytest.MonkeyPatch, *, deploys: bool
+) -> None:
+    plan = _plan(tag, monkeypatch)
+    assert plan["immutable"] == "true"
+    assert _production_runs(tag, plan["prerelease"]) is deploys
+    assert (
+        _production_runs(tag, "") is False
+    )  # a caller that passes no prerelease gets no production
+
+
+def test_the_deploy_notice_says_production_is_skipped_for_a_pre_release(tmp_path: Path) -> None:
+    (step,) = _jobs()["deploy-notice"]["steps"]
+    for prerelease, said in (("true", True), ("false", False)):
+        summary = tmp_path / f"summary-{prerelease}"
+        env = {
+            "PATH": "/usr/bin:/bin",
+            "GITHUB_STEP_SUMMARY": str(summary),
+            "DEPLOY_ENABLED": "true",
+            "HAVE_DIGESTS": "true",
+            "PRERELEASE": prerelease,
+            "VERSION": "1.2.3-rc.1",
+        }
+        done = subprocess.run(
+            [BASH, "-e", "-c", step["run"]], env=env, capture_output=True, text=True, check=False
+        )
+        assert done.returncode == 0
+        assert ("::notice::Production skipped: 1.2.3-rc.1 is a pre-release" in done.stdout) is said
+    assert step["env"]["PRERELEASE"] == "${{ inputs.prerelease }}"
 
 
 def test_helm_checks_is_the_call_to_the_reusable_chart_workflow() -> None:
@@ -336,6 +412,10 @@ def test_the_release_workflow_calls_deploy_with_the_plan_and_digests() -> None:
     assert job["with"]["version"] == "${{ needs.plan.outputs.version }}"
     assert job["with"]["image_tag"] == "${{ needs.plan.outputs.image_tag }}"
     assert job["with"]["immutable"] == "${{ needs.plan.outputs.immutable }}"
+    assert job["with"]["prerelease"] == "${{ needs.plan.outputs.prerelease }}"
+    assert workflow("release.yml")["jobs"]["plan"]["outputs"]["prerelease"] == (
+        "${{ steps.plan.outputs.prerelease }}"
+    )
     assert job["with"]["digests"] == "${{ needs.digests.outputs.digests }}"
     assert "digests" in workflow("release.yml")["jobs"]["digests"]["outputs"]
     assert "workflow_run" not in str(_dep()["on"])

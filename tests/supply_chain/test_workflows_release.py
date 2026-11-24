@@ -199,7 +199,11 @@ echo "gh $*" >> "$CALLS"
 
 
 def _run_upload(
-    tmp_path: Path, releases: list[dict[str, Any]], *, api_fails: bool = False
+    tmp_path: Path,
+    releases: list[dict[str, Any]],
+    *,
+    api_fails: bool = False,
+    prerelease: str = "false",
 ) -> tuple[int, str, str]:
     step = next(s for s in _assets()["steps"] if s.get("name") == "Upload to the draft release")
     bin_dir = tmp_path / "bin"
@@ -218,6 +222,7 @@ def _run_upload(
         "TAG": "v1.0.0",
         "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
         "API_FAILS": "1" if api_fails else "",
+        "PRERELEASE": prerelease,
     }
     done = subprocess.run(
         [BASH, "-e", "-c", step["run"]],
@@ -240,6 +245,18 @@ def test_upload_creates_a_draft_when_there_is_no_release_for_the_tag(tmp_path: P
     assert code == 0
     assert "gh release create v1.0.0 --draft --verify-tag" in calls
     assert "gh release upload v1.0.0" in calls
+
+
+@pytest.mark.parametrize(("prerelease", "flagged"), [("true", True), ("false", False), ("", False)])
+def test_only_a_pre_release_tag_creates_a_pre_release_draft(
+    tmp_path: Path, prerelease: str, *, flagged: bool
+) -> None:
+    code, _, calls = _run_upload(tmp_path, [], prerelease=prerelease)
+    assert code == 0
+    (create,) = [c for c in calls.splitlines() if c.startswith("gh release create")]
+    assert ("--prerelease" in create.split()) is flagged
+    assert _assets()["env"]["PRERELEASE"] == "${{ needs.plan.outputs.prerelease }}"
+    assert "plan" in _assets()["needs"]
 
 
 def test_upload_extends_the_single_draft_without_creating_another(tmp_path: Path) -> None:
