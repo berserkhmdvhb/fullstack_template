@@ -364,6 +364,35 @@ tests:
       - failedTemplate:
           errorPattern: '^\s*- config\.OIDC_ISSUER still holds a placeholder'
 
+  # The committed issuer and audience, each on its own: they stay placeholders in an adopted copy.
+  - it: with the guard, the committed issuer is refused with a real audience
+    set:
+      guards: {rejectPlaceholders: true}
+      images:
+        backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+        frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+      config: {OIDC_AUDIENCE: "api://svc"}
+      edge:
+        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: '^\s*- config\.OIDC_ISSUER still holds a placeholder'
+
+  - it: with the guard, the committed audience is refused with a real issuer
+    set:
+      guards: {rejectPlaceholders: true}
+      images:
+        backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+        frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
+      config: {OIDC_ISSUER: "https://idp.svc.test"}
+      edge:
+        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
+    asserts:
+      - failedTemplate:
+          errorPattern: '^\s*- config\.OIDC_AUDIENCE still holds a placeholder'
+
   # ---- no helm test objects in production ----
   - it: tests.enabled is refused in production, naming the switch
     set: {tests: {enabled: true}}

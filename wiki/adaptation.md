@@ -100,10 +100,9 @@ infra/adapt/replace_service_name.sh -n awesome_solution
 ### What the Adapters Stamp, and What They Leave
 
 Both adapters walk every file outside [`infra/adapt/excludes.txt`](../infra/adapt/excludes.txt) whose type they
-know: `.py`, `.sh`, `.bats`, `.yml`, `.yaml`, `.toml`, `.cfg`, `.ini`, `.env`, `.def`, `.json`, `.json5`, `.ts`,
-`.tsx`, `.md`, `.mdx`, `.lock` (`uv.lock`) and `.snap` (the chart's helm-unittest snapshots), plus the `Makefile`,
-every `Dockerfile*`, the dotfiles `.env` and `.prettierignore`, `CODEOWNERS`, and any of these with an `.example`
-suffix. A file that is not UTF-8 text is skipped with a warning, so no binary file is ever edited, and a rewritten
+know, as [`infra/adapt/_common.py`](../infra/adapt/_common.py) lists them (`DEFAULT_INCLUDE_EXTS` and
+`should_edit`): the code, scripts, config, docs, `uv.lock` and the chart's helm-unittest snapshots, and any of these
+with an `.example` suffix. A file that is not UTF-8 text is skipped with a warning, so no binary file is ever edited, and a rewritten
 script keeps its mode. The service-name forms are `your_service_name`, `your-service-name` and `Your Service Name`;
 the stamping forms are `your-domain.example` and `registry.your-domain.example` (also with their dots escaped, as a
 test's regex names them), `your-org/your-repo` and `YourOrg` (the image vendor labels and the chart maintainer, which
@@ -111,8 +110,13 @@ take the repository's owner) with `REPOSITORY`, and `@your-org` in `CODEOWNERS` 
 
 A name or a domain of another length moves two things the text rewrite cannot: the padded columns of a rendered chart
 snapshot, and where ruff sorts an import or wraps a Python line. So `adopt.sh` then renders the chart's helm-unittest
-snapshots again with the pinned helm and plugin, and runs `make ruff-lint-fix ruff-format` with the project's ruff
-(`.venv/bin/ruff`, or the `RUFF` variable). Either tool missing, it prints the command to run once it is installed.
+snapshots again with the pinned helm and plugin (a failing chart test stops it, printing helm-unittest's report and
+the backup directory: the rename is already applied), and runs `make ruff-imports-fix ruff-format` with the project's
+ruff (`.venv/bin/ruff`, or the `RUFF` variable), which sorts the imports and formats, and fixes nothing else; a ruff
+failure is a warning naming that command. Either tool missing, it prints the command to run once it is installed.
+
+The production OIDC issuer and audience are placeholders of their own, which the stamp never rewrites, so an adopted
+copy's deploy guard still refuses each until you set your provider's issuer and the API's audience.
 
 `excludes.txt` is the one list of what keeps the placeholder, each group with its reason; the leftover check
 (`scripts/ci/check-placeholder-leftovers.sh`) allows exactly those paths:
@@ -131,8 +135,9 @@ turns it against the adopter's own values.
 **The end-to-end check.** [`tests/scripts/adopt-e2e.bats`](../tests/scripts/adopt-e2e.bats) adopts a copy of the
 working tree as `acme_orders` with every optional value set, and fails if any placeholder form is left outside the
 list, if a listed path no longer holds one (a stale exclusion), if the chart directory or the package is not renamed,
-if a file's mode or a binary file changed, or if a second run changes anything. The `Adopted copy` CI job then runs
-the copy's own suites ([CI/CD](./ci-cd.md#the-adopted-copy)).
+if a file's mode or a binary file changed, or if a second run changes anything. The `Adopted copy` CI job runs it,
+then the copy's own suites ([CI/CD](./ci-cd.md#the-adopted-copy)). Both check the template only: in an adopted
+repository the test skips and the job passes without doing anything, and either may be deleted there.
 
 ---
 

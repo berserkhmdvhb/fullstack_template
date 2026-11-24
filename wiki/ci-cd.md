@@ -230,19 +230,22 @@ Optional, off by default, and advisory: [`pr-agent.yml`](../.github/workflows/pr
 ## The adopted copy
 
 The `adopted` job of `ci.yml` (`Adopted copy`, behind `CI OK`, on every event) proves that a repository made from this
-template passes its own suites. [`scripts/ci/adopted-copy.sh`](../scripts/ci/adopted-copy.sh) copies the checkout to
-`$RUNNER_TEMP/adopted` and runs `infra/adapt/adopt.sh` on it with a test identity (`acme_orders`) and every optional
-value set ([Adaptation](./adaptation.md#what-the-adapters-stamp-and-what-they-leave)). In the copy the job installs the
-backend from its lock (`uv sync --locked`, so a lock the rename left stale fails), then runs the backend lint job's
-ruff, mypy and env-docs targets, `make test` (unit,
+template passes its own suites. It checks the template only: its first step looks for the template's placeholder
+package, and in an adopted repository every later step is skipped, so the job passes after a notice (it may be deleted
+there). In the template the job installs the checkout's backend from its lock, whose ruff the adoption uses to sort and
+format the renamed Python. [`scripts/ci/adopted-copy.sh`](../scripts/ci/adopted-copy.sh), which refuses to run without
+that ruff and the pinned helm, copies the checkout to `$RUNNER_TEMP/adopted` and runs `infra/adapt/adopt.sh` on it with
+a test identity and every optional value set ([Adaptation](./adaptation.md#what-the-adapters-stamp-and-what-they-leave)).
+The job then runs the end-to-end adoption test (`tests/scripts/adopt-e2e.bats`, which skips where that ruff or helm is
+missing, as in the `repo` job). In the copy it installs the backend from its lock (`uv sync --locked`, so a lock the
+rename left stale fails), then runs the backend lint job's ruff, mypy and env-docs targets, `make test` (unit,
 integration, e2e and the supply-chain tests), the chart's unit tests and `helm lint`, and the frontend's lint, type check
 and unit tests. A push to `main`, a `v*` tag and a manual run add the docs site's resolver tests and strict build, which
 resolve every link into the renamed tree; they need a second install and the Playwright browser, so pull requests leave
-them to those runs, and the end-to-end adoption test (`tests/scripts/adopt-e2e.bats`, in the `repo` job) still checks the
-copy's names and paths on every pull request. The job has `contents: read`, reads no secret and uses no cache: every
-tool and package installs from its pin and lock, as in a new repository. Its 30-minute budget is sized from the local wall
-times (the suites take about four minutes on a workstation with everything installed) for a hosted runner that is slower
-and installs everything uncached.
+them to those runs, and the end-to-end test still checks the copy's names and paths on every pull request. The job has
+`contents: read`, reads no secret and uses no cache: every tool and package installs from its pin and lock, as in a new
+repository. Its budget (`timeout-minutes` on the [`adopted` job](../.github/workflows/ci.yml)) is sized from a replay of
+its steps on a fresh clone, with headroom for a slower hosted runner.
 
 ## Caches
 

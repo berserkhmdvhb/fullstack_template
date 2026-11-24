@@ -11,17 +11,17 @@ from pathlib import Path
 
 import pytest
 
+from tests.utils.template_tree import PLACEHOLDER_PACKAGE, is_template
+
 ROOT = Path(__file__).resolve().parents[2]
 STAMP = ROOT / "infra" / "adapt" / "adopt_stamp.py"
 DOCKERFILES = ("Dockerfile.backend", "Dockerfile.frontend", "Dockerfile.waf")
 BASH = shutil.which("bash") or "/usr/bin/bash"
 PLACEHOLDER = "ARG SOURCE_URL=https://github.com/your-org/your-repo\n"
-# The placeholder package, split so the adapter never rewrites it (check-placeholder-leftovers.sh).
-PLACEHOLDER_PACKAGE = "your_" + "service_name"
 # The stamping tests run over copies of the template's own files, so they need its placeholders; an
 # adopted copy has stamped them already (tests/scripts/adopt-e2e.bats checks the whole copy).
 TEMPLATE_ONLY = pytest.mark.skipif(
-    not any((ROOT / "src" / PLACEHOLDER_PACKAGE).glob("*.py")),
+    not is_template(ROOT),
     reason="an adopted copy: the template's placeholders are already stamped",
 )
 
@@ -225,7 +225,7 @@ RECORD = re.compile(r"v\d+\.\d+\.\d+\n")
 def template_version_problem(root: Path) -> str | None:
     """The template ships no .template-version (adopt.sh writes it); a copy holds one tag."""
     record = root / ".template-version"
-    if any((root / "src" / PLACEHOLDER_PACKAGE).glob("*.py")):
+    if is_template(root):
         return "the template ships .template-version" if record.exists() else None
     if record.exists() and not RECORD.fullmatch(record.read_text(encoding="utf-8")):
         return f".template-version is not one v<major>.<minor>.<patch> line: {record.read_text()!r}"

@@ -1,4 +1,5 @@
-"""The `Adopted copy` job: an adopted copy of the tree runs its own suites, read-only, uncached."""
+"""The `Adopted copy` job: an adopted copy of the tree runs its own suites, read-only and uncached,
+in the template only."""
 
 from __future__ import annotations
 
@@ -9,6 +10,8 @@ from tests.supply_chain._workflows import workflow
 JOB = workflow("ci.yml")["jobs"]["adopted"]
 STEPS = JOB["steps"]
 TEXT = json.dumps(JOB)
+TEMPLATE = "steps.detect.outputs.template == 'true'"
+OFF_PULL_REQUESTS = f"{TEMPLATE} && github.event_name != 'pull_request'"
 
 
 def _runs() -> str:
@@ -31,21 +34,52 @@ def test_it_reads_no_secret_and_uses_no_cache() -> None:
     assert not any(s.get("uses", "").startswith("./.github/actions/") for s in STEPS)
 
 
-def test_the_copy_is_adopted_after_the_tools_and_runs_its_suites() -> None:
+def test_the_template_is_detected_first_and_every_later_step_runs_only_there() -> None:
+    """In an adopted repository the job does nothing and passes: `CI OK` is never left waiting."""
+    assert STEPS[0]["uses"].startswith("actions/checkout@")
+    detect = STEPS[1]
+    assert detect["id"] == "detect"
+    assert "if" not in detect
+    assert 'compgen -G "src/your_""service_name/*.py"' in detect["run"]
+    assert "::notice::not the template" in detect["run"]
+    assert all(s["if"] in (TEMPLATE, OFF_PULL_REQUESTS) for s in STEPS[2:]), [
+        s.get("name") or s.get("uses")
+        for s in STEPS[2:]
+        if s.get("if") not in (TEMPLATE, OFF_PULL_REQUESTS)
+    ]
+
+
+def test_the_copy_is_adopted_with_the_tools_and_a_ruff_and_runs_its_suites() -> None:
     names = [s.get("name", "") for s in STEPS]
-    assert names.index("Install the pinned tools") < names.index("Adopt a copy")
+    adopt = names.index("Adopt a copy")
+    assert names.index("Install the pinned tools") < adopt
+    # The adoption sorts and formats the renamed Python: this tree's backend (its ruff) is installed
+    # first, in the workspace, from the lock (scripts/ci/adopted-copy.sh refuses to run without it).
+    before = [s for s in STEPS[:adopt] if "run" in s and "working-directory" not in s]
+    assert any(s["run"].startswith(".tools/bin/uv sync --locked") for s in before), before
+    assert all(
+        s.get("env", {}).get("UV_PYTHON_DOWNLOADS") == "never"
+        for s in STEPS
+        if "uv sync" in s.get("run", "")
+    )
     runs = _runs()
     assert 'bash scripts/ci/adopted-copy.sh "$RUNNER_TEMP/adopted"' in runs
-    assert "uv sync --locked" in runs
     lint = "make ruff-format-check ruff-lint mypy-check env-docs-check"
-    for command in (lint, "make test", "make chart-unittest", "npm run lint", "npm run typecheck"):
+    for command in (
+        "bats tests/scripts/adopt-e2e.bats",
+        lint,
+        "make test",
+        "make chart-unittest",
+        "npm run lint",
+        "npm run typecheck",
+    ):
         assert command in runs, command
 
 
 def test_the_docs_site_runs_off_pull_requests_only() -> None:
     site = [s for s in STEPS if "/adopted/docs-site" in s.get("working-directory", "")]
     assert site
-    assert all(s["if"] == "github.event_name != 'pull_request'" for s in site)
+    assert all(s["if"] == OFF_PULL_REQUESTS for s in site)
     assert any("npm run build" in s["run"] for s in site)
-    rest = [s for s in STEPS if s not in site]
-    assert all("if" not in s for s in rest)
+    rest = [s for s in STEPS[2:] if s not in site]
+    assert all(s["if"] == TEMPLATE for s in rest)

@@ -1,4 +1,5 @@
-"""The `repo` job runs `bats tests/scripts/`: it must install every pinned tool those tests use."""
+"""The `repo` job runs `bats tests/scripts/`: it must install every pinned tool those tests use, but
+for a bats file that skips there and runs in another job, which must install them instead."""
 
 from __future__ import annotations
 
@@ -17,6 +18,14 @@ STUBBED = {
     "cosign": "named in an error message the scaffolder tests print",
     "python": "the backend virtualenv's interpreter, not a downloaded pin",
     "node": "named in rebuild-and-roll.sh's probe commands; the kind-forward tests stub it",
+    "helm-unittest": "in adopted-copy.sh's install hint; the adopted-copy tests stub it",
+}
+# Bats files that skip in the `repo` job and run in another one, named here with its reason.
+ELSEWHERE = {
+    "adopt-e2e.bats": (
+        "adopted",
+        "needs the backend's ruff and the pinned helm, which `adopted` installs",
+    ),
 }
 # A tool name in command position: line start, after a pipe, `;`, `&&`, `$(`, a backtick, or a
 # keyword that runs its argument (`run`, `command -v`, `need_cmd`, ...).
@@ -65,8 +74,8 @@ def not_installed(used: set[str], installed: set[str]) -> set[str]:
     return used - installed - set(STUBBED)
 
 
-def repo_job_tools() -> set[str]:
-    runs = "\n".join(str(s.get("run", "")) for s in workflow("ci.yml")["jobs"]["repo"]["steps"])
+def repo_job_tools(job: str = "repo") -> set[str]:
+    runs = "\n".join(str(s.get("run", "")) for s in workflow("ci.yml")["jobs"][job]["steps"])
     return {
         t for m in re.finditer(r"scripts/tools\.sh install ([^\n]+)", runs) for t in m[1].split()
     }
@@ -77,14 +86,22 @@ def key_names(tool: str, key: str) -> bool:
     return f"-{tool}-" in f"-{key}-"
 
 
-def test_every_bats_tool_is_installed_by_the_repo_job() -> None:
-    installed = repo_job_tools()
+def test_every_bats_tool_is_installed_by_the_job_that_runs_it() -> None:
     tools = pinned_tools()
     for bats in sorted((REPO / "tests" / "scripts").glob("*.bats")):
+        job = ELSEWHERE.get(bats.name, ("repo", ""))[0]
+        installed = repo_job_tools(job)
         missing = not_installed(tools_used(bats, REPO, tools), installed)
         assert not missing, (
-            f"{bats.name} uses {sorted(missing)}; the repo job installs {sorted(installed)}"
+            f"{bats.name} uses {sorted(missing)}; the {job} job installs {sorted(installed)}"
         )
+
+
+def test_a_bats_file_run_elsewhere_is_run_by_that_job() -> None:
+    for name, (job, _reason) in ELSEWHERE.items():
+        runs = "\n".join(str(s.get("run", "")) for s in workflow("ci.yml")["jobs"][job]["steps"])
+        assert f"bats tests/scripts/{name}" in runs, (name, job)
+        assert "bats" in repo_job_tools(job), job
 
 
 def test_the_found_tools_include_the_known_ones() -> None:

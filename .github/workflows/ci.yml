@@ -269,11 +269,13 @@ jobs:
         run: |
           "$RUNNER_TEMP/zizmor/bin/zizmor" .github/
 
-  # Blocking, always runs: a copy of this tree adopted by infra/adapt/adopt.sh (scripts/ci/adopted-copy.sh) passes its
-  # own suites, so an adopter's first CI run is green. Pull requests run the backend lint and suite (make test), the chart's
-  # unit tests and lint, and the frontend's lint, types and unit tests; main, tags and manual runs add the docs site's
-  # resolver tests and strict build, which need a second install and the Playwright browser. No cache: every tool and
-  # package installs fresh from its pin and lock file, as in a new repository.
+  # Blocking, always runs, and checks the template only: a copy of this tree adopted by infra/adapt/adopt.sh
+  # (scripts/ci/adopted-copy.sh) passes its own suites, so an adopter's first CI run is green. In an adopted
+  # repository the first step finds no template and the job passes after a notice, doing nothing (it may be
+  # deleted there). Pull requests run the end-to-end adoption checks, the backend lint and suite (make test),
+  # the chart's unit tests and lint, and the frontend's lint, types and unit tests; main, tags and manual runs
+  # add the docs site's resolver tests and strict build, which need a second install and the Playwright
+  # browser. No cache: every tool and package installs fresh from its pin and lock file, as in a new repository.
   adopted:
     name: Adopted copy
     runs-on: ubuntu-24.04
@@ -284,38 +286,69 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      # The template's placeholder package still holds Python (tests/utils/template_tree.py), spelled in pieces
+      # so the adapter never rewrites it. Every later step runs only in the template.
+      - id: detect
+        name: Is this the template
+        run: |
+          if compgen -G "src/your_""service_name/*.py" > /dev/null; then
+            echo "template=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "template=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::not the template (src/your_""service_name/ holds no Python): the adopted-copy check is the template's own, so this job does nothing here and may be deleted"
+          fi
+      - if: steps.detect.outputs.template == 'true'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
       # Before the adoption: the copy links these, and the adoption renders the chart's snapshots with them.
       - name: Install the pinned tools
-        run: scripts/tools.sh install uv helm4 helm-unittest yq node promtool crd-sources
+        if: steps.detect.outputs.template == 'true'
+        run: scripts/tools.sh install uv helm4 helm-unittest yq node promtool crd-sources bats
+      # The adoption sorts and formats the renamed Python with this tree's ruff, from the lock.
+      - name: Install this tree's backend from its lock
+        if: steps.detect.outputs.template == 'true'
+        env:
+          UV_PYTHON_DOWNLOADS: never
+        run: .tools/bin/uv sync --locked --python "$(command -v python)"
       - name: Adopt a copy
+        if: steps.detect.outputs.template == 'true'
         run: bash scripts/ci/adopted-copy.sh "$RUNNER_TEMP/adopted"
+      # No placeholder left outside the exclusions, the renamed paths, modes, binaries, a no-op second run.
+      - name: The end-to-end adoption checks
+        if: steps.detect.outputs.template == 'true'
+        run: .tools/bin/bats tests/scripts/adopt-e2e.bats
       - name: Install the copy's backend from its lock
+        if: steps.detect.outputs.template == 'true'
         working-directory: ${{ runner.temp }}/adopted
         env:
           UV_PYTHON_DOWNLOADS: never
         run: .tools/bin/uv sync --locked --python "$(command -v python)"
       # The backend lint job's targets but dev-tools-outdated, a PyPI call.
       - name: The copy's ruff, mypy and env-docs checks
+        if: steps.detect.outputs.template == 'true'
         working-directory: ${{ runner.temp }}/adopted
         run: make ruff-format-check ruff-lint mypy-check env-docs-check
       - name: The copy's backend suite (unit, integration, e2e and the supply-chain tests)
+        if: steps.detect.outputs.template == 'true'
         working-directory: ${{ runner.temp }}/adopted
         run: make test
       - name: The copy's chart unit tests and lint
+        if: steps.detect.outputs.template == 'true'
         working-directory: ${{ runner.temp }}/adopted
         run: |
           make chart-unittest
-          .tools/bin/helm lint charts/acme-orders
+          .tools/bin/helm lint charts/*/
       - id: pin
+        if: steps.detect.outputs.template == 'true'
         run: echo "node-version=$(awk -F'\t' '$1=="node"{print $2}' tools/pins.tsv)" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - if: steps.detect.outputs.template == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ steps.pin.outputs.node-version }}
           package-manager-cache: false
       - name: The copy's frontend lint, types and unit tests
+        if: steps.detect.outputs.template == 'true'
         working-directory: ${{ runner.temp }}/adopted/frontend
         run: |
           npm ci --ignore-scripts
@@ -323,22 +356,22 @@ jobs:
           npm run typecheck
           npm run test
       - name: Install the copy's docs site
-        if: github.event_name != 'pull_request'
+        if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
         working-directory: ${{ runner.temp }}/adopted/docs-site
         run: npm ci --ignore-scripts
       - name: Install the Playwright system deps
-        if: github.event_name != 'pull_request'
+        if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
         timeout-minutes: 5
         working-directory: ${{ runner.temp }}/adopted/docs-site
         run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install-deps chromium
       - name: Download the Playwright browser
-        if: github.event_name != 'pull_request'
+        if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
         timeout-minutes: 5
         working-directory: ${{ runner.temp }}/adopted/docs-site
         run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install chromium
       # Strict: every link into the renamed tree resolves.
       - name: The copy's docs site resolver tests and strict build
-        if: github.event_name != 'pull_request'
+        if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
         working-directory: ${{ runner.temp }}/adopted/docs-site
         run: |
           npm test

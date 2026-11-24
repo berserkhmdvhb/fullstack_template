@@ -40,10 +40,10 @@ config:
   # set here because it works behind every edge mode (cloudflare-access needs Cloudflare Access in
   # front); oidc and cloudflare-access are the production modes, gateway and bearer reference modes
   # (wiki/security.md). gateway also needs AUTH_PROXY_CIDRS, the authenticating proxy's Pod range
-  # (empty is refused). The issuer and the audience are placeholders: guards.rejectPlaceholders
-  # refuses them at deploy time. Set your provider's issuer (https) and the API's audience.
+  # (empty is refused). The issuer and the audience are placeholders that infra/adapt/adopt.sh
+  # leaves alone: guards.rejectPlaceholders refuses each at deploy time. Set your provider's issuer (https) and the API's audience.
   AUTH_MODE: oidc
-  OIDC_ISSUER: https://idp.your-domain.example
+  OIDC_ISSUER: https://your-oidc-issuer.example
   OIDC_AUDIENCE: your-oidc-audience
   # Same-origin, versioned: the browser calls /api/v1 and the Next.js server
   # proxies it to BACKEND_URL (set in the ConfigMap). Relative => one bundle

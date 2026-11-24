@@ -55,3 +55,47 @@ setup() {
   [ "$(cat "$R/.template-version")" = "v4.2.0" ]
   [[ "$output" == *"already records v4.2.0"* ]]
 }
+
+# ---- the chart snapshots and the Python formatting after the rename ----
+
+@test "a failing chart test aborts with helm-unittest's report, saying the rename is applied and where the backup is" {
+  mkdir -p "$R/charts/your-""service-name/tests/__snapshot__" "$R/.tools/bin" "$R/.tools/helm-plugins"
+  printf '#!/bin/sh\necho "FAIL  the route table\\n  snapshot differs"\nexit 1\n' > "$R/.tools/bin/helm"
+  chmod +x "$R/.tools/bin/helm"
+  run bash "$REPO/infra/adapt/adopt.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL  the route table"* ]]
+  [[ "$output" == *"snapshot differs"* ]]
+  [[ "$output" == *"rename and the stamp are already applied"* ]]
+  [[ "$output" == *"backups in: $R/.adapt-backup/"* ]]
+}
+
+# A stand-in ruff that logs its arguments, and fails when RUFF_FAILS is set.
+fake_ruff() {
+  mkdir -p "$BATS_TEST_TMPDIR/bin"
+  # shellcheck disable=SC2016 # expanded by the stub, not here
+  printf '#!/bin/sh\necho "$*" >> "%s"\n[ -z "${RUFF_FAILS:-}" ]\n' "$BATS_TEST_TMPDIR/ruff.log" > "$BATS_TEST_TMPDIR/bin/ruff"
+  chmod +x "$BATS_TEST_TMPDIR/bin/ruff"
+  cp "$REPO/Makefile" "$R/"
+  export RUFF="$BATS_TEST_TMPDIR/bin/ruff"
+}
+
+@test "the Python step only sorts the imports and formats, over the Makefile's paths" {
+  fake_ruff
+  run bash "$REPO/infra/adapt/adopt.sh"
+  [ "$status" -eq 0 ]
+  paths="$(sed -n 's/^RUFF_PATHS := //p' "$REPO/Makefile")"
+  [ -n "$paths" ]
+  run cat "$BATS_TEST_TMPDIR/ruff.log"
+  [ "${lines[0]}" = "check --fix --select I $paths" ]
+  [ "${lines[1]}" = "format $paths" ]
+  [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "a ruff failure is a warning naming the command, not an abort" {
+  fake_ruff
+  RUFF_FAILS=1 run bash "$REPO/infra/adapt/adopt.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING: ruff could not sort or format every file"*"make ruff-imports-fix ruff-format"* ]]
+  [[ "$output" == *"Adoption complete"* ]]
+}

@@ -1,7 +1,7 @@
 # your-service-name — adaptable service template (see wiki/getting-started.md)
 .PHONY: all help install develop lock lock-check \
     export-requirements check-requirements-sync \
-    ruff-format ruff-format-check ruff-lint ruff-lint-fix mypy-check \
+    ruff-format ruff-format-check ruff-lint ruff-lint-fix ruff-imports-fix mypy-check \
     openapi-gen openapi-drift-check env-docs env-docs-check \
     shellcheck docs-links image-checks frontend-deployment-id tools tools-dry-run pins-refresh \
     check-all check-all-dry precommit chart-unittest kubeconform rules-test crd-schemas crd-schemas-check \
@@ -211,9 +211,13 @@ ruff-format-check:
 ruff-lint:
 	ruff check --no-fix $(RUFF_PATHS)
 
-# Auto-fixing lint, used only by check-all and infra/adapt/adopt.sh (never by CI, check-all-dry or pre-commit).
+# Auto-fixing lint, used only by check-all (never by CI, check-all-dry or pre-commit).
 ruff-lint-fix:
 	ruff check --fix $(RUFF_PATHS)
+
+# Import sorting only: what a new service name breaks, so infra/adapt/adopt.sh fixes nothing else.
+ruff-imports-fix:
+	ruff check --fix --select I $(RUFF_PATHS)
 
 mypy-check:
 	mypy

@@ -20,9 +20,23 @@ forms() {
 
 setup_file() {
   REPO="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+  # The template only, detected as tests/utils/template_tree.py does: an adopted repository has renamed
+  # the package, and re-adopting it under the test name is no check of its own service.
+  compgen -G "$REPO/src/$UNDER/*.py" > /dev/null \
+    || skip "not the template (src/$UNDER/ holds no Python): this check is the template's own"
+  # adopted-copy.sh needs this tree's ruff and the pinned helm; the Adopted copy CI job installs both.
+  [[ -x "$REPO/.venv/bin/ruff" && -x "$REPO/.tools/bin/helm" ]] \
+    || skip "needs this tree's backend (.venv/bin/ruff) and the pinned helm (the Adopted copy CI job runs it)"
   C="$BATS_FILE_TMPDIR/copy"
   export REPO C
-  (cd "$REPO" && bash scripts/ci/adopted-copy.sh "$C") > "$BATS_FILE_TMPDIR/adopt.log" 2>&1
+  if ! (cd "$REPO" && bash scripts/ci/adopted-copy.sh "$C") > "$BATS_FILE_TMPDIR/adopt.log" 2>&1; then
+    cat "$BATS_FILE_TMPDIR/adopt.log"
+    return 1
+  fi
+  # The test identity, as scripts/ci/adopted-copy.sh wrote it into the copy's config.
+  # shellcheck source=/dev/null
+  NAME="$(source "$C/.adapt-backup/adopt.conf" && echo "$SERVICE_NAME")"
+  export NAME SLUG="${NAME//_/-}"
 }
 
 # The listed paths, as git pathspecs that leave them out.
@@ -61,11 +75,11 @@ hits() {
 }
 
 @test "the chart directory and the package are renamed" {
-  [ -f "$C/charts/acme-orders/Chart.yaml" ]
-  [ -f "$C/src/acme_orders/__init__.py" ]
+  [ -f "$C/charts/$SLUG/Chart.yaml" ]
+  [ -f "$C/src/$NAME/__init__.py" ]
   [ ! -e "$C/charts/$DASH" ]
   [ ! -e "$C/src/$UNDER" ]
-  grep -q '^name: acme-orders$' "$C/charts/acme-orders/Chart.yaml"
+  grep -qx "name: $SLUG" "$C/charts/$SLUG/Chart.yaml"
 }
 
 @test "every rewritten file keeps its mode, and no binary file changes" {

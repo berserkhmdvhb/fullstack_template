@@ -190,12 +190,16 @@
 {{- if $held }}
 {{- $found = append $found (printf "%s still %s the placeholder digest %s (the deploy sets each image's release digest; a hand-run upgrade passes --set images.<name>.digest=sha256:<64 hex>)" (join ", " $held) (ternary "holds" "hold" (eq (len $held) 1)) $zero) }}
 {{- end }}
-{{- /* The placeholder OIDC issuer and audience (values.production.yaml). */}}
+{{- /* The placeholder OIDC issuer and audience (values.production.yaml). The issuer's host is its own
+     placeholder, which the stamp never rewrites (it is not on the placeholder domain), so an adopted
+     copy still refuses it; an issuer on the placeholder domain is refused too. */}}
+{{- $placeholderIssuer := "your-oidc-issuer.example" }}
 {{- $authHeld := list }}
-{{- if regexMatch "(?i)^[a-z][a-z0-9+.-]*://([^/?#@]*\\.)?your-domain\\.example\\.?(:[0-9]+)?([/?#].*)?$" (trim (toString (get .Values.config "OIDC_ISSUER"))) }}{{- $authHeld = append $authHeld "config.OIDC_ISSUER" }}{{- end }}
+{{- $issuerHost := printf "(?i)^[a-z][a-z0-9+.-]*://([^/?#@]*\\.)?(%s|%s)\\.?(:[0-9]+)?([/?#].*)?$" (regexQuoteMeta $placeholderIssuer) (regexQuoteMeta $placeholderDomain) }}
+{{- if regexMatch $issuerHost (trim (toString (get .Values.config "OIDC_ISSUER"))) }}{{- $authHeld = append $authHeld "config.OIDC_ISSUER" }}{{- end }}
 {{- if regexMatch "(^|,)\\s*your-oidc-audience\\s*(,|$)" (toString (get .Values.config "OIDC_AUDIENCE")) }}{{- $authHeld = append $authHeld "config.OIDC_AUDIENCE" }}{{- end }}
 {{- if $authHeld }}
-{{- $found = append $found (printf "%s still %s (an issuer on %s, the audience your-oidc-audience; set your OIDC provider's issuer and the API's audience)" (join ", " $authHeld) (ternary "holds a placeholder" "hold placeholders" (eq (len $authHeld) 1)) $placeholderDomain) }}
+{{- $found = append $found (printf "%s still %s (an issuer on %s or %s, the audience your-oidc-audience; set your OIDC provider's issuer and the API's audience)" (join ", " $authHeld) (ternary "holds a placeholder" "hold placeholders" (eq (len $authHeld) 1)) $placeholderIssuer $placeholderDomain) }}
 {{- end }}
 {{- /* The placeholder runbook link, in production while the rules render. With gmp the admin
      bootstrap renders the ClusterRules (which the deploy never does), so the flavour alone counts:

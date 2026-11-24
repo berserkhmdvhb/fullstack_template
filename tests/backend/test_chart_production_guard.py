@@ -14,6 +14,7 @@ import pytest
 import yaml
 
 from tests.supply_chain.test_chart_image_digests import _images
+from tests.utils.template_tree import is_template
 from your_service_name.backend.settings import PRODUCTION_ENVS, AuthMode
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -232,7 +233,7 @@ def test_the_committed_hosts_are_refused_exactly_while_they_hold_the_placeholder
     infra/adapt/adopt.sh has stamped the adopter's domain, the guard lets them through."""
     values = CHART / f"values.{env}.yaml"
     held = bool(PLACEHOLDER_DOMAIN.search(values.read_text(encoding="utf-8")))
-    template = (ROOT / "src" / ("your_" + "service_name")).is_dir()
+    template = is_template(ROOT)
     assert held or not template, f"the template's values.{env}.yaml lost its placeholder hosts"
     args = ("-f", str(values), "--set", "guards.rejectPlaceholders=true", "--set", GATEWAY)
     result = _template(helm, *args)
@@ -245,7 +246,7 @@ def test_the_committed_runbook_link_is_refused_exactly_while_it_holds_the_placeh
     """The same for the runbook link every alert carries, in production with the rules on."""
     default = yaml.safe_load((CHART / "values.yaml").read_text(encoding="utf-8"))
     held = PLACEHOLDER_REPO in default["monitoring"]["runbookUrl"]
-    template = (ROOT / "src" / ("your_" + "service_name")).is_dir()
+    template = is_template(ROOT)
     assert held or not template, "the template's monitoring.runbookUrl lost its placeholder"
     args = ("-f", str(CHART / "values.production.yaml"), "--set", "guards.rejectPlaceholders=true")
     result = _template(helm, *args, "--set", "monitoring.prometheusRule=true")

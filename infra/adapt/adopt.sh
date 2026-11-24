@@ -102,7 +102,14 @@ HELM="${ROOT_DIR}/.tools/bin/helm"
 if [ "${DRY_RUN}" != "true" ] && [ -d "${ROOT_DIR}/${CHART_DIR}/tests/__snapshot__" ]; then
   if [ -x "${HELM}" ] && [ -d "${ROOT_DIR}/.tools/helm-plugins" ]; then
     echo "==> Chart snapshots (${CHART_DIR})…"
-    (cd "${ROOT_DIR}" && HELM_PLUGINS="${ROOT_DIR}/.tools/helm-plugins" "${HELM}" unittest -u "${CHART_DIR}" >/dev/null)
+    # helm-unittest reports a failing test on stdout: keep it for the failure message.
+    if ! out="$(cd "${ROOT_DIR}" && HELM_PLUGINS="${ROOT_DIR}/.tools/helm-plugins" "${HELM}" unittest -u "${CHART_DIR}" 2>&1)"; then
+      printf '%s\n' "${out}" >&2
+      echo "❌ The chart's unit tests fail in the adopted chart. The rename and the stamp are already applied" >&2
+      echo "   (backups in: ${BACKUP_DIR}); fix the tests, then render the snapshots again:" >&2
+      echo "   HELM_PLUGINS=.tools/helm-plugins .tools/bin/helm unittest -u ${CHART_DIR}" >&2
+      exit 1
+    fi
     echo
   else
     echo "[adopt] NOTE: render the chart's snapshots again once the tools are installed:"
@@ -113,16 +120,18 @@ fi
 
 # ---- And the Python formatting -----------------------------------------------
 # A new name sorts elsewhere among the imports and, of another length, moves where ruff wraps a line,
-# so the Python the repo owns has its imports sorted and is formatted again (make ruff-lint-fix
-# ruff-format) with the project's ruff: .venv/bin/ruff, or RUFF, when it is installed.
+# so the Python the repo owns has its imports sorted and is formatted again (make ruff-imports-fix
+# ruff-format: nothing else is fixed) with the project's ruff: .venv/bin/ruff, or RUFF, when installed.
 RUFF="${RUFF:-${ROOT_DIR}/.venv/bin/ruff}"
 if [ "${DRY_RUN}" != "true" ] && [ -f "${ROOT_DIR}/Makefile" ]; then
   if [ -x "${RUFF}" ]; then
-    echo "==> Python imports and formatting (make ruff-lint-fix ruff-format)…"
-    (cd "${ROOT_DIR}" && PATH="$(dirname "${RUFF}"):${PATH}" make -s ruff-lint-fix ruff-format)
+    echo "==> Python imports and formatting (make ruff-imports-fix ruff-format)…"
+    if ! (cd "${ROOT_DIR}" && PATH="$(dirname "${RUFF}"):${PATH}" make -s ruff-imports-fix ruff-format); then
+      echo "[adopt] WARNING: ruff could not sort or format every file; fix what it names, then run: make ruff-imports-fix ruff-format"
+    fi
     echo
   else
-    echo "[adopt] NOTE: sort and format the Python again once the backend is installed: make ruff-lint-fix ruff-format"
+    echo "[adopt] NOTE: sort and format the Python again once the backend is installed: make ruff-imports-fix ruff-format"
     echo
   fi
 fi
