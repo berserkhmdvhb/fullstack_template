@@ -232,6 +232,27 @@ def test_the_kind_variant_differs_from_the_policy_only_where_kind_must() -> None
     assert variant == production
 
 
+def kind_images_problems(path: Path) -> list[str]:
+    """What is wrong with the images of a Kyverno values file (ghcr.io, by digest)."""
+    text = path.read_text(encoding="utf-8")
+    admission = load(path)["admissionController"]
+    problems = []
+    for name, key in (("kyvernopre", "initContainer"), ("kyverno", "container")):
+        image = admission[key]["image"]
+        if image.get("registry") != "ghcr.io":
+            problems.append(f"{name}: registry {image.get('registry')!r}")
+        if not re.fullmatch(r"v\d+\.\d+\.\d+@sha256:[0-9a-f]{64}", image["tag"]):
+            problems.append(f"{name}: tag {image['tag']!r}")
+        if f"# renovate: image=ghcr.io/kyverno/{name}\n" not in text:
+            problems.append(f"{name}: renovate comment")
+    return problems
+
+
+def test_the_kind_kyverno_images_come_from_ghcr_io_by_digest() -> None:
+    """reg.kyverno.io is only a front for ghcr.io and fails alone; the origin is the one to pull."""
+    assert kind_images_problems(KIND_VALUES) == []
+
+
 def test_the_kind_kyverno_is_the_pinned_release_by_digest_with_admission_only() -> None:
     text = (REPO / "tools" / "pins.tsv").read_text(encoding="utf-8")
     rows = {r.split("\t")[0]: r.split("\t") for r in text.splitlines() if "\t" in r}

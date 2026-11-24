@@ -251,7 +251,7 @@
       // chart rows of tools/pins.tsv and the image tags and digests in deploy/policies/test/kyverno-values.yaml.
       // The pins.tsv checksums still come from make pins-refresh.
       "description": "Kyverno: the CLI pin, the chart pin and the chart's images move together",
-      "matchPackageNames": ["kyverno/kyverno", "kyverno", "reg.kyverno.io/kyverno/kyverno", "reg.kyverno.io/kyverno/kyvernopre"],
+      "matchPackageNames": ["kyverno/kyverno", "kyverno", "ghcr.io/kyverno/kyverno", "ghcr.io/kyverno/kyvernopre"],
       "groupName": "kyverno"
     },
     {
