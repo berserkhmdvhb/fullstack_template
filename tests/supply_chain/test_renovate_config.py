@@ -74,6 +74,18 @@ def test_every_pin_row_is_seen_by_exactly_one_manager_and_the_url_follows_the_ve
         assert bumped.count("99.9.9") >= 1
 
 
+def test_the_github_release_tags_extract_to_the_pinned_versions() -> None:
+    """Every GitHub-hosted pin's tag form gives its version; lychee's library tags give none."""
+    (manager,) = [m for m in _managers("pins") if m["datasourceTemplate"] == "github-releases"][:1]
+    extract = _compile(manager["extractVersionTemplate"])
+    for tag, version in (("v1.7.12", "1.7.12"), ("0.13.8", "0.13.8"), ("lychee-v0.24.2", "0.24.2")):
+        found = extract.fullmatch(tag)
+        assert found, tag
+        assert found.group("version") == version
+    for tag in ("lychee-lib-v0.24.2", "nightly"):
+        assert not extract.fullmatch(tag), tag
+
+
 def test_every_security_tool_version_is_annotated() -> None:
     (manager,) = _managers("config")[:1]
     found = {

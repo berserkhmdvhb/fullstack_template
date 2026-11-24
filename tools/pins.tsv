@@ -4,7 +4,7 @@
 # Rule: a pin is the newest stable release published at least 7 days before it was pinned
 # (Renovate minimumReleaseAge). Pinned on 2026-11-20. The sha256 comes from the vendor's checksum
 # file (helm: <asset>.sha256sum; node: SHASUMS256.txt; kind, kubeconform, promtool (sha256sums.txt), ct, helm-unittest,
-# actionlint, hadolint, gitleaks, oasdiff, cosign, kyverno: the release checksum file; uv: the <asset>.sha256 beside the asset; yq: the sha256 column of
+# actionlint, hadolint, gitleaks, oasdiff, cosign, kyverno: the release checksum file; uv, lychee: the <asset>.sha256 beside the asset; yq: the sha256 column of
 # the release `checksums`). squawk and shellcheck publish no checksum file: their sha256 is the GitHub
 # release-asset digest, confirmed against the downloaded bytes. bats is the GitHub tag archive (no
 # vendor checksum exists), hashed on download; a changed archive is refused.
@@ -75,6 +75,8 @@ kyverno-chart	3.10.0	any	https://kyverno.github.io/kyverno/kyverno-3.10.0.tgz	55
 yq	4.54.3	linux-amd64	https://github.com/mikefarah/yq/releases/download/v4.54.3/yq_linux_amd64.tar.gz	09a25baa0e136b8633949e03117fc82cb9e50d10910f988ef17a1305539ebce4
 bats	1.14.0	linux-amd64	https://github.com/bats-core/bats-core/archive/refs/tags/v1.14.0.tar.gz	bb537b70b15b732f6d8827dd6578e3d8ce166636ce1f18ea9a074184fcce9177
 shellcheck	0.11.0	linux-amd64	https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz	b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
+# lychee: the offline doc link check (make docs-links, the repo job in ci.yml). Its tags are lychee-v<version>.
+lychee	0.24.2	linux-amd64	https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz	1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a
 node	26.13.1	linux-amd64	https://nodejs.org/dist/v26.13.1/node-v26.13.1-linux-x64.tar.xz	5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864
 python	3.13	any	uv:python	-
 zizmor	1.32.0	any	uv:zizmor	-

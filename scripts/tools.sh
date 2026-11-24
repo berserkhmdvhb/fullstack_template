@@ -48,6 +48,7 @@ exes_for() {
     shellcheck) echo "shellcheck-v$VER/shellcheck:shellcheck" ;;
     node) echo "node-v$VER-linux-x64/bin/node:node node-v$VER-linux-x64/bin/npm:npm node-v$VER-linux-x64/bin/npx:npx" ;;
     uv) echo "uv-x86_64-unknown-linux-gnu/uv:uv uv-x86_64-unknown-linux-gnu/uvx:uvx" ;;
+    lychee) echo "lychee-x86_64-unknown-linux-gnu/lychee:lychee" ;;
     helm-unittest|k8s-openapi|kyverno-chart) echo "" ;; # a plugin dir, and data (kubeconform.sh and the kind admission test read them)
     *) echo "$1:$1" ;;
   esac

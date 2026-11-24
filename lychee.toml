@@ -1,0 +1,23 @@
+# lychee: the offline link check over the public docs (`make docs-links`; the repo job in .github/workflows/ci.yml).
+# Inputs are the repository root, walked by lychee (it honours .gitignore, so node_modules, .tools, output and
+# other untracked build output are never read). Only file links and in-repo #anchors are checked: no network, no cache.
+
+# No network: every http(s) link is skipped, so the check is hermetic and never flaky.
+offline = true
+# A #anchor must name a heading of the target page.
+include_fragments = "anchor-only"
+# Markdown only: the docs are Markdown, and the other default extensions (css, txt, xml, html) are code or data here.
+extensions = ["md"]
+cache = false
+no_progress = true
+
+exclude_path = [
+  # Non-public working material, excluded from the template's public docs.
+  "^\\./wiki/plans/",
+  # Installed dependencies (vendored third-party Markdown), if present and not ignored.
+  "node_modules/",
+  # The pinned toolchain's unpacked archives (vendor READMEs).
+  "^\\./\\.tools/",
+  # Generated reports and test output.
+  "^\\./(output|test-results)/",
+]

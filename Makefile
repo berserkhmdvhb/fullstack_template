@@ -3,7 +3,7 @@
     export-requirements check-requirements-sync \
     ruff-format ruff-format-check ruff-lint ruff-lint-fix mypy-check \
     openapi-gen openapi-drift-check env-docs env-docs-check \
-    shellcheck image-checks frontend-deployment-id tools tools-dry-run pins-refresh \
+    shellcheck docs-links image-checks frontend-deployment-id tools tools-dry-run pins-refresh \
     check-all check-all-dry precommit chart-unittest kubeconform rules-test crd-schemas crd-schemas-check \
     test test-unit test-integration test-e2e test-contract test-live test-file test-file-function test-fast \
     test-coverage test-coverage-xml test-cov-html test-coverage-rep test-coverage-file \
@@ -67,6 +67,7 @@ help::
 	@echo "  ruff-lint                Run Ruff linter"
 	@echo "  mypy-check               Run MyPy static type checker"
 	@echo "  shellcheck               Lint all tracked shell scripts (*.sh + *.bats) with ShellCheck"
+	@echo "  docs-links               Check every file link and #anchor in the docs, offline (pinned lychee, lychee.toml)"
 	@echo "  image-checks             Build the images (throwaway tags) and run the CI structure checks (IDS=...)"
 	@echo "  frontend-deployment-id   Build the frontend image and check the page carries the deployment id"
 	@echo "  check-all                Run dev tool drift check + format + lint + mypy"
@@ -276,6 +277,11 @@ shellcheck:
 	  echo "shellchecking $${#SH[@]} *.sh and $${#BATS[@]} *.bats (default level; .bats parsed as bash)"; \
 	  if (( $${#SH[@]} > 0 ));   then $(SHELLCHECK) "$${SH[@]}";   fi; \
 	  if (( $${#BATS[@]} > 0 )); then $(SHELLCHECK) -s bash "$${BATS[@]}"; fi'
+
+# Every file link and in-repo #anchor in the public docs, offline: the same command as the repo job in ci.yml.
+docs-links:
+	@test -x .tools/bin/lychee || { echo "lychee not found; run: scripts/tools.sh install lychee" >&2; exit 1; }
+	.tools/bin/lychee --config lychee.toml .
 
 # Pinned, checksum-verified dev toolchain in ./.tools (see tools/pins.tsv, scripts/tools.sh).
 # Put it first on PATH so every target uses the pinned tools when they are installed; helm finds

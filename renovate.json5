@@ -27,6 +27,7 @@
       // tools/pins.tsv, rows whose url is a GitHub release asset or tag archive. Renovate replaces every occurrence of
       // the version inside the matched text, so the version column and the url move together. The match stops before
       // the sha256 column, which is not touched (make pins-refresh fills it in). (?m) because `^` must match at each line.
+      // A tag is `v<version>` or `<version>`, or `lychee-v<version>` (lychee's other tags, `lychee-lib-v…`, are skipped).
       "customType": "regex",
       "description": "tools/pins.tsv: GitHub-hosted tools",
       "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
@@ -34,7 +35,7 @@
         "(?m)^(?<depName>[a-z0-9-]+)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://github\\.com/(?<packageName>[^/\\t]+/[^/\\t]+)/(?:releases/download|archive/refs/tags)/[^\\t]+)\\t"
       ],
       "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v?(?<version>.+)$"
+      "extractVersionTemplate": "^(?:lychee-)?v?(?<version>[0-9].*)$"
     },
     {
       "customType": "regex",
@@ -204,12 +205,12 @@
     {
       // setuptools-scm and vcs-versioning are pinned twice in pyproject.toml: in the dev group (the release-tag test runs
       // setuptools_scm) and in [tool.uv] build-constraint-dependencies, with hashes; a test keeps the two equal. One pull
-      // request moves both packages in both places, majors too (this rule comes after the major rule). The build
-      // constraints' hashes are not written by Renovate: the note says what to run.
+      // request moves both packages, majors too (this rule comes after the major rule). Whether Renovate also rewrites the
+      // table-form build constraints is not verified, and it never writes their hashes: the note says what to check and do.
       "description": "setuptools-scm: the dev-group pins move with the build constraints",
       "matchPackageNames": ["setuptools-scm", "vcs-versioning"],
       "groupName": "setuptools-scm",
-      "prBodyNotes": ["Update the sha256 hashes of `[tool.uv] build-constraint-dependencies` in `pyproject.toml` to the new versions' files, then run `make lock` (wiki/getting-started.md, Build dependencies)."]
+      "prBodyNotes": ["If this pull request did not change `setuptools-scm` and `vcs-versioning` in `[tool.uv] build-constraint-dependencies` in `pyproject.toml`, set them there to the versions it gives the dev group (a test fails until the two match). Then replace those entries' sha256 hashes with the new versions' files and run `make lock`, as wiki/getting-started.md (Build dependencies) describes."]
     },
     {
       // The uv pin in tools/pins.tsv and the uv image tag in Dockerfile.backend must stay equal (a test checks it),

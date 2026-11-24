@@ -138,6 +138,11 @@ SOURCES: dict[str, tuple[str, str, str]] = {
     "k8s-openapi": ("archive", "", "https://raw.githubusercontent.com/kubernetes/kubernetes/"),
     "kyverno-chart": ("archive", "", "https://kyverno.github.io/kyverno/"),
     "shellcheck": ("gh-digest", "", "https://github.com/koalaman/shellcheck/releases/download/"),
+    "lychee": (
+        "hashfile",
+        "{url}.sha256",
+        "https://github.com/lycheeverse/lychee/releases/download/",
+    ),
     "node": (
         "sumfile",
         "https://nodejs.org/dist/v{ver}/SHASUMS256.txt",
