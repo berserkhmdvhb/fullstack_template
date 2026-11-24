@@ -51,28 +51,31 @@ Examples: `v1.0.0`, `v1.2.3`, `v2.0.0-rc1`
 
 ### Pre-release Tags
 
-For release candidates and betas:
+Only the release App creates `v*` tags, so a pre-release is cut through release-please too. Put a `Release-As:` footer as the last paragraph of a pull request's body (the squash merge makes the body the commit body), for example:
 
 ```
-v1.2.3-rc1
-v1.2.3-beta.1
+Release-As: 1.2.3-rc.1
 ```
+
+The next release pull request then proposes exactly that version, and its merge creates the `v1.2.3-rc.1` tag, which runs the whole release workflow like any `v*` tag ([`container_matrix.py`](../.github/scripts/container_matrix.py) accepts `-<pre>`). The bundled release-please library (v5.0.0 of the action) reads the footer and parses a `-<pre>` suffix, but its next bump keeps the suffix (a `fix` after `1.2.3-rc.1` proposes `1.2.4-rc.1`), so cut the final release with another footer, `Release-As: 1.2.3`.
 
 ---
 
 ## Release Workflow
 
-When a `v*` tag is pushed, `ci.yml` and `release.yml` both run:
+When the release pull request is merged, release-please creates the `v*` tag with the release App's token ([Creating a Release](#creating-a-release)), and the tag runs `ci.yml` and `release.yml`:
 
 ```mermaid
 flowchart TB
-    Tag["git tag v1.2.3<br/>git push origin v1.2.3"] --> CI["ci.yml<br/>quality gate, CI OK"]
+    Tag["release PR merged<br/>v* tag (release App)"] --> CI["ci.yml<br/>quality gate, CI OK"]
     Tag --> Plan["plan<br/>version + image matrix"]
     Plan --> Img["images (reusable-build.yml)<br/>build + push, sbom, grype (blocking), sign + attest"]
     Img --> Dig["digests"]
     Dig --> Deploy["deploy.yml<br/>dev, qa, production by digest"]
     Img --> Vex["vex, grant (advisory)"]
+    Img --> Chart["chart (reusable-chart-release.yml)<br/>package, push, sign + attest"]
     Vex --> Assets["release-assets<br/>v* tags: draft release"]
+    Chart --> Assets
     Deploy --> Done["Release complete"]
 ```
 
@@ -84,7 +87,7 @@ flowchart TB
 | **Image tags** | immutable `<version>-main-<sha>` | immutable `<version>-prod-<sha>` plus `latest` |
 | **Deploy** | `dev`, then `qa` (when `DEPLOY_ENABLED` is `true`) | + `production`, behind the environment's reviewer |
 
-On a `v*` tag, `release-assets` creates the GitHub Release for the tag as a **draft** (or reuses the one draft that already exists for it) and uploads the SBOMs, the OpenVEX document, the licence report, the image digests (`image-digests.env`, `scan.env`; the weekly re-scan reads them), the chart's reference (`chart.env`) and `provenance.md` (each signed digest, a link to the repository's attestations and the verify commands) to it. The workflow never publishes it: edit the notes and publish by hand once the run is green (immutable releases reject assets added after publication, so the draft must be complete first; if the release is already published the job fails with a message). To check a released image, see [Verifying an image](./security.md#verifying-an-image).
+On a `v*` tag, `release-assets` reuses the **draft** GitHub Release that release-please made for the tag, and creates a draft only if none exists and uploads the SBOMs, the OpenVEX document, the licence report, the image digests (`image-digests.env`, `scan.env`; the weekly re-scan reads them), the chart's reference (`chart.env`) and `provenance.md` (each signed digest, a link to the repository's attestations and the verify commands) to it. The workflow never publishes it: edit the notes and publish by hand once the run is green (immutable releases reject assets added after publication, so the draft must be complete first; if the release is already published the job fails with a message). To check a released image, see [Verifying an image](./security.md#verifying-an-image).
 
 ### The chart
 
@@ -124,6 +127,8 @@ The one-time setup (the App, its permissions, the `release` environment and its 
 ### 3. Merge it
 
 Merging creates the `v*` tag and a **draft** GitHub Release with the App's token (`draft` and `force-tag-creation` in the config: a draft alone gets no tag until published). A tag made with `GITHUB_TOKEN` would trigger no workflow, so the token comes from the App, and the `release-tags` ruleset lets only that App create, update or delete `v*` tags ([GitHub repository settings](./github-repository-settings.md)): a `git push origin v1.2.3` by the owner is refused.
+
+> **First release: two things to watch.** If the token step fails on `client-id`, or release-please cannot force-push its release branch after a workflow file changed on `main`, see the watch item in [The release GitHub App](./github-repository-settings.md#the-release-github-app) (`app-id`; `permission-workflows: write`).
 
 ### 4. Monitor the Run
 
