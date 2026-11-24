@@ -5,7 +5,8 @@
 #   * replace_service_name.py -- the service NAME (identity: package, image
 #     suffix, k8s name prefix, BACKEND_ENTRY, CI package_name)
 #   * adopt_stamp.py          -- the deployment COORDINATES (ingress domain +
-#     image registry)
+#     image registry), and .template-version: the template release this copy
+#     was made from (written once; wiki/template-upgrades.md)
 # Both read the same adopt.conf, so editing that one file applies everywhere.
 # Re-execs under bash, validates the config, runs the name adapter then the
 # stamping step (name first: the two are independent and commute), and forwards

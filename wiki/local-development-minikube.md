@@ -1,9 +1,14 @@
-# Local Deployment (Minikube / kind)
+# Local Deployment (minikube, optional)
+
+> **kind is the default local cluster** and matches CI: `make kind-up`, `make kind-deploy`, the kind tests and
+> `make kind-down`, on the node images in `tools/kind-nodes.tsv`; see
+> [Infrastructure, Local cluster (kind)](./infrastructure.md#local-cluster-kind)
+> ([ADR-0035](./adr/0035-kind-default-local-cluster.md)). This page is the optional path: minikube, or a kind
+> cluster of your own, driven step by step.
 
 Complete guide to running the two-image stack (**backend** / **frontend**)
-and PostgreSQL on a local cluster. **Minikube and kind are the two
-first-class local clusters** here (any Kubernetes works too) — and **every step
-has three interchangeable ways to do it**:
+and PostgreSQL on a local cluster of your own, **Minikube** or **kind** (any
+Kubernetes works too) — and **every step has three interchangeable ways to do it**:
 
 | Option | What it is | When to use it |
 | --- | --- | --- |

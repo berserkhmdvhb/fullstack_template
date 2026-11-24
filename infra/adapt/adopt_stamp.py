@@ -25,6 +25,7 @@ registry pattern runs first because ``registry.your-domain.example`` contains
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -51,6 +52,11 @@ REPOSITORY_ALSO: Final[str] = "README.md"
 # The whole placeholder URL; scripts/ci/image-checks.sh reads it to refuse the template source.
 OLD_SOURCE_URL: Final[str] = f"https://github.com/{OLD_REPOSITORY}"
 _REPOSITORY: Final = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+# The template release an adopted copy was made from, written once at adoption. Its source is
+# release-please's manifest (the last release the copy contains; tags are v<version>), read here
+# because the adopter's own releases take that manifest over (wiki/template-upgrades.md).
+TEMPLATE_VERSION: Final[str] = ".template-version"
+RELEASE_MANIFEST: Final[str] = ".release-please-manifest.json"
 
 
 class _Config:
@@ -91,6 +97,27 @@ def build_patterns(
 def repository_patterns(repository: str) -> list[tuple[re.Pattern[str], str]]:
     """``your-org/your-repo`` -> the repository."""
     return [(re.compile(rf"(?<![\w.-]){re.escape(OLD_REPOSITORY)}(?![\w.-])"), repository)]
+
+
+def stamp_template_version(root: Path, *, dry: bool) -> None:
+    """Write ``v<manifest version>`` to .template-version once; an existing record is kept."""
+    target = root / TEMPLATE_VERSION
+    if target.exists():
+        recorded = target.read_text(encoding="utf-8").strip()
+        print(f"[adopt] {TEMPLATE_VERSION} already records {recorded}")
+        return
+    try:
+        version = json.loads((root / RELEASE_MANIFEST).read_text(encoding="utf-8"))["."]
+    except (OSError, ValueError, KeyError, TypeError):
+        print(
+            f"[adopt] NOTE: no version in {RELEASE_MANIFEST}, so {TEMPLATE_VERSION} is not written."
+        )
+        return
+    if dry:
+        print(f"[adopt] Would write {TEMPLATE_VERSION}: v{version}")
+        return
+    target.write_text(f"v{version}\n", encoding="utf-8")
+    print(f"[adopt] Wrote {TEMPLATE_VERSION}: v{version}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -176,6 +203,7 @@ def main() -> int:
         for relf in changed:
             print(f" - {relf}")
     print(f"\n[adopt] Total: {len(changed)} file(s)")
+    stamp_template_version(root, dry=args.dry_run)
     owners = root / CODEOWNERS
     if not args.codeowner and owners.is_file() and OLD_OWNER in owners.read_text(encoding="utf-8"):
         print(

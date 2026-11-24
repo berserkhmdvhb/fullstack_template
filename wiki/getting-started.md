@@ -37,13 +37,30 @@ Complete guide to setting up, configuring, and running the service template loca
 
 | Tool | Purpose |
 |------|---------|
-| **kind** or **minikube** | Local Kubernetes cluster for development |
+| **kind** (the default; `make tools` installs the pinned one) or **minikube** (optional) | Local Kubernetes cluster for development |
 | **Helm** (optional) | Package manager for cluster-level dependencies (cert-manager and an Ingress controller) |
 
 ### Optional
 
+- **The development container** — [Development container](#development-container) below
 - **Apptainer** — For Singularity-style (rootless, single-file) container runs
 - **WSL2** — Required on Windows
+
+---
+
+### Development container
+
+`.devcontainer/devcontainer.json` is an optional container with everything above: its base image (Ubuntu 24.04, the CI
+runner's OS) and its one feature are pinned by digest, and on creation it runs `make tools`, so Python, Node, Helm,
+kind and the security tools come from `tools/pins.tsv`, checksum-verified, and `.tools/bin` is on `PATH`. Nothing in
+it restates a version, and Renovate updates its digests.
+
+kind gets its Docker daemon from the Docker-in-Docker feature: a daemon of its own inside the container, so clusters
+and images stay out of the host's daemon. The trade-off is that the container runs **privileged** (the feature asks
+for it), which gives it the host kernel's devices and capabilities; mounting the host's Docker socket instead
+(Docker-outside-of-Docker) needs no privilege but hands the container root-equivalent control of the host daemon, and
+kind's API server then listens on the host, not in the container. Use the container on a machine you would run
+privileged containers on, or install the tools with `make tools` directly.
 
 ---
 
@@ -306,9 +323,20 @@ docker compose down
 
 ## Running on Kubernetes (Local)
 
-For local Kubernetes development, use [kind](https://kind.sigs.k8s.io/) or [minikube](https://minikube.sigs.k8s.io/).
+### The default: kind, as CI runs it
 
-### 1. Create a Local Cluster
+kind is the default local cluster ([ADR-0035](./adr/0035-kind-default-local-cluster.md)): `make kind-up`,
+`make kind-deploy`, the kind tests and `make kind-down` run the same scripts and the same node images as CI's kind
+job (`tools/kind-nodes.tsv`: the chart's `kubeVersion` floor and kind's newest), on a cluster named `fst` with its own
+kubeconfig. After `make tools`, follow [Infrastructure, Local cluster (kind)](./infrastructure.md#local-cluster-kind),
+which lists every target and what each test needs.
+
+### By hand, on kind or minikube
+
+The steps below deploy with your own cluster and commands; minikube is optional, and
+[Local Deployment (minikube)](./local-development-minikube.md) covers it step by step.
+
+#### 1. Create a Local Cluster
 
 ```bash
 # Using kind
@@ -318,7 +346,7 @@ kind create cluster --name your-service-name
 minikube start --memory=4096 --cpus=2
 ```
 
-### 2. (Optional) Install an Ingress Controller
+#### 2. (Optional) Install an Ingress Controller
 
 Ingress is only needed if you want to reach the service by host instead of via `kubectl
 port-forward` (step 5). For a quick local run you can skip it. To use it, deploy the chart in
@@ -331,7 +359,7 @@ helm install ingress-nginx ingress-nginx \
   --namespace ingress-nginx --create-namespace
 ```
 
-### 3. Build the Images into the Node Daemon
+#### 3. Build the Images into the Node Daemon
 
 The `local` values read bare `:local` image tags with `imagePullPolicy: IfNotPresent`, so the images
 must already live on the node — build them there (no registry push).
@@ -347,7 +375,7 @@ kind load docker-image your-service-name-backend:local --name your-service-name
 kind load docker-image your-service-name-frontend:local --name your-service-name
 ```
 
-### 4. Deploy with Helm
+#### 4. Deploy with Helm
 
 > The stack is deployed with the Helm chart (`charts/your-service-name/`). Namespaces are per-env
 > (`your-service-name-local` app + `your-service-name-local-db` db); the
@@ -366,7 +394,7 @@ helm upgrade --install your-service-name charts/your-service-name \
   -n your-service-name-local
 ```
 
-### 5. Access the Service
+#### 5. Access the Service
 
 ```bash
 # Port-forward to frontend
@@ -377,7 +405,7 @@ kubectl -n your-service-name-local port-forward svc/your-service-name-frontend 3
 # http://dev-app.your-domain.example
 ```
 
-### 6. Verify Deployment
+#### 6. Verify Deployment
 
 ```bash
 # Check pods are running

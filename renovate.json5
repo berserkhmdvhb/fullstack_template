@@ -22,6 +22,10 @@
   "minimumReleaseAge": "7 days",
   "internalChecksFilter": "strict",
 
+  // .devcontainer/devcontainer.json: the base image by tag and digest, the features by digest (docker:pinDigests). Named
+  // here so it cannot be dropped silently; tests/supply_chain/test_devcontainer.py checks it.
+  "devcontainer": { "enabled": true },
+
   "customManagers": [
     {
       // tools/pins.tsv, rows whose url is a GitHub release asset or tag archive. Renovate replaces every occurrence of

@@ -20,7 +20,8 @@ Copier is not adopted now. The template must stay a runnable, tested repository 
 chart render runs on the template itself, with the placeholder name. Templating names across files would make the
 repository a template source that cannot run or be tested until rendered. Upgrades follow an upstream-sync path
 instead: an `upstream` remote and a merge or cherry-pick per template release, and adopter-action notes in each
-changelog entry (the changelog's "Upgrading" list). A recorded template version and an upgrade guide are planned.
+changelog entry (the changelog's "Upgrading" list), a recorded template version (`.template-version`) and
+an upgrade guide ([Template upgrades](../template-upgrades.md)).
 
 Revisit when one of these holds: several adopters drift far enough that merges stop being practical; Copier (or a
 similar tool) can update a project generated from a plain, runnable repository; or the template grows options that
@@ -40,4 +41,4 @@ generate different file sets.
 ## Links
 
 - [Adaptation](../adaptation.md), [`infra/adapt/replace_service_name.sh`](../../infra/adapt/replace_service_name.sh)
-- [Changelog](../changelog.md)
+- [Changelog](../changelog.md), [Template upgrades](../template-upgrades.md)

@@ -51,6 +51,8 @@ badges, and the links in `SECURITY.md`, the issue forms and the pull request tem
 `@name`, a team `@org/team` or an email; GitHub rejects a bare organisation) replaces `@your-org` in
 `.github/CODEOWNERS`, and the adapter refuses another shape. Unset, those placeholders stay, and the adapter prints a
 notice while `CODEOWNERS` still has its placeholder. The dry-run lists every file it would change.
+It also writes `.template-version`, the template release this copy was made from (`v` and the version in
+`.release-please-manifest.json`), once: a re-run keeps it. [Template upgrades](./template-upgrades.md) uses it.
 
 **Cluster structure is a separate, per-cluster layer.** The values that depend on *which cluster*
 you run on — the ingress controller class, the StorageClass, the TLS mode, the CI short image

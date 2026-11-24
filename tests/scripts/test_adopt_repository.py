@@ -195,3 +195,9 @@ def test_adopt_sh_passes_codeowner_from_the_config(governance: Path) -> None:
     )
     owners = (governance / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
     assert "*                    @acme/core\n" in owners
+
+
+def test_the_template_ships_no_template_version() -> None:
+    """adopt.sh writes it from release-please's manifest; a committed one is a second version."""
+    assert not (ROOT / ".template-version").exists()
+    assert (ROOT / ".release-please-manifest.json").is_file()
