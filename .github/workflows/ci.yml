@@ -48,7 +48,7 @@ jobs:
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
           changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
-          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|uv\.lock|Makefile|frontend/lib/api/|frontend/package[^/]*\.json$|\.github/|scripts/|infra/|tools/|deploy/|wiki/|\.devcontainer/|renovate\.json5$|\.pr_agent\.toml$|lychee\.toml$)' <<<"$changed"; then
+          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|uv\.lock|Makefile|frontend/lib/api/|frontend/package[^/]*\.json$|\.github/|scripts/|infra/|tools/|deploy/|wiki/|\.devcontainer/|renovate\.json5$|\.pr_agent\.toml$|lychee\.toml$|release-please-config\.json$|\.release-please-manifest\.json$|docker-compose\.yml$|run_backend\.sh$|Dockerfile\.|\.dockerignore$|\.gitignore$|\.gitleaksignore$|\.env\.example$|\.pre-commit-config\.yaml$|(README|CONTRIBUTING|CONVENTIONS|SECURITY|CODE_OF_CONDUCT)\.md$|LICENSE$)' <<<"$changed"; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"
@@ -69,8 +69,8 @@ jobs:
           else
             echo "images=false" >> "$GITHUB_OUTPUT"
           fi
-          # What the kind job deploys: the images' inputs, the chart, the bootstrap and the scripts and pins it runs.
-          if grep -Eq '^(Dockerfile\.|\.dockerignore|src/|pyproject\.toml|uv\.lock|alembic\.ini|README\.md|LICENSE|VERSION|frontend/|charts/|infra/k8s/|\.github/|scripts/|tools/|Makefile)' <<<"$changed"; then
+          # What the kind job deploys and runs: the images' inputs, the chart, the bootstrap, the admission policies, its tests and the scripts and pins it runs.
+          if grep -Eq '^(Dockerfile\.|\.dockerignore|src/|pyproject\.toml|uv\.lock|alembic\.ini|README\.md|LICENSE|VERSION|frontend/|charts/|infra/k8s/|deploy/policies/|tests/(k8s|live|utils)/|tests/conftest\.py$|\.github/|scripts/|tools/|Makefile)' <<<"$changed"; then
             echo "kind=true" >> "$GITHUB_OUTPUT"
           else
             echo "kind=false" >> "$GITHUB_OUTPUT"
