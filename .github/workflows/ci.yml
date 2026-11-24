@@ -373,8 +373,10 @@ jobs:
       - name: The copy's bats suites and doc links
         if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
         working-directory: ${{ runner.temp }}/adopted
+        # The copy's backend venv first: scripts/k8s-env.sh reads services.yaml with python3 and PyYAML, and the
+        # setup-python interpreter has no PyYAML (the repo job runs on the runner's own python3).
         run: |
-          PATH="$PWD/.tools/bin:$PATH" LIB_TS=0 bats tests/scripts/ infra/security/local/tests/
+          PATH="$PWD/.tools/bin:$PWD/.venv/bin:$PATH" LIB_TS=0 bats tests/scripts/ infra/security/local/tests/
           make docs-links
       - name: Install the copy's docs site
         if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
