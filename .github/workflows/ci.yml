@@ -48,7 +48,7 @@ jobs:
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
           changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
-          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|uv\.lock|Makefile|frontend/lib/api/|frontend/package[^/]*\.json$|\.github/|scripts/|infra/|tools/|deploy/|wiki/|\.devcontainer/|renovate\.json5$|\.pr_agent\.toml$|lychee\.toml$|release-please-config\.json$|\.release-please-manifest\.json$|docker-compose\.yml$|run_backend\.sh$|Dockerfile\.|\.dockerignore$|\.gitignore$|\.gitleaksignore$|\.env\.example$|\.pre-commit-config\.yaml$|(README|CONTRIBUTING|CONVENTIONS|SECURITY|CODE_OF_CONDUCT)\.md$|LICENSE$)' <<<"$changed"; then
+          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|uv\.lock|Makefile|frontend/lib/api/|frontend/package[^/]*\.json$|\.github/|scripts/|infra/|tools/|deploy/|wiki/|\.devcontainer/|renovate\.json5$|\.pr_agent\.toml$|lychee\.toml$|release-please-config\.json$|\.release-please-manifest\.json$|docker-compose\.yml$|run_backend\.sh$|Dockerfile\.|\.dockerignore$|\.gitignore$|\.gitleaksignore$|\.env\.example$|\.pre-commit-config\.yaml$|(README|CONTRIBUTING|CONVENTIONS|SECURITY|CODE_OF_CONDUCT)\.md$|LICENSE$|charts/|agent/skills/|docs-site/(site\.json$|src/content/)|frontend/(\.node-version$|\.nvmrc$|static-paths\.ts$|lighthouserc\.json$|playwright\.config\.ts$|vitest(\.[a-z]+)?\.config\.ts$|e2e/a11y\.spec\.ts$))' <<<"$changed"; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"
