@@ -92,8 +92,9 @@ chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
 curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
-# Helm
-curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+# Helm: the repository's pinned, checksum-verified installer (Helm 4, the default major in
+# tools/pins.tsv); it installs into .tools/bin, so put that on PATH
+./scripts/tools.sh install helm4
 ```
 
 ### macOS
@@ -416,9 +417,10 @@ kubectl rollout status deployment/your-service-name-backend -n your-service-name
 curl http://localhost:8000/api/v1/health
 ```
 
-On kind, the script builds on the host daemon (there is no `minikube docker-env`) and does
-not load the images into the node: build with `--no-roll --no-health`, `kind load docker-image`
-each rebuilt `:local` image, then roll with `--no-build`.
+On kind, build on the host daemon with `--no-docker-env` (the script evals `minikube docker-env`
+whenever `minikube` is on `PATH`). It does not load the images into the node: build with
+`--no-docker-env --no-roll --no-health`, `kind load docker-image` each rebuilt `:local` image, then
+roll with `--no-build`.
 
 ### ② make
 
@@ -580,7 +582,9 @@ helm install monitoring prometheus-community/kube-prometheus-stack \
 
 kubectl get servicemonitor -n your-service-name-local          # confirm discovery
 kubectl port-forward -n monitoring svc/monitoring-grafana 8080:80   # kind (Minikube: `minikube service monitoring-grafana -n monitoring`)
-kubectl port-forward -n monitoring svc/monitoring-prometheus 9090:9090   # then :9090/targets
+# The Prometheus Service is named after the stack's release: <release>-kube-prometheus-prometheus
+# for kube-prometheus-stack (the release here is `monitoring`)
+kubectl port-forward -n monitoring svc/monitoring-kube-prometheus-prometheus 9090:9090   # then :9090/targets
 ```
 
 ---
@@ -590,7 +594,7 @@ kubectl port-forward -n monitoring svc/monitoring-prometheus 9090:9090   # then 
 In `edge.mode: ingress` the chart renders an Ingress (deploy with
 `--set edge.mode=ingress --set-json 'edge.namespaceSelector={"kubernetes.io/metadata.name":"ingress-nginx"}'`;
 the chart's default mode is gateway). For local HTTPS, `certs-local.sh` wires
-cert-manager's bundled `selfsigned` issuer to the chart's Ingress TLS
+a cert-manager `selfsigned` ClusterIssuer (the script renders it) to the chart's Ingress TLS
 `secretName` + hosts. **Manual** for the addon; **script** for the cert wiring.
 
 ```bash

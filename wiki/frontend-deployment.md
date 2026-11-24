@@ -224,7 +224,7 @@ async headers() {
 }
 ```
 
-> Headers are **only applied in production** (`NODE_ENV !== 'production'` returns empty). HSTS is not set here (the edge sets it), and the Content-Security-Policy is per request in `proxy.ts` (it carries a nonce).
+> Headers are **only applied in production** (`NODE_ENV !== 'production'` returns empty). HSTS is not set here (the edge or the backend sets it, [Security](./security.md#hsts)), and the Content-Security-Policy is per request in `proxy.ts` (it carries a nonce).
 
 ---
 

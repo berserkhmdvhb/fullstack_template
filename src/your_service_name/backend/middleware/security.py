@@ -30,14 +30,15 @@ Notes
   - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
   - `Cross-Origin-Resource-Policy: same-origin` (blocks other origins reading the
     JSON body via e.g. `<script>`/`<img>` — defense-in-depth beyond CORS)
-- HSTS (`Strict-Transport-Security`) is only appropriate when the service is
-  guaranteed to be accessed exclusively via HTTPS (e.g., TLS terminated at
-  the edge). Enable with caution.
+- HSTS (`Strict-Transport-Security`) is sent over https only, and only while
+  the `HSTS_ENABLED` setting is on: turn it off where the edge sets HSTS, so a
+  deployment has one source of it.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import TYPE_CHECKING
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -51,7 +52,9 @@ if TYPE_CHECKING:
 Dispatch = Callable[[Request], Awaitable[Response]]
 
 
-async def _security_headers_dispatch(request: Request, call_next: Dispatch) -> Response:
+async def _security_headers_dispatch(
+    request: Request, call_next: Dispatch, *, hsts: bool = True
+) -> Response:
     """
     Apply a minimal set of HTTP security headers to responses.
 
@@ -61,6 +64,8 @@ async def _security_headers_dispatch(request: Request, call_next: Dispatch) -> R
         Incoming HTTP request.
     call_next : Callable[[Request], Awaitable[Response]]
         The next ASGI handler that must be awaited to obtain a response.
+    hsts : bool
+        Send HSTS over https (the `HSTS_ENABLED` setting); off where the edge sets it.
 
     Returns
     -------
@@ -75,7 +80,7 @@ async def _security_headers_dispatch(request: Request, call_next: Dispatch) -> R
       * `Referrer-Policy: no-referrer`
       * `Permissions-Policy: camera=(), microphone=(), geolocation=()`
       * `Cross-Origin-Resource-Policy: same-origin`
-    - HSTS (commented below) should only be enabled when all traffic is HTTPS.
+    - HSTS is added over https only, and only when ``hsts`` is on.
 
     Examples
     --------
@@ -97,9 +102,9 @@ async def _security_headers_dispatch(request: Request, call_next: Dispatch) -> R
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
 
-    # HSTS: only set when the connection is HTTPS (TLS terminated upstream).
-    # Over plain HTTP, HSTS would be incorrect and could break HTTP-only setups.
-    if request.scope.get("scheme") == "https":
+    # HSTS: only set when the connection is HTTPS (TLS terminated upstream), and only when the
+    # edge does not set it (one source per deployment). Over plain HTTP, HSTS would be incorrect.
+    if hsts and request.scope.get("scheme") == "https":
         response.headers.setdefault(
             "Strict-Transport-Security",
             "max-age=31536000; includeSubDomains; preload",
@@ -107,7 +112,7 @@ async def _security_headers_dispatch(request: Request, call_next: Dispatch) -> R
     return response
 
 
-def register_security_middleware(app: FastAPI) -> None:
+def register_security_middleware(app: FastAPI, *, hsts: bool = True) -> None:
     """
     Register the security headers middleware on the given FastAPI application.
 
@@ -115,6 +120,8 @@ def register_security_middleware(app: FastAPI) -> None:
     ----------
     app : fastapi.FastAPI
         The FastAPI application instance to modify.
+    hsts : bool
+        Send HSTS over https (default on); pass ``settings.HSTS_ENABLED``.
 
     Examples
     --------
@@ -122,4 +129,4 @@ def register_security_middleware(app: FastAPI) -> None:
     >>> app = FastAPI()
     >>> register_security_middleware(app)
     """
-    app.add_middleware(BaseHTTPMiddleware, dispatch=_security_headers_dispatch)
+    app.add_middleware(BaseHTTPMiddleware, dispatch=partial(_security_headers_dispatch, hsts=hsts))

@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import functools
 import os
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from tests.backend.test_chart_pod_security import pod_specs, render
 from tests.backend.test_chart_production_guard import find_helm, require_helm
@@ -13,6 +16,7 @@ from your_service_name.backend import paths
 from your_service_name.utils.versioning_api import DEFAULT_API_VERSION
 
 BASE = f"{paths.API_PREFIX}/{DEFAULT_API_VERSION}"
+ROOT = Path(__file__).resolve().parents[2]
 
 
 @functools.cache
@@ -48,3 +52,12 @@ def test_the_frontend_probes_use_its_own_health_route() -> None:
     """The home page renders per request and proxies nothing; /api/healthz is process-only."""
     for probe in ("startupProbe", "readinessProbe", "livenessProbe"):
         assert _probe_path(probe, "frontend-deployment.yaml") == "/api/healthz", probe
+
+
+def test_rebuild_and_roll_checks_each_component_on_its_readiness_path() -> None:
+    """scripts/services.yaml feeds rebuild-and-roll.sh's in-pod check: it must hit the path the
+    chart's readiness probe uses, not a page that renders server-side."""
+    services = yaml.safe_load((ROOT / "scripts/services.yaml").read_text())["services"]
+    paths_by_key = {s["key"]: s["health_path"] for s in services}
+    for key in ("backend", "frontend"):
+        assert paths_by_key[key] == _probe_path("readinessProbe", f"{key}-deployment.yaml"), key

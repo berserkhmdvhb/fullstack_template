@@ -403,6 +403,12 @@ edge:
     annotations: {}         # controller-specific annotations; none by default
     tlsSecretName: ""       # set to add a tls block (one secret for all three hosts)
   tunnel: {}
+  # Who sends Strict-Transport-Security, so it has one source: `app` (the backend, over https
+  # only), `edge` (the edge sets it; the chart sets the backend's HSTS_ENABLED=false), or `auto`:
+  # `edge` in tunnel mode (Cloudflare sets it, wiki/cloudflare-setup.md section 11), `app` in
+  # gateway and ingress modes (the chart renders no edge header). Set `edge` when your Gateway or
+  # controller adds HSTS itself.
+  hsts: auto
 
 # ---- NetworkPolicy -------------------------------------------------------------
 # The app namespace is default-deny; templates/network-policy.yaml allows each flow on both ends.

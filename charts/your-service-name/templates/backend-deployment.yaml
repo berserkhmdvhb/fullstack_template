@@ -91,6 +91,10 @@ spec:
             - name: CSP_REPORT_ENABLED
               value: "true"
             {{- end }}
+            {{- if or (eq .Values.edge.hsts "edge") (and (eq .Values.edge.hsts "auto") (eq .Values.edge.mode "tunnel")) }}
+            - name: HSTS_ENABLED
+              value: "false"
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ include "chart.backendPort" . }}

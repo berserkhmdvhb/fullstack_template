@@ -1,0 +1,52 @@
+suite: HSTS has one source per deployment (edge.hsts)
+release:
+  name: svc
+  namespace: app
+templates:
+  - backend-deployment.yaml
+  - configmap.yaml
+tests:
+  - it: gateway mode (the default) keeps the backend's HSTS
+    template: backend-deployment.yaml
+    asserts:
+      - notContains:
+          path: 'spec.template.spec.containers[0].env'
+          content: {name: HSTS_ENABLED, value: "false"}
+  - it: ingress mode keeps the backend's HSTS
+    template: backend-deployment.yaml
+    set:
+      edge: {mode: ingress, namespaceSelector: {kubernetes.io/metadata.name: ingress}}
+    asserts:
+      - notContains:
+          path: 'spec.template.spec.containers[0].env'
+          content: {name: HSTS_ENABLED, value: "false"}
+  - it: tunnel mode turns the backend's HSTS off (Cloudflare sets it)
+    template: backend-deployment.yaml
+    set:
+      edge: {mode: tunnel}
+    asserts:
+      - contains:
+          path: 'spec.template.spec.containers[0].env'
+          content: {name: HSTS_ENABLED, value: "false"}
+  - it: edge.hsts=edge turns it off in gateway mode
+    template: backend-deployment.yaml
+    set:
+      edge: {hsts: edge}
+    asserts:
+      - contains:
+          path: 'spec.template.spec.containers[0].env'
+          content: {name: HSTS_ENABLED, value: "false"}
+  - it: edge.hsts=app keeps it in tunnel mode
+    template: backend-deployment.yaml
+    set:
+      edge: {mode: tunnel, hsts: app}
+    asserts:
+      - notContains:
+          path: 'spec.template.spec.containers[0].env'
+          content: {name: HSTS_ENABLED, value: "false"}
+  - it: the schema refuses another value
+    template: backend-deployment.yaml
+    set:
+      edge: {hsts: both}
+    asserts:
+      - failedTemplate: {}

@@ -98,7 +98,7 @@ allows it only on proxied paths of the frontend port.
 
 ### Edge headers
 
-The edge adds no response headers: the chart renders no header filter or controller snippet in any edge mode. Every header on a response comes from the app that sent it: the backend's security middleware (`backend/middleware/security.py`) and the frontend's `next.config.ts` and `proxy.ts`. The backend sends `Strict-Transport-Security` over https only (see [HSTS](#hsts)).
+The edge adds no response headers: the chart renders no header filter or controller snippet in any edge mode. Every header on a response comes from the app that sent it: the backend's security middleware (`backend/middleware/security.py`) and the frontend's `next.config.ts` and `proxy.ts`. The backend sends `Strict-Transport-Security` over https only, unless the edge owns it (see [HSTS](#hsts)).
 
 ### CSP Details
 
@@ -921,21 +921,25 @@ TLS terminates at the edge, per mode: the Gateway listener's certificate, the In
 helm install cert-manager cert-manager \
   --repo https://charts.jetstack.io \
   --namespace cert-manager --create-namespace \
-  --set installCRDs=true
+  --set crds.enabled=true
 
 # Create a ClusterIssuer for the certificate type you need:
-#   - Local dev:   scripts/certs-local.sh applies cert-manager's bundled `selfsigned` issuer
+#   - Local dev:   scripts/certs-local.sh applies a `selfsigned` ClusterIssuer it renders
 #   - Production:  apply a Let's Encrypt (prod/staging) ClusterIssuer; the chart renders the
 #                  Ingress TLS secretName + hosts from values.<env>.yaml
 ```
 
 ### HSTS
 
-The frontend does not set `Strict-Transport-Security`: HSTS belongs to the TLS edge, and a header from
-every layer would give the browser several competing `max-age` values. Today the backend sends it over
-https only (`max-age=31536000; includeSubDomains; preload`, `backend/middleware/security.py`), and the
-browser applies it per host, so the pages (which call the API same-origin) are covered. The backend has
-no switch to turn its copy off, so when the edge sets HSTS too, give it the same value. With the WAF on
-the backend sees `X-Forwarded-Proto: http` ([Client IP](#client-ip)) and sends none. A test per layer
-pins the final header set (`frontend/next.config.test.ts`, `frontend/static-paths.test.ts`, the live
-`tests/live/test_header_set.py`).
+The frontend does not set `Strict-Transport-Security`: a header from every layer would give the browser
+several competing `max-age` values, so each deployment has one source. The backend sends it over https
+only (`backend/middleware/security.py`) while `HSTS_ENABLED` is on
+([environment variables](./environment-variables.md)); the browser applies it per host, so the pages
+(which call the API same-origin) are covered. The chart's `edge.hsts` picks the source per edge mode,
+and the default turns the backend's copy off in tunnel mode, where Cloudflare sets HSTS
+([Cloudflare setup, section 11](./cloudflare-setup.md#11-hsts-once-everything-is-https)); the values
+and their reasons are in the `edge:` block of
+[`values.yaml`](../charts/your-service-name/values.yaml). With the WAF on the backend sees
+`X-Forwarded-Proto: http` ([Client IP](#client-ip)) and sends none. A test per layer pins the final
+header set (`frontend/next.config.test.ts`, `frontend/static-paths.test.ts`, the live
+`tests/live/test_header_set.py`, which runs over http and so sees no HSTS).

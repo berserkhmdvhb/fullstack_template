@@ -3,7 +3,7 @@
  *
  * @remarks
  * The Content-Security-Policy is per request (`proxy.ts`, pinned in `proxy.test.ts`), and
- * Strict-Transport-Security is set at the edge, so neither appears here.
+ * Strict-Transport-Security comes from the edge or the backend, so neither appears here.
  *
  * @packageDocumentation
  */
@@ -65,7 +65,7 @@ describe('next.config headers()', () => {
     }
   });
 
-  it('sets no HSTS (the edge owns it) and no CSP (proxy.ts owns it)', async () => {
+  it('sets no HSTS (the edge or the backend owns it) and no CSP (proxy.ts owns it)', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     const [rule] = await headersFor();
     expect(rule?.headers).not.toHaveProperty('Strict-Transport-Security');

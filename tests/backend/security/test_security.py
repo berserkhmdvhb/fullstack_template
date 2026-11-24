@@ -7,9 +7,9 @@ from fastapi.testclient import TestClient
 from your_service_name.backend.middleware.security import register_security_middleware
 
 
-def _make_app() -> FastAPI:
+def _make_app(*, hsts: bool = True) -> FastAPI:
     app = FastAPI()
-    register_security_middleware(app)
+    register_security_middleware(app, hsts=hsts)
 
     @app.get("/plain")
     def plain() -> dict[str, str]:
@@ -62,3 +62,19 @@ def test_security_headers_not_overridden_when_present() -> None:
         # Route-set values for the setdefault() headers are likewise preserved.
         assert r.headers["Permissions-Policy"] == "camera=(self)"
         assert r.headers["Cross-Origin-Resource-Policy"] == "cross-origin"
+
+
+def test_hsts_over_https_when_on() -> None:
+    with TestClient(_make_app(), base_url="https://testserver") as client:
+        r = client.get("/plain")
+        assert (
+            r.headers["Strict-Transport-Security"] == "max-age=31536000; includeSubDomains; preload"
+        )
+
+
+def test_no_hsts_over_https_when_off() -> None:
+    """HSTS_ENABLED=false: the edge sets HSTS, so the app sends none (one source)."""
+    with TestClient(_make_app(hsts=False), base_url="https://testserver") as client:
+        r = client.get("/plain")
+        assert "Strict-Transport-Security" not in r.headers
+        assert r.headers["X-Content-Type-Options"] == "nosniff"

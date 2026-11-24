@@ -298,8 +298,8 @@ Checks: `GET /health`, `GET /healthz`, `POST /echo` round-trip,
 `GET /echo/history`, `GET /items`, and an `items` create → read → delete cycle.
 
 ### `certs-local.sh`
-Gives the local stack real HTTPS using cert-manager's bundled `selfsigned`
-ClusterIssuer. Applies the issuer, reads the **chart's `values.<env>.yaml`** Ingress
+Gives the local stack real HTTPS using a cert-manager `selfsigned`
+ClusterIssuer that the script renders itself. Applies the issuer, reads the **chart's `values.<env>.yaml`** Ingress
 TLS `secretName` + hosts, creates a matching Certificate, and waits for the secret.
 
 > **LOCAL-DEV ONLY.** Never run this against production — production uses

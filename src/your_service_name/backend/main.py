@@ -255,7 +255,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     register_rate_limiting(app, settings)
-    register_security_middleware(app)
+    register_security_middleware(app, hsts=settings.HSTS_ENABLED)
 
     # Optional request logging (controlled by the LOG_REQUESTS setting).
     app.add_middleware(

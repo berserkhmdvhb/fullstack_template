@@ -172,7 +172,7 @@ helm install ingress-nginx ingress-nginx \
 helm install cert-manager cert-manager \
   --repo https://charts.jetstack.io \
   --namespace cert-manager --create-namespace \
-  --set installCRDs=true
+  --set crds.enabled=true
 ```
 
 ### Build and Load Images

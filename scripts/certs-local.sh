@@ -4,9 +4,9 @@
 # certs-local.sh — wire self-signed TLS for local HTTPS (cert-manager)
 # ===========================================================================
 # Purpose
-#   Give the local stack real HTTPS on your laptop using cert-manager's bundled
-#   `selfsigned` ClusterIssuer (k8s/local/selfsigned-issuer.yaml). It:
-#     1. applies the ClusterIssuer (cluster-scoped)
+#   Give the local stack real HTTPS on your laptop using a cert-manager
+#   `selfsigned` ClusterIssuer, which this script renders itself. It:
+#     1. applies the ClusterIssuer (cluster-scoped, named by --issuer)
 #     2. reads the chart's values.<env>.yaml Ingress TLS secretName + hosts
 #     3. creates a Certificate (in the app namespace) that fills that secret,
 #        signed by `selfsigned`, for those hosts (+ 127.0.0.1)
@@ -108,8 +108,21 @@ read_ingress_tls
 # ---- Apply the ClusterIssuer (unless --no-ca) --------------------------------
 if [ "${DO_CA}" = "true" ]; then
   lib_banner "certs-local (setup)" "env=${ENV_NAME}  ns=${NAMESPACE}  issuer=${ISSUER}"
-  log_step "applying selfsigned ClusterIssuer"
-  run kubectl apply -f "${LIB_REPO_ROOT}/k8s/local/selfsigned-issuer.yaml"
+  log_step "applying selfsigned ClusterIssuer ${ISSUER}"
+  issuer_yaml="apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: ${ISSUER}
+  labels:
+    app.kubernetes.io/managed-by: certs-local.sh
+spec:
+  selfSigned: {}"
+  if [ "${DRY_RUN}" = "true" ]; then
+    run kubectl apply -f -
+    printf '%s\n' "${issuer_yaml}" | sed 's/^/      /'
+  else
+    printf '%s\n' "${issuer_yaml}" | kubectl apply -f -
+  fi
 else
   lib_banner "certs-local (setup)" "env=${ENV_NAME}  ns=${NAMESPACE}  issuer=${ISSUER} (existing)"
 fi

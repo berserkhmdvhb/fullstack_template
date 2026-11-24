@@ -45,8 +45,8 @@ const nextConfig: NextConfig = {
           // Cross-origin isolation (OWASP secure-headers baseline); deliberately no COEP.
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
           { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
-          // Strict-Transport-Security is not set here: HSTS is set once, at the edge
-          // (until the edge sets it, the backend sends it over https).
+          // Strict-Transport-Security is not set here: HSTS has one source per deployment,
+          // the edge or the backend (chart `edge.hsts`, wiki/security.md#hsts).
           // Content-Security-Policy is set per request in `proxy.ts`, not
           // here: it carries a fresh nonce on every render (see that file), and a
           // static build-time header from `headers()` could never provide one.

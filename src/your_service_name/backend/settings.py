@@ -147,6 +147,7 @@ _BLANK_IS_DEFAULT: Final[tuple[str, ...]] = (
     "CSP_REPORT_ENABLED",
     "CSP_REPORT_MAX_BYTES",
     "CSP_REPORT_RATE_LIMIT",
+    "HSTS_ENABLED",
 )
 
 
@@ -381,6 +382,13 @@ class Settings(BaseSettings):
         le=10,
         description="Redis connect and socket timeout (and the cap on one limiter call), in "
         "seconds. Short on purpose: it is added to a request while Redis is unreachable.",
+    )
+
+    # --- HSTS ------------------------------------------------------------------
+    HSTS_ENABLED: bool = Field(
+        default=True,
+        description="Send `Strict-Transport-Security` on https responses. Turn it off where the "
+        "edge sets HSTS, so it has one source; the chart's `edge.hsts` sets it per edge mode.",
     )
 
     # --- CSP reports (opt-in) -------------------------------------------------

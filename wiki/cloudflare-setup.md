@@ -520,6 +520,8 @@ If the deploy fails with `403` or `Authentication error`, the token lacks a perm
 
 HSTS tells browsers never to use plain HTTP for your domain. It's powerful, and hard to undo once browsers have cached it, so raise it in stages.
 
+In the chart's tunnel mode the backend's own HSTS is off by default, so this setting is the only source of it ([Security, HSTS](./security.md#hsts)). Turn stage 1 on before the site goes live.
+
 1. Wait until every hostname you use serves valid HTTPS. With Cloudflare in front of everything, they all will.
 2. Under **SSL/TLS → Edge Certificates → HSTS**, enable it with **Max-Age 1 day**. Leave **include subdomains** and **preload** off. Run the check below.
 3. After a week with no problems, raise it to **6 months** and turn on **include subdomains**.

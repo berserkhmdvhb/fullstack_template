@@ -257,6 +257,11 @@
       "additionalProperties": false,
       "properties": {
         "mode": { "type": "string", "enum": ["gateway", "tunnel", "ingress"] },
+        "hsts": {
+          "description": "Who sends HSTS: app (the backend), edge (the backend's copy off), or auto (edge in tunnel mode, app otherwise).",
+          "type": "string",
+          "enum": ["auto", "app", "edge"]
+        },
         "hosts": {
           "type": "object",
           "additionalProperties": false,

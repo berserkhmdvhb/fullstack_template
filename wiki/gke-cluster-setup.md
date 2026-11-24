@@ -870,7 +870,7 @@ These come with the GitHub pipeline work, not in this guide:
 - **Signed images only:** keyless cosign signing and build provenance are in CI already, and example Kyverno policies are tested offline and on kind ([Admission control](./admission-control.md)); enforcing them on this cluster (Kyverno, or Binary Authorization on GKE) comes later.
 - **Database:** Cloud SQL for PostgreSQL for production, reached privately and with IAM authentication.
 - **Closing the public endpoint:** the DNS-based endpoint is already on (8.2). Later, turn the public IP endpoint off. Never allowlist CI addresses on it.
-- **The edge mode:** the template's default `edge.mode` is `gateway`; the platform values use `tunnel`.
+- **The edge mode:** the template's default `edge.mode` is `gateway`. A platform that uses Cloudflare Tunnel sets `edge.mode: tunnel` in its own environment values ([Infrastructure, Edge](./infrastructure.md#edge)).
 - **Infrastructure as code:** everything in this guide expressed in OpenTofu or Terraform, with state in a locked GCS bucket, so the cluster can be rebuilt from Git.
 - **Backups and recovery:** Backup for GKE, and Cloud SQL point-in-time recovery, set up as code. The procedures: [Disaster Recovery](./disaster-recovery.md).
 - **Other services:** each packaged as a Helm chart and deployed to this same cluster.

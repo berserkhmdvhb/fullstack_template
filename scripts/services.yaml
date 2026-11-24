@@ -63,7 +63,7 @@ services:
     workload: your-service-name-frontend
     container: frontend
     port: 3000
-    health_path: /
+    health_path: /api/healthz
     probe_tool: node
     verify_entrypoint: /nodejs/bin/node
     verify: 'process.exit(require("fs").existsSync("/app/server.js")?0:1)'
