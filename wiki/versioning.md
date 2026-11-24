@@ -134,6 +134,7 @@ The job writes these to `GITHUB_OUTPUT`; the image matrix is the script's `--mat
 | `channel` | `prod` / `main` | Release channel (`prod` on a `v*` tag) |
 | `image_tag` | `1.2.3-prod-abc1234` | Full image tag, `{version}-{channel}-{short_sha}` |
 | `immutable` | `true` | `true` exactly for `v*` tags |
+| `prerelease` | `false` | `true` exactly for a `v*` tag with a `-<pre>` suffix ([Pre-release Tags](./releasing.md#pre-release-tags)) |
 
 ---
 

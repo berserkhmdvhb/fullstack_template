@@ -87,7 +87,7 @@ jobs:
           else
             echo "- Deploys are enabled for this run." >> "$GITHUB_STEP_SUMMARY"
             if [[ "${PRERELEASE}" == "true" ]]; then
-              msg="Production skipped: ${VERSION} is a pre-release; it deploys to dev and qa only"
+              msg="Production skipped: ${VERSION} is a pre-release (never deployed to production)"
               echo "::notice::${msg}"
               echo "- ${msg}" >> "$GITHUB_STEP_SUMMARY"
             fi

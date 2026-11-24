@@ -14,7 +14,7 @@ import sys
 import tomllib
 from typing import TYPE_CHECKING, Any
 
-from tests.supply_chain._workflows import REPO, workflow
+from tests.supply_chain._workflows import REPO, plan_for, workflow
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -88,19 +88,7 @@ def test_the_tag_release_please_creates_triggers_release_and_passes_the_plan(
     settings = (REPO / "scripts" / "github-settings.sh").read_text(encoding="utf-8")
     assert re.findall(r'include: \["refs/tags/([^"]+)"\]', settings) == patterns
     assert any(re.fullmatch(p.replace("*", ".*"), tag) for p in patterns)
-    scripts = str(REPO / ".github" / "scripts")
-    sys.path.insert(0, scripts)
-    try:
-        import container_matrix  # noqa: PLC0415
-    finally:
-        sys.path.remove(scripts)
-    for name, value in (
-        ("GITHUB_REF_NAME", tag),
-        ("GITHUB_REF_TYPE", "tag"),
-        ("GITHUB_SHA", "a" * 40),
-    ):
-        monkeypatch.setenv(name, value)
-    plan = container_matrix.compute_version(REPO)
+    plan = plan_for(tag, monkeypatch)
     assert (plan["version"], plan["immutable"]) == ("1.2.3", "true")
 
 

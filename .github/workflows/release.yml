@@ -346,6 +346,11 @@ jobs:
       - name: Upload to the draft release
         run: |
           set -euo pipefail
+          # Fail closed, like the production deploy and latest: only the plan's two values are accepted.
+          case "${PRERELEASE}" in
+            true | false) pre="${PRERELEASE}" ;;
+            *) echo "::error::PRERELEASE must be 'true' or 'false' (got '${PRERELEASE}')"; exit 1 ;;
+          esac
           # Several releases can share a tag (drafts can), so select them all and decide on the set.
           releases="$(gh api "repos/${GH_REPO}/releases" --paginate | jq -s -c --arg tag "${TAG}" '[.[][] | select(.tag_name == $tag)]')"
           published="$(jq '[.[] | select(.draft | not)] | length' <<<"${releases}")"
@@ -358,8 +363,6 @@ jobs:
             echo "::error::${drafts} draft releases share the tag ${TAG}; delete the extra ones and re-run"
             exit 1
           fi
-          pre=false
-          [[ "${PRERELEASE}" == "true" ]] && pre=true
           if (( drafts == 0 )); then
             gh release create "${TAG}" --draft --verify-tag --prerelease="${pre}" --title "${TAG}" --notes "Draft: assets attached by the release workflow."
           else

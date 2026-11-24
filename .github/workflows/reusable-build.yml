@@ -21,7 +21,7 @@ on:
         type: string
         required: true
       immutable:
-        description: "'true' on a release tag, which also moves the latest tag"
+        description: "'true' on a release tag; with prerelease 'false' it also moves the latest tag"
         type: string
         required: true
       prerelease:

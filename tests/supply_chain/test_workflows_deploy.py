@@ -8,13 +8,20 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
-import sys
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from tests.supply_chain._workflows import ACTIONS, REPO, WORKFLOWS, load, steps_of, workflow
+from tests.supply_chain._workflows import (
+    ACTIONS,
+    REPO,
+    WORKFLOWS,
+    load,
+    plan_for,
+    steps_of,
+    workflow,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -124,23 +131,6 @@ def test_production_runs_only_on_v_tags_that_are_immutable() -> None:
         assert part in cond, part
 
 
-def _plan(tag: str, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-    """The release plan's outputs for a pushed tag, from container_matrix.py itself."""
-    scripts = str(REPO / ".github" / "scripts")
-    sys.path.insert(0, scripts)
-    try:
-        import container_matrix  # noqa: PLC0415
-    finally:
-        sys.path.remove(scripts)
-    for name, value in (
-        ("GITHUB_REF_NAME", tag),
-        ("GITHUB_REF_TYPE", "tag"),
-        ("GITHUB_SHA", "a" * 40),
-    ):
-        monkeypatch.setenv(name, value)
-    return dict(container_matrix.compute_version(REPO))
-
-
 def _production_runs(tag: str, prerelease: str) -> bool:
     """Evaluate deploy-production's `if` for a green tag push with every other guard met."""
     expr = _if(_jobs()["deploy-production"]).removeprefix("${{").removesuffix("}}")
@@ -165,7 +155,7 @@ def _production_runs(tag: str, prerelease: str) -> bool:
 def test_a_pre_release_tag_never_deploys_to_production(
     tag: str, monkeypatch: pytest.MonkeyPatch, *, deploys: bool
 ) -> None:
-    plan = _plan(tag, monkeypatch)
+    plan = plan_for(tag, monkeypatch)
     assert plan["immutable"] == "true"
     assert _production_runs(tag, plan["prerelease"]) is deploys
     assert (
@@ -189,7 +179,10 @@ def test_the_deploy_notice_says_production_is_skipped_for_a_pre_release(tmp_path
             [BASH, "-e", "-c", step["run"]], env=env, capture_output=True, text=True, check=False
         )
         assert done.returncode == 0
-        assert ("::notice::Production skipped: 1.2.3-rc.1 is a pre-release" in done.stdout) is said
+        assert (
+            "::notice::Production skipped: 1.2.3-rc.1 is a pre-release"
+            " (never deployed to production)" in done.stdout
+        ) is said
     assert step["env"]["PRERELEASE"] == "${{ inputs.prerelease }}"
 
 

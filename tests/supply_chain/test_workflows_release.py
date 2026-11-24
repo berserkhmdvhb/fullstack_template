@@ -253,7 +253,7 @@ def test_upload_creates_a_draft_when_there_is_no_release_for_the_tag(tmp_path: P
 @pytest.mark.parametrize("reuse", [False, True], ids=["create", "reuse"])
 @pytest.mark.parametrize(
     ("prerelease", "flag"),
-    [("true", "--prerelease=true"), ("false", "--prerelease=false"), ("", "--prerelease=false")],
+    [("true", "--prerelease=true"), ("false", "--prerelease=false")],
 )
 def test_the_draft_is_a_pre_release_exactly_for_a_suffixed_tag(
     tmp_path: Path, prerelease: str, flag: str, *, reuse: bool
@@ -271,6 +271,16 @@ def test_the_draft_is_a_pre_release_exactly_for_a_suffixed_tag(
     assert [a for a in call.split() if a.startswith("--prerelease")] == [flag]
     assert _assets()["env"]["PRERELEASE"] == "${{ needs.plan.outputs.prerelease }}"
     assert "plan" in _assets()["needs"]
+
+
+@pytest.mark.parametrize("prerelease", ["", "TRUE", "yes"])
+def test_an_unknown_prerelease_value_is_refused_before_any_release_call(
+    tmp_path: Path, prerelease: str
+) -> None:
+    code, out, calls = _run_upload(tmp_path, [_rel("v1.0.0", draft=True)], prerelease=prerelease)
+    assert code != 0
+    assert "::error::PRERELEASE must be 'true' or 'false'" in out
+    assert calls == ""
 
 
 def test_upload_extends_the_single_draft_without_creating_another(tmp_path: Path) -> None:

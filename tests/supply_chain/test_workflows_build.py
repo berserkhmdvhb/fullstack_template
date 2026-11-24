@@ -20,6 +20,7 @@ from tests.supply_chain._workflows import (
     ARTIFACT_RETENTION_DAYS,
     REPO,
     WORKFLOWS,
+    plan_for,
     steps_of,
     unpinned_uses,
     workflow,
@@ -293,19 +294,7 @@ def _tags_for(
     prerelease: str | None = None,
 ) -> list[str]:
     """The tags the merge step applies, for a ref planned by container_matrix.py (stub docker)."""
-    scripts = str(REPO / ".github" / "scripts")
-    sys.path.insert(0, scripts)
-    try:
-        import container_matrix  # noqa: PLC0415
-    finally:
-        sys.path.remove(scripts)
-    for name, value in (
-        ("GITHUB_REF_NAME", tag),
-        ("GITHUB_REF_TYPE", ref_type),
-        ("GITHUB_SHA", "a" * 40),
-    ):
-        monkeypatch.setenv(name, value)
-    plan = container_matrix.compute_version(REPO)
+    plan = plan_for(tag, monkeypatch, ref_type)
     step = next(
         s for s in _jobs()["merge"]["steps"] if s.get("name") == "Create the index and tag it"
     )

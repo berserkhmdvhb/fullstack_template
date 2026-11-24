@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import yaml
+
+if TYPE_CHECKING:
+    import pytest
 
 REPO = Path(__file__).resolve().parent.parent.parent
 WORKFLOWS = REPO / ".github" / "workflows"
@@ -76,3 +80,20 @@ def failure_uploads(job: dict[str, Any]) -> list[dict[str, Any]]:
         and s.get("if") == "failure()"
         and s["with"].get("retention-days") == FAILURE_ARTIFACT_RETENTION_DAYS
     ]
+
+
+def plan_for(tag: str, monkeypatch: pytest.MonkeyPatch, ref_type: str = "tag") -> dict[str, str]:
+    """The release plan's version outputs for a pushed ref, from container_matrix.py itself."""
+    scripts = str(REPO / ".github" / "scripts")
+    sys.path.insert(0, scripts)
+    try:
+        import container_matrix  # noqa: PLC0415
+    finally:
+        sys.path.remove(scripts)
+    for name, value in (
+        ("GITHUB_REF_NAME", tag),
+        ("GITHUB_REF_TYPE", ref_type),
+        ("GITHUB_SHA", "a" * 40),
+    ):
+        monkeypatch.setenv(name, value)
+    return dict(container_matrix.compute_version(REPO))
