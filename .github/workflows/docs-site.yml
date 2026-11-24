@@ -34,18 +34,21 @@ jobs:
       pages: read  # read the repository's Pages settings, to skip the deploy when Pages is off
     outputs:
       enabled: ${{ steps.check.outputs.enabled }}
+      url: ${{ steps.check.outputs.url }}
     steps:
       - id: check
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
-          if source="$(gh api "repos/${REPO}/pages" --jq '.build_type' 2>"$RUNNER_TEMP/pages.err")"; then
+          if found="$(gh api "repos/${REPO}/pages" --jq '[.build_type, .html_url] | @tsv' 2>"$RUNNER_TEMP/pages.err")"; then
+            IFS=$'\t' read -r source url <<<"$found"
             if [[ "$source" == "workflow" ]]; then
-              echo "enabled=true" >> "$GITHUB_OUTPUT"
+              # The published URL (a custom domain included): the build takes the site's site and base from it.
+              printf '%s\n' "enabled=true" "url=${url}" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            echo "::notice title=Docs site not deployed::GitHub Pages builds from a branch here, not from GitHub Actions. Run scripts/github-settings.sh (or set Settings > Pages > Source to GitHub Actions)."
+            echo "::notice title=Docs site not deployed::GitHub Pages builds from a branch here, not from GitHub Actions, and scripts/github-settings.sh leaves such a site as it is. To publish the docs site instead, set Settings > Pages > Source to GitHub Actions."
           elif grep -q 'HTTP 404' "$RUNNER_TEMP/pages.err"; then
             echo "::notice title=Docs site not deployed::GitHub Pages is not enabled for this repository. Run scripts/github-settings.sh to enable it with Source: GitHub Actions."
           else
@@ -62,6 +65,7 @@ jobs:
     uses: ./.github/workflows/reusable-docs-site.yml
     with:
       upload-pages: true
+      site-url: ${{ needs.pages.outputs.url }}
 
   # The only job that holds pages: write and id-token: write, in the github-pages environment.
   deploy:

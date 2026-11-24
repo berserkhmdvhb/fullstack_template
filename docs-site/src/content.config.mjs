@@ -8,7 +8,7 @@ import { docsLoader } from '@astrojs/starlight/loaders';
 import { docsSchema } from '@astrojs/starlight/schema';
 import { defineCollection } from 'astro:content';
 
-import { LOADED, ROOT, editUrl } from './lib/repo.mjs';
+import { LOADED, ROOT, editUrl, splitTitle } from './lib/repo.mjs';
 
 const pages = docsLoader();
 
@@ -19,10 +19,7 @@ const loader = {
     for (const [path, slug] of Object.entries(LOADED)) {
       const file = join(ROOT, path);
       const text = await readFile(file, 'utf8'); // a missing file fails the build
-      const h1 = /^# +(.+?)\s*$/m.exec(text);
-      if (!h1) throw new Error(`${path}: no H1 line to take the page title from`);
-      const body = text.slice(0, h1.index) + text.slice(h1.index + h1[0].length);
-      const title = h1[1].replaceAll('`', '');
+      const { title, body } = splitTitle(text, path);
       const data = await context.parseData({ id: slug, data: { title, editUrl: editUrl(path) } });
       // The slug front matter tells the link validator which page this file is.
       const rendered = await context.renderMarkdown(`---\nslug: ${slug}\n---\n${body}`, {

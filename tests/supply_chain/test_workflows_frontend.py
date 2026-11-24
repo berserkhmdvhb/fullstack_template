@@ -143,6 +143,8 @@ def test_drift_check_is_the_make_target_and_runs_once() -> None:
     uses = [str(s.get("uses", "")) for s in jobs["openapi-drift"]["steps"]]
     assert "./.github/actions/setup-backend" in uses
     assert "./.github/actions/setup-frontend" in uses
+    # The install-scripts guard runs on a frontend-only change too (the backend filter skips it).
+    assert "tests/supply_chain/test_npm_install_scripts.py" in _runs(jobs["openapi-drift"])
     for path in sorted(WORKFLOWS.glob("*.yml")):
         text = path.read_text(encoding="utf-8")
         assert "backend.openapi dump" not in text, path.name

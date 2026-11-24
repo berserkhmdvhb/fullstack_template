@@ -40,9 +40,23 @@ def test_the_build_is_read_only_uncached_and_strict() -> None:
     assert "tools/pins.tsv" in _step_by_id(job, "pin")["run"]
     assert _step(job, "Install the site dependencies")["run"] == "npm ci --ignore-scripts"
     names = [s.get("name") for s in job["steps"]]
+    assert names.index("Resolver unit tests") < names.index("Build the site")
     assert names.index("Build the site") < names.index("axe accessibility scan")
+    assert _step(job, "Resolver unit tests")["run"] == "npm test"
     assert job["env"]["SITE_REPOSITORY"] == "${{ github.repository }}"
+    assert job["env"]["SITE_URL"] == "${{ inputs.site-url }}"
     assert not any(str(s.get("uses", "")).startswith("actions/cache") for s in job["steps"])
+
+
+def test_the_site_guards_run_on_the_pull_requests_that_change_the_site() -> None:
+    """The backend filter leaves a docs-only change out, so the docs-site call runs them."""
+    job = workflow("reusable-docs-site.yml")["jobs"]["guards"]
+    assert job["permissions"] == {"contents": "read"}
+    assert job["if"] == "${{ !inputs.upload-pages }}"
+    assert "./.github/actions/setup-backend" in [s.get("uses") for s in job["steps"]]
+    run = _step(job, "Docs site guards")["run"]
+    assert "tests/docs_site" in run
+    assert "tests/test_adr_index.py" in run
 
 
 def _step_by_id(job: dict[str, Any], step_id: str) -> dict[str, Any]:
@@ -129,7 +143,10 @@ def test_only_the_deploy_job_holds_pages_and_id_token_in_github_pages() -> None:
     for name, job in jobs.items():
         if name != "deploy":
             assert "write" not in job["permissions"].values(), name
-    assert jobs["build"]["with"] == {"upload-pages": True}
+    assert jobs["build"]["with"] == {
+        "upload-pages": True,
+        "site-url": "${{ needs.pages.outputs.url }}",
+    }
     assert jobs["build"]["if"] == "needs.pages.outputs.enabled == 'true'"
     assert f"uses: {DEPLOY_PAGES}" in _raw("docs-site.yml")
 
@@ -155,13 +172,15 @@ def _pages_check(tmp_path: Path, gh_body: str) -> tuple[int, str, str]:
     return done.returncode, out.read_text(), done.stdout
 
 
-def test_pages_built_by_actions_deploys(tmp_path: Path) -> None:
-    code, out, _ = _pages_check(tmp_path, "echo workflow")
-    assert (code, out) == (0, "enabled=true\n")
+def test_pages_built_by_actions_deploys_at_its_published_url(tmp_path: Path) -> None:
+    code, out, _ = _pages_check(tmp_path, "printf 'workflow\\thttps://docs.example.com/\\n'")
+    assert (code, out) == (0, "enabled=true\nurl=https://docs.example.com/\n")
 
 
 @pytest.mark.parametrize(
-    "gh_body", ["echo 'gh: Not Found (HTTP 404)' >&2; exit 1", "echo legacy"], ids=["off", "branch"]
+    "gh_body",
+    ["echo 'gh: Not Found (HTTP 404)' >&2; exit 1", "printf 'legacy\\thttps://o.github.io/r/\\n'"],
+    ids=["off", "branch"],
 )
 def test_pages_off_or_built_from_a_branch_is_a_green_no_op(tmp_path: Path, gh_body: str) -> None:
     code, out, stdout = _pages_check(tmp_path, gh_body)

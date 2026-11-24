@@ -218,6 +218,11 @@ updates, the lock's span does). To ship such a fix at once:
 3. Remove the exemption at the next routine refresh (`make lock`), so the package falls back under the
    7-day rule.
 
+The documentation site's lockfile has the same rule, as `min-release-age=7` in `docs-site/.npmrc`. For a
+fix younger than that, run `npm install <package>@<version> --ignore-scripts --min-release-age-exclude=<package>`
+in `docs-site/` and commit `package.json` and `package-lock.json`; the exemption lasts for that one command
+(npm config reference, `min-release-age`: "To install the fix, add the package to `min-release-age-exclude`").
+
 #### Build dependencies
 
 The PEP 517 build backend (setuptools, setuptools-scm and their build dependencies) is pinned in

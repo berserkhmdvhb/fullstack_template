@@ -12,6 +12,7 @@ export default defineConfig({
   site,
   base,
   markdown: {
+    // Astro 7 defaults to the satteri processor; these remark and rehype plugins need unified, hence the direct pin of @astrojs/markdown-remark.
     processor: unified({
       remarkPlugins: [remarkRepoLinks],
       // Build-time diagrams: inline SVG, no diagram JavaScript in the pages. A diagram that fails to render fails the build.

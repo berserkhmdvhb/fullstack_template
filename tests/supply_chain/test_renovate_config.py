@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,7 @@ PINS = (ROOT / "tools" / "pins.tsv").read_text(encoding="utf-8")
 CONFIG = (ROOT / "infra" / "security" / "config.yaml").read_text(encoding="utf-8")
 DEPENDABOT = ROOT / ".github" / "dependabot.yml"
 MAX_PINS_MANAGERS = 6
+GIT: str = shutil.which("git") or "/usr/bin/git"
 
 
 def renovate() -> dict[str, Any]:
@@ -351,6 +354,26 @@ def test_renovate_titles_are_always_fix_deps_conventional_commits() -> None:
     assert not others, [r["description"] for r in others]
     title = f"{cfg['semanticCommitType']}({cfg['semanticCommitScope']}): update dependency x to v2"
     assert _title_pattern().match(title)
+
+
+def test_every_npm_lockfile_gets_dependabot_security_updates() -> None:
+    """Without an entry, a security pull request for that lockfile misses the `fix(deps)` title."""
+    tracked = subprocess.run(
+        [GIT, "ls-files", "*package-lock.json"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    lockdirs = {"/" + str(Path(p).parent) for p in tracked if "node_modules/" not in p}
+    assert lockdirs
+    npm = [
+        u
+        for u in yaml.safe_load(DEPENDABOT.read_text(encoding="utf-8"))["updates"]
+        if u["package-ecosystem"] == "npm"
+    ]
+    dirs = {d for u in npm for d in u.get("directories", [u.get("directory")])}
+    assert lockdirs <= dirs
 
 
 def test_dependabot_security_titles_are_fix_deps_conventional_commits() -> None:

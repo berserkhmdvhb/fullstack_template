@@ -33,6 +33,27 @@ def _loaded() -> dict[str, str]:
     return dict(re.findall(r"'([^']+)': '([^']+)'", block[1]))
 
 
+def _h1(text: str) -> str | None:
+    """The first ATX H1 outside a code fence, as the site's loader reads it (not a line grep)."""
+    fence = ""
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        marker = re.match(r"(`{3,}|~{3,})", stripped)
+        if fence:
+            if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence):
+                fence = ""
+        elif marker:
+            fence = marker[1]
+        elif heading := re.match(r" {0,3}# +(\S.*?)\s*#*\s*$", line):
+            return heading[1]
+    return None
+
+
+def test_the_h1_ignores_a_hash_line_in_a_code_fence() -> None:
+    assert _h1("```bash\n# a comment\n```\n\n# Title\n") == "Title"
+    assert _h1("~~~\n# a comment\n~~~\n") is None
+
+
 def test_every_dependency_is_an_exact_version() -> None:
     package = _json(SITE / "package.json")
     deps = {**package["dependencies"], **package["devDependencies"]}
@@ -81,7 +102,7 @@ def test_every_loaded_file_is_tracked_has_an_h1_and_is_in_the_sidebar() -> None:
     assert sorted(tracked) == sorted(loaded)
     config = (SITE / "astro.config.mjs").read_text(encoding="utf-8")
     for path, slug in loaded.items():
-        assert re.search(r"^# +\S", (ROOT / path).read_text(encoding="utf-8"), re.MULTILINE), path
+        assert _h1((ROOT / path).read_text(encoding="utf-8")), path
         assert f"'{slug}'" in config, slug
         assert not (SITE / "src/content/docs" / f"{slug}.md").exists(), (
             f"{slug}: copied, not loaded"

@@ -3,8 +3,9 @@
 # while security updates still arrive. Whether they are on is a repository setting (Dependabot security
 # updates, plus the dependency graph and alerts), not something this file switches on. The cooldown matches
 # Renovate's 7-day release age. The cooldown does not apply to security updates, but uv.lock's own
-# `exclude-newer` (7 days) does: a Dependabot security PR for a fix released less than 7 days ago needs the
-# manual step in wiki/getting-started.md (Security updates younger than 7 days).
+# `exclude-newer` (7 days) does, as does docs-site/.npmrc's `min-release-age`: a Dependabot security PR for a
+# fix released less than 7 days ago needs the manual step in wiki/getting-started.md (Security updates younger
+# than 7 days).
 # Each security update's title is `fix(deps): ...` (Dependabot adds the colon): a Conventional Commit that
 # pr-title.yml accepts and release-please turns into a patch release, so a merged security fix ships.
 version: 2
@@ -19,7 +20,7 @@ updates:
     commit-message:
       prefix: fix(deps)
   - package-ecosystem: npm
-    directory: /frontend
+    directories: [/frontend, /docs-site]
     schedule:
       interval: weekly
     open-pull-requests-limit: 0

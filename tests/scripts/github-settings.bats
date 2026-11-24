@@ -340,6 +340,8 @@ mutating() { grep -cE '^gh (api )?-X (POST|PUT|PATCH|DELETE)|^gh api -X (POST|PU
     grep -A1 "^gh api -X POST .*/environments/$1/deployment-branch-policies" "$LOG" | grep '^BODY' | sort
   }
   [ "$(rules release)" = 'BODY {"name":"main","type":"branch"}' ]
+  [ "$(rules github-pages)" = 'BODY {"name":"main","type":"branch"}' ]
+  grep -qE 'gh api -X PUT .*/repos/o/r/environments/github-pages( |$)' "$LOG"
   [ "$(rules production)" = 'BODY {"name":"v*","type":"tag"}' ]
   want="$(printf '%s\n' 'BODY {"name":"main","type":"branch"}' 'BODY {"name":"v*","type":"tag"}' | sort)"
   [ "$(rules qa)" = "$want" ]
@@ -366,11 +368,11 @@ applied_state() {
   for v in DEPLOY_ENABLED SERVICE_NAME RELEASE_APP_ID; do echo "{\"name\":\"$v\"}" > "$STUB_DIR/_repos_o_r_actions_variables_$v"; done
   echo '{"name":"GCP_DEPLOYER_SA"}' > "$STUB_DIR/_repos_o_r_environments_dev_variables_GCP_DEPLOYER_SA"
   echo '{"name":"GCP_DEPLOYER_SA"}' > "$STUB_DIR/_repos_o_r_environments_production_variables_GCP_DEPLOYER_SA"
-  for e in dev qa production release; do
+  for e in dev qa production release github-pages; do
     case "$e" in
       dev | qa) p='[{"id":1,"name":"main","type":"branch"},{"id":2,"name":"v*","type":"tag"}]' ;;
       production) p='[{"id":2,"name":"v*","type":"tag"}]' ;;
-      release) p='[{"id":1,"name":"main","type":"branch"}]' ;;
+      release | github-pages) p='[{"id":1,"name":"main","type":"branch"}]' ;;
     esac
     echo "{\"branch_policies\":$p}" > "$STUB_DIR/_repos_o_r_environments_${e}_deployment-branch-policies"
   done
@@ -503,12 +505,13 @@ applied_state() {
   grep -q 'BODY {"build_type":"workflow"}' "$LOG"
 }
 
-@test "Pages that builds from a branch is switched to GitHub Actions; Actions-built Pages is left alone" {
+@test "Pages that builds from a branch is left as it is, with a skip that says how to switch; Actions-built Pages is left alone" {
   echo '{"build_type":"legacy"}' > "$STUB_DIR/_repos_o_r_pages"
   run "$SCRIPT" --repo o/r --vars-file "$VARS" --apply
-  [ "$status" -eq 0 ]
-  grep -q 'gh api -X PUT .*/repos/o/r/pages' "$LOG"
-  [ "$(count 'gh api -X POST .*/repos/o/r/pages')" -eq 0 ]
+  [ "$status" -eq 3 ]
+  [ "$(count 'gh api -X [A-Z]* .*/repos/o/r/pages')" -eq 0 ]
+  [[ "$output" == *"GitHub Pages builds from a branch (build_type legacy), left as it is"* ]]
+  [[ "$output" == *"Source to GitHub Actions"* ]]
   : > "$LOG"
   echo '{"build_type":"workflow"}' > "$STUB_DIR/_repos_o_r_pages"
   run "$SCRIPT" --repo o/r --vars-file "$VARS" --apply

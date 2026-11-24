@@ -9,6 +9,10 @@ on:
         description: Upload the built site as the GitHub Pages artifact (docs-site.yml only).
         type: boolean
         default: false
+      site-url:
+        description: The Pages site URL (the Pages API's html_url) the site's site and base come from; empty derives them from the repository.
+        type: string
+        default: ""
 
 permissions: {}
 
@@ -22,6 +26,8 @@ jobs:
     env:
       # The repository the site's links and its Pages base path come from (docs-site/src/lib/repo.mjs).
       SITE_REPOSITORY: ${{ github.repository }}
+      # A custom domain: the published URL, from docs-site.yml's pages job; empty on a pull request.
+      SITE_URL: ${{ inputs.site-url }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,6 +54,9 @@ jobs:
         timeout-minutes: 5
         working-directory: docs-site
         run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install chromium
+      - name: Resolver unit tests
+        working-directory: docs-site
+        run: npm test
       # Strict: a broken link or #anchor, invalid front matter, a missing loaded file or a diagram that does
       # not render fails the build.
       - name: Build the site
@@ -70,3 +79,21 @@ jobs:
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: docs-site/dist
+
+  # The site's configuration guards (pins, the loaded files, the version rule on its pages), on the pull request
+  # that changes the site; the backend job runs them too, but its path filter leaves docs-only changes out. Pull
+  # requests only: the Pages run builds nothing it has not already checked, and restores no cache.
+  guards:
+    name: Docs site (configuration guards)
+    if: ${{ !inputs.upload-pages }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-backend
+      - name: Docs site guards
+        run: .venv/bin/python -m pytest -p no:cacheprovider tests/docs_site tests/test_adr_index.py

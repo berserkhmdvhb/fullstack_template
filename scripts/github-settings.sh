@@ -55,7 +55,7 @@ ENV_VARS=" GCP_WIF_PROVIDER GCP_DEPLOYER_SA DEPLOY_MODE DEPLOY_URL GCP_PROJECT_I
 # Script inputs that are never sent as variables. REVIEWER_USER_ID: the numeric id of the production reviewer;
 # ACTIONS_APP_ID: the app that must produce the required check (default 15368, GitHub Actions).
 CONTROL_VARS=" REVIEWER_USER_ID ACTIONS_APP_ID "
-ENVS=(dev qa production release)
+ENVS=(dev qa production release github-pages)
 
 die() { echo "error: $*" >&2; exit 1; }
 note() { echo "# $*" >&2; }
@@ -261,6 +261,8 @@ wanted_policies() {
     dev | qa) printf '%s\n' "branch main" "tag v*" ;;
     production) printf '%s\n' "tag v*" ;;
     release) printf '%s\n' "branch main" ;;
+    # The docs site's Pages deploy (docs-site.yml): set and checked here, not left to GitHub's default rule.
+    github-pages) printf '%s\n' "branch main" ;;
   esac
 }
 
@@ -389,16 +391,18 @@ labels() {
 }
 
 # --- GitHub Pages for the docs site (docs-site.yml), Source: GitHub Actions: https://docs.github.com/en/rest/pages/pages ---
-# Created when missing (a plan that refuses Pages, as for some private repositories, is a skip); a site that builds
-# from a branch is switched to GitHub Actions. Until then docs-site.yml deploys nothing, with a notice.
+# Created when missing (a plan that refuses Pages, as for some private repositories, is a skip). A site that already
+# builds from a branch (a gh-pages Helm index, say) is left as it is, with a skip that says how to switch on purpose;
+# until Pages builds from GitHub Actions, docs-site.yml deploys nothing, with a notice.
 pages() {
-  local have
+  local have build
   have="$(get "/repos/$REPO/pages")"
   if [[ -z "$have" ]]; then
     soft "GitHub Pages" POST "/repos/$REPO/pages" '{"build_type": "workflow"}'
-  elif [[ "$(jq -r '.build_type // empty' <<<"$have")" != workflow ]]; then
-    backup "/repos/$REPO/pages" "$have"
-    api PUT "/repos/$REPO/pages" '{"build_type": "workflow"}'
+  else
+    build="$(jq -r '.build_type // empty' <<<"$have")"
+    [[ "$build" == workflow ]] ||
+      skip "GitHub Pages builds from a branch (build_type ${build:-unknown}), left as it is; to publish the docs site instead, set Settings > Pages > Source to GitHub Actions (wiki/github-repository-settings.md)"
   fi
 }
 

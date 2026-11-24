@@ -76,6 +76,9 @@ jobs:
       - uses: ./.github/actions/setup-frontend
       - name: OpenAPI drift
         run: make openapi-drift-check
+      # The lockfile's install-script review (the backend job runs it too, but not on a frontend-only change).
+      - name: npm install-scripts guard
+        run: .venv/bin/python -m pytest -p no:cacheprovider tests/supply_chain/test_npm_install_scripts.py
 
   # Build runs before the unit tests, as in the original pipeline.
   build:

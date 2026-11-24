@@ -18,11 +18,23 @@ const DOCS_DIR = 'docs-site/src/content/docs/';
 const config = JSON.parse(readFileSync(join(SITE_DIR, 'site.json'), 'utf8'));
 export const repository = process.env.SITE_REPOSITORY || config.repository;
 export const branch = config.branch;
-const [owner, name] = repository.split('/');
 export const repoUrl = `https://github.com/${repository}`;
-// GitHub Pages: https://<owner>.github.io/<name>/, or the root for a repository named <owner>.github.io.
-export const site = `https://${owner.toLowerCase()}.github.io`;
-export const base = name.toLowerCase() === `${owner.toLowerCase()}.github.io` ? '/' : `/${name}`;
+
+/**
+ * Astro's site and base. With the published URL (the Pages API's html_url, which CI passes in SITE_URL), they
+ * come from it, so a custom domain needs no setting. Without it (a pull request, Pages off): GitHub Pages'
+ * https://<owner>.github.io/<name>/, or the root for a repository named <owner>.github.io.
+ */
+export function pagesLocation(repo, url) {
+  if (url) {
+    const { origin, pathname } = new URL(url);
+    return { site: origin, base: pathname.replace(/\/+$/, '') || '/' };
+  }
+  const [owner, name] = repo.split('/');
+  const site = `https://${owner.toLowerCase()}.github.io`;
+  return { site, base: name.toLowerCase() === `${owner.toLowerCase()}.github.io` ? '/' : `/${name}` };
+}
+export const { site, base } = pagesLocation(repository, process.env.SITE_URL);
 
 // The repository files the site renders as its own pages (loaded, never copied): path -> page slug.
 export const LOADED = {
@@ -95,6 +107,19 @@ export function remarkRepoLinks() {
     };
     visit(tree);
     if (broken.length) file.fail(`Broken repository links:\n  ${broken.join('\n  ')}`);
+  };
+}
+
+/**
+ * A loaded file's page title and body: the first depth-1 heading, parsed as Markdown (a `# comment` inside a
+ * code fence is not one), as plain text, and the body without it.
+ */
+export function splitTitle(text, path) {
+  const h1 = fromMarkdown(text).children.find((node) => node.type === 'heading' && node.depth === 1);
+  if (!h1) throw new Error(`${path}: no H1 to take the page title from`);
+  return {
+    title: toString(h1),
+    body: text.slice(0, h1.position.start.offset) + text.slice(h1.position.end.offset),
   };
 }
 
