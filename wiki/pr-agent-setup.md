@@ -112,7 +112,8 @@ gh variable set PR_AGENT_ENABLED --body true --repo <owner>/<repo>
 
 **Check:** open a small pull request from a branch of this repository. `PR-Agent gate` passes, `PR-Agent review
 (advisory)` runs, and a review comment and a description comment appear. Comment `/help` on it: PR-Agent answers.
-A run that skips leaves a notice that says why (`PR-Agent skipped: …`).
+A run that skips leaves a notice that says why (`PR-Agent skipped: …`). If `review` fails at its start with a policy
+error, see [section 8](#8-watch-on-the-first-run-the-actions-policies).
 
 ## 5. The model and its cost
 
@@ -137,7 +138,7 @@ for one. To turn it on:
 
 1. Add `synchronize` to the `pull_request` `types` of [`pr-agent.yml`](../.github/workflows/pr-agent.yml).
 2. In [`.pr_agent.toml`](../.pr_agent.toml), under `[github_action_config]`, set `handle_push_trigger = true` and
-   `push_commands = ["/review"]`.
+   `push_commands = ["/review"]`. PR-Agent reads these keys from that section (verified at the pinned release).
 
 Every push to an open pull request then costs a review run. The workflow's settings are pinned by
 [`tests/supply_chain/test_workflows_pr_agent.py`](../tests/supply_chain/test_workflows_pr_agent.py); change the test
@@ -183,9 +184,12 @@ sets may refuse such a step; neither has been confirmed either way:
 
 > **Do now.**
 
-- **Off:** delete the variable (`gh variable delete PR_AGENT_ENABLED --repo <owner>/<repo>`). The gate's `if:` is
-  then false, and no runner starts.
+- **Off:** if your vars-file sets `PR_AGENT_ENABLED`, set it to `false` there or remove the line, since the next
+  `--apply` sets every variable the file names. Then delete the repository variable
+  (`gh variable delete PR_AGENT_ENABLED --repo <owner>/<repo>`), or set it to `false`. The gate's `if:` is then
+  false, and no runner starts.
 - **Retire:** also delete the environment's secret (or the `ai-review` environment) and revoke the key in the
   Anthropic Console.
 
-**Check:** the next pull request shows no PR-Agent jobs, and the revoked key is gone from the workspace.
+**Check:** on the next pull request, both PR-Agent jobs show as skipped and no PR-Agent comment appears. After a
+retire, the revoked key is gone from the workspace.

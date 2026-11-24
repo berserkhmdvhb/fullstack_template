@@ -39,3 +39,9 @@ test('a plain blockquote, an unknown marker and a marker mid-text stay blockquot
     assert.equal(run(markdown)[0].type, 'blockquote', markdown);
   }
 });
+
+test('a marker followed by text on its line stays a blockquote, as on GitHub', () => {
+  for (const markdown of ['> [!NOTE] Read this.\n', '> [!WARNING]text\n> More.\n']) {
+    assert.equal(run(markdown)[0].type, 'blockquote', markdown);
+  }
+});

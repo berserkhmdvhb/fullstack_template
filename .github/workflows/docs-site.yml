@@ -43,17 +43,17 @@ jobs:
         run: |
           if found="$(gh api "repos/${REPO}/pages" --jq '[.build_type, .html_url] | @tsv' 2>"$RUNNER_TEMP/pages.err")"; then
             IFS=$'\t' read -r source url <<<"$found"
-            if [[ "$source" == "workflow" ]]; then
+            if [[ "$source" != "workflow" ]]; then
+              echo "::notice title=Docs site not deployed::GitHub Pages builds from a branch here, not from GitHub Actions, and scripts/github-settings.sh leaves such a site as it is. To publish the docs site instead, set Settings > Pages > Source to GitHub Actions."
+            elif [[ "$url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~%/-]*)?$ ]]; then
               # The published URL (a custom domain included): the build takes the site's site and base from it.
-              # Only a plain https:// address is passed on; anything else falls back to the repository's address.
-              if [[ ! "$url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~%/-]*)?$ ]]; then
-                echo "::warning title=Docs site address ignored::The Pages API returned an address that is not a plain https:// URL; the site is built for https://<owner>.github.io/<repo>/ instead."
-                url=""
-              fi
               printf '%s\n' "enabled=true" "url=${url}" >> "$GITHUB_OUTPUT"
               exit 0
+            else
+              # Anything but a plain https:// address (a custom domain still waiting for its certificate reports
+              # http://) deploys nothing: a build for another address would break the live site.
+              echo "::warning title=Docs site not deployed::The Pages API returned an address that is not a plain https:// URL, so nothing was deployed and the live site is unchanged. Check the custom domain under Settings > Pages, then run the deploy again."
             fi
-            echo "::notice title=Docs site not deployed::GitHub Pages builds from a branch here, not from GitHub Actions, and scripts/github-settings.sh leaves such a site as it is. To publish the docs site instead, set Settings > Pages > Source to GitHub Actions."
           elif grep -q 'HTTP 404' "$RUNNER_TEMP/pages.err"; then
             echo "::notice title=Docs site not deployed::GitHub Pages is not enabled for this repository. Run scripts/github-settings.sh to enable it with Source: GitHub Actions."
           else

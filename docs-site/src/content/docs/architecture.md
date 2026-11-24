@@ -39,8 +39,9 @@ flowchart LR
 | `tunnel` | none: the chart prints the route table for the tunnel | Cloudflare's edge |
 
 :::note[The WAF is off by default]
-With `waf.enabled: false` the edge and the frontend reach the backend directly. Turned on, nothing but the WAF
-reaches the backend, and the pages bypass it. The NetworkPolicies follow the mode and the WAF switch.
+With `waf.enabled: false` the edge and the frontend reach the backend directly. Turned on, only the WAF reaches the
+backend's API port, and the pages bypass it; the one way around it is the peers in
+`networkPolicy.backendExtraIngressPeers`, such as an auth proxy. The metrics collector reaches the metrics port only. The NetworkPolicies follow the mode and the WAF switch.
 :::
 
 The app namespace is default-deny: each mode admits only its own edge peers, and the backend trusts forwarding

@@ -477,10 +477,11 @@ helm upgrade --install your-service-name charts/your-service-name \
 ```
 
 <a id="production-needs-an-auth-mode"></a>
-> **Production needs an auth mode.** `values.production.yaml` sets `ENV=production`, so the backend
-> refuses to start on `AUTH_MODE=none` (see [Backend settings](./environment-variables.md#backend-settings)).
-> Add `AUTH_MODE: oidc` (or `cloudflare-access`; see [Authentication](./security.md#authentication--authorization)) under `config:` before the first deploy.
-> Without it the backend Pods never become ready, so the Helm release fails and `deploy-env.sh` rolls it back.
+> **Production needs an auth mode.** [`values.production.yaml`](../charts/your-service-name/values.production.yaml)
+> ships `AUTH_MODE: oidc` with a placeholder issuer and audience, which the deploy's placeholder guard refuses, so the
+> render fails before any Pod exists. Set your provider's issuer and the API's audience, or another production auth
+> mode ([Authentication](./security.md#authentication--authorization)), in that file before the first production
+> deploy.
 
 ### 4. Verify Rollout
 

@@ -200,11 +200,11 @@ def test_pages_off_or_built_from_a_branch_is_a_green_no_op(tmp_path: Path, gh_bo
     ],
     ids=["http", "scheme", "space", "shell", "empty"],
 )
-def test_a_published_url_that_is_not_plain_https_falls_back(tmp_path: Path, url: str) -> None:
-    """Only a plain https:// address reaches the build's SITE_URL; anything else derives it."""
+def test_a_published_url_that_is_not_plain_https_deploys_nothing(tmp_path: Path, url: str) -> None:
+    """Only a plain https:// address is deployed; anything else leaves the live site as it is."""
     code, out, stdout = _pages_check(tmp_path, f"printf 'workflow\\t%s\\n' '{url}'")
-    assert (code, out) == (0, "enabled=true\nurl=\n")
-    assert "::warning" in stdout
+    assert (code, out) == (0, "enabled=false\n")
+    assert "::warning title=Docs site not deployed::" in stdout
 
 
 def test_a_second_line_from_the_pages_api_never_reaches_the_output(tmp_path: Path) -> None:

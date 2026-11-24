@@ -218,7 +218,7 @@ The `pages` job of [`docs-site.yml`](../.github/workflows/docs-site.yml) leaves 
 | none, and three green jobs | Pages builds from GitHub Actions; the site was deployed | nothing |
 | **Docs site not deployed**: GitHub Pages is not enabled | the Pages API answered 404: Pages is off | [section 2](#2-turn-pages-on-with-source-github-actions) |
 | **Docs site not deployed**: GitHub Pages builds from a branch | Pages is on, with a branch as its source | [section 6](#6-a-site-that-already-builds-from-a-branch) |
-| **Docs site address ignored** (a warning) | the Pages API returned an address that is not a plain `https://` URL, so the site was built for `https://<owner>.github.io/<repo>/` | check the custom domain under **Settings → Pages**, then deploy again |
+| **Docs site not deployed** (a warning): the Pages API returned an address that is not a plain `https://` URL | nothing was deployed and the live site is unchanged; a custom domain may report `http://` until its certificate is issued and **Enforce HTTPS** is on | finish [section 5.3](#53-the-pages-custom-domain-and-enforce-https), then deploy again |
 | the `pages` job fails with the API's error | any other Pages API error (a 5xx, a refused token) | re-run the job; if it persists, read the error |
 | the `deploy` job is refused by the environment | the `github-pages` deployment rule does not admit the ref | [section 3](#3-the-github-pages-environment) |
 

@@ -83,6 +83,15 @@ def test_one_node_one_npm_and_the_frontends_playwright() -> None:
         assert site_lock[name]["version"] == front_lock[name]["version"], name
 
 
+def test_github_alerts_run_before_starlights_asides() -> None:
+    """Starlight appends its aside plugins after the configured ones: the alerts run first."""
+    config = (SITE / "astro.config.mjs").read_text(encoding="utf-8")
+    assert "import { remarkGithubAlerts } from './src/lib/github-alerts.mjs';" in config
+    plugins = re.search(r"remarkPlugins: \[([^\]]*)\]", config)
+    assert plugins
+    assert "remarkGithubAlerts" in [p.strip() for p in plugins[1].split(",")]
+
+
 def test_diagrams_render_at_build_time_with_no_client_renderer() -> None:
     config = (SITE / "astro.config.mjs").read_text(encoding="utf-8")
     assert "strategy: 'inline-svg'" in config
@@ -108,14 +117,16 @@ def test_every_loaded_file_is_tracked_has_an_h1_and_is_in_the_sidebar() -> None:
     for path, slug in loaded.items():
         assert _h1((ROOT / path).read_text(encoding="utf-8")), path
         assert f"'{slug}'" in config, slug
-        assert not (SITE / "src/content/docs" / f"{slug}.md").exists(), (
-            f"{slug}: copied, not loaded"
-        )
+        for suffix in (".md", ".mdx"):
+            assert not (SITE / "src/content/docs" / f"{slug}{suffix}").exists(), (
+                f"{slug}{suffix}: copied, not loaded"
+            )
 
 
 PAGES_DIR = SITE / "src/content/docs"
-# A relative Markdown link (or a JSX href) whose target is a file or directory under wiki/.
-WIKI_LINK = re.compile(r"""(?:\]\(|href=["'])((?:\.\./)+wiki/[^)"'\s]*)""")
+# A relative Markdown link whose target is a file or directory under wiki/. A JSX href does not
+# count: the resolver (src/lib/repo.mjs) rewrites Markdown links and definitions only.
+WIKI_LINK = re.compile(r"\]\(((?:\.\./)+wiki/[^)\s]*)")
 
 
 def _own_pages() -> list[Path]:
@@ -155,6 +166,10 @@ def test_the_page_guard_flags_a_missing_description_or_wiki_link() -> None:
     assert page_problems(page, good.replace("wiki/ci-cd.md", "README.md")) == ["no wiki link"]
     assert page_problems(page, good.replace("ci-cd.md", "no-such-page.md")) == ["no wiki link"]
     assert page_problems(page, good.replace("../../../../", "../")) == ["no wiki link"]
+    jsx = good.replace(
+        "[CI/CD](../../../../wiki/ci-cd.md#caches)", '<a href="../../../../wiki/ci-cd.md">CI/CD</a>'
+    )
+    assert page_problems(page, jsx) == ["no wiki link"]
 
 
 def test_the_design_page_indexes_every_adr() -> None:

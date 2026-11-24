@@ -25,11 +25,12 @@ flowchart LR
 
 ## On a pull request
 
-- **`CI OK` is the one required check.** It waits for every blocking job: the backend and frontend gates, the chart
+- **`CI OK` is the one required check.** It waits for every blocking job, among them the backend and frontend gates, the chart
   lint and render, the security scans, the workflow hardening lint, the image structure checks, the chart in a kind
   cluster, the API contract check and the documentation site. Path filters skip what a change cannot affect.
-- **Nothing leaves the runner.** A pull request may build images into the runner's own daemon to check them; it
-  never pushes, signs or deploys.
+- **Nothing leaves the runner.** A pull request's checks may build images into the runner's own daemon (the kind
+  tests use a loopback registry). Nothing they build leaves the runner, and no pull request pushes or signs a release
+  image. The only deploy a pull request can start is the opt-in preview, of `main`-built images.
 - **Advisory jobs warn, never block:** the live full-stack suite, the advisory scanners and the optional AI review.
 - **The title is the commit.** Merges are squash only, so `pr-title.yml` holds the title to a Conventional Commit,
   which release-please reads later.
@@ -58,7 +59,7 @@ on `main`, redeployed on each push and removed when it closes or loses the label
 
 :::caution[A preview runs the pull request's chart]
 A preview runs with write-access trust: inside the preview namespace, a pull request can run its own code. The bounds
-of that are in the preview trust boundary of the CI/CD page.
+of that are in [CI/CD, Pull request previews](../../../../wiki/ci-cd.md#pull-request-previews).
 :::
 
 ## Go deeper

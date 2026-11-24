@@ -8,7 +8,7 @@ const VARIANTS = {
   WARNING: ['caution', 'Warning'],
   CAUTION: ['danger', 'Caution'],
 };
-const MARKER = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n)?/;
+const MARKER = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n|$)/;
 
 export function remarkGithubAlerts() {
   const visit = (node) => {

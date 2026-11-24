@@ -54,9 +54,11 @@ commands; none of them are repeated here.
 1. **Set up the platform**, in the order of [Platform setup](../../../../wiki/platform-setup.md): the
    [GKE cluster](../../../../wiki/gke-cluster-setup.md) and its keyless access, then the [Cloudflare edge](../../../../wiki/cloudflare-setup.md).
 
-2. **Push, then apply the settings.** After the first push, `scripts/github-settings.sh` sets the rulesets, the
-   environments, the variables and the Actions policy; dry run first.
-   [GitHub repository settings](../../../../wiki/github-repository-settings.md#run-it).
+2. **Create the release GitHub App, push, then apply the settings.** `--apply` refuses without the App's
+   `RELEASE_APP_ID` in the vars-file, so the App comes first
+   ([The release GitHub App](../../../../wiki/github-repository-settings.md#the-release-github-app)). After the first
+   push, `scripts/github-settings.sh` sets the rulesets, the environments, the variables and the Actions policy; dry
+   run first. [GitHub repository settings](../../../../wiki/github-repository-settings.md#run-it).
 
 3. **Bootstrap the namespaces.** An admin applies the bootstrap for each environment: the namespaces, their quotas
    and the deployer's rights. [Infrastructure, Namespace bootstrap](../../../../wiki/infrastructure.md#namespace-bootstrap-one-time-admin-step).
@@ -70,10 +72,11 @@ commands; none of them are repeated here.
 
 </Steps>
 
-:::caution[Production needs an auth mode]
-The production values set `ENV=production`, and the backend then refuses to start without an auth mode: set one
-before the first production deploy, or its Pods never become ready.
-[Security, Authentication & Authorization](../../../../wiki/security.md#authentication--authorization).
+:::caution[Production needs your auth settings]
+The production values ship `AUTH_MODE: oidc` with a placeholder issuer and audience, which the deploy refuses. Before
+the first production deploy, set your provider's issuer and the API's audience, or another production auth mode, in
+[`values.production.yaml`](../../../../charts/your-service-name/values.production.yaml).
+[Getting started, Deploy to Production](../../../../wiki/getting-started.md#3-deploy-to-production).
 :::
 
 ## Go deeper

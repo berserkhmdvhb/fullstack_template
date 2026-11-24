@@ -83,8 +83,8 @@ jobs:
 
   # The site's configuration guards (pins, the loaded files, the version rule on its pages), in every ci.yml call:
   # a pull request that changes the site, and every push to main, v* tag and manual run. The backend job runs them
-  # too, but its path filter leaves a docs-only pull request out. Never in the Pages run (upload-pages), so the job that builds the Pages
-  # artifact restores no cache.
+  # too, but its path filter leaves a docs-only pull request out. Never in the Pages run (upload-pages), so the Pages
+  # run restores no cache.
   guards:
     name: Docs site (configuration guards)
     if: ${{ !inputs.upload-pages }}
