@@ -41,6 +41,8 @@ export const LOADED = {
   'CONTRIBUTING.md': 'walkthroughs/contributing',
   'wiki/cloudflare-setup.md': 'walkthroughs/cloudflare',
   'wiki/gke-cluster-setup.md': 'walkthroughs/gke',
+  'wiki/github-pages-setup.md': 'walkthroughs/github-pages',
+  'wiki/pr-agent-setup.md': 'walkthroughs/pr-agent',
 };
 
 // Tracked files, plus new ones not yet added that Git does not ignore (so a page being written resolves).
@@ -66,8 +68,9 @@ function anchors(path) {
 
 /** The site URL of a repository file, or undefined when the site has no page for it. */
 function pageUrl(path) {
-  const own = path.startsWith(DOCS_DIR) && path.endsWith('.md');
-  const slug = LOADED[path] ?? (own ? path.slice(DOCS_DIR.length, -3).replace(/(^|\/)index$/, '') : undefined);
+  const own = path.startsWith(DOCS_DIR) && /\.mdx?$/.test(path);
+  const page = own ? path.slice(DOCS_DIR.length).replace(/\.mdx?$/, '').replace(/(^|\/)index$/, '') : undefined;
+  const slug = LOADED[path] ?? page;
   return slug === undefined ? undefined : posix.join(base, slug, '/');
 }
 

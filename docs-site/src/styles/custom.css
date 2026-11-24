@@ -9,6 +9,12 @@
   height: auto;
 }
 
+/* Mermaid's dark theme draws edge labels in light grey on a mid grey (axe color-contrast); white text reads. */
+.diagram-dark .edgeLabel,
+.diagram-dark .edgeLabel p {
+  color: #fff !important;
+}
+
 /* The search button's accessible name is "Search"; its visible Ctrl+K hint would make the visible text differ
    from that name (axe label-content-name-mismatch). The shortcut still works (aria-keyshortcuts). */
 button[data-open-modal] kbd {

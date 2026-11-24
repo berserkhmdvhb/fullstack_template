@@ -1,13 +1,15 @@
 # Platform setup: start here
 
-The platform runs on three providers. This page says what each one is for, the order to set them up in, and where every resulting value lives. The step-by-step work is in two guides:
+The platform runs on three providers. This page says what each one is for, the order to set them up in, and where every resulting value lives. The step-by-step work is in four guides:
 
 1. [GKE Cluster Setup](./gke-cluster-setup.md): the Kubernetes cluster, the image registry, and keyless access from GitHub Actions.
 2. [Cloudflare Setup](./cloudflare-setup.md): the domain, the edge, the Tunnel into the cluster, private previews, and off-site backups.
+3. [GitHub Pages Setup](./github-pages-setup.md): the documentation site on GitHub Pages, with an optional custom domain.
+4. [PR-Agent Setup](./pr-agent-setup.md): the optional, advisory AI reviewer, its key and its spend limit.
 
 ## How to read this guide
 
-> Every section of the three guides starts with one of three tags. They tell you what is safe to do by hand today.
+> Every section of the four guides starts with one of three tags. They tell you what is safe to do by hand today.
 >
 > - **Do now.** Stable. Do it by hand; nothing later replaces it.
 > - **Planned change** — what changes. The step is right today, but a later change replaces or extends it. Read the note before relying on it.
@@ -25,7 +27,7 @@ The platform runs on three providers. This page says what each one is for, the o
 
 ## The order
 
-> **Do now** for rows 0 to 4. **After the first push** for row 5.
+> **Do now** for rows 0 to 4. **After the first push** for rows 5 to 7.
 
 | Step | What | Where | Takes |
 |---|---|---|---|
@@ -35,6 +37,8 @@ The platform runs on three providers. This page says what each one is for, the o
 | 3 | Optional, for a site repository only: off-site backups | [Cloudflare §12](./cloudflare-setup.md#12-optional-a-private-r2-bucket-for-off-site-backups) | 15 min |
 | 4 | Set the values of the table below in GitHub. Variables, and the secrets only where the table says so. | GitHub settings | 5 min |
 | 5 | After the first push: a green `deploy-ops` `check` per environment | [GKE §13.3](./gke-cluster-setup.md#133-the-first-check-deploy-ops-check) | 10 min |
+| 6 | After the first push and the settings script: the documentation site on GitHub Pages, and optionally its custom domain | [GitHub Pages §2 to §5](./github-pages-setup.md) | 10 min, plus the certificate |
+| 7 | Optional: the AI reviewer | [PR-Agent §2 to §8](./pr-agent-setup.md) | 15 min |
 
 Step 2 needs step 1, because the Tunnel runs inside the cluster. Steps 1 and 2 each end with a checklist. Don't start the next step until every check in the previous one passes.
 
@@ -64,10 +68,11 @@ This is the single list. Every `vars.*` and `secrets.*` that a template workflow
 | `PREVIEW_TTL_DAYS` | variable | repository | optional: the daily sweep removes a preview last deployed this many days ago (default `7`) | you |
 | `PREVIEW_DOMAIN` | variable | environment `preview` | optional: the zone of the previews' hostnames (`<SERVICE_NAME>-pr-<N>.<PREVIEW_DOMAIN>`); unset, previews get no public URL | you |
 | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | **secret** | environment `preview`, with `PREVIEW_DOMAIN` | the Cloudflare Access service token the smoke test sends through the preview's URL | [Cloudflare §9](./cloudflare-setup.md#9-keep-previews-private-with-cloudflare-access) |
-| `PR_AGENT_ENABLED` | variable | repository | optional: `true` turns on the advisory AI reviewer, PR-Agent ([CI/CD](./ci-cd.md#ai-pull-request-review)); unset (the default) skips it | you |
-| `ANTHROPIC_KEY` | **secret** | environment `ai-review` (you create it), only with `PR_AGENT_ENABLED` | the model provider's API key PR-Agent reviews with; give it a spend limit | [AI pull request review](./ci-cd.md#ai-pull-request-review) |
+| `PR_AGENT_ENABLED` | variable | repository | optional: `true` turns on the advisory AI reviewer, PR-Agent ([CI/CD](./ci-cd.md#ai-pull-request-review)); unset (the default) skips it | [PR-Agent §4](./pr-agent-setup.md#4-turn-it-on) |
+| `ANTHROPIC_KEY` | **secret** | environment `ai-review` (you create it), only with `PR_AGENT_ENABLED` | the model provider's API key PR-Agent reviews with; give it a spend limit | [PR-Agent §2 and §3](./pr-agent-setup.md#3-the-ai-review-environment-and-its-secret) |
 | `RELEASE_APP_ID` | variable | repository | the release GitHub App's ID: [`release-please.yml`](../.github/workflows/release-please.yml) mints its token with it, and the `release-tags` ruleset names it as the one actor that may create a `v*` tag. Unset skips release-please, with a notice | [The release GitHub App](./github-repository-settings.md#the-release-github-app) |
 | `RELEASE_APP_PRIVATE_KEY` | **secret** | environment `release` | the release GitHub App's private key | [The release GitHub App](./github-repository-settings.md#the-release-github-app) |
+| GitHub Pages, Source: GitHub Actions, and the `github-pages` environment | setting | repository | the documentation site's deploy ([`docs-site.yml`](../.github/workflows/docs-site.yml)); no variable or secret: the deploy reads the address from Pages and proves itself with the run's OIDC token | [GitHub Pages §2 and §3](./github-pages-setup.md#2-turn-pages-on-with-source-github-actions) |
 | `GITHUB_TOKEN` | secret | automatic | the workflow token; you set nothing | GitHub |
 
 Google Cloud needs no secret at all: GitHub Actions logs in with a short-lived token through Workload Identity Federation. The environment variables above aren't sensitive; a job reads its environment's values only after the environment's branch policy (and, for `production`, its approval) has passed.
@@ -103,7 +108,7 @@ The template's workflows don't read these. They belong to your site repository's
 
 Sources: [Managing environments for deployment](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-deployments/managing-environments-for-deployment) and [Deployments and environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments); details in [GKE §11.1](./gke-cluster-setup.md#111-public-or-private).
 
-## The principles both guides follow
+## The principles the guides follow
 
 > **Do now.**
 
@@ -131,7 +136,7 @@ These are the rules the guides apply. The pipeline will follow the same ones.
 Deploys stay off until the platform rollout. The work between now and then, in order:
 
 1. **The first push** of the code to the empty repository.
-2. **The settings script:** the `main` ruleset and a `v*` tag ruleset, the four environments and their branch policies, the repository variables, the Actions policy, and the release GitHub App with its one-time steps ([The release GitHub App](./github-repository-settings.md#the-release-github-app)).
+2. **The settings script:** the `main` ruleset and a `v*` tag ruleset, the environments and their branch policies, the repository variables, the Actions policy, and the release GitHub App with its one-time steps ([The release GitHub App](./github-repository-settings.md#the-release-github-app)).
 3. **A green `check`** for each environment ([GKE §13.3](./gke-cluster-setup.md#133-the-first-check-deploy-ops-check)); production's runs from the first `v*` tag.
 4. **The namespace and RBAC bootstrap:** the namespaces (with Pod Security labels, quota and LimitRange) and the deployer RBAC for each environment, rendered by `scripts/k8s-bootstrap.sh <env>` and applied by an admin ([GKE §13.2](./gke-cluster-setup.md#132-the-namespaces-and-the-deployer-rbac-come-from-the-bootstrap)). Don't create the namespaces by hand.
 5. **The image pull secret** in each app namespace, if your GHCR images are private ([GKE §13.4](./gke-cluster-setup.md#134-an-image-pull-secret-for-private-ghcr-images)).

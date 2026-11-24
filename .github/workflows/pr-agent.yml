@@ -5,7 +5,7 @@ name: PR-Agent
 # (wiki/adr/0040-optional-ai-pr-review.md). Its token can edit a pull request's title, body and labels;
 # .pr_agent.toml keeps it to comments.
 # Off unless the repository variable PR_AGENT_ENABLED is `true`; the model key is the ANTHROPIC_KEY secret of the
-# `ai-review` environment (wiki/ci-cd.md, AI pull request review).
+# `ai-review` environment (wiki/pr-agent-setup.md).
 # Trust:
 # - `gate` decides, with no environment, no secret and read rights only; `review` holds the key and runs only
 #   when `gate` says `run=true`.
@@ -25,7 +25,7 @@ name: PR-Agent
 # The image corresponds to release v0.50.0, commit e673a02076ce09a4726c3d0c3cc85780e59ca52b.
 on:
   pull_request:
-    # No `synchronize`: PR-Agent ignores a push unless its push trigger is on (wiki/ci-cd.md, AI pull request review).
+    # No `synchronize`: PR-Agent ignores a push unless its push trigger is on (wiki/pr-agent-setup.md, section 6).
     types: [opened, reopened, ready_for_review]
   # A comment trigger, made safe by `gate`: no checkout, owners, members and collaborators only, forks skipped,
   # and the key only in the gated `review` job.
@@ -101,7 +101,7 @@ jobs:
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # Holds the model key; create it by hand (wiki/ci-cd.md, AI pull request review).
+    # Holds the model key; create it by hand (wiki/pr-agent-setup.md).
     environment: ai-review
     permissions:
       contents: read

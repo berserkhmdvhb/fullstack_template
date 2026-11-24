@@ -1,0 +1,59 @@
+---
+title: Service template
+description: A FastAPI and Next.js service template with Helm, GitHub Actions and a hardened supply chain, and the reading path through its wiki.
+template: splash
+hero:
+  tagline: A FastAPI and Next.js service, a Helm chart and a GitHub pipeline that builds, scans, signs and deploys by digest. This site is the reading path; the wiki is the complete reference.
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What it is
+
+A template for a web service, ready to adapt into your own: a FastAPI backend and a Next.js frontend (two images,
+plus an optional WAF image), one Helm chart for every environment, and GitHub Actions that check every pull request
+and build, sign, attest and deploy every release. The service name is a placeholder that one script replaces, and
+the repository settings ship as a script too.
+
+## Who it is for
+
+- **A team starting a service** that wants the production controls in place from the first commit: signed images,
+  admission, keyless deploys, a gated release.
+- **A platform owner** who sets up the cluster, the edge and GitHub once, then lets each service follow the same path.
+- **A contributor to the template**, whose change reaches every service built from it.
+
+## Where to go
+
+<CardGrid>
+  <Card title="Get started" icon="rocket">
+    Adopt the template, run it on kind, and make the first deploy: [Getting started](./getting-started.mdx).
+  </Card>
+  <Card title="Architecture" icon="puzzle">
+    The request path in each edge mode, the data tier and observability: [Architecture](./architecture.md).
+  </Card>
+  <Card title="Pipeline and releases" icon="setting">
+    From pull request checks to production: [the pipeline](./pipeline.md) and [releasing](./releasing.md).
+  </Card>
+  <Card title="Security and supply chain" icon="approve-check-circle">
+    Signing, provenance, SBOM and VEX, admission and the threat model: [Security](./security.md).
+  </Card>
+  <Card title="Design and practices" icon="list-format">
+    The decisions by theme, and the practices with why: [Design](./design.md) and [Practices](./practices.md).
+  </Card>
+  <Card title="Set up the platform" icon="laptop">
+    Step by step: [GKE](../../../../wiki/gke-cluster-setup.md), [Cloudflare](../../../../wiki/cloudflare-setup.md),
+    [GitHub Pages](../../../../wiki/github-pages-setup.md) and the [AI reviewer](../../../../wiki/pr-agent-setup.md),
+    in the order of [Platform setup](../../../../wiki/platform-setup.md).
+  </Card>
+</CardGrid>
+
+:::note[The wiki is the full reference]
+Each page here is a short, visual overview that links into [the wiki](../../../../wiki/README.md), where the
+details, the commands and every pinned version live. When the two seem to differ, the wiki and the code are right.
+:::
+
+## Go deeper
+
+- [The wiki](../../../../wiki/README.md): every topic, in full.
+- [Contributing](../../../../CONTRIBUTING.md): the workflow and the gates for a change to the template.
+- [Architecture decision records](../../../../wiki/adr/README.md): why the template is the way it is.

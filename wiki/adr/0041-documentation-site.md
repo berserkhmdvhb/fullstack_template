@@ -22,9 +22,10 @@ copy of the wiki that drifts from it.
 
 [`docs-site/`](../../docs-site/README.md) is an Astro + Starlight site (MIT), with Pagefind search built in (static,
 offline, no service). It is **curated**: new pages for the architecture, the pipeline, the design and the practices,
-each linking into the wiki rather than restating it. Three detailed walkthroughs are the exception: the contributing
-guide and the Cloudflare and GKE setup guides are **loaded from their files** by a content-collection loader, never
-copied, and render as Markdown (not MDX), so their angle brackets stay text.
+each linking into the wiki rather than restating it. The detailed walkthroughs are the exception: the contributing
+guide and the Cloudflare, GKE, GitHub Pages and PR-Agent setup guides are **loaded from their files** by a
+content-collection loader, never copied, and render as Markdown (not MDX), so their angle brackets stay text and they
+still read the same on GitHub.
 
 - One repository value (owner/name and branch) builds every link into the repository and the site's Pages
   address. `infra/adapt` stamps it; CI passes the real repository.

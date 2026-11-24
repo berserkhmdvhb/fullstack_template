@@ -64,7 +64,7 @@ test('file.fail is called once with every broken link, and its throw stops the b
 });
 
 test('a link to a site page resolves to that page', () => {
-  const { tree, failures } = resolve('[p](./pipeline.md) [h](./index.md)');
+  const { tree, failures } = resolve('[p](./pipeline.md) [h](./index.mdx)');
   assert.deepEqual(failures, []);
   assert.deepEqual(links(tree), [`${base.replace(/\/$/, '')}/pipeline/`, `${base.replace(/\/$/, '')}/`]);
 });
@@ -121,4 +121,10 @@ test('site and base come from the published URL when there is one, a custom doma
 test('without a published URL, site and base are the github.io derivation', () => {
   assert.deepEqual(pagesLocation('Acme/shop', ''), { site: 'https://acme.github.io', base: '/shop' });
   assert.deepEqual(pagesLocation('Acme/acme.github.io', undefined), { site: 'https://acme.github.io', base: '/' });
+});
+
+test('an .mdx site page resolves to its page like an .md one', () => {
+  const { tree, failures } = resolve('[s](./getting-started.mdx)');
+  assert.deepEqual(failures, []);
+  assert.deepEqual(links(tree), [`${base.replace(/\/$/, '')}/getting-started/`]);
 });

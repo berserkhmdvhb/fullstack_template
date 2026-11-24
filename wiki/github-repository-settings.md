@@ -26,7 +26,7 @@ These warn and don't block. They are never listed as required:
 - `PR-Agent gate`
 - `PR-Agent review (advisory)`
 
-The advisory scanner legs of `security.yml` (named `<id> (advisory)`) are the same. `Live suites (full stack)` is advisory on pull requests and blocking on `main` and tags. `Unit (Python 3.14)` is the one advisory leg of the unit matrix. DAST, grant and VEX run only on `main`, tags or by hand, so they never gate a pull request. `PR-Agent gate` and `PR-Agent review (advisory)` are the optional AI reviewer, off by default ([CI/CD](./ci-cd.md#ai-pull-request-review)); it comments and never approves.
+The advisory scanner legs of `security.yml` (named `<id> (advisory)`) are the same. `Live suites (full stack)` is advisory on pull requests and blocking on `main` and tags. `Unit (Python 3.14)` is the one advisory leg of the unit matrix. DAST, grant and VEX run only on `main`, tags or by hand, so they never gate a pull request. `PR-Agent gate` and `PR-Agent review (advisory)` are the optional AI reviewer, off by default ([CI/CD](./ci-cd.md#ai-pull-request-review); turning it on: [PR-Agent setup](./pr-agent-setup.md)); it comments and never approves.
 
 ## What the script sets
 
@@ -38,7 +38,7 @@ The advisory scanner legs of `security.yml` (named `<id> (advisory)`) are the sa
 | Environments | `dev` and `qa`: deployment rules **branch** `main` and **tag** `v*`; any other rule is deleted | the deploy chain runs from `main` and from release tags |
 | Environments | `production`: **tag** `v*` only; you as the required reviewer; self-review allowed | one owner has to approve their own deploys (a single-owner repository) |
 | Environments | `release`: **branch** `main` only | holds the release App's private key |
-| Environments | `github-pages`: **branch** `main` only | the docs site's Pages deploy; set and checked here rather than left to the rule GitHub adds when Pages is created |
+| Environments | `github-pages`: **branch** `main` only | the docs site's Pages deploy; set and checked here rather than left to the rule GitHub adds when Pages is created ([GitHub Pages setup](./github-pages-setup.md#3-the-github-pages-environment)) |
 | Labels | the `breaking-change` label (created, or updated in place) | the `api-compat` job lets a pull request with this label pass a breaking OpenAPI change ([API lifecycle](./api-lifecycle.md)); only users with triage permission or above can add it |
 | Variables | repository and environment variables from your vars-file | the scopes of [Platform Setup](./platform-setup.md#variables-and-secrets) |
 | Actions policy | default token read-only; Actions can't approve pull requests | a job asks for anything more itself |
@@ -46,7 +46,7 @@ The advisory scanner legs of `security.yml` (named `<id> (advisory)`) are the sa
 | Actions policy | full-length SHA pinning required; approval for all outside contributors | a fork can't run workflows unreviewed |
 | Merges | squash only (merge commits and rebase merges off); the squash commit takes the pull request **title** and body | the title lands on `main` as the commit message, so `pr-title.yml` can hold it to Conventional Commits ([Pull request titles](./releasing.md#pull-request-titles)) |
 | Security | immutable releases; secret scanning and push protection; private vulnerability reporting; Dependabot alerts and security updates | a published release can't be changed; a leaked secret is blocked at push; a vulnerable dependency gets a fix pull request while Renovate is off or between runs. [`SECURITY.md`](../SECURITY.md) and the issue forms send reporters to private vulnerability reporting |
-| Pages | GitHub Pages on, **Source: GitHub Actions**, created when missing; a plan that refuses it is a skip. A site that already builds from a branch is **left as it is**, with a skip | [`docs-site.yml`](../.github/workflows/docs-site.yml) publishes the [documentation site](../docs-site/README.md); until Pages builds from GitHub Actions it deploys nothing, with a notice. A site published from a branch (a `gh-pages` Helm index, say) keeps working; to publish the docs site instead, switch **Settings → Pages → Source** to GitHub Actions on purpose, which stops the branch publishing |
+| Pages | GitHub Pages on, **Source: GitHub Actions**, created when missing; a plan that refuses it is a skip. A site that already builds from a branch is **left as it is**, with a skip | [`docs-site.yml`](../.github/workflows/docs-site.yml) publishes the [documentation site](../docs-site/README.md); until Pages builds from GitHub Actions it deploys nothing, with a notice. A site published from a branch (a `gh-pages` Helm index, say) keeps working; switching it is a deliberate choice ([GitHub Pages setup](./github-pages-setup.md#6-a-site-that-already-builds-from-a-branch)) |
 | Template | marked as a template, only with `--template` | the upstream template repository sets it; an adopter's copy leaves it off |
 | Runners | none self-hosted (checked, never set) | the repository settings script; `--apply` refuses while any exist |
 

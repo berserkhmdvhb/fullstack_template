@@ -189,6 +189,30 @@ def test_pages_off_or_built_from_a_branch_is_a_green_no_op(tmp_path: Path, gh_bo
     assert "scripts/github-settings.sh" in stdout
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://o.github.io/r/",
+        "javascript:alert(1)",
+        "https://docs.example.com/ x",
+        "https://docs.example.com/$(id)",
+        "",
+    ],
+    ids=["http", "scheme", "space", "shell", "empty"],
+)
+def test_a_published_url_that_is_not_plain_https_falls_back(tmp_path: Path, url: str) -> None:
+    """Only a plain https:// address reaches the build's SITE_URL; anything else derives it."""
+    code, out, stdout = _pages_check(tmp_path, f"printf 'workflow\\t%s\\n' '{url}'")
+    assert (code, out) == (0, "enabled=true\nurl=\n")
+    assert "::warning" in stdout
+
+
+def test_a_second_line_from_the_pages_api_never_reaches_the_output(tmp_path: Path) -> None:
+    body = "printf 'workflow\\thttps://o.github.io/r/\\nurl=https://evil.example/\\n'"
+    code, out, _ = _pages_check(tmp_path, body)
+    assert (code, out) == (0, "enabled=true\nurl=https://o.github.io/r/\n")
+
+
 def test_another_pages_api_error_fails_the_run(tmp_path: Path) -> None:
     code, out, _ = _pages_check(tmp_path, "echo 'gh: Server Error (HTTP 502)' >&2; exit 1")
     assert code != 0

@@ -87,7 +87,7 @@ def test_each_adr_has_the_sections_and_a_valid_status(adr: Path) -> None:
 
 
 # The documentation site's own pages follow the same rule: they link the pin, never restate it.
-SITE_PAGES = sorted((ROOT / "docs-site" / "src" / "content" / "docs").rglob("*.md"))
+SITE_PAGES = sorted((ROOT / "docs-site" / "src" / "content" / "docs").rglob("*.md*"))
 
 
 @pytest.mark.parametrize("doc", [*ADRS, ADR_DIR / "README.md", *SITE_PAGES], ids=lambda p: p.name)

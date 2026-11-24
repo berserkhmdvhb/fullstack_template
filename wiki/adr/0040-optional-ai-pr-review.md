@@ -28,8 +28,8 @@ injection), sends code to a model provider, and costs money per run.
   still run a mutable image; the workflow records the action commit the digest belongs to.
 
 Its settings, [`.pr_agent.toml`](../../.pr_agent.toml), pick Claude, keep it to comments, and turn auto-approval and thread resolving off.
-[CI/CD](../ci-cd.md#ai-pull-request-review) says what is sent to the provider, the cost and how to cap it, and the
-owner's steps.
+[CI/CD](../ci-cd.md#ai-pull-request-review) says what is sent to the provider;
+[PR-Agent setup](../pr-agent-setup.md) holds the cost, how to cap it, and the owner's steps.
 
 ## Consequences
 

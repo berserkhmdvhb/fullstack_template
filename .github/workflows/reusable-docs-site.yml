@@ -1,7 +1,8 @@
 name: Docs site
 
 # The documentation site (docs-site/, ADR-0041): the strict build and the axe scan. ci.yml calls it on every pull
-# request that touches the site's inputs; docs-site.yml calls it on main with upload-pages, then deploys.
+# request that touches the site's inputs, and on every push to main, v* tag and manual run; docs-site.yml calls it on
+# main with upload-pages, then deploys.
 on:
   workflow_call:
     inputs:
@@ -80,9 +81,10 @@ jobs:
         with:
           path: docs-site/dist
 
-  # The site's configuration guards (pins, the loaded files, the version rule on its pages), on the pull request
-  # that changes the site; the backend job runs them too, but its path filter leaves docs-only changes out. Pull
-  # requests only: the Pages run builds nothing it has not already checked, and restores no cache.
+  # The site's configuration guards (pins, the loaded files, the version rule on its pages), in every ci.yml call:
+  # a pull request that changes the site, and every push to main, v* tag and manual run. The backend job runs them
+  # too, but its path filter leaves a docs-only pull request out. Never in the Pages run (upload-pages), so the job that builds the Pages
+  # artifact restores no cache.
   guards:
     name: Docs site (configuration guards)
     if: ${{ !inputs.upload-pages }}

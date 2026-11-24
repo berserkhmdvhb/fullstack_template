@@ -1,0 +1,84 @@
+---
+title: Getting started
+description: Adopt the template, run it locally and on kind, set up the platform, and make the first deploy.
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+The path from a copy of the template to a first deploy. Each step names the tool and links the page with the
+commands; none of them are repeated here.
+
+## Adopt the template
+
+<Steps>
+
+1. **Make your repository.** Create it from the template on GitHub, or clone it and push to an empty repository.
+   [Getting started, Clone and initial setup](../../../../wiki/getting-started.md#clone--initial-setup).
+
+2. **Adapt it, dry run first.** Set the service name, the domain, the registry and optionally the repository and
+   the code owner in [`infra/adapt/adopt.conf`](../../../../infra/adapt/adopt.conf), then run `infra/adapt/adopt.sh`: it
+   renames the placeholder and stamps every file that carries them, and records the template release you started
+   from. [Adaptation](../../../../wiki/adaptation.md#config-driven-adoption-kubernetes-deployments).
+
+3. **Install the pinned tools.** `make tools` installs every tool at its pinned, checksum-verified version into
+   `.tools/bin`. [Contributing, Set up a dev environment](../../../../CONTRIBUTING.md#set-up-a-dev-environment).
+
+4. **Run the gates once.** The same gates CI runs, before your first change.
+   [Contributing, Quality gates](../../../../CONTRIBUTING.md#quality-gates).
+
+</Steps>
+
+## Run it
+
+<Tabs>
+  <TabItem label="On kind, as CI runs it">
+    The default local cluster: the same scripts and node images as CI's kind job, on a cluster of its own with its
+    own kubeconfig. `make kind-up`, then `make kind-deploy`, then the kind tests you need.
+    [Infrastructure, Local cluster (kind)](../../../../wiki/infrastructure.md#local-cluster-kind) and
+    [ADR-0035](../../../../wiki/adr/0035-kind-default-local-cluster.md).
+  </TabItem>
+  <TabItem label="On your machine">
+    The backend and the frontend as two processes, with the database you point them at.
+    [Getting started, Running locally](../../../../wiki/getting-started.md#running-locally).
+  </TabItem>
+  <TabItem label="With Docker Compose">
+    The full stack, PostgreSQL included, from the images you build.
+    [Getting started, Running with Docker Compose](../../../../wiki/getting-started.md#running-with-docker-compose).
+  </TabItem>
+</Tabs>
+
+## The first deploy
+
+<Steps>
+
+1. **Set up the platform**, in the order of [Platform setup](../../../../wiki/platform-setup.md): the
+   [GKE cluster](../../../../wiki/gke-cluster-setup.md) and its keyless access, then the [Cloudflare edge](../../../../wiki/cloudflare-setup.md).
+
+2. **Push, then apply the settings.** After the first push, `scripts/github-settings.sh` sets the rulesets, the
+   environments, the variables and the Actions policy; dry run first.
+   [GitHub repository settings](../../../../wiki/github-repository-settings.md#run-it).
+
+3. **Bootstrap the namespaces.** An admin applies the bootstrap for each environment: the namespaces, their quotas
+   and the deployer's rights. [Infrastructure, Namespace bootstrap](../../../../wiki/infrastructure.md#namespace-bootstrap-one-time-admin-step).
+
+4. **Prove the access.** A green `deploy-ops` `check` per environment.
+   [GKE §13.3](../../../../wiki/gke-cluster-setup.md#133-the-first-check-deploy-ops-check).
+
+5. **Turn deploys on.** Set `DEPLOY_ENABLED` to `true`. The next push to `main` deploys dev, then qa, by digest;
+   the first release tag deploys production after its reviewer approves.
+   [Platform setup, After the setup](../../../../wiki/platform-setup.md#after-the-setup).
+
+</Steps>
+
+:::caution[Production needs an auth mode]
+The production values set `ENV=production`, and the backend then refuses to start without an auth mode: set one
+before the first production deploy, or its Pods never become ready.
+[Security, Authentication & Authorization](../../../../wiki/security.md#authentication--authorization).
+:::
+
+## Go deeper
+
+- [Getting started](../../../../wiki/getting-started.md): every prerequisite, setting and command.
+- [Platform setup](../../../../wiki/platform-setup.md): the providers, the order, and every variable and secret.
+- [Contributing](../../../../CONTRIBUTING.md): the workflow for your first change.
+- [Template upgrades](../../../../wiki/template-upgrades.md): bringing in a newer template release.

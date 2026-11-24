@@ -56,7 +56,7 @@ The threat model, which several of these decisions serve, is in [Threat model](.
 | [0038](./0038-generic-names-only.md) | The template and its guides use generic names only | Accepted | Placeholders only; tests keep the owner's names and private paths out. |
 | [0039](./0039-copier-deferred.md) | Template upgrades are not Copier-based yet | Deferred | Upstream sync by merge now; revisit Copier under stated conditions. |
 | [0040](./0040-optional-ai-pr-review.md) | An optional, advisory AI reviewer for pull requests | Accepted | PR-Agent, off by default, advisory, minimal rights ([`pr-agent.yml`](../../.github/workflows/pr-agent.yml)). |
-| [0041](./0041-documentation-site.md) | A curated documentation site, built with Starlight and published to GitHub Pages | Accepted | `docs-site/`: curated pages, three walkthroughs loaded from their files, a strict build, Pages from `main`. |
+| [0041](./0041-documentation-site.md) | A curated documentation site, built with Starlight and published to GitHub Pages | Accepted | `docs-site/`: curated pages, the walkthroughs loaded from their files, a strict build, Pages from `main`. |
 
 A status is **Accepted** (in force; a note may follow, such as "not yet implemented"), **Deferred** (considered and
 postponed, with the conditions to revisit) or **Superseded** (replaced; it names the ADR that replaced it).

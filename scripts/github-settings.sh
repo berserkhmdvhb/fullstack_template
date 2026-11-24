@@ -402,7 +402,7 @@ pages() {
   else
     build="$(jq -r '.build_type // empty' <<<"$have")"
     [[ "$build" == workflow ]] ||
-      skip "GitHub Pages builds from a branch (build_type ${build:-unknown}), left as it is; to publish the docs site instead, set Settings > Pages > Source to GitHub Actions (wiki/github-repository-settings.md)"
+      skip "GitHub Pages builds from a branch (build_type ${build:-unknown}), left as it is; to publish the docs site instead, set Settings > Pages > Source to GitHub Actions (wiki/github-pages-setup.md)"
   fi
 }
 

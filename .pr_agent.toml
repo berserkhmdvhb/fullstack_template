@@ -1,6 +1,7 @@
 # PR-Agent settings (.github/workflows/pr-agent.yml). PR-Agent reads this file from the default branch, so a pull
 # request cannot change them for its own review. Every key is in PR-Agent's pr_agent/settings/configuration.toml.
-# What is sent to the model provider, the cost and how to cap it: wiki/ci-cd.md, AI pull request review.
+# What is sent to the model provider: wiki/ci-cd.md, AI pull request review. The cost and how to cap it:
+# wiki/pr-agent-setup.md.
 
 [config]
 # Claude by default (the key is the ai-review environment's ANTHROPIC_KEY); both ids are in PR-Agent's model
@@ -13,7 +14,7 @@ enable_auto_approval = false
 # The token has no contents: write, so skip what would need it.
 restricted_mode = true
 # No issue text in the prompt: in a public repository anyone can write an issue, so the issue a branch name points
-# to stays out unless you opt in (wiki/ci-cd.md, AI pull request review).
+# to stays out unless you opt in (wiki/pr-agent-setup.md, section 7).
 extract_issue_from_branch = false
 
 # Comments only: the token can edit a pull request's title, body and labels, so keep PR-Agent off them. The squash

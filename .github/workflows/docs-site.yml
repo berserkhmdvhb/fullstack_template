@@ -45,6 +45,11 @@ jobs:
             IFS=$'\t' read -r source url <<<"$found"
             if [[ "$source" == "workflow" ]]; then
               # The published URL (a custom domain included): the build takes the site's site and base from it.
+              # Only a plain https:// address is passed on; anything else falls back to the repository's address.
+              if [[ ! "$url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~%/-]*)?$ ]]; then
+                echo "::warning title=Docs site address ignored::The Pages API returned an address that is not a plain https:// URL; the site is built for https://<owner>.github.io/<repo>/ instead."
+                url=""
+              fi
               printf '%s\n' "enabled=true" "url=${url}" >> "$GITHUB_OUTPUT"
               exit 0
             fi
