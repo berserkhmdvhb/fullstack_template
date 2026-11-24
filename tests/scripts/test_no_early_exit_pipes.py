@@ -13,6 +13,10 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.tree_wide
+
 ROOT = Path(__file__).resolve().parents[2]
 EARLY = re.compile(r"\|\s*(grep\s[^|]*-[a-zA-Z]*[qm][a-zA-Z0-9]*|head\b|awk\s.*\bexit\b)")
 # file -> fragment of the line -> why it is safe.

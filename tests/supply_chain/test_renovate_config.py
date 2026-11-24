@@ -14,6 +14,8 @@ import yaml
 
 from tests.supply_chain.test_release_versions import SCM_PACKAGES
 
+pytestmark = pytest.mark.tree_wide
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 PINS = (ROOT / "tools" / "pins.tsv").read_text(encoding="utf-8")
 CONFIG = (ROOT / "infra" / "security" / "config.yaml").read_text(encoding="utf-8")

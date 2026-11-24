@@ -11,8 +11,9 @@ import pytest
 from tests.supply_chain._workflows import REPO
 
 TESTS = REPO / "tests"
-# `git ls-files` with no pathspec (a closing `]` or `)` straight after it, or only `-z` / flags).
-WALKS_THE_TREE = re.compile(r'"ls-files"(?:,\s*"-[-a-z]+")*\s*\]')
+# `git ls-files` with no pathspec (flags only, then a closing `]` or `)`), or a wildcard pathspec
+# with no directory prefix (`"*.sh"` matches at any depth, so it lists that type across the tree).
+WALKS_THE_TREE = re.compile(r'"ls-files"(?:,\s*"-[-a-z]+")*\s*,?\s*(?:[\])]|"\*[^"/]*")')
 MARKED = re.compile(r"^pytestmark = pytest\.mark\.tree_wide$", re.MULTILINE)
 
 
@@ -35,7 +36,17 @@ def test_an_unmarked_walker_is_caught(tmp_path: Path) -> None:
     assert unmarked(tmp_path) == ["test_walker.py"]
 
 
-@pytest.mark.parametrize("pathspec", ['"*.md"', '"--", *SCOPE'])
+@pytest.mark.parametrize("pathspec", ['"*.md"', '"*package-lock.json"'])
+def test_a_wildcard_pathspec_without_a_directory_is_a_tree_walk(
+    tmp_path: Path, pathspec: str
+) -> None:
+    (tmp_path / "test_glob.py").write_text(
+        f'run(["git", "ls-files", {pathspec}])\n', encoding="utf-8"
+    )
+    assert unmarked(tmp_path) == ["test_glob.py"]
+
+
+@pytest.mark.parametrize("pathspec", ['"--", *SCOPE', '"wiki/*.md"', '"src"'])
 def test_a_scoped_listing_is_not_a_tree_walk(tmp_path: Path, pathspec: str) -> None:
     (tmp_path / "test_scoped.py").write_text(
         f'run(["git", "ls-files", {pathspec}])\n', encoding="utf-8"
