@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { server } from '@/src/test/mocks/server';
 import { renderWithProviders, screen, waitFor, within } from '@/src/test/test-utils';
+import { API_PATH } from '@/static-paths';
 
 import { ItemList } from './ItemList';
 
@@ -45,7 +46,7 @@ describe('ItemList', () => {
   it('shows empty state when no items exist', async () => {
     // Override MSW handler to return empty list
     server.use(
-      http.get('/api/v1/items', () => {
+      http.get(`${API_PATH}/items`, () => {
         return HttpResponse.json({ items: [], total: 0 });
       }),
     );
@@ -65,7 +66,7 @@ describe('ItemList', () => {
   it('shows loading skeleton while fetching', () => {
     // Use a delayed handler to catch the loading state
     server.use(
-      http.get('/api/v1/items', () => {
+      http.get(`${API_PATH}/items`, () => {
         return new HttpResponse(null, { status: 200 });
       }),
     );
@@ -173,7 +174,7 @@ describe('ItemList', () => {
 
   it('shows error message when fetch fails', async () => {
     server.use(
-      http.get('/api/v1/items', () => {
+      http.get(`${API_PATH}/items`, () => {
         return HttpResponse.json({ detail: 'Internal Server Error' }, { status: 500 });
       }),
     );
@@ -214,7 +215,7 @@ describe('ItemList', () => {
   it('retries the fetch from the error state', async () => {
     let failing = true;
     server.use(
-      http.get('/api/v1/items', () =>
+      http.get(`${API_PATH}/items`, () =>
         failing
           ? HttpResponse.json({ detail: 'down' }, { status: 500 })
           : HttpResponse.json({ items: [], total: 0 }),
@@ -233,7 +234,7 @@ describe('ItemList', () => {
   it('deletes an item after confirmation and says so', async () => {
     const deleted: string[] = [];
     server.use(
-      http.delete('/api/v1/items/:id', ({ params }) => {
+      http.delete(`${API_PATH}/items/:id`, ({ params }) => {
         deleted.push(params['id'] as string);
         return new HttpResponse(null, { status: 204 });
       }),
@@ -255,7 +256,7 @@ describe('ItemList', () => {
   it('does not delete when the confirmation is cancelled', async () => {
     let deletes = 0;
     server.use(
-      http.delete('/api/v1/items/:id', () => {
+      http.delete(`${API_PATH}/items/:id`, () => {
         deletes += 1;
         return new HttpResponse(null, { status: 204 });
       }),
@@ -289,7 +290,7 @@ describe('ItemList', () => {
   it('pages through the results', async () => {
     const pages: string[] = [];
     server.use(
-      http.get('/api/v1/items', ({ request }) => {
+      http.get(`${API_PATH}/items`, ({ request }) => {
         const page = new URL(request.url).searchParams.get('page') ?? '1';
         pages.push(page);
         return HttpResponse.json({

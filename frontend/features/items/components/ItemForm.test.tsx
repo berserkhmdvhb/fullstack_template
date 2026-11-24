@@ -12,6 +12,7 @@ import React from 'react';
 import { describe, expect, it } from 'vitest';
 
 import { renderWithProviders, screen, waitFor } from '@/src/test/test-utils';
+import { API_PATH } from '@/static-paths';
 
 import { ItemForm } from './ItemForm';
 
@@ -122,7 +123,7 @@ describe('ItemForm', () => {
     // Override MSW to return error
     const { server } = await import('@/src/test/mocks/server');
     server.use(
-      http.post('/api/v1/items', () => {
+      http.post(`${API_PATH}/items`, () => {
         return HttpResponse.json({ detail: 'Creation failed' }, { status: 500 });
       }),
     );
@@ -149,7 +150,7 @@ describe('ItemForm', () => {
     // Use a delayed handler to catch the submitting state
     const { server } = await import('@/src/test/mocks/server');
     server.use(
-      http.post('/api/v1/items', async () => {
+      http.post(`${API_PATH}/items`, async () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
         return HttpResponse.json(
           {

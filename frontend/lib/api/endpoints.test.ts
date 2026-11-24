@@ -9,8 +9,7 @@ import { describe, expect, it, afterEach } from 'vitest';
 
 import { getEchoHistory, getHealth, getHealthz, postEcho } from '@/lib/api/endpoints';
 import { server } from '@/src/test/mocks/server';
-
-const API_BASE = '/api/v1';
+import { API_PATH as API_BASE } from '@/static-paths';
 
 describe('API Endpoints', () => {
   afterEach(() => {

@@ -14,6 +14,7 @@ import Link from 'next/link';
 import React, { type JSX } from 'react';
 
 import { useHealth } from '@/lib/hooks/useHealth';
+import { API_PATH } from '@/static-paths';
 
 /**
  * Dashboard page component.
@@ -104,7 +105,7 @@ export default function Home(): JSX.Element {
             </div>
           </Link>
           <a
-            href="/api/v1/health"
+            href={`${API_PATH}/health`}
             className="group flex items-center gap-3 rounded-lg border border-borderWeak bg-surface p-4 text-sm text-textPrimary hover:bg-surfaceWeak hover:border-borderStrong hover:shadow-xs transition-all"
           >
             <HeartPulse className="h-5 w-5 text-accentPink shrink-0" />

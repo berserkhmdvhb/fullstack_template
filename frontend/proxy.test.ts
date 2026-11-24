@@ -9,6 +9,7 @@ import { NextRequest } from 'next/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { proxy } from './proxy';
+import { API_PATH, CSP_REPORT_PATH } from './static-paths';
 
 const run = (path = '/') => proxy(new NextRequest(`http://localhost${path}`));
 const csp = (path = '/') => run(path).headers.get('Content-Security-Policy') ?? '';
@@ -35,9 +36,9 @@ describe('CSP reporting', () => {
     vi.stubEnv('CSP_REPORTING_ENABLED', value);
     const response = run();
     const policy = response.headers.get('Content-Security-Policy') ?? '';
-    expect(policy).toContain('report-uri /api/v1/csp-report');
+    expect(policy).toContain(`report-uri ${CSP_REPORT_PATH}`);
     expect(policy).toContain('report-to csp-endpoint');
-    expect(response.headers.get('Reporting-Endpoints')).toBe('csp-endpoint="/api/v1/csp-report"');
+    expect(response.headers.get('Reporting-Endpoints')).toBe(`csp-endpoint="${CSP_REPORT_PATH}"`);
   });
 
   it('is read per request, not when the module loads', () => {
@@ -53,7 +54,7 @@ describe('CSP reporting', () => {
     vi.stubEnv('CSP_REPORTING_ENABLED', 'true');
     const on = csp()
       .replace(/nonce-[^']+/, 'nonce-X')
-      .replace('; report-uri /api/v1/csp-report; report-to csp-endpoint', '');
+      .replace(`; report-uri ${CSP_REPORT_PATH}; report-to csp-endpoint`, '');
     expect(on).toBe(off);
   });
 });
@@ -71,7 +72,7 @@ describe('the docs page', () => {
     vi.unstubAllEnvs();
   });
 
-  it.each(['/', '/items', '/docsx', '/api/v1/items', '/openapi.json'])(
+  it.each(['/', '/items', '/docsx', `${API_PATH}/items`, '/openapi.json'])(
     'keeps the strict nonce policy, with no CDN, on %s',
     (path) => {
       const policy = csp(path);
@@ -107,7 +108,7 @@ describe('identity headers from the browser', () => {
     return { names, value: (n: string) => all.get(`x-middleware-request-${n}`) ?? null };
   };
 
-  it.each(['/api/v1/items', '/docs', '/items'])(
+  it.each([`${API_PATH}/items`, '/docs', '/items'])(
     'strips x-authenticated-* and keeps the rest on %s',
     (path) => {
       const { names, value } = forwarded(path);
@@ -122,7 +123,7 @@ describe('identity headers from the browser', () => {
   it('strips the configured identity and roles header names, read per request', () => {
     vi.stubEnv('AUTH_USER_ID_HEADER', 'X-Trusted-Subject');
     vi.stubEnv('AUTH_ROLES_HEADER', ' x-trusted-groups ');
-    const { names, value } = forwarded('/api/v1/items');
+    const { names, value } = forwarded(`${API_PATH}/items`);
     expect(names).not.toContain('x-trusted-subject');
     expect(names).not.toContain('x-trusted-groups');
     expect(value('x-trusted-subject')).toBeNull();
@@ -130,7 +131,7 @@ describe('identity headers from the browser', () => {
   });
 
   it('keeps a custom-named header when it is not configured', () => {
-    const { value } = forwarded('/api/v1/items');
+    const { value } = forwarded(`${API_PATH}/items`);
     expect(value('x-trusted-subject')).toBe('spoofed-admin');
   });
 });

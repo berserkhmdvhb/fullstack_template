@@ -6,6 +6,8 @@
 
 import type { Page } from '@playwright/test';
 
+import { API_PATH } from '../../static-paths';
+
 export const ITEMS = {
   items: [
     {
@@ -31,15 +33,15 @@ export const ITEMS = {
   total_pages: 1,
 };
 
-/** Answer `/api/v1/health` and the items list, or make either one fail like an unreachable backend. */
+/** Answer the API's `/health` and the items list, or make either one fail like an unreachable backend. */
 export async function mockApi(
   page: Page,
   state: { health?: 'up' | 'down'; items?: 'up' | 'down' } = {},
 ): Promise<void> {
-  await page.route('**/api/v1/health', (route) =>
+  await page.route(`**${API_PATH}/health`, (route) =>
     state.health === 'down' ? route.abort() : route.fulfill({ json: { status: 'ok' } }),
   );
-  await page.route('**/api/v1/items?*', (route) =>
+  await page.route(`**${API_PATH}/items?*`, (route) =>
     state.items === 'down' ? route.abort() : route.fulfill({ json: ITEMS }),
   );
 }

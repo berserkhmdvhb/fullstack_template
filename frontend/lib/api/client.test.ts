@@ -9,8 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { httpJSON } from '@/lib/api/client';
 import { server } from '@/src/test/mocks/server';
-
-const API_BASE = '/api/v1';
+import { API_PATH as API_BASE } from '@/static-paths';
 
 describe('httpJSON', () => {
   it('should fetch and parse JSON response', async () => {

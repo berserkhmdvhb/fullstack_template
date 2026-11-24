@@ -11,10 +11,9 @@ import { describe, expect, it } from 'vitest';
 
 import { server } from '@/src/test/mocks/server';
 import { renderHook, waitFor } from '@/src/test/test-utils';
+import { API_PATH as API_BASE } from '@/static-paths';
 
 import { useItem, useItems } from './useItems';
-
-const API_BASE = '/api/v1';
 
 /** Creates a test wrapper with QueryClientProvider. */
 function createWrapper() {
