@@ -57,7 +57,7 @@ Only the release App creates `v*` tags, so a pre-release is cut through release-
 Release-As: 1.2.3-rc.1
 ```
 
-The next release pull request then proposes exactly that version, and its merge creates the `v1.2.3-rc.1` tag, which runs the release workflow like any `v*` tag ([`container_matrix.py`](../.github/scripts/container_matrix.py) accepts `-<pre>`), with three differences, all from the plan's `prerelease` output (a `-` directly after `MAJOR.MINOR.PATCH`; build metadata alone does not count): it deploys to dev and qa, **never to production** (the deploy summary says production was skipped); its images do not move `latest`, which stays on the last final release; and `release-assets` marks its GitHub Release a **pre-release**, on release-please's draft or one it creates (a final tag's draft is set to not be one). The bundled release-please library (v5.0.0 of the action) reads the footer and parses a `-<pre>` suffix, but its next bump keeps the suffix (a `fix` after `1.2.3-rc.1` proposes `1.2.4-rc.1`), so cut the final release with another footer, `Release-As: 1.2.3`.
+The next release pull request then proposes exactly that version, and its merge creates the `v1.2.3-rc.1` tag, which runs the release workflow like any `v*` tag ([`container_matrix.py`](../.github/scripts/container_matrix.py) accepts `-<pre>`), with three differences, all from the plan's `prerelease` output (a `-` directly after `MAJOR.MINOR.PATCH`; build metadata alone does not count): it deploys to dev and qa, **never to production** (the deploy summary says production was skipped); its images do not move `latest`, which stays on the last final release; and `release-assets` marks its GitHub Release a **pre-release**, on release-please's draft or one it creates (a final tag's draft is set to not be one). The bundled release-please library (of the action version pinned in [`release-please.yml`](../.github/workflows/release-please.yml)) reads the footer and parses a `-<pre>` suffix, but its next bump keeps the suffix (a `fix` after `1.2.3-rc.1` proposes `1.2.4-rc.1`), so cut the final release with another footer, `Release-As: 1.2.3`.
 
 ---
 
@@ -135,7 +135,7 @@ Merging creates the `v*` tag and a **draft** GitHub Release with the App's token
 Watch the runs in the repository's **Actions** tab. Both must pass:
 
 1. **CI** — the `CI OK` gate (lint, types, tests, security, chart, workflow hardening)
-2. **Release** — `plan`, `build` (two images), `digests`, `sbom`, `grype`, then `deploy`
+2. **Release** — `plan`, `images` (every image in [`.github/container-images.yml`](../.github/container-images.yml), built, scanned, checked, signed and attested by `reusable-build.yml`), `digests`, `grant`, `vex` and `deploy`; on a `v*` tag also `chart` and `release-assets` (the order is in the [workflow map](./ci-cd.md#workflow-map) and [Image operations](./ci-cd.md#image-operations))
 
 ---
 

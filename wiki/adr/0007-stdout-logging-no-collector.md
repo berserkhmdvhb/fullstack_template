@@ -16,7 +16,8 @@ installs a cluster-wide agent collides with the platform's own.
 
 ## Decision
 
-The app writes structured JSON logs to stdout only; there are no file logs and no log volume. The chart contains no
+The app writes logs to stdout only, as structured JSON in production and as plain text in development; there are
+no file logs and no log volume. The chart contains no
 DaemonSet or other cluster-wide agent. Log collection is the platform's job, and the docs point at the usual
 choices: GKE Cloud Logging, or an OpenTelemetry Collector or Fluent Bit chart installed by the platform.
 

@@ -18,7 +18,7 @@ High-level overview of the service template architecture, component roles, and d
 
 ## Overview
 
-The service template follows a **gateway pattern** with services deployed to Kubernetes behind an Ingress. Two images run: the backend and the frontend. The Next.js server serves its own pages and static assets; the cache policy is in [frontend-deployment.md](frontend-deployment.md#static-assets):
+The service template follows a **gateway pattern** with services deployed to Kubernetes behind an Ingress. The app images run: the backend and the frontend (with the optional WAF image beside them; every image is in [`.github/container-images.yml`](../.github/container-images.yml)). The Next.js server serves its own pages and static assets; the cache policy is in [frontend-deployment.md](frontend-deployment.md#static-assets):
 
 ```mermaid
 flowchart TB

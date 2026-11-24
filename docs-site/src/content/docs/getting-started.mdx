@@ -63,7 +63,7 @@ commands; none of them are repeated here.
 3. **Bootstrap the namespaces.** An admin applies the bootstrap for each environment: the namespaces, their quotas
    and the deployer's rights. [Infrastructure, Namespace bootstrap](../../../../wiki/infrastructure.md#namespace-bootstrap-one-time-admin-step).
 
-4. **Prove the access.** A green `deploy-ops` `check` per environment.
+4. **Prove the access.** A green `deploy-ops` `check` per environment; production's waits for the first `v*` tag.
    [GKE §13.3](../../../../wiki/gke-cluster-setup.md#133-the-first-check-deploy-ops-check).
 
 5. **Turn deploys on.** Set `DEPLOY_ENABLED` to `true`. The next push to `main` deploys dev, then qa, by digest;

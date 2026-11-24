@@ -30,7 +30,10 @@ changes a boundary owns the change to this page. The design decisions behind the
 In scope: the two app images and the optional WAF image, the Helm chart and the admin bootstrap, the GitHub
 workflows and repository settings, the registry artifacts (images, signatures, attestations, the chart) and the
 example admission policies. Out of scope: the adopter's own business logic and identity provider, the cluster and
-cloud platform themselves (see [Assumptions](#assumptions)), and the developer's workstation.
+cloud platform themselves (see [Assumptions](#assumptions)), and the developer's workstation. That includes the optional
+development container, which runs privileged so kind has a Docker daemon of its own: it is a choice the developer
+makes on their own machine, with the trade-off stated in
+[Development container](./getting-started.md#development-container).
 
 ## Assets
 
@@ -42,6 +45,7 @@ cloud platform themselves (see [Assumptions](#assumptions)), and the developer's
 | The release signing identity | the keyless certificate of `reusable-build.yml` (and the chart workflow) is what admission trusts |
 | Deploy credentials | short-lived Workload Identity tokens per environment, or a kubeconfig in kubeconfig mode |
 | The release GitHub App's private key | the only actor that may create `v*` tags |
+| The model provider key (`ANTHROPIC_KEY`, only with the AI reviewer on) | billed use of the provider; anyone with write access can read it (see [CI](#5-ci-workflows-pull-requests-oidc-and-previews)), so a spend limit bounds it |
 | The source and workflow files on `main` | whatever they say is what CI builds and signs |
 | Availability of the service | the API and the pages |
 | Logs and request ids | the record of who did what, and the input to incident response |
@@ -85,8 +89,10 @@ flowchart LR
     subgraph GitHub
         GH["Repository, Actions,<br/>environments"]
         REG["GHCR: images, signatures,<br/>attestations, chart"]
+        PAGES["GitHub Pages:<br/>the docs site"]
     end
     Cloud["Cloud IAM / WIF"]
+    LLM["Model provider<br/>(AI reviewer, optional)"]
 
     User -- "HTTPS" --> CF
     CF -- "Tunnel or public LB" --> GW
@@ -102,12 +108,15 @@ flowchart LR
     Cloud -- "short-lived token" --> GH
     GH -- "push, sign, attest (main, v* only)" --> REG
     GH -- "helm upgrade by digest" --> Cluster
+    GH -- "deploy the docs site (main only)" --> PAGES
+    GH -. "diff and pull request text (AI reviewer on)" .-> LLM
     ADM -- "verify signature + provenance" --> REG
 ```
 
 Dotted arrows exist only with the WAF on (`waf.enabled`); then both the gateway and the frontend's API proxy
-reach the backend through it. The trust boundaries are the arrows that cross a box: the Internet to the edge, the edge to the app namespace, the
-app to the database namespace, GitHub to the cloud and the cluster, and the registry to the cluster at admission.
+reach the backend through it. The dotted arrow to the model provider exists only with the AI reviewer on. The trust boundaries are the arrows that cross a box: the Internet to the edge, the edge to the app namespace, the
+app to the database namespace, GitHub to the cloud, the cluster, the Pages site and the model provider, and the
+registry to the cluster at admission.
 
 ---
 
@@ -170,13 +179,14 @@ The boundary between code anyone can propose and the credentials that build, sig
 | T | A pull request pushes or signs an image | image operations run on `main` and `v*` only; the hardening lint fails any other push, sign or attest ([Image operations](./ci-cd.md#image-operations), [ADR-0016](./adr/0016-slsa-build-l3-for-release-images.md)) | the kind tests push to a loopback registry inside the runner, which leaves nothing behind |
 | T | A branch, a fork or a build dependency publishes to the project's Pages site | `docs-site.yml` runs on `main` only and its jobs refuse a fork or another ref; the `github-pages` environment's branch rule, set by the settings script; only its `deploy` job holds `pages: write` and `id-token: write`, and it runs no repository code; the build is read-only, with `npm ci --ignore-scripts`, exact pins and the seven-day release age ([Documentation site](./ci-cd.md#documentation-site), [settings](./github-repository-settings.md#what-the-script-sets), [ADR-0041](./adr/0041-documentation-site.md)) | the published site is whatever the read-only build produced: a malicious docs-site dependency could change the public site without ever holding a write token |
 | T | A compromised action or tool runs in CI | every action pinned by full SHA (enforced by the repository setting and the lint), tools pinned with checksums, zizmor and actionlint ([Where each tool is pinned](./ci-cd.md#where-each-tool-is-pinned), [ADR-0025](./adr/0025-renovate-for-updates.md)) | a malicious commit behind a pinned SHA that Renovate proposes and a reviewer merges; the seven-day wait narrows it |
+| T / E | Pull request code runs in the adopted-copy check | the `adopted` job runs it like any test job: `contents: read`, no secret and no cache, and only in the template (in an adopted repository it succeeds at once, doing nothing) ([The adopted copy](./ci-cd.md#the-adopted-copy)) | as for every test job: the code runs on a fresh hosted runner with a read-only token |
 | T | A poisoned cache enters a release | the release path restores no cache ([ADR-0017](./adr/0017-release-builds-use-no-cache.md)) | test jobs keep caches; they sign nothing |
 | S | A workflow from another repository or branch obtains deploy credentials | the WIF condition pins owner id, repository id and the workflow file; one deployer per environment, bound to `environment:<env>`; environment branch policies ([ADR-0021](./adr/0021-keyless-deploys-per-environment.md), [GKE §12](./gke-cluster-setup.md#12-keyless-access-for-github-actions)) | kubeconfig mode stores a long-lived credential ([kubeconfig mode](./platform-setup.md#kubeconfig-mode)) |
 | E | The deployer escalates in the cluster | namespace-scoped Helm verbs only; namespaces, RBAC and quotas come from the admin bootstrap ([ADR-0011](./adr/0011-namespace-bootstrap-scoped-deployer.md)) | the deployer can still change anything the chart renders in its namespaces |
 | E | A same-repository pull request abuses a preview | previews off by default; the `preview` environment, its own WIF provider and deployer, quotas, restricted Pod Security, a separate database tier ([ADR-0031](./adr/0031-optional-pr-previews.md)) | **not mitigated within the preview namespaces**: see the [preview trust boundary](./ci-cd.md#pull-request-previews) |
 | T | Someone merges without checks or forges a release tag | the `main` ruleset (required check, no direct push or force-push), the tag ruleset (only the release App creates `v*`) ([ADR-0022](./adr/0022-repository-settings-as-a-script.md), [ADR-0023](./adr/0023-release-flow.md)) | 0 required approvals, and an admin can turn the ruleset off: a single owner's account is the gate |
 | R | A deploy or release cannot be traced | GitHub deployment records per environment, the release's `provenance.md`, Rekor entries for every signature ([Releasing](./releasing.md)) | the GitHub audit log's retention is GitHub's |
-| I | The optional AI reviewer is prompt-injected or leaks code | off by default; same-repository pull requests, and commands from owners, organisation members and collaborators only (`MEMBER` is organisation membership, not write access); one job whose token can comment and edit a pull request's title, body and labels, its settings ([`.pr_agent.toml`](../.pr_agent.toml)) keeping it to comments; no checkout, the model key alone in its `ai-review` environment; the image pinned by digest ([ADR-0040](./adr/0040-optional-ai-pr-review.md), [AI pull request review](./ci-cd.md#ai-pull-request-review)) | when on, diffs go to the model provider, and an injected pull request can make its comments misleading |
+| I | The optional AI reviewer is prompt-injected or leaks code | off by default; same-repository pull requests, and commands from owners, organisation members and collaborators only (`MEMBER` is organisation membership, not write access); one job whose token can comment and edit a pull request's title, body and labels, its settings ([`.pr_agent.toml`](../.pr_agent.toml)) keeping it to comments; no checkout, the model key alone in its `ai-review` environment; the image pinned by digest ([ADR-0040](./adr/0040-optional-ai-pr-review.md), [AI pull request review](./ci-cd.md#ai-pull-request-review)) | when on, diffs go to the model provider, and an injected pull request can make its comments misleading; **anyone with write access can read `ANTHROPIC_KEY`**: the `ai-review` environment has no branch restriction, because the review of a `pull_request` event runs on that pull request's ref, so a write-access author can add a workflow that uses the environment ([PR-Agent setup](./pr-agent-setup.md#3-the-ai-review-environment-and-its-secret)); the provider's spend limit bounds the loss |
 | I | A secret leaks into logs or the repo | gitleaks, the secret-template check, push protection, environment-scoped secrets enforced by the lint ([Security](./security.md#supply-chain-security-ci)) | a secret in a form the scanners do not recognise |
 
 ## 6. The registry and the supply chain
@@ -213,6 +223,9 @@ Stated plainly, each with where it is documented:
   repository's path; a registry allowlist is the adopter's to add ([What is enforced](./admission-control.md#what-is-enforced)).
 - **A single owner is the gate.** With 0 required approvals, and an admin able to turn the ruleset off
   ([ADR-0022](./adr/0022-repository-settings-as-a-script.md)), a compromised owner account can merge and release.
+- **Anyone with write access can read the AI reviewer's model key** when it is on: the `ai-review` environment
+  cannot be restricted to `main`, because a pull request's review runs on its ref. The provider's spend limit bounds
+  the loss ([PR-Agent setup](./pr-agent-setup.md#2-a-model-key-with-a-spend-limit)).
 - **In-cluster traffic is plain HTTP** between the edge, the WAF, the frontend and the backend; the
   NetworkPolicies limit who can see it, nothing encrypts it.
 - **HSTS is off with the shipped values** in gateway and ingress mode until the operator chooses a source

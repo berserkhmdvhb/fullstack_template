@@ -241,8 +241,8 @@ kubectl -n your-service-name-local rollout status deployment/your-service-name-b
 ### Debugging in Kubernetes
 
 ```bash
-# Exec into backend pod
-kubectl -n your-service-name-local exec -it <pod-name> -- bash
+# A shell beside the backend container (the images are distroless: no shell; see the operations runbook)
+kubectl -n your-service-name-local debug -it <pod-name> --image=busybox:stable --target=backend -- sh
 
 # View logs
 kubectl -n your-service-name-local logs -f <pod-name>

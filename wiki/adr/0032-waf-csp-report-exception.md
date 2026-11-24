@@ -20,7 +20,7 @@ behind the WAF.
 One chained rule matches a `POST` to the exact report route (`/api/<version>/csp-report`) with one of the two report
 content types. For that request alone it adds the two types to the allowed list and turns request-body inspection
 off. The URI, the query and the headers are still inspected; any other method, path or content type is inspected as
-before. The backend caps the body (`CSP_REPORT_MAX_BYTES`, 16 KiB by default, enforced while streaming), rate-limits and sanitises the report.
+before. The backend caps the body (`CSP_REPORT_MAX_BYTES`, default in [Environment variables](../environment-variables.md), enforced while streaming), rate-limits and sanitises the report.
 
 ## Consequences
 

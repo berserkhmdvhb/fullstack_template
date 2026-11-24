@@ -33,7 +33,7 @@ Its settings, [`.pr_agent.toml`](../../.pr_agent.toml), pick Claude, keep it to 
 
 ## Consequences
 
-- Good: a second opinion on every pull request at no risk to the gate.
+- Good: when turned on, a second opinion on same-repository pull requests (on the triggers `pr-agent.yml` listens for), at no risk to the gate.
 - Bad: code and diffs go to a third party; an adopter must accept that before turning it on.
 - Bad: a prompt-injected comment can mislead a reader; the bot's rights are minimal so it cannot do more.
 

@@ -183,7 +183,7 @@ build→verify→roll→health loop after the first deploy.
 
 ### ① Manual
 
-Build the two images, then get them onto the cluster node — **this is the one
+Build the backend and frontend images, then get them onto the cluster node — **this is the one
 step that differs by cluster** (the `:local` tag + `IfNotPresent` mean the
 kubelet reads them straight off the node daemon, no registry):
 
@@ -715,7 +715,9 @@ minikube image load your-service-name-backend:local            # Minikube
 
 ```bash
 kubectl logs -n your-service-name-local <pod-name> --previous
-kubectl exec -n your-service-name-local <pod-name> -- env | grep -E 'DB_|BACKEND|FRONTEND'
+# The backend's environment sources, from its Deployment (the distroless image has no env binary)
+kubectl get deploy -n your-service-name-local your-service-name-backend \
+  -o jsonpath='{.spec.template.spec.containers[0].envFrom}{"\n"}{.spec.template.spec.containers[0].env}{"\n"}'
 # Migration didn't complete? Re-apply — each upgrade creates a new per-revision Job:
 make deploy HELM_ENV=local HELM_ARGS="--values charts/your-service-name/values.secret.yaml"
 ```
@@ -731,5 +733,4 @@ make deploy HELM_ENV=local HELM_ARGS="--values charts/your-service-name/values.s
 
 ---
 
-**Last Updated**: 2026-11-17
 **Cluster**: Minikube / kind · **Helm**: the pinned versions in [`tools/pins.tsv`](../tools/pins.tsv) · **Images**: bare `:local` tags off the node daemon

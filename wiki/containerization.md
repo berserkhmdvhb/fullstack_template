@@ -112,7 +112,7 @@ is asyncpg, so no `libpq` is installed. A test pins the digests, the Debian majo
 absence of `RUN`.
 
 **Key features**:
-- **OCI metadata labels** — version, revision, branch, build date, vendor, and `source` (the repository URL, from the `SOURCE_URL` build argument; GHCR links the package to it). Both images carry them, and the build workflow fills each one: the commit SHA, the branch or tag, the commit time (UTC, RFC 3339) and `${{ github.server_url }}/${{ github.repository }}`
+- **OCI metadata labels** — version, revision, branch, build date, vendor, and `source` (the repository URL, from the `SOURCE_URL` build argument; GHCR links the package to it). Every image carries them, and the build workflow fills each one: the commit SHA, the branch or tag, the commit time (UTC, RFC 3339) and `${{ github.server_url }}/${{ github.repository }}`
 - **Non-root user** — runs as `appuser` (UID 10001, with a passwd and group entry and a home directory)
 - **Tini init** — proper PID 1 for signal handling
 - **Health check** — a stdlib Python probe (`python -m your_service_name.backend.healthcheck`) of `/api/${API_VERSION}/healthz` (process only, no database check), every 10 s with a 5 s timeout; it reads `HEALTHCHECK_SCHEME`, `BACKEND_PORT` and `API_VERSION`, and treats a redirect or a TLS failure as unhealthy
@@ -345,7 +345,7 @@ The `plan` job of `release.yml` generates the tag from the Git ref (see [Version
 | **Pre-release tag** (e.g., `v1.2.3-rc.1`) | `1.2.3-rc.1-prod-abc1234` only |
 | **Push to `main`** | `0.0.0-main-abc1234` (baseline from the `VERSION` file) |
 
-A pull request never pushes an image. The tags name the multi-architecture index. The tag is the same for both images; each image has its own repository (`ghcr.io/<owner>/<repo>/backend` and `/frontend`).
+A pull request never pushes an image. The tags name the multi-architecture index. The tag is the same for every image in [`.github/container-images.yml`](../.github/container-images.yml) ([workflow map](./ci-cd.md#workflow-map)); each image has its own repository (`ghcr.io/<owner>/<repo>/<id>`, such as `/backend`).
 
 ---
 
@@ -391,7 +391,7 @@ delivered, plus signing.
 
 ```mermaid
 flowchart LR
-    Build["reusable-build.yml build<br/>(2 images)"] --> Verify["digest check<br/>digest-*.env artifacts"]
+    Build["reusable-build.yml build<br/>(every image in container-images.yml)"] --> Verify["digest check<br/>digest-*.env artifacts"]
     Verify --> Sign["sign + attest<br/>after the Grype gate"]
     Verify --> Digest["digest-pin<br/>deploy-verify.sh"]
 ```
@@ -450,7 +450,7 @@ helm upgrade --install your-service-name charts/your-service-name \
 The [`deploy.yml`](../.github/workflows/deploy.yml) workflow handles automated deployment — **Helm-native** (see
 [`wiki/ci-cd.md`](./ci-cd.md)):
 
-1. **build** (`release.yml`) — builds and pushes the backend and frontend images, one matrix leg each
+1. **images** (`release.yml`) — builds and pushes every image in [`.github/container-images.yml`](../.github/container-images.yml), one matrix leg per image and platform ([workflow map](./ci-cd.md#workflow-map))
 2. **helm-checks** (`deploy.yml`) — lints + renders the chart for the target environment (validation gate)
 3. **deploy-<env>** — `helm upgrade --install` by digest (migrations via the per-revision Job), then rolling update
 4. **verify and smoke** — post-deployment health checks inside each deploy job

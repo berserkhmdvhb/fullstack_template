@@ -266,7 +266,7 @@ The slow and failed migrations come from a test-only hook: `tests.migration.dela
 (off by default) give the Job `MIGRATION_TEST_DELAY_SECONDS` and `MIGRATION_TEST_FAIL`, only with `tests.enabled`,
 which a production render refuses; the runner refuses both in production too. What kind cannot show: a managed
 database's own CA and certificate rotation, and a migration that really changes the schema across two image versions
-(both images are the same build here, so a failed upgrade's new Pods would be ready).
+(the base and head images are the same build here, so a failed upgrade's new Pods would be ready).
 
 ### Expand/contract policy
 

@@ -31,8 +31,8 @@ expand/contract, and squawk lints their SQL in CI.
   `helm.sh/resource-policy: keep`, so a rollback or an uninstall leaves it in place and its logs survive; its TTL
   removes it, and for a preview the preview cleanup deletes it.
 - Bad: during the Job, new Pods start and stay unready until it finishes; the rollout is as slow as the migration.
-- Bad: the Job is named per revision (`<fullname>-migrate-r<revision>`, a Job's spec is immutable) and kept for 24 hours
-  (`ttlSecondsAfterFinished`); `helm upgrade` is the supported path, and a tool that applies rendered manifests
+- Bad: the Job is named per revision (`<fullname>-migrate-r<revision>`, a Job's spec is immutable) and kept for the
+  [`migration-job.yaml`](../../charts/your-service-name/templates/migration-job.yaml) `ttlSecondsAfterFinished`; `helm upgrade` is the supported path, and a tool that applies rendered manifests
   meets the previous Job's immutable spec.
 - Bad: expand/contract is a discipline: a destructive change needs two releases.
 

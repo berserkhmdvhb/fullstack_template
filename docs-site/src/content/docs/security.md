@@ -22,9 +22,9 @@ flowchart LR
   adm -->|"signed, attested, logged"| pod["Pod runs"]
 ```
 
-- **Signing.** Every pushed image is signed keyless with Sigstore: no key to keep, a short-lived certificate that
-  names the build workflow, and an entry in the public Rekor log. Only images that passed the blocking Grype gate are
-  signed. The chart is signed by its own workflow.
+- **Signing.** An image is signed keyless with Sigstore once it passes the blocking gate: no key to keep, a
+  short-lived certificate that names the build workflow, and an entry in the public Rekor log. An image that fails
+  the gate stays in the registry unsigned, and nothing deploys it. The chart is signed by its own workflow.
 - **Provenance.** A SLSA build-provenance attestation sits on each image's index digest, next to the signature. Only
   the reusable build workflow can push, sign and attest an image, which a lint enforces; the release aims at SLSA Build L3.
 - **SBOM and VEX.** Each platform's image carries a CycloneDX SBOM attestation, and the release assets include the

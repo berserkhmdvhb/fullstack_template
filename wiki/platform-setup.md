@@ -137,8 +137,8 @@ Deploys stay off until the platform rollout. The work between now and then, in o
 
 1. **The first push** of the code to the empty repository.
 2. **The settings script:** the `main` ruleset and a `v*` tag ruleset, the environments and their branch policies, the repository variables, the Actions policy, and the release GitHub App with its one-time steps ([The release GitHub App](./github-repository-settings.md#the-release-github-app)).
-3. **A green `check`** for each environment ([GKE §13.3](./gke-cluster-setup.md#133-the-first-check-deploy-ops-check)); production's runs from the first `v*` tag.
-4. **The namespace and RBAC bootstrap:** the namespaces (with Pod Security labels, quota and LimitRange) and the deployer RBAC for each environment, rendered by `scripts/k8s-bootstrap.sh <env>` and applied by an admin ([GKE §13.2](./gke-cluster-setup.md#132-the-namespaces-and-the-deployer-rbac-come-from-the-bootstrap)). Don't create the namespaces by hand.
+3. **The namespace and RBAC bootstrap:** the namespaces (with Pod Security labels, quota and LimitRange) and the deployer RBAC for each environment, rendered by `scripts/k8s-bootstrap.sh <env>` and applied by an admin ([GKE §13.2](./gke-cluster-setup.md#132-the-namespaces-and-the-deployer-rbac-come-from-the-bootstrap)). Don't create the namespaces by hand.
+4. **A green `check`** for each environment ([GKE §13.3](./gke-cluster-setup.md#133-the-first-check-deploy-ops-check)); production's runs from the first `v*` tag.
 5. **The image pull secret** in each app namespace, if your GHCR images are private ([GKE §13.4](./gke-cluster-setup.md#134-an-image-pull-secret-for-private-ghcr-images)).
 6. **The platform rollout:** set `DEPLOY_ENABLED=true`, deploy dev, then qa, then production; close the public cluster endpoint.
 

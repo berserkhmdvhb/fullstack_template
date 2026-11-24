@@ -54,19 +54,19 @@ Use the chart's env values so namespace/image/secret resolve from one source
 (see `wiki/local-development-minikube.md` for the `make`/script equivalents):
 
 ```bash
-scripts/k8s-bootstrap.sh qa --release mysvc | kubectl apply -f -   # the namespaces (admin, once)
-helm install mysvc ./charts/your-service-name \
-  --namespace mysvc-qa \
+scripts/k8s-bootstrap.sh qa --release your-service-name | kubectl apply -f -   # the namespaces (admin, once)
+helm install your-service-name ./charts/your-service-name \
+  --namespace your-service-name-qa \
   -f charts/your-service-name/values.qa.yaml
-helm status mysvc -n mysvc-qa          # wait for READY (migration Job + workloads)
+helm status your-service-name -n your-service-name-qa          # wait for READY (migration Job + workloads)
 ```
 
 Get a reachable URL:
-- **minikube/kind (Ingress):** `minikube service mysvc-backend -n mysvc-qa --url`
+- **minikube/kind (Ingress):** `minikube service your-service-name-backend -n your-service-name-qa --url`
   or `minikube tunnel` + the ingress host; or `kubectl port-forward
-  svc/mysvc-backend -n mysvc-qa 8000:8000` for API-only.
-- **openshift-local (Route):** `oc create route edge --service=mysvc-backend
-  -n mysvc-qa` then `oc get route` for the host.
+  svc/your-service-name-backend -n your-service-name-qa 8000:8000` for API-only.
+- **openshift-local (Route):** `oc create route edge --service=your-service-name-backend
+  -n your-service-name-qa` then `oc get route` for the host.
 
 Smoke-check the target first:
 ```bash
@@ -111,9 +111,9 @@ It is **off by default** — enable it and confirm it protects without breaking 
 traffic:
 
 ```bash
-helm upgrade mysvc ./charts/your-service-name -n mysvc-qa \
+helm upgrade your-service-name ./charts/your-service-name -n your-service-name-qa \
   -f charts/your-service-name/values.qa.yaml --set waf.enabled=true
-helm status mysvc -n mysvc-qa        # wait for the WAF pod to be READY
+helm status your-service-name -n your-service-name-qa        # wait for the WAF pod to be READY
 ```
 
 > The WAF runs this repository's own image (`images.waf`, built from `Dockerfile.waf`:
@@ -166,7 +166,7 @@ Validate each with `kubectl get pol` / `helm test` and a deliberate violation.
 ## 6. Teardown
 
 ```bash
-helm uninstall mysvc -n mysvc-qa
+helm uninstall your-service-name -n your-service-name-qa
 openshift-local stop        # or: minikube delete / kind delete cluster
 ```
 

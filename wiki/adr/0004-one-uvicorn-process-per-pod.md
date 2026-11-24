@@ -20,7 +20,7 @@ workers, and complicates graceful shutdown.
 Every launch path runs one Uvicorn process with no `--workers`, through one launcher,
 `python -m your_service_name.backend.serve`: the image, the local scripts and CI. The launcher fixes the options:
 no `Server` header, the access log off (the app writes its own JSON request logs), a keep-alive longer than a
-proxy's idle timeout (`BACKEND_KEEPALIVE_TIMEOUT`, 75 s), a graceful shutdown timeout, and Uvicorn's own
+proxy's idle timeout (`BACKEND_KEEPALIVE_TIMEOUT`, default in [Environment variables](../environment-variables.md)), a graceful shutdown timeout, and Uvicorn's own
 proxy-header handling off ([ADR-0005](./0005-client-ip-from-trusted-proxies.md)). Hot reload is the launcher's own
 `BACKEND_RELOAD` option, refused in production. Scale is horizontal, by replicas and the HPA.
 

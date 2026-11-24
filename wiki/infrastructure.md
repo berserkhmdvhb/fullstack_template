@@ -340,7 +340,7 @@ server; `scripts/kind-deploy.sh` picks it from the server's version and refuses 
 
 **The sequence** (`scripts/kind-deploy.sh`; it refuses any context but `kind-fst`, and ignores an
 inherited `KUBECONFIG`):
-1. Builds the three images through the images job's build path (`scripts/ci/build-image.sh`), loads
+1. Builds every image in [`.github/container-images.yml`](../.github/container-images.yml) through the images job's build path (`scripts/ci/build-image.sh`), loads
    them into fst and removes the local tags. No registry and no push; the third-party images are
    pulled by their pinned digests.
 2. As cluster admin, applies the [bootstrap](#namespace-bootstrap-one-time-admin-step) for `local` in

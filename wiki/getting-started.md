@@ -441,9 +441,9 @@ kubectl -n your-service-name-local logs -l app.kubernetes.io/name=your-service-n
 
 ### 1. Build and Push Images
 
-The CI pipeline builds and pushes both images (buildx — see
-[`containerization.md`](containerization.md)); each carries an immutable per-commit tag and
-production pins the digest (`images.backend.digest` in `values.production.yaml`).
+The CI pipeline builds and pushes every image in [`.github/container-images.yml`](../.github/container-images.yml)
+(buildx; the workflow map is in [CI/CD](./ci-cd.md#workflow-map)); each carries an immutable per-commit tag, and
+production runs each image by digest (`images.<name>.digest`, set at deploy time).
 
 To build manually for a private registry, tag with `:latest` so the push step resolves the
 image you just built:
@@ -471,16 +471,20 @@ kubeseal --format yaml < db-credentials.json | kubectl apply -f - -n your-servic
 ```bash
 # Once, as a cluster admin: the namespaces, quota and deployer RBAC (wiki/infrastructure.md)
 scripts/k8s-bootstrap.sh production | kubectl apply -f -
-# Deploy with Helm (image ref comes from values.production.yaml; CI sets the immutable tag/digest)
+# Deploy with Helm by digest. values.production.yaml holds placeholder digests, which the guard refuses;
+# with waf.enabled, also pass --set images.waf.digest=sha256:<waf digest>.
 helm upgrade --install your-service-name charts/your-service-name \
   -f charts/your-service-name/values.production.yaml \
-  -n your-service-name-production
+  --namespace your-service-name-production --wait --wait-for-jobs \
+  --set guards.rejectPlaceholders=true \
+  --set images.backend.digest=sha256:<backend digest> --set images.frontend.digest=sha256:<frontend digest>
 ```
 
 <a id="production-needs-an-auth-mode"></a>
 > **Production needs an auth mode.** [`values.production.yaml`](../charts/your-service-name/values.production.yaml)
-> ships `AUTH_MODE: oidc` with a placeholder issuer and audience, which the deploy's placeholder guard refuses, so the
-> render fails before any Pod exists. Set your provider's issuer and the API's audience, or another production auth
+> ships `AUTH_MODE: oidc` with a placeholder issuer and audience, which the placeholder guard
+> (`guards.rejectPlaceholders=true`, set by the CI deploy and in the command above) refuses, so the render fails before
+> any Pod exists. Set your provider's issuer and the API's audience, or another production auth
 > mode ([Authentication](./security.md#authentication--authorization)), in that file before the first production
 > deploy.
 
@@ -488,16 +492,16 @@ helm upgrade --install your-service-name charts/your-service-name \
 
 ```bash
 # Wait for backend rollout
-kubectl -n your-service-name rollout status deployment/your-service-name-backend
+kubectl -n your-service-name-production rollout status deployment/your-service-name-backend
 
 # Wait for frontend rollout
-kubectl -n your-service-name rollout status deployment/your-service-name-frontend
+kubectl -n your-service-name-production rollout status deployment/your-service-name-frontend
 
 # Check HPA
-kubectl -n your-service-name get hpa
+kubectl -n your-service-name-production get hpa
 
 # Check PDB
-kubectl -n your-service-name get pdb
+kubectl -n your-service-name-production get pdb
 ```
 
 ### 5. Run Database Migrations
@@ -505,8 +509,8 @@ kubectl -n your-service-name get pdb
 Migrations run automatically as a Kubernetes Job on each deployment (one per revision; see [Database operations](./database.md#the-migration-job)). Verify:
 
 ```bash
-kubectl -n your-service-name get jobs
-kubectl -n your-service-name logs job/<release>-your-service-name-migrate-r<revision>
+kubectl -n your-service-name-production get jobs
+kubectl -n your-service-name-production logs job/<release>-your-service-name-migrate-r<revision>
 ```
 
 ---

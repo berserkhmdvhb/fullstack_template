@@ -151,8 +151,8 @@ the remaining ports are environment-driven. Change them by editing the relevant 
 
 | Variable | Default | Where |
 |----------|---------|-------|
-| `BACKEND_PORT` | 8000 | `.env` / `.env.example`, `docker-compose.yml` |
-| `FRONTEND_PORT` | 3000 | `.env` / `.env.example`, `docker-compose.yml` |
+| `BACKEND_PORT` | 8000 | `.env` / `.env.example`, `docker-compose.yml`, [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) (its `env` block) |
+| `FRONTEND_PORT` | 3000 | `.env` / `.env.example`, `docker-compose.yml`, [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) (its `env` block) |
 
 > **Note**: In Kubernetes the container ports are fixed (`backend :8000`, `frontend :3000`);
 > external access goes through the Ingress and per-env differences
