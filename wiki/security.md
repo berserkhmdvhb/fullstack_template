@@ -102,13 +102,13 @@ The edge adds no response headers: the chart renders no header filter or control
 
 ### CSP Details
 
-Production CSP (see `frontend/next.config.ts`):
+Production CSP (set per request in `frontend/proxy.ts`; the static paths get `default-src 'none'` from `frontend/next.config.ts`):
 
 ```
 default-src 'self'
 img-src 'self' blob: data:
 style-src 'self'
-script-src 'self'
+script-src 'self' 'nonce-<per request>'
 connect-src 'self'
 frame-ancestors 'none'
 base-uri 'self'
@@ -119,7 +119,7 @@ production build inlines no eval and loads styles from `'self'`. `connect-src
 'self'` because the frontend calls the API same-origin (`/api/v1`, rewritten
 server-side by `proxy.ts`) — no broad `https:` that would permit
 exfiltration to any endpoint. The frontend also serves a per-request nonce on
-`script-src` (see `proxy.ts`), so any *inline* script would be blocked.
+`script-src` (see `proxy.ts`), so an *inline* script without that nonce is blocked.
 
 Interactive docs (`/docs`) are the one page that loads a third-party origin, and it is still strict:
 the backend serves its own Swagger UI page with **no inline script**. Swagger UI's CSS and bundle come
@@ -595,8 +595,10 @@ Identity plus issuer is **not enough**. Any repository can call a public reusabl
 certificate of such a call carries the same workflow identity as ours, so only the repository claim
 (certificate extension OID 1.3.6.1.4.1.57264.1.5, the workflow repository, or the newer Source
 Repository URI extension) tells a foreign signer from this repository. Every verifier must check it:
-`--certificate-github-workflow-repository` above, and the admission policy added later has to
-require the same claim. `--signer-workflow` does the same for `gh attestation verify`, which would
+`--certificate-github-workflow-repository` above, and the example admission policy requires the
+same claim (`githubWorkflowRepository` in
+[`deploy/policies/kyverno-verify-images.yaml`](../deploy/policies/kyverno-verify-images.yaml);
+[Admission control](./admission-control.md)). `--signer-workflow` does the same for `gh attestation verify`, which would
 otherwise accept any workflow in the repository.
 
 The release run runs the same `cosign verify` after signing, and fails if it does not pass.
@@ -633,11 +635,13 @@ Nothing verifies the chart for you. The admission policy checks images, not char
 
 ### Non-Root User
 
-The container runs as a non-root user:
+The backend container runs as a non-root user. The runtime stage has no `RUN`, so the user
+(`appuser`, uid 10001) is written into `/etc/passwd` in the build stage and copied in
+([`Dockerfile.backend`](../Dockerfile.backend)):
 
 ```dockerfile
-RUN useradd -m -u 10001 appuser
-USER appuser
+COPY --from=py-builder /out/etc/passwd /out/etc/group /etc/
+USER 10001
 ```
 
 ### Tini Init System
@@ -681,7 +685,7 @@ Default deny all ingress and egress, with explicit allow rules:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: default-deny-all
+  name: <fullname>-default-deny
 spec:
   podSelector: {}
   policyTypes:
@@ -689,7 +693,8 @@ spec:
     - Egress
 ```
 
-**Allow rules**:
+**Allow rules** (each name is prefixed with the release's full name, `<fullname>-`; in the database
+namespace `<fullname>-postgresql-access` admits only the backend and the migration Job):
 
 | Policy | Direction | Source | Destination | Purpose |
 |--------|-----------|--------|-------------|---------|
@@ -705,7 +710,7 @@ matrix: [Infrastructure, NetworkPolicy per mode](./infrastructure.md#networkpoli
 
 ### Pod Security Standards
 
-All pods run in **restricted** profile:
+All pods run in **restricted** profile (the app Pods as uid 10001; the WAF as the image's 65532):
 
 ```yaml
 securityContext:
@@ -718,16 +723,18 @@ securityContext:
 
 ### RBAC
 
-Minimal permissions via ServiceAccount, Role, and RoleBinding:
+Minimal permissions via ServiceAccount, Role, and RoleBinding
+([`templates/rbac.yaml`](../charts/your-service-name/templates/rbac.yaml), applied by the admin
+bootstrap). The Role grants no Secrets: the kubelet resolves `secretKeyRef` and `envFrom` itself.
 
 ```yaml
-# ServiceAccount
+# ServiceAccount (serviceAccount.automountServiceAccountToken)
 automountServiceAccountToken: false
 
 # Role (minimal permissions)
 rules:
   - apiGroups: [""]
-    resources: ["configmaps", "secrets"]
+    resources: ["configmaps"]
     verbs: ["get", "list", "watch"]
 ```
 
@@ -747,16 +754,17 @@ operational steps in
 [`dast-waf-openshift-local-runbook.md`](./dast-waf-openshift-local-runbook.md)):
 
 - **DAST — OWASP ZAP (scan-time).** `zap-baseline.py` (single-source
-  `infra/security/local/scan-dast.sh`) spiders and passively/actively scans the
-  live deploy for web vulnerabilities (SQLi, XSS, …). It is **advisory**
-  (findings warn, only a tool error fails), emits a Merged SARIF, and escalates to a full
-  active / OpenAPI-driven / authenticated scan via `DAST_FULL_SCAN`.
+  `infra/security/local/scan-dast.sh`) spiders the target and scans it passively for
+  web vulnerabilities. It is **advisory** (findings warn, only a tool error fails) and
+  writes a SARIF report (`dast.sarif`). The full active / OpenAPI-driven / authenticated
+  scan is not wired into the script: it is the runbook's job, with ZAP's own scripts.
 - **WAF — Coraza (runtime).** An in-cluster **Coraza** proxy (Go, CNCF) runs as an
   Envoy wasm plugin with the **OWASP Core Rule Set**, fronting the API surface
   (`/api`, `/docs`, `/openapi.json`) and filtering requests live. It is rendered by
   the Helm chart (`charts/your-service-name/templates/waf-proxy.yaml`) and is
   **off by default** (`waf.enabled: false`) — no side effect until you enable it.
-  The frontend bypasses it (it is not an injection target).
+  The frontend's pages bypass it (they are not an injection target); with the WAF on, the
+  frontend's same-origin API proxy and server-side calls go through it.
 - **The WAF's supply chain.** The WAF runs this repository's third image,
   `Dockerfile.waf`: the distroless Envoy image pinned by its multi-arch index digest, plus
   the Coraza proxy-wasm release asset, pinned by version and sha256 and checked by
@@ -828,8 +836,8 @@ Sensitive data is stored in Kubernetes Secrets:
 
 | Secret | Contents |
 |--------|----------|
-| `your-service-name-db-credentials` | DB_PASSWORD, DB_USER, DB_NAME |
-| `your-service-name-stats` | STATS_PASS |
+| `your-service-name-secret` (app namespace; the chart's own app Secret) | DB_USER, DB_PASSWORD, STATS_PASS |
+| `your-service-name-db-credentials` (database namespace, with the in-cluster PostgreSQL) | username, password, database |
 
 ### Sealed Secrets (Recommended)
 
@@ -925,7 +933,9 @@ helm install cert-manager cert-manager \
 
 The frontend does not set `Strict-Transport-Security`: HSTS belongs to the TLS edge, and a header from
 every layer would give the browser several competing `max-age` values. Today the backend sends it over
-https only (`max-age=31536000; includeSubDomains; preload`), and the browser applies it per host, so the
-pages (which call the API same-origin) are covered. In the edge modes the edge sets HSTS once and the
-backend's copy is turned off. A test per layer pins the final header set (`frontend/next.config.test.ts`,
-`frontend/static-paths.test.ts`, the live `TestFinalHeaderSet`).
+https only (`max-age=31536000; includeSubDomains; preload`, `backend/middleware/security.py`), and the
+browser applies it per host, so the pages (which call the API same-origin) are covered. The backend has
+no switch to turn its copy off, so when the edge sets HSTS too, give it the same value. With the WAF on
+the backend sees `X-Forwarded-Proto: http` ([Client IP](#client-ip)) and sends none. A test per layer
+pins the final header set (`frontend/next.config.test.ts`, `frontend/static-paths.test.ts`, the live
+`tests/live/test_header_set.py`).

@@ -73,7 +73,7 @@ The alternative to the Tunnel is a proxied DNS record that points at the GKE Gat
 - origin TLS through Google Certificate Manager with DNS authorisation;
 - a Cloud Armor allowlist of Cloudflare's IP ranges, so nobody can bypass Cloudflare.
 
-The template will support both. This guide sets up the Tunnel, because it's cheaper and exposes nothing.
+The chart supports both (`edge.mode: gateway`, the default, or `edge.mode: tunnel`; see [`values.yaml`](../charts/your-service-name/values.yaml), the Edge section). This guide sets up the Tunnel, because it's cheaper and exposes nothing.
 
 ## 2. Before you start
 
@@ -263,7 +263,7 @@ Keep `CF_API_TOKEN` set for section 10, where the token is proved against the de
 
 > **Managed as code.** You can do this by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild. This covers 8.1 (the tunnel), 8.4 (routes and CNAMEs); a tunnel made in the dashboard has to be imported.
 
-> **Planned change.** Section 8.3's connector (the `cloudflared` namespace, Secret and Deployment) is not implemented yet. The chart's NetworkPolicy will let `edge.namespaceSelector` (default `cloudflared`) through, so the namespace label must match. 8.2 and 8.5 are **Do now**.
+> **Not in the template.** Section 8.3's connector (the `cloudflared` namespace, Secret and Deployment) is not shipped by this repository; you apply it by hand as shown. The chart's NetworkPolicy, in `edge.mode: tunnel`, admits the namespace `edge.namespaceSelector` selects (empty means `kubernetes.io/metadata.name: cloudflared`), so the namespace must match. 8.2 and 8.5 are **Do now**.
 
 ### 8.1 Create the tunnel
 
@@ -438,7 +438,7 @@ echo | openssl s_client -connect "$H:443" -servername "$H" 2>/dev/null | openssl
 
 > **Managed as code.** You can do this by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild. Access apps and policies can be kept in code.
 
-> **Planned change.** The `cloudflare-access` auth mode needs your Zero Trust team domain and the application's AUD tag; note both.
+> **Note both values.** The backend's `AUTH_MODE=cloudflare-access` needs your Zero Trust team domain and the application's AUD tag (`CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`: [Environment Variables](./environment-variables.md), [Security](./security.md#authentication--authorization)).
 
 Cloudflare Access puts a login in front of a hostname. It's free for up to 50 users. Use it for every hostname that isn't public yet.
 
@@ -502,7 +502,7 @@ curl -sS "https://site-deploy-check.<subdomain>.workers.dev" | grep -o '<p>ok</p
 rm -rf "$work"; unset CLOUDFLARE_API_TOKEN CF_API_TOKEN
 ```
 
-The Wrangler version is pinned exactly, here and in CI, so a new release can't change a deploy without you noticing.
+The Wrangler version is pinned exactly here; pin it the same way in your site's CI (no template workflow runs Wrangler), so a new release can't change a deploy without you noticing.
 
 If the deploy fails with `403` or `Authentication error`, the token lacks a permission. Compare it with 7.1. This is exactly the failure section 7's rule 3 is meant to catch before CI hits it.
 
@@ -634,7 +634,7 @@ These come with the pipeline work:
   - **Provider:** `cloudflare/cloudflare`, pinned to the v5 series. Its syntax differs from v4.
   - **State:** in a versioned, locked Google Cloud Storage bucket, never on a laptop or in Git.
   - **Changes:** reviewed as a plan in a pull request before anyone applies them.
-- **App routes:** each environment's hostname becomes a tunnel route, defined in code. The template's NetworkPolicies allow ingress from the `cloudflared` namespace.
+- **App routes:** each environment's hostname becomes a tunnel route, defined in code. (Already in the chart: in `edge.mode: tunnel` its NetworkPolicy admits the `cloudflared` namespace, and its NOTES print the route table, as in 8.4.)
 - **Your site's pipeline:**
   - build, run the link and accessibility checks, then deploy with the pinned Wrangler and the environment-scoped token;
   - previews on `preview.<domain>`, behind Access;

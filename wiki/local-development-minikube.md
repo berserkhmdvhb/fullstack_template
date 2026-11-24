@@ -17,9 +17,9 @@ drift from the manifests. `--env local` (laptop cluster, bare `:local` image
 tags read from the node daemon) is used throughout.
 
 > **Steps 1–3 are one-time environment setup** — installing the tools, starting
-> the cluster, and providing the DB password. These are **manual only**: there is
-> no `make` target or script for installing the cluster tooling itself. From
-> **step 4 on, all three options are available for every step.**
+> the cluster, and providing the DB password. They are shown **manually**; for kind
+> the repository also has a pinned path (`scripts/tools.sh install`, `make kind-up`,
+> see steps 1 and 2). From **step 4 on, all three options are available for every step.**
 >
 > **Minikube vs kind** — both run the whole stack; pick one and stick with it:
 > - **Minikube** is turnkey: `minikube docker-env` builds images straight into the
@@ -30,8 +30,9 @@ tags read from the node daemon) is used throughout.
 >   the host Docker daemon, so raise that limit for the full stack.
 >
 > The `make` targets and `scripts/` are cluster-agnostic (`kubectl` / `helm`), so
-> options **② and ③ are identical on both** — only the **① Manual** commands
-> differ, and each difference is flagged below.
+> options **② and ③ are identical on both**, except `rebuild-and-roll`, which
+> builds into Minikube's node daemon and loads nothing into a kind node (step 9).
+> The **① Manual** commands differ, and each difference is flagged below.
 >
 > These are **local developer tools**, not production deployment automation. They
 > favour clear output and safety (dry-runs, confirmations, no committed secrets)
@@ -63,7 +64,9 @@ tags read from the node daemon) is used throughout.
 
 ## Step 1: Prerequisites
 
-Install the tooling once. **Manual only** (no `make`/script installs the cluster).
+Install the tooling once, by hand as below. kind, kubectl and Helm can instead come from the
+repository's pins ([`tools/pins.tsv`](../tools/pins.tsv)), checksum-verified into `.tools/bin`:
+`scripts/tools.sh install kind kubectl helm4` (then put `.tools/bin` on `PATH`).
 
 ```bash
 # Required: Docker (or Podman), a local cluster (Minikube *or* kind), kubectl, Helm
@@ -82,7 +85,7 @@ sudo usermod -aG docker "$USER"; newgrp docker
 curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
 sudo install minikube-linux-amd64 /usr/local/bin/minikube
 # kind
-curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/v<version>/kind-linux-amd64   # the kind row of tools/pins.tsv
 chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
 
 # kubectl
@@ -121,7 +124,10 @@ minikube start --cpus=4 --memory=4096 --disk-size=20g --driver=docker
 ```
 
 **kind** — a single node draws CPU/RAM from the host Docker daemon, so raise that
-limit first (Docker Desktop → Settings → Resources, or the daemon defaults); then:
+limit first (Docker Desktop → Settings → Resources, or the daemon defaults); then
+(or `make kind-up`: the repository's own cluster `fst`, a pinned node image and its own
+kubeconfig, used by `make kind-deploy`; see [Infrastructure, Local cluster](./infrastructure.md#local-cluster-kind).
+With it, export `KUBECONFIG=.local/kind/kubeconfig` and pass `--name fst` to `kind load` below):
 ```bash
 kind create cluster --name your-service-name
 # Multi-node / custom resources: kind create cluster --config kind.yaml
@@ -185,8 +191,8 @@ docker build -t your-service-name-frontend:local -f Dockerfile.frontend .
 eval "$(minikube docker-env)"
 
 # kind: the node is its own container — load the images you just built into it
-kind load docker-image your-service-name-backend:local
-kind load docker-image your-service-name-frontend:local
+kind load docker-image --name your-service-name your-service-name-backend:local
+kind load docker-image --name your-service-name your-service-name-frontend:local
 
 docker images | grep your-service-name     # confirm the two :local images
 ```
@@ -236,11 +242,11 @@ helm upgrade --install your-service-name charts/your-service-name \
 ```bash
 # Full deploy + verify (recommended):
 make deploy HELM_ENV=local \
-  HELM_ARGS="-f charts/your-service-name/values.secret.yaml"
+  HELM_ARGS="--values charts/your-service-name/values.secret.yaml"
 
 # Apply only (no verify):
 make k8s-apply HELM_ENV=local \
-  HELM_VALUES="-f charts/your-service-name/values.secret.yaml"
+  HELM_VALUES=charts/your-service-name/values.secret.yaml
 ```
 
 ### ③ Bash script
@@ -273,7 +279,7 @@ kubectl wait --for=condition=ready pod \
   -l app.kubernetes.io/name=your-service-name \
   -n your-service-name-local --timeout=120s
 
-# Health checks
+# Health checks (the curl needs step 7's port-forward)
 curl http://localhost:8000/api/v1/health
 kubectl exec -n your-service-name-local-db your-service-name-postgresql-0 -- \
   pg_isready -U app -d service_template
@@ -401,7 +407,7 @@ not fatal to the others.
 eval "$(minikube docker-env)"
 # kind: build on the host, then load into the node:
 #   docker build -t your-service-name-backend:local -f Dockerfile.backend .
-#   kind load docker-image your-service-name-backend:local
+#   kind load docker-image --name your-service-name your-service-name-backend:local
 docker build -t your-service-name-backend:local -f Dockerfile.backend .   # rebuild the changed one
 kubectl set image deployment/your-service-name-backend \
   backend=your-service-name-backend:local -n your-service-name-local
@@ -409,6 +415,10 @@ kubectl rollout restart deployment/your-service-name-backend -n your-service-nam
 kubectl rollout status deployment/your-service-name-backend -n your-service-name-local --timeout=120s
 curl http://localhost:8000/api/v1/health
 ```
+
+On kind, the script builds on the host daemon (there is no `minikube docker-env`) and does
+not load the images into the node: build with `--no-roll --no-health`, `kind load docker-image`
+each rebuilt `:local` image, then roll with `--no-build`.
 
 ### ② make
 
@@ -464,13 +474,15 @@ make smoke-test SMOKE_BASE_URL=http://localhost:8000 -- smoke-test --format juni
 
 ## Step 11: Manage secrets
 
-Create or update the namespace `generic` Secret from `.env` or `--key` pairs;
-values are masked everywhere and `show` lists key names only.
+Create or update a `generic` Secret from `.env` or `--key` pairs (default name
+`your-service-name-secret`, the chart's own app Secret, so the next `helm upgrade`
+writes the chart's keys back); values are masked everywhere and `show` lists key
+names only.
 
 ### ① Manual
 
 ```bash
-kubectl create secret generic your-service-name-local \
+kubectl create secret generic your-service-name-secret \
   --from-env-file=.env \
   -n your-service-name-local --dry-run=client -o yaml | kubectl apply -f -
 ```
@@ -552,9 +564,12 @@ make k8s-delete HELM_ENV=local
 
 ## Optional: Enable monitoring
 
-The chart ships a ServiceMonitor that auto-discovers backend metrics (the backend
-Service's `metrics` port) once the Prometheus stack is present. **Manual** (no `make`/script wraps the Prometheus
-install).
+The chart can render a ServiceMonitor for the backend metrics (the backend
+Service's `metrics` port). It is off by default: deploy with
+`--set monitoring.serviceMonitor=true --set monitoring.prometheusRelease=monitoring` (the
+stack's release name, which it selects ServiceMonitors by; see
+[Infrastructure, Metrics port and monitoring flavours](./infrastructure.md#metrics-port-and-monitoring-flavours)).
+**Manual** (no `make`/script wraps the Prometheus install).
 
 ```bash
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -601,16 +616,19 @@ kubectl get pods -n ingress-nginx
 The running app is covered by two complementary layers — **DAST** (OWASP ZAP
 *finds* web vulnerabilities by probing) and a **WAF** (an in-cluster **Coraza**
 proxy that *blocks* malicious requests live). Both validate on **any** local
-cluster (Minikube or kind): the WAF is a plain Deployment + Service sitting
-behind the Ingress, so it behaves identically on both. Operational
+cluster (Minikube or kind): the WAF is a plain Deployment + Service between the
+edge and the backend, so it behaves identically on both. Operational
 steps: [`dast-waf-openshift-local-runbook.md`](./dast-waf-openshift-local-runbook.md).
 
 ### WAF — enable and prove it blocks (local)
 
 The WAF is **off by default** (`waf.enabled: false`) — enabling it is a
-`helm upgrade`, no redeploy:
+`helm upgrade`, no redeploy. First build its image like step 4
+(`values.local.yaml` points `images.waf` at `your-service-name-waf:local`):
 
 ```bash
+docker build -t your-service-name-waf:local -f Dockerfile.waf .
+kind load docker-image --name your-service-name your-service-name-waf:local   # kind only
 helm upgrade your-service-name charts/your-service-name \
   -f charts/your-service-name/values.local.yaml \
   -f charts/your-service-name/values.secret.yaml \
@@ -618,32 +636,35 @@ helm upgrade your-service-name charts/your-service-name \
 helm status your-service-name -n your-service-name-local   # wait for the WAF pod READY
 ```
 
-Then prove it through your port-forward (step 7) on `localhost:8000` — the WAF
-fronts the API surface (`/api`, `/docs`, `/openapi.json`):
+Then prove it through a port-forward to the WAF Service (`waf.service.port`, 8080 by
+default). Step 7's forward to the backend Service goes around the WAF. The WAF fronts the
+API surface (`/api`, `/docs`, `/openapi.json`):
 
 ```bash
+kubectl port-forward -n your-service-name-local svc/your-service-name-waf 8080:8080
 # ① malicious → expect 403 (blocked)
-curl -s -o /dev/null -w "%{http_code}\n" "http://localhost:8000/api/items?id=1' OR '1'='1"
-curl -s -o /dev/null -w "%{http_code}\n" --data "q=<script>alert(1)</script>" http://localhost:8000/api/search
+curl -s -o /dev/null -w "%{http_code}\n" "http://localhost:8080/api/items?id=1' OR '1'='1"
+curl -s -o /dev/null -w "%{http_code}\n" --data "q=<script>alert(1)</script>" http://localhost:8080/api/search
 # ② legitimate → expect 200
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8000/api/v1/health
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/api/v1/health
 ```
 
-> ⚠ **Pin the WAF images first.** The Coraza Envoy base image + wasm plugin image
-> in `values.yaml` are placeholders — review and pin them (digest) to a real
-> Envoy+Coraza release before the WAF pod will come up `READY`, and confirm the
-> wasm filter `type_url` matches the pinned plugin (runbook §4). If a malicious
+> The WAF image is this repository's own (`Dockerfile.waf`: the pinned distroless Envoy
+> and the checksum-verified Coraza Wasm), so there is nothing to pin by hand. If a malicious
 > request returns `200`, traffic is bypassing the WAF — check the pod is `READY`
-> and that the Ingress API paths point at `<name>-waf` (`waf.enabled` swaps the
+> and that the edge's API routes point at `<name>-waf` (`waf.enabled` swaps the
 > backend via the `chart.apiBackendService` helper).
 
 ### DAST — scan the live deploy (local)
 
-The thin ZAP baseline runs in CI (`dast` job) against the deploy; locally you can
-run the **same single-source script** against your port-forwarded API, so local ↔
-CI cannot drift:
+The thin ZAP baseline runs in CI twice: the DAST workflow
+([`dast.yml`](../.github/workflows/dast.yml)) scans the backend image Release pushed, and
+the kind job scans its release (`make kind-zap`). Locally you can run the **same
+single-source script** against your port-forwarded API, so local ↔ CI cannot drift
+(`DAST_TARGET_RUNNING=true` scans the running target instead of starting an image):
 
 ```bash
+export DAST_TARGET_RUNNING=true
 export DAST_TARGET_URL="http://localhost:8000"
 export SEC_OUTPUT_DIR="$(pwd)/output/security"   # wherever your scan reports go
 bash infra/security/local/scan-dast.sh "$SEC_OUTPUT_DIR" "$(pwd)"
@@ -678,7 +699,7 @@ The `:local` images aren't on the node daemon — rebuild them into it:
 eval "$(minikube docker-env)"                                  # Minikube
 docker build -t your-service-name-backend:local -f Dockerfile.backend .
 minikube image load your-service-name-backend:local            # Minikube
-# kind: build on the host, then `kind load docker-image your-service-name-backend:local`
+# kind: build on the host, then `kind load docker-image --name your-service-name your-service-name-backend:local`
 ```
 
 ### `CrashLoopBackOff`
@@ -687,7 +708,7 @@ minikube image load your-service-name-backend:local            # Minikube
 kubectl logs -n your-service-name-local <pod-name> --previous
 kubectl exec -n your-service-name-local <pod-name> -- env | grep -E 'DB_|BACKEND|FRONTEND'
 # Migration didn't complete? Re-apply — each upgrade creates a new per-revision Job:
-make deploy HELM_ENV=local HELM_ARGS="-f charts/your-service-name/values.secret.yaml"
+make deploy HELM_ENV=local HELM_ARGS="--values charts/your-service-name/values.secret.yaml"
 ```
 
 ---
@@ -702,4 +723,4 @@ make deploy HELM_ENV=local HELM_ARGS="-f charts/your-service-name/values.secret.
 ---
 
 **Last Updated**: 2026-11-17
-**Cluster**: Minikube / kind · **Helm**: 3.x · **Images**: bare `:local` tags off the node daemon
+**Cluster**: Minikube / kind · **Helm**: the pinned versions in [`tools/pins.tsv`](../tools/pins.tsv) · **Images**: bare `:local` tags off the node daemon

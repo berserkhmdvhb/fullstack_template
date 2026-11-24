@@ -491,7 +491,7 @@ echo "Registry path: $REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO"
 
 ## 11. The GitHub repository
 
-> **Do now** for 11.1, the empty repository, the Actions settings and the environments. **Planned change (the settings script applies them after the first push):** the rulesets, and later `scripts/github-settings.sh` and `wiki/github-repository-settings.md`, replace the hand steps of 11.2.
+> **Do now** for 11.1, the empty repository, the Actions settings and the environments. **After the first push:** [`scripts/github-settings.sh`](../scripts/github-settings.sh) applies the rulesets and applies the rest of 11.2 as code (the Actions settings, the environments and their rules, secret scanning, push protection and Dependabot alerts; [GitHub repository settings](./github-repository-settings.md)).
 
 ### 11.1 Public or private?
 
@@ -588,7 +588,7 @@ The condition, as Google stores it, reads (the regex is a CEL string, so each ba
 assertion.repository_owner_id=='<OWNER_ID>' && assertion.repository_id=='<REPO_ID>' && assertion.job_workflow_ref.matches('^<owner>/<repo>/\\.github/workflows/(deploy|deploy-ops)\\.yml@refs/(heads/main|tags/v.*)$')
 ```
 
-Only those two workflow files can ever get a token: no other workflow, and no workflow on another branch, even in your repository. The `check` operation of `deploy-ops` ([13.3](#133-the-first-check-deploy-ops-check)) is part of `deploy-ops.yml`, so it needs no extra workflow to be allowed.
+Only those two workflow files can ever get a token from this provider: no other workflow, and no workflow on another branch, even in your repository. The optional pull request previews (`preview.yml`) use a second provider with a condition of their own ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews)). The `check` operation of `deploy-ops` ([13.3](#133-the-first-check-deploy-ops-check)) is part of `deploy-ops.yml`, so it needs no extra workflow to be allowed.
 
 **Check:**
 
@@ -687,7 +687,7 @@ Then create the three new deployers (12.3) and update the environment variables 
 
 ## 13. The end-to-end check from GitHub
 
-> **Planned change:** the script sets the variables of 13.1; until then set them by hand. **After the first push:** the `check` run of 13.3. **Planned change:** the pull secret.
+> **After the first push:** `scripts/github-settings.sh --vars-file <file>` can set the variables of 13.1 (it never sets a secret), or set them by hand; then the `check` run of 13.3. **Do by hand:** the pull secret of 13.4.
 
 This proves the identity chain, from GitHub to the cluster:
 - GitHub can log in to Google with no secret;
@@ -756,7 +756,7 @@ If a step fails, see [Troubleshooting](#16-troubleshooting).
 
 ### 13.4 An image pull secret for private GHCR images
 
-> **Planned changes:** do this after the namespaces exist.
+> **Do by hand,** after the namespaces exist (no script creates it).
 
 If your images in GHCR are private, each app namespace needs a pull secret. Create a read-only credential yourself: a token with the `read:packages` scope only, owned by an account that can read the package. Never reuse a write token. Then, per namespace:
 

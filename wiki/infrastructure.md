@@ -64,12 +64,15 @@ flowchart TB
 `edge.gateway.parentRefs` entry still names `your-gateway`, or an image the release renders still
 has the placeholder digest (`sha256:` and 64 zeros), or `config.OIDC_ISSUER` is on
 `your-domain.example` or `config.OIDC_AUDIENCE` is `your-oidc-audience` (or the Cloud SQL
-instance or the ExternalSecret store is still the placeholder). It collects every placeholder it
+instance or the ExternalSecret store is still the placeholder, `secrets.dbPassword` is empty with
+the in-cluster PostgreSQL and the chart's own Secret, or, in production with the rules on,
+`monitoring.runbookUrl` still points at `your-org/your-repo`). It collects every placeholder it
 finds and fails once, naming each field, so one refused render lists them all. CI renders and the admin bootstrap leave the guard off, so the template's own values keep
 rendering; so does the deploy's first render, which only finds the images that run, before the
 release digests are set. Pass the same `--set` to a `helm upgrade` you run by hand.
 
 **Production rules.** With `environment: production` the render fails unless:
+- `config.ENV` is `production`, so the backend's own production checks run;
 - every image the release renders has a digest (the backend and the migration Job, the frontend,
   the database client; the WAF and the Cloud SQL proxy while they are on). Your own
   `backend.extraInitContainers` too: each `image` must be `<repository>[:<tag>]@sha256:<64 hex>`;
@@ -80,7 +83,8 @@ release digests are set. Pass the same `--set` to a `helm upgrade` you run by ha
   reads it (trimmed, case-insensitive), checked before the Pods start;
 - the backend and the frontend run at least 2 Pods: `hpa.<name>.minReplicas` while the HPA is on,
   else `replicas.<name>`;
-- each PodDisruptionBudget keeps a Pod (`pdb.<name>.minAvailable` 1 or more).
+- each PodDisruptionBudget keeps a Pod (`pdb.<name>.minAvailable` 1 or more);
+- `tests.enabled` is false (the `helm test` hooks are for local and kind).
 
 These live in `templates/validate-values.yaml`, not the schema, because they depend on what renders
 and because Helm checks the schema before any template (a schema rule would hide the clearer
@@ -685,7 +689,7 @@ The chart used to carry ingress-nginx annotations. It is controller-agnostic now
 
 | Former annotation | Now |
 |-------------------|-----|
-| `enable-access-log` | gateway: the Gateway implementation's log (on GKE, the GCPBackendPolicy access log); ingress: the controller's log; tunnel: Cloudflare's logs. The backend's own request log is `LOG_REQUESTS` (off by default). |
+| `enable-access-log` | gateway: the Gateway implementation's log (on GKE, the GCPBackendPolicy access log); ingress: the controller's log; tunnel: Cloudflare's logs. The backend's own request log is `LOG_REQUESTS` (off in the backend's default, on in the chart). |
 | `limit-rps` (100 req/s per client, every path) | The backend's per-IP limit (`RATE_LIMIT_DEFAULT`, [Security](./security.md#rate-limiting)), backend only. At the edge, covering the frontend too: GKE, a Cloud Armor policy with a rate-based rule named in `edge.gateway.gke.securityPolicy`; tunnel, Cloudflare rate-limiting rules; ingress, the controller's own setting. |
 | `limit-connections` | No chart setting. The edge's own connection limits apply (Cloud Armor, Cloudflare, the controller). |
 | `proxy-connect-timeout` (5 s) | No chart setting; the edge's default applies. |
