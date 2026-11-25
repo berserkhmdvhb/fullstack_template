@@ -105,7 +105,7 @@ So `..` and absolute names are covered by mise, and an out-of-tree symlink and a
 - Good: more tools than today are verified by more than a checksum: GitHub attestations and cosign signatures where a vendor publishes them.
 - Good: a locked install needs no GitHub API call, so no token and no rate limit in CI.
 - Bad: a second place describes the toolchain while the move is under way: `tools/pins.tsv` for the rows that have not moved and the ones that stay, `mise.toml` and `mise.lock` for the rest.
-- Bad: a 180 MB binary joins the download, and a mise settings or backend change is a new thing to review in each mise release.
+- Bad: a 61 MB archive (about 180 MB unpacked) joins the download, and a mise settings or backend change is a new thing to review in each mise release.
 - Bad: the extraction guard is ours, not mise's, so it is one more check to keep; the next change adds it with a test that plants each bad archive.
 - Bad: the minisign and OpenPGP signatures over the mise release's checksum file are not checked yet.
 

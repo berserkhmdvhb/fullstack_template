@@ -261,6 +261,13 @@ cmd_list() {
   awk -F'\t' -v p="$PLATFORM" '!/^#/ && NF && ($3=="any" || $3==p) {print $1, $2}' "$PINS"
 }
 
+# mise gets every argument as given (its own --dry-run included), so it is handled before the filter below.
+if [[ "${1:-}" == mise ]]; then
+  shift
+  [[ -x "$TOOLS_DIR/bin/mise" ]] || die "mise is not installed; run: scripts/tools.sh install mise"
+  cd "$ROOT"
+  exec "$TOOLS_DIR/bin/mise" "$@"
+fi
 args=()
 for a in "$@"; do
   if [[ "$a" == --dry-run ]]; then DRY_RUN=true; else args+=("$a"); fi
@@ -269,6 +276,5 @@ set -- "${args[@]:-}"
 case "${1:-}" in
   install) shift; cmd_install "$@" ;;
   list) cmd_list ;;
-  mise) shift; cd "$ROOT"; exec "$TOOLS_DIR/bin/mise" "$@" ;;
   *) die "usage: tools.sh [--dry-run] install [name...] | list | mise [args...]" ;;
 esac

@@ -63,7 +63,10 @@ tools() {
 }
 
 @test "a hostile config in the home directory changes nothing (the real mise)" {
-  [ -x "$ROOT/.tools/bin/mise" ] || skip "needs the installed mise"
+  if [ ! -x "$ROOT/.tools/bin/mise" ]; then
+    [ -z "${CI:-}" ] || fail "CI must install the pinned mise first: scripts/tools.sh install mise"
+    skip "needs the installed mise (scripts/tools.sh install mise)"
+  fi
   mkdir -p "$TOOLS/bin"
   ln -s "$ROOT/.tools/bin/mise" "$TOOLS/bin/mise"
   printf '[settings]\ndisable_backends = []\nuse_versions_host = true\nlockfile = false\n[tools]\nnode = "1.2.3"\n[env]\nEVIL = "1"\n' \
@@ -86,4 +89,22 @@ tools() {
   [[ "$output" != *EVIL* ]]
 
   [ "$(find "$HOME" -path "$PROJ" -prune -o -print | sort)" = "$before" ]
+}
+
+@test "mise gets its own flags, --dry-run included" {
+  stub_mise_archive
+  printf '#!/bin/sh\nprintf "args=%%s\\n" "$*"\n' > "$BATS_TEST_TMPDIR/art/mise/bin/mise"
+  tar -czf "$BATS_TEST_TMPDIR/mise.tar.gz" -C "$BATS_TEST_TMPDIR/art" mise
+  sed -i "s/$SHA/$(sha256sum "$BATS_TEST_TMPDIR/mise.tar.gz" | cut -d' ' -f1)/" "$PROJ/tools/pins.tsv"
+  tools bash "$PROJ/scripts/tools.sh" install mise
+  [ "$status" -eq 0 ]
+  tools bash "$PROJ/scripts/tools.sh" mise install --dry-run
+  [ "$status" -eq 0 ]
+  [ "$output" = "args=install --dry-run" ]
+}
+
+@test "mise before it is installed says so" {
+  tools bash "$PROJ/scripts/tools.sh" mise --version
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"mise is not installed"*"install mise"* ]]
 }
