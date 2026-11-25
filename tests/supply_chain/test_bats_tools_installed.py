@@ -21,6 +21,8 @@ STUBBED = {
     "node": "named in rebuild-and-roll.sh's probe commands; the kind-forward tests stub it",
     "helm-unittest": "in adopted-copy.sh's install hint; the adopted-copy tests stub it",
     "pnpm": "named in image-checks.sh's list of binaries an image must not hold; nothing runs it",
+    "kubeconform": "in kubeconform.sh's install hint; sha256.bats stops it at its pin check",
+    "k8s-openapi": "sha256.bats gives kubeconform.sh a fixture spec in place of the pinned one",
 }
 # Bats files that skip in the `repo` job and run in another one, named here with its reason.
 ELSEWHERE = {

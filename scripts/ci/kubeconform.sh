@@ -26,13 +26,15 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 die() { echo "kubeconform: $*" >&2; exit 1; }
+# shellcheck source=/dev/null
+source "$ROOT/scripts/_sha256.sh"
 
 # The pinned Kubernetes OpenAPI spec (the chart's kubeVersion floor), checked against its pin.
 read -r KUBE_VERSION SPEC_SHA < <(awk -F'\t' '$1 == "k8s-openapi" {print $2, $5}' "$ROOT/tools/pins.tsv")
 [[ -n "${KUBE_VERSION:-}" ]] || die "tools/pins.tsv has no k8s-openapi row"
 SPEC="$TOOLS_DIR/opt/k8s-openapi-$KUBE_VERSION/k8s-openapi"
 [[ -f "$SPEC" ]] || die "$SPEC is missing: run scripts/tools.sh install k8s-openapi"
-[[ "$(sha256sum "$SPEC" | cut -d' ' -f1)" == "$SPEC_SHA" ]] || die "$SPEC does not match its pin; reinstall it"
+[[ "$(sha256 "$SPEC")" == "$SPEC_SHA" ]] || die "$SPEC does not match its pin; reinstall it"
 for tool in helm kubeconform yq python3; do
   command -v "$tool" >/dev/null || die "$tool is required (scripts/tools.sh install helm4 kubeconform yq)"
 done
@@ -40,7 +42,7 @@ done
 # The Kubernetes schemas, generated once per spec and generator (the stamp holds both hashes).
 SCHEMAS="$TOOLS_DIR/k8s-schemas"
 CORE="$SCHEMAS/v${KUBE_VERSION}-standalone-strict"
-stamp="$(cat "$SPEC" "$ROOT/scripts/ci/kube_schemas.py" | sha256sum | cut -d' ' -f1)"
+stamp="$(cat "$SPEC" "$ROOT/scripts/ci/kube_schemas.py" | sha256)"
 if [[ "$(cat "$CORE/.stamp" 2>/dev/null || true)" != "$stamp" ]]; then
   rm -rf "$CORE" "$CORE.part"
   python3 -I "$ROOT/scripts/ci/kube_schemas.py" core "$SPEC" "$CORE.part"

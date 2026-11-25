@@ -11,7 +11,7 @@ setup() {
   export HOME="$BATS_TEST_TMPDIR/home"
   PROJ="$HOME/proj"
   mkdir -p "$PROJ/scripts" "$PROJ/tools" "$HOME/.config/mise"
-  cp "$ROOT/scripts/tools.sh" "$ROOT/scripts/safe_extract.py" "$PROJ/scripts/"
+  cp "$ROOT/scripts/tools.sh" "$ROOT/scripts/_sha256.sh" "$ROOT/scripts/safe_extract.py" "$PROJ/scripts/"
   cp "$ROOT/mise.toml" "$PROJ/"
   TOOLS="$PROJ/.tools"
 }

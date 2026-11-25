@@ -36,6 +36,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/_kind.sh"
 # shellcheck source=/dev/null
 source "$ROOT/scripts/ci/migration-job-lib.sh"
+# shellcheck source=/dev/null
+source "$ROOT/scripts/_sha256.sh"
 CHART="$ROOT/charts/your-service-name"
 ENV_NAME=local
 RELEASE=your-service-name
@@ -160,7 +162,7 @@ bootstrap "$CT_NS"
 crd_sha="$(awk -F'\t' '$1 == "gateway-api" {print $4}' "$CHART/ci/crds/sources.tsv")"
 crd="$ROOT/.tools/crd-sources/$crd_sha"
 [[ -f "$crd" ]] || die "$crd is missing: run scripts/tools.sh install crd-sources"
-[[ "$(sha256sum "$crd" | cut -d' ' -f1)" == "$crd_sha" ]] || die "$crd does not match its pinned sha256"
+[[ "$(sha256 "$crd")" == "$crd_sha" ]] || die "$crd does not match its pinned sha256"
 kc apply --server-side -f "$crd" >/dev/null
 ok "bootstrap applied; Gateway API CRDs applied"
 

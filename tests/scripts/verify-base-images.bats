@@ -180,6 +180,50 @@ SH
   [[ "$output" == *"mount.example/m/n@$D"*"classify it"* ]]
 }
 
+# A backslash continues an instruction on the next line; comment and empty lines inside are dropped (as by the builder).
+@test "a continued COPY --from is read as one instruction and named by its first line" {
+  : > unsigned.tsv
+  export BASE_IMAGES_UNSIGNED="$PWD/unsigned.tsv"
+  printf '%s\n' \
+    "FROM gcr.io/distroless/static-debian13@$D AS base" \
+    "COPY \\" \
+    "  # a comment inside" \
+    "" \
+    "  --from=ghcr.io/example/tool:1@$D /t /t" > Dockerfile.cont
+  run bash "$SCRIPT" --list Dockerfile.cont
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 2 ]
+  [[ "${lines[1]}" == "Dockerfile.cont"$'\t'"ghcr.io/example/tool:1@$D" ]]
+  run bash "$SCRIPT" Dockerfile.cont
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Dockerfile.cont:2: ghcr.io/example/tool:1@$D"*"classify it"* ]]
+}
+
+@test "a continued RUN --mount=from is read as one instruction" {
+  : > unsigned.tsv
+  export BASE_IMAGES_UNSIGNED="$PWD/unsigned.tsv"
+  printf '%s\n' \
+    "FROM gcr.io/distroless/static-debian13@$D" \
+    "RUN \\" \
+    "    --mount=type=bind,from=mount.example/m/n@$D,target=/m \\" \
+    "    true" > Dockerfile.cont
+  run bash "$SCRIPT" Dockerfile.cont
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Dockerfile.cont:2: mount.example/m/n@$D"*"classify it"* ]]
+}
+
+@test "a continued FROM is read as one instruction: its image is checked and its alias is a stage" {
+  printf '%s\n' \
+    "FROM \\" \
+    "  --platform=linux/amd64 \\" \
+    "  debian:13-slim AS build" \
+    "COPY --from=build /a /b" > Dockerfile.cont
+  run bash "$SCRIPT" Dockerfile.cont
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Dockerfile.cont:1: debian:13-slim is not pinned by digest"* ]]
+  [[ "$output" != *"build is"* ]]
+}
+
 @test "a COPY --from distroless image is verified" {
   echo "COPY --from=gcr.io/distroless/static-debian13@$D /a /b" > Dockerfile.copy
   run bash "$SCRIPT" Dockerfile.copy

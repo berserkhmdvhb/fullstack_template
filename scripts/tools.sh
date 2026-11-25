@@ -132,10 +132,8 @@ config_entry() { # tool key
   awk -v k="$1" '/^\[/ { t = ($0 == "[tools]" || $0 == "[tool_alias]"); next }
     t && !/^#/ && /=/ { key=$0; sub(/ *=.*/, "", key); gsub(/"/, "", key); if (key == k) print }' "$ROOT/mise.toml"
 }
-# sha256 of stdin or of the file given: GNU sha256sum, or shasum -a 256 where that is what there is (macOS).
-sha256() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi | cut -d' ' -f1
-}
+# shellcheck source=/dev/null
+source "$ROOT/scripts/_sha256.sh"
 stamp_of() { { lock_entry "$1"; config_entry "$1"; } | sha256; }
 
 # Unlink a mise tool and remove its install (and the download mise kept), inside mise's own directories only.
