@@ -10,6 +10,10 @@ Three pin sources are covered:
   * tools/pins.tsv (dev toolchain, read by scripts/tools.sh): the recorded sha256 must equal the
     vendor's published one for that exact version and url; `uv:` rows must have a hashed lock in
     tools/requirements/ pinning the same version whose hashes PyPI publishes.
+  * mise.toml and mise.lock (the rest of the dev toolchain, installed by scripts/tools.sh): the lock
+    must pin every tool at the version mise.toml says, with a sha256 for each locked platform. The
+    checksums come from mise itself (`mise lock`: the vendor's file, a signature or an attestation
+    where the recipe has one), so a refresh runs `mise lock` for both platforms when the lock lags.
   * infra/security/config.yaml (security scanners, read by the frozen tools-install.sh): that script
     reads the vendor checksum file at install time, so nothing is recorded; the check is that the
     vendor still publishes a checksum for the pinned version's asset.
@@ -33,6 +37,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -44,6 +49,8 @@ from typing import IO, NoReturn
 
 ROOT = Path(__file__).resolve().parent.parent
 HEX64 = re.compile(r"[0-9a-f]{64}")
+MISE_TOML = ROOT / "mise.toml"
+MISE_LOCK = ROOT / "mise.lock"
 # The documented regeneration command (tools/pins.tsv header), plus --quiet.
 # The pinned uv (tools/pins.tsv, installed by scripts/tools.sh) when present, like tools.sh itself.
 UV = str(ROOT / ".tools" / "bin" / "uv") if (ROOT / ".tools" / "bin" / "uv").is_file() else "uv"
@@ -73,82 +80,8 @@ USAGE = "usage: pins-refresh.sh [--check] [--base REF] [name...]"
 #   none       uv downloads and verifies it itself
 SOURCES: dict[str, tuple[str, str, str]] = {
     "mise": ("sumfile", "{dir}/SHASUMS256.txt", "https://github.com/jdx/mise/releases/download/"),
-    "helm3": ("sumfile", "{url}.sha256sum", "https://get.helm.sh/"),
-    "helm4": ("sumfile", "{url}.sha256sum", "https://get.helm.sh/"),
-    "uv": ("hashfile", "{url}.sha256", "https://github.com/astral-sh/uv/releases/download/"),
-    "kubectl": ("hashfile", "{url}.sha256", "https://dl.k8s.io/release/"),
-    "kubectl-floor": ("hashfile", "{url}.sha256", "https://dl.k8s.io/release/"),
-    "kind": (
-        "sumfile",
-        "{url}.sha256sum",
-        "https://github.com/kubernetes-sigs/kind/releases/download/",
-    ),
-    "kubeconform": (
-        "sumfile",
-        "{dir}/CHECKSUMS",
-        "https://github.com/yannh/kubeconform/releases/download/",
-    ),
-    "promtool": (
-        "sumfile",
-        "{dir}/sha256sums.txt",
-        "https://github.com/prometheus/prometheus/releases/download/",
-    ),
-    "ct": (
-        "sumfile",
-        "{dir}/checksums.txt",
-        "https://github.com/helm/chart-testing/releases/download/",
-    ),
-    "helm-unittest": (
-        "sumfile",
-        "{dir}/helm-unittest-checksum.sha",
-        "https://github.com/helm-unittest/helm-unittest/releases/download/",
-    ),
-    "actionlint": (
-        "sumfile",
-        "{dir}/actionlint_{ver}_checksums.txt",
-        "https://github.com/rhysd/actionlint/releases/download/",
-    ),
-    "hadolint": (
-        "sumfile",
-        "{dir}/checksums.sha256",
-        "https://github.com/hadolint/hadolint/releases/download/",
-    ),
-    "gitleaks": (
-        "sumfile",
-        "{dir}/gitleaks_{ver}_checksums.txt",
-        "https://github.com/gitleaks/gitleaks/releases/download/",
-    ),
-    "squawk": ("gh-digest", "", "https://github.com/sbdchd/squawk/releases/download/"),
-    "oasdiff": (
-        "sumfile",
-        "{dir}/checksums.txt",
-        "https://github.com/oasdiff/oasdiff/releases/download/",
-    ),
-    "cosign": (
-        "sumfile",
-        "{dir}/cosign_checksums.txt",
-        "https://github.com/sigstore/cosign/releases/download/",
-    ),
-    "kyverno": (
-        "sumfile",
-        "{dir}/checksums.txt",
-        "https://github.com/kyverno/kyverno/releases/download/",
-    ),
-    "yq": ("yq-columns", "{dir}/checksums", "https://github.com/mikefarah/yq/releases/download/"),
-    "bats": ("archive", "", "https://github.com/bats-core/bats-core/archive/refs/tags/"),
     "k8s-openapi": ("archive", "", "https://raw.githubusercontent.com/kubernetes/kubernetes/"),
     "kyverno-chart": ("archive", "", "https://kyverno.github.io/kyverno/"),
-    "shellcheck": ("gh-digest", "", "https://github.com/koalaman/shellcheck/releases/download/"),
-    "lychee": (
-        "hashfile",
-        "{url}.sha256",
-        "https://github.com/lycheeverse/lychee/releases/download/",
-    ),
-    "node": (
-        "sumfile",
-        "https://nodejs.org/dist/v{ver}/SHASUMS256.txt",
-        "https://nodejs.org/dist/",
-    ),
     "python": ("none", "", "uv:python"),
     "zizmor": ("uv", "", "uv:zizmor"),
     "schemathesis": ("uv", "", "uv:schemathesis"),
@@ -720,6 +653,61 @@ def run_lock(path: Path) -> bool:
     return bool(found)
 
 
+def mise_problems(config: str, lock: str) -> list[str]:
+    """Where mise.lock does not follow mise.toml: a tool at another version, without a sha256 for a
+    locked platform, missing, or no longer configured."""
+    cfg = tomllib.loads(config)
+    platforms = cfg["settings"]["lockfile_platforms"]
+    # A value is a version, or a table of options with the version in it.
+    wanted = {
+        key.removeprefix("core:"): (key, v["version"] if isinstance(v, dict) else v)
+        for key, v in cfg.get("tools", {}).items()
+    }
+    locked = tomllib.loads(lock).get("tools", {})
+    found = []
+    for short, (key, version) in wanted.items():
+        entry = (locked.get(short) or [{}])[0]
+        if not entry:
+            found.append(f"{key}: not in mise.lock")
+            continue
+        if entry.get("version") != version:
+            found.append(f"{key}: mise.toml pins {version}, mise.lock has {entry.get('version')}")
+        for platform in platforms:
+            sha = entry.get(f"platforms.{platform}", {}).get("checksum", "")
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", sha):
+                found.append(f"{key}: no sha256 for {platform} in mise.lock")
+    found += [f"{short}: in mise.lock, not in mise.toml" for short in locked if short not in wanted]
+    return found
+
+
+def mise_lock(platforms: list[str]) -> bool:
+    """Run the pinned mise's `mise lock` for these platforms (tools.sh drops every token)."""
+    cmd = [str(ROOT / "scripts/tools.sh"), "mise", "lock", "--platform", ",".join(platforms)]
+    return subprocess.run(cmd, check=False).returncode == 0  # noqa: S603
+
+
+def run_mise(*, check: bool) -> bool:
+    """Check mise.lock against mise.toml; refreshing runs `mise lock` first. True on a problem."""
+    config = MISE_TOML.read_text()
+    found = mise_problems(config, MISE_LOCK.read_text())
+    if not found:
+        out("ok mise.lock")
+        return False
+    if check:
+        for line in found:
+            out(f"DRIFT mise.lock: {line}")
+        return True
+    platforms = tomllib.loads(config)["settings"]["lockfile_platforms"]
+    out(f"UPDATED mise.lock: {len(found)} difference(s), running mise lock")
+    if not mise_lock(platforms):
+        out("ERROR mise.lock: mise lock failed")
+        return True
+    found = mise_problems(config, MISE_LOCK.read_text())
+    for line in found:
+        out(f"DRIFT mise.lock: {line}")
+    return bool(found)
+
+
 def run_crds(names: list[str], base: str, *, check: bool) -> tuple[bool, int]:
     """Check or update the CRD sources (the named ones, or the rows changed since `base`):
     (failed, how many were looked at). Rows that are unchanged since `base` are skipped, unless the
@@ -775,7 +763,8 @@ def main(argv: list[str]) -> int:
         failed = run_tool(name, version) or failed
     for path in locks:
         failed = run_lock(path) or failed
-    if not pins and not tools and not locks and not crds:
+    failed = (not names and run_mise(check=check)) or failed
+    if names and not pins and not tools and not locks and not crds:
         out("no pins to check")
     if new_text != text:
         pins_path.write_text(new_text)

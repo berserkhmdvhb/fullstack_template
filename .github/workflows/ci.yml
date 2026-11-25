@@ -48,29 +48,29 @@ jobs:
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
           changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
-          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|uv\.lock|Makefile|frontend/lib/api/|frontend/package[^/]*\.json$|\.github/|scripts/|infra/|tools/|deploy/|wiki/|\.devcontainer/|renovate\.json5$|\.pr_agent\.toml$|lychee\.toml$|release-please-config\.json$|\.release-please-manifest\.json$|docker-compose\.yml$|run_backend\.sh$|Dockerfile\.|\.dockerignore$|\.gitignore$|\.gitleaksignore$|\.env\.example$|\.pre-commit-config\.yaml$|(README|CONTRIBUTING|CONVENTIONS|SECURITY|CODE_OF_CONDUCT)\.md$|LICENSE$|charts/|agent/skills/|docs-site/(site\.json$|src/content/)|frontend/(\.node-version$|\.nvmrc$|static-paths\.ts$|lighthouserc\.json$|playwright\.config\.ts$|vitest(\.[a-z]+)?\.config\.ts$|e2e/a11y\.spec\.ts$))' <<<"$changed"; then
+          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|uv\.lock|Makefile|frontend/lib/api/|frontend/package[^/]*\.json$|\.github/|scripts/|infra/|tools/|deploy/|wiki/|\.devcontainer/|mise\.(toml|lock)$|renovate\.json5$|\.pr_agent\.toml$|lychee\.toml$|release-please-config\.json$|\.release-please-manifest\.json$|docker-compose\.yml$|run_backend\.sh$|Dockerfile\.|\.dockerignore$|\.gitignore$|\.gitleaksignore$|\.env\.example$|\.pre-commit-config\.yaml$|(README|CONTRIBUTING|CONVENTIONS|SECURITY|CODE_OF_CONDUCT)\.md$|LICENSE$|charts/|agent/skills/|docs-site/(site\.json$|src/content/)|frontend/(\.node-version$|\.nvmrc$|static-paths\.ts$|lighthouserc\.json$|playwright\.config\.ts$|vitest(\.[a-z]+)?\.config\.ts$|e2e/a11y\.spec\.ts$))' <<<"$changed"; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"
           fi
-          if grep -Eq '^(frontend/|Makefile|\.github/|scripts/|tools/)' <<<"$changed"; then
+          if grep -Eq '^(frontend/|Makefile|mise\.(toml|lock)$|\.github/|scripts/|tools/)' <<<"$changed"; then
             echo "frontend=true" >> "$GITHUB_OUTPUT"
           else
             echo "frontend=false" >> "$GITHUB_OUTPUT"
           fi
-          if grep -Eq '^(tools/pins\.tsv|tools/requirements/|infra/security/config\.yaml|charts/[^/]+/ci/crds/sources\.tsv|scripts/pins[-_]refresh\.|\.github/workflows/(reusable-pins|pins-drift)\.yml)' <<<"$changed"; then
+          if grep -Eq '^(tools/pins\.tsv|mise\.(toml|lock)$|tools/requirements/|infra/security/config\.yaml|charts/[^/]+/ci/crds/sources\.tsv|scripts/pins[-_]refresh\.|\.github/workflows/(reusable-pins|pins-drift)\.yml)' <<<"$changed"; then
             echo "pins=true" >> "$GITHUB_OUTPUT"
           else
             echo "pins=false" >> "$GITHUB_OUTPUT"
           fi
           # What the two Dockerfiles copy in, the Dockerfiles themselves and the check script.
-          if grep -Eq '^(Dockerfile\.|\.dockerignore|src/|pyproject\.toml|uv\.lock|alembic\.ini|README\.md|LICENSE|VERSION|frontend/|\.github/|scripts/|tools/)' <<<"$changed"; then
+          if grep -Eq '^(Dockerfile\.|\.dockerignore|src/|pyproject\.toml|uv\.lock|alembic\.ini|README\.md|LICENSE|VERSION|frontend/|mise\.(toml|lock)$|\.github/|scripts/|tools/)' <<<"$changed"; then
             echo "images=true" >> "$GITHUB_OUTPUT"
           else
             echo "images=false" >> "$GITHUB_OUTPUT"
           fi
           # What the kind job deploys and runs: the images' inputs, the chart, the bootstrap, the admission policies, its tests and the scripts and pins it runs.
-          if grep -Eq '^(Dockerfile\.|\.dockerignore|src/|pyproject\.toml|uv\.lock|alembic\.ini|README\.md|LICENSE|VERSION|frontend/|charts/|infra/k8s/|deploy/policies/|tests/(k8s|live|utils)/|tests/conftest\.py$|\.github/|scripts/|tools/|Makefile)' <<<"$changed"; then
+          if grep -Eq '^(Dockerfile\.|\.dockerignore|src/|pyproject\.toml|uv\.lock|alembic\.ini|README\.md|LICENSE|VERSION|frontend/|charts/|infra/k8s/|deploy/policies/|tests/(k8s|live|utils)/|tests/conftest\.py$|\.github/|scripts/|tools/|mise\.(toml|lock)$|Makefile)' <<<"$changed"; then
             echo "kind=true" >> "$GITHUB_OUTPUT"
           else
             echo "kind=false" >> "$GITHUB_OUTPUT"
@@ -78,7 +78,7 @@ jobs:
           # The docs site: its own inputs and every Markdown file (a loaded page links into any of them, #anchors
           # included), plus any deleted or renamed file, since a page may link a tracked file anywhere.
           gone="$(git diff --name-only --diff-filter=DR "$BASE_SHA" "$HEAD_SHA")"
-          if [[ -n "$gone" ]] || grep -Eq '^(docs-site/|tools/pins\.tsv|frontend/scripts/check-npm-version\.mjs|\.github/|scripts/)|\.md$' <<<"$changed"; then
+          if [[ -n "$gone" ]] || grep -Eq '^(docs-site/|tools/pins\.tsv|mise\.(toml|lock)$|frontend/scripts/check-npm-version\.mjs|\.github/|scripts/)|\.md$' <<<"$changed"; then
             echo "docs=true" >> "$GITHUB_OUTPUT"
           else
             echo "docs=false" >> "$GITHUB_OUTPUT"
@@ -158,7 +158,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools
-          key: tools-repo-shellcheck-bats-yq-kyverno-squawk-oasdiff-lychee-helm4-promtool-mise-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+          key: tools-repo-shellcheck-bats-yq-kyverno-squawk-oasdiff-lychee-helm4-promtool-mise-${{ runner.os }}-${{ hashFiles('tools/pins.tsv', 'mise.toml', 'mise.lock') }}
       - name: Install the pinned tools
         run: |
           scripts/tools.sh install shellcheck bats yq kyverno squawk oasdiff lychee helm4 promtool mise
@@ -167,7 +167,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools
-          key: tools-repo-shellcheck-bats-yq-kyverno-squawk-oasdiff-lychee-helm4-promtool-mise-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+          key: tools-repo-shellcheck-bats-yq-kyverno-squawk-oasdiff-lychee-helm4-promtool-mise-${{ runner.os }}-${{ hashFiles('tools/pins.tsv', 'mise.toml', 'mise.lock') }}
       - name: Shellcheck
         run: bash scripts/ci/shell-lint.sh
       - name: Secret templates
@@ -202,7 +202,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools
-          key: tools-hadolint-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+          key: tools-hadolint-${{ runner.os }}-${{ hashFiles('tools/pins.tsv', 'mise.toml', 'mise.lock') }}
       - name: Install hadolint
         run: |
           scripts/tools.sh install hadolint
@@ -211,7 +211,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools
-          key: tools-hadolint-${{ runner.os }}-${{ hashFiles('tools/pins.tsv') }}
+          key: tools-hadolint-${{ runner.os }}-${{ hashFiles('tools/pins.tsv', 'mise.toml', 'mise.lock') }}
       - name: hadolint
         run: bash scripts/ci/hadolint.sh
 
@@ -357,7 +357,7 @@ jobs:
           .tools/bin/helm lint charts/*/
       - id: pin
         if: steps.detect.outputs.template == 'true'
-        run: echo "node-version=$(awk -F'\t' '$1=="node"{print $2}' tools/pins.tsv)" >> "$GITHUB_OUTPUT"
+        run: echo "node-version=$(awk -F'"' '$2=="core:node"{print $4}' mise.toml)" >> "$GITHUB_OUTPUT"
       - if: steps.detect.outputs.template == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

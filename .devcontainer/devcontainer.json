@@ -1,5 +1,5 @@
 // Optional development container (wiki/getting-started.md, Development container). Every tool, Python and Node
-// included, comes from tools/pins.tsv through `make tools`, checksum-verified: nothing here restates a version.
+// included, comes from mise.toml and tools/pins.tsv through `make tools`, checksum-verified: nothing here restates a version.
 // The base is the kind job's runner OS (.github/workflows/reusable-kind.yml, runs-on). apt adds only what the
 // installer itself needs (make, and a python3 >= 3.12 to unpack archives safely). Docker-in-Docker gives kind a daemon
 // of its own inside the container; the feature runs the container privileged. Renovate's devcontainer manager moves

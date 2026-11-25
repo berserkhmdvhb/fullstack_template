@@ -31,7 +31,7 @@
 # Prefer the project virtualenv so package-backed targets (openapi-*, tests, ...) work
 # without manually `source .venv/bin/activate`; fall back to a system Python otherwise.
 PYTHON := $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else command -v python3 || command -v python; fi)
-# uv: the pinned binary from tools/pins.tsv (scripts/tools.sh install uv) when present, else the one on PATH.
+# uv: the pinned binary from mise.toml (scripts/tools.sh install uv) when present, else the one on PATH.
 UV := $(or $(wildcard .tools/bin/uv),uv)
 SERVICE := your_service_name
 # The project venv's tools (ruff, mypy, uvicorn) first, so make finds them without activating it.
@@ -290,7 +290,7 @@ docs-links:
 	  if (( $${#DOCS[@]} == 0 )); then echo "no tracked Markdown to check" >&2; exit 1; fi; \
 	  .tools/bin/lychee --config lychee.toml -- "$${DOCS[@]}"'
 
-# Pinned, checksum-verified dev toolchain in ./.tools (see tools/pins.tsv, scripts/tools.sh).
+# Pinned, checksum-verified dev toolchain in ./.tools (see mise.toml, tools/pins.tsv, scripts/tools.sh).
 # Put it first on PATH so every target uses the pinned tools when they are installed; helm finds
 # the pinned helm-unittest plugin through HELM_PLUGINS.
 export PATH := $(CURDIR)/.tools/bin:$(PATH)
@@ -303,7 +303,8 @@ tools:
 tools-dry-run:
 	@scripts/tools.sh --dry-run install
 
-# Write the vendor-published checksums into tools/pins.tsv (and regenerate the hashed locks) after a version bump.
+# After a version bump: write the vendor checksums into tools/pins.tsv, regenerate the hashed locks and run
+# `mise lock` for both platforms when mise.lock lags mise.toml.
 pins-refresh:
 	@scripts/pins-refresh.sh
 
@@ -351,7 +352,7 @@ precommit:
 	.tools/bin/pre-commit run --all-files
 
 # The chart's helm-unittest suites (charts/your-service-name/tests), run by the pinned plugin
-# (tools/pins.tsv; scripts/tools.sh install helm-unittest; found through HELM_PLUGINS above).
+# (mise.toml; scripts/tools.sh install helm-unittest; found through HELM_PLUGINS above).
 chart-unittest:
 	helm unittest charts/your-service-name
 

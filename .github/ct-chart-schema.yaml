@@ -1,4 +1,4 @@
-# Chart.yaml schema for ct lint: chart-testing 3.15.0 etc/chart_schema.yaml, unchanged (the ct pin is in tools/pins.tsv).
+# Chart.yaml schema for ct lint: chart-testing 3.15.0 etc/chart_schema.yaml, unchanged (the ct pin is in mise.toml).
 name: str()
 home: str(required=False)
 version: str()

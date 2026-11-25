@@ -33,9 +33,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The one Node version: the tools/pins.tsv row, as in the setup-frontend action.
+      # The one Node version: the mise.toml entry, as in the setup-frontend action.
       - id: pin
-        run: echo "node-version=$(awk -F'\t' '$1=="node"{print $2}' tools/pins.tsv)" >> "$GITHUB_OUTPUT"
+        run: echo "node-version=$(awk -F'"' '$2=="core:node"{print $4}' mise.toml)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ steps.pin.outputs.node-version }}

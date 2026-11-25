@@ -6,13 +6,17 @@
 #        scripts/tools.sh list                            show the pins for this platform
 #        scripts/tools.sh mise [args...]                  run the pinned mise (below) from the repository root
 #
-# Every download goes to a temp file, is checked against the sha256 in tools/pins.tsv, and only
-# then extracted. A mismatch aborts before anything lands in .tools. Python tools install from
-# hash-pinned requirements (tools/requirements/<name>.txt) into their own venv.
+# Most tools are installed by mise: `mise install --locked` from mise.toml and mise.lock (a sha256 per platform,
+# and the vendor's signature or attestation where its recipe has one), then checked as a tree (scripts/safe_extract.py
+# --check) and linked into .tools/bin. A mismatch or a failed check links nothing and exits non-zero. The rows left in
+# tools/pins.tsv (mise itself, Python, the uv tools, two data files) download to a temp file, are checked against the
+# sha256 in that file, and only then extracted. Python tools install from hash-pinned requirements
+# (tools/requirements/<name>.txt) into their own venv.
 # mise (the first pin) is repo-local and hermetic: its data, cache, state and config live under $TOOLS_DIR/mise, the
 # user's global and system config and every parent directory's config are out of reach, and no GitHub token or usage
 # report is used. The project settings are in mise.toml.
 # Sibling of infra/security/tools-install.sh (security scanners); this one is for developer tools.
+# uv keeps its cache and its Pythons under $TOOLS_DIR/uv, so nothing is written outside the repository.
 # Env overrides (used by the tests): PINS, TOOLS_DIR, TOOLS_PROTO (curl --proto, default =https).
 set -Eeuo pipefail
 
@@ -21,9 +25,9 @@ PINS="${PINS:-$ROOT/tools/pins.tsv}"
 REQS="${REQS:-$ROOT/tools/requirements}"
 TOOLS_DIR="${TOOLS_DIR:-$ROOT/.tools}"
 DRY_RUN=false # only --dry-run sets it
-# Pins whose verified download is also kept, in $TOOLS_DIR/downloads/<name>-<version>-<file>:
-# tests/supply_chain/test_tools_pins.py reinstalls the real Node tarball from it, offline.
-KEEP_DOWNLOAD="node"
+# The tools mise installs, in install order (uv before the Python tools that use it).
+MISE_TOOLS="node uv helm3 helm4 kubectl kubectl-floor kind kubeconform promtool ct helm-unittest actionlint hadolint
+  gitleaks squawk oasdiff cosign kyverno yq bats shellcheck lychee"
 TMP="" PART=""
 
 # The environment every mise run gets; it overrides whatever the caller has set.
@@ -35,6 +39,7 @@ export MISE_GLOBAL_CONFIG_FILE="$TOOLS_DIR/mise/no-global.toml" MISE_SYSTEM_CONF
 ABOVE_ROOT="$(dirname "$ROOT")"
 export MISE_CEILING_PATHS="$ABOVE_ROOT" MISE_OVERRIDE_CONFIG_FILENAMES=mise.toml
 export MISE_TRUSTED_CONFIG_PATHS="$ROOT" MISE_GITHUB_GH_CLI_TOKENS=false
+export UV_CACHE_DIR="$TOOLS_DIR/uv/cache" UV_PYTHON_INSTALL_DIR="$TOOLS_DIR/uv/python"
 unset GITHUB_TOKEN GITHUB_API_TOKEN GH_TOKEN MISE_GITHUB_TOKEN MISE_GITHUB_ENTERPRISE_TOKEN
 
 die() { echo "tools: $*" >&2; exit 1; }
@@ -52,22 +57,95 @@ run() {
   if [[ "$DRY_RUN" == "true" ]]; then echo "  -> $*"; else "$@"; fi
 }
 
-# Executable path(s) inside the unpacked artifact: "<relpath>:<link name>" (VER is the pinned version).
+# Executable path(s) inside the unpacked artifact of a pins.tsv row: "<relpath>:<link name>".
 exes_for() {
   case "$1" in
-    helm3) echo "linux-amd64/helm:helm3" ;;
-    helm4) echo "linux-amd64/helm:helm4" ;;
-    yq) echo "yq_linux_amd64:yq" ;;
-    promtool) echo "prometheus-$VER.linux-amd64/promtool:promtool" ;;
-    bats) echo "bats-core-$VER/bin/bats:bats" ;;
-    shellcheck) echo "shellcheck-v$VER/shellcheck:shellcheck" ;;
-    node) echo "node-v$VER-linux-x64/bin/node:node node-v$VER-linux-x64/bin/npm:npm node-v$VER-linux-x64/bin/npx:npx" ;;
     mise) echo "mise/bin/mise:mise" ;;
-    uv) echo "uv-x86_64-unknown-linux-gnu/uv:uv uv-x86_64-unknown-linux-gnu/uvx:uvx" ;;
-    lychee) echo "lychee-x86_64-unknown-linux-gnu/lychee:lychee" ;;
-    helm-unittest|k8s-openapi|kyverno-chart) echo "" ;; # a plugin dir, and data (kubeconform.sh and the kind admission test read them)
+    k8s-openapi|kyverno-chart) echo "" ;; # data (kubeconform.sh and the kind admission test read them)
     *) echo "$1:$1" ;;
   esac
+}
+
+# What mise installs, per name: "<tool in mise.toml> <executable>[:<link name>]...". The name is what workflows pass to
+# `install` and what lands in .tools/bin (helm3, helm4 and kubectl-floor are links to the one `helm` and `kubectl` each
+# provides); "-" is a Helm plugin directory, linked into the plugin directory.
+mise_spec() {
+  case "$1" in
+    node) echo "core:node node npm npx" ;;
+    uv) echo "aqua:astral-sh/uv uv uvx" ;;
+    helm3) echo "helm3 helm:helm3" ;;
+    helm4) echo "helm4 helm:helm4" ;;
+    kubectl) echo "aqua:kubernetes/kubernetes/kubectl kubectl" ;;
+    kubectl-floor) echo "kubectl-floor kubectl:kubectl-floor" ;;
+    kind) echo "aqua:kubernetes-sigs/kind kind" ;;
+    kubeconform) echo "aqua:yannh/kubeconform kubeconform" ;;
+    promtool) echo "github:prometheus/prometheus promtool" ;;
+    ct) echo "aqua:helm/chart-testing ct" ;;
+    helm-unittest) echo "github:helm-unittest/helm-unittest -" ;;
+    actionlint) echo "aqua:rhysd/actionlint actionlint" ;;
+    hadolint) echo "aqua:hadolint/hadolint hadolint" ;;
+    gitleaks) echo "aqua:gitleaks/gitleaks gitleaks" ;;
+    squawk) echo "github:sbdchd/squawk squawk" ;;
+    oasdiff) echo "github:oasdiff/oasdiff oasdiff" ;;
+    cosign) echo "aqua:sigstore/cosign cosign" ;;
+    kyverno) echo "aqua:kyverno/kyverno kyverno" ;;
+    yq) echo "aqua:mikefarah/yq yq" ;;
+    bats) echo "aqua:bats-core/bats-core bats" ;;
+    shellcheck) echo "aqua:koalaman/shellcheck shellcheck" ;;
+    lychee) echo "aqua:lycheeverse/lychee lychee" ;;
+    *) return 1 ;;
+  esac
+}
+
+is_mise_tool() { [[ " ${MISE_TOOLS//$'\n'/ } " == *" $1 "* ]]; }
+
+mise_version() { # tool key -> its version in mise.toml [tools]
+  awk -v k="$1" '/^\[/ {t = ($0 == "[tools]"); next}
+    t && !/^#/ && /=/ { key=$0; sub(/ *=.*/, "", key); gsub(/"/, "", key)
+      if (key != k) next
+      v=$0; sub(/^[^=]*= */, "", v)
+      if (v ~ /^\{/) { match(v, /version *= *"[^"]*"/); v=substr(v, RSTART, RLENGTH); sub(/^version *= *"/, "", v); sub(/"$/, "", v) }
+      else gsub(/[" ]/, "", v)
+      print v; exit }' "$ROOT/mise.toml"
+}
+
+mise_run() { (cd "$ROOT" && "$TOOLS_DIR/bin/mise" "$@"); }
+
+# Install the named tools with the pinned mise, locked; check each installed tree; only then link anything.
+install_mise_tools() { # names...
+  local name key exes pair exe link bp found keys=() dirs=()
+  for name in "$@"; do
+    read -r key exes <<<"$(mise_spec "$name")"
+    keys+=("$key")
+    echo "==> $name $(mise_version "$key") (mise, locked)"
+  done
+  if [[ "$DRY_RUN" == "true" ]]; then
+    echo "  -> mise install --locked ${keys[*]}"
+    echo "  -> check each installed tree, then link into $TOOLS_DIR/bin"
+    return
+  fi
+  [[ -x "$TOOLS_DIR/bin/mise" ]] || die "mise is not installed; run: scripts/tools.sh install mise"
+  mise_run install --locked "${keys[@]}" || die "mise install failed; nothing was linked"
+  for key in "${keys[@]}"; do dirs+=("$(mise_run where "$key")"); done
+  NAME=mise-tools
+  "$(safe_python)" -I "$ROOT/scripts/safe_extract.py" --check "${dirs[@]}" || die "an installed tool failed the tree check; nothing was linked"
+  mkdir -p "$TOOLS_DIR/bin"
+  for name in "$@"; do
+    read -r key exes <<<"$(mise_spec "$name")"
+    if [[ "$exes" == "-" ]]; then
+      mkdir -p "$TOOLS_DIR/helm-plugins"
+      ln -sfn "$(mise_run where "$key")" "$TOOLS_DIR/helm-plugins/$name"
+      continue
+    fi
+    for pair in $exes; do
+      exe="${pair%%:*}"; link="${pair##*:}"; found=""
+      for bp in $(mise_run bin-paths "$key"); do
+        [[ -x "$bp/$exe" ]] && { found="$bp/$exe"; break; }
+      done
+      [[ -n "$found" ]] || die "$name: '$exe' not found in what mise installed"
+      ln -sfn "$found" "$TOOLS_DIR/bin/$link"
+    done
+  done
 }
 
 # Entry points a Python tool's venv exposes in .tools/bin.
@@ -146,34 +224,16 @@ install_uv() { # pkg
   done
 }
 
-keep_download() { # verified-file kept-path
-  mkdir -p "${2%/*}"
-  cp "$1" "$2.part" && mv "$2.part" "$2"
-}
-
 install_pin() { # uses NAME VER URL SHA
-  local dest file kept
+  local dest file
   case "$URL" in
     uv:python)
       run env UV_PYTHON_BIN_DIR="$TOOLS_DIR/bin" uv python install "$VER"; return ;;
     uv:*) install_uv "${URL#uv:}"; return ;;
   esac
   dest="$TOOLS_DIR/opt/$NAME-$VER"
-  kept="$TOOLS_DIR/downloads/$NAME-$VER-${URL##*/}"
   if [[ -d "$dest" && "$DRY_RUN" != "true" ]]; then
     echo "$NAME $VER already installed"
-    # Installed before its download was kept: fetch and verify that download now, against the same pin.
-    if [[ " $KEEP_DOWNLOAD " == *" $NAME "* && ! -f "$kept" ]]; then
-      echo "==> $NAME $VER: keeping the verified download ($URL)"
-      TMP="$(mktemp -d)"
-      file="$TMP/${URL##*/}"
-      curl -fsSL --retry 3 --retry-connrefused --connect-timeout 15 --speed-limit 1024 --speed-time 30 \
-        --proto "${TOOLS_PROTO:-=https}" --proto-redir =https -o "$file" "$URL"
-      verify "$file" "$SHA"
-      keep_download "$file" "$kept"
-      rm -rf "$TMP"
-      TMP=""
-    fi
   else
     echo "==> $NAME $VER ($URL)"
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -184,7 +244,6 @@ install_pin() { # uses NAME VER URL SHA
       curl -fsSL --retry 3 --retry-connrefused --connect-timeout 15 --speed-limit 1024 --speed-time 30 \
         --proto "${TOOLS_PROTO:-=https}" --proto-redir =https -o "$file" "$URL"
       verify "$file" "$SHA"
-      [[ " $KEEP_DOWNLOAD " != *" $NAME "* ]] || keep_download "$file" "$kept"
       PART="$dest.part"
       rm -rf "$PART"
       mkdir -p "$PART"
@@ -199,14 +258,8 @@ install_pin() { # uses NAME VER URL SHA
       TMP=""
     fi
   fi
-  if [[ "$NAME" == helm-unittest ]]; then
-    run mkdir -p "$TOOLS_DIR/helm-plugins"
-    run ln -sfn "$dest" "$TOOLS_DIR/helm-plugins/helm-unittest"
-  else
-    run mkdir -p "$TOOLS_DIR/bin"
-    link_exes "$dest"
-    [[ "$NAME" != uv ]] || use_pinned_uv
-  fi
+  run mkdir -p "$TOOLS_DIR/bin"
+  link_exes "$dest"
 }
 
 # split_row LINE: set NAME VER PLAT URL SHA from exactly five tab-separated, non-empty fields.
@@ -222,7 +275,7 @@ split_row() {
 }
 
 cmd_install() {
-  local wanted=" $* " found=" " line helm_default n NAME VER PLAT URL SHA
+  local wanted=" $* " found=" " line helm_default n pass NAME VER PLAT URL SHA tools=()
   [[ -r "$PINS" ]] || die "cannot read $PINS"
   use_pinned_uv
   # A named Python tool needs the pinned uv: install it first when it is not there yet.
@@ -230,15 +283,29 @@ cmd_install() {
     && awk -F'\t' -v w="$wanted" '!/^#/ && index(w, " " $1 " ") && $4 ~ /^uv:/ {f=1} END {exit !f}' "$PINS"; then
     wanted+="uv "
   fi
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ -z "$line" || "$line" == \#* ]] && continue
-    split_row "$line"
-    [[ "$PLAT" == any || "$PLAT" == "$PLATFORM" ]] || continue
-    [[ $# -eq 0 || "$wanted" == *" $NAME "* ]] || continue
-    found+="$NAME "
-    [[ "$URL" == uv:* || "$SHA" =~ ^[0-9a-f]{64}$ ]] || die "$NAME: pin has no sha256"
-    install_pin
-  done < "$PINS"
+  for n in $MISE_TOOLS; do
+    [[ $# -eq 0 || "$wanted" == *" $n "* ]] && tools+=("$n")
+  done
+  # Installing a mise tool installs mise first, from its row.
+  [[ ${#tools[@]} -eq 0 ]] || wanted+="mise "
+  found+="${tools[*]} "
+  # Pass 1 is the mise row, then the mise tools, then the other rows (the uv tools need the pinned uv).
+  for pass in mise rest; do
+    if [[ "$pass" == rest && ${#tools[@]} -gt 0 ]]; then
+      install_mise_tools "${tools[@]}"
+      use_pinned_uv
+    fi
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ -z "$line" || "$line" == \#* ]] && continue
+      split_row "$line"
+      [[ "$PLAT" == any || "$PLAT" == "$PLATFORM" ]] || continue
+      [[ "$NAME" == mise && "$pass" == mise || "$NAME" != mise && "$pass" == rest ]] || continue
+      [[ $# -eq 0 || "$wanted" == *" $NAME "* ]] || continue
+      found+="$NAME "
+      [[ "$URL" == uv:* || "$SHA" =~ ^[0-9a-f]{64}$ ]] || die "$NAME: pin has no sha256"
+      install_pin
+    done < "$PINS"
+  done
   # crd-sources: the upstream CRDs pinned with their sha256 in charts/your-service-name/ci/crds/sources.tsv,
   # cached in $TOOLS_DIR/crd-sources (scripts/ci/kube_schemas.py checks each digest; a mismatch is refused).
   # The CRD schema check and its test read only that cache. Named only (`make tools` names it), so a
@@ -257,8 +324,13 @@ cmd_install() {
   if [[ "$DRY_RUN" == "true" ]]; then echo "dry-run: nothing was installed"; else echo "done: tools in $TOOLS_DIR/bin"; fi
 }
 
-cmd_list() {
+cmd_list() { # name version [mise tool]
+  local n key
   awk -F'\t' -v p="$PLATFORM" '!/^#/ && NF && ($3=="any" || $3==p) {print $1, $2}' "$PINS"
+  for n in $MISE_TOOLS; do
+    read -r key _ <<<"$(mise_spec "$n")"
+    echo "$n $(mise_version "$key") $key"
+  done
 }
 
 # mise gets every argument as given (its own --dry-run included), so it is handled before the filter below.

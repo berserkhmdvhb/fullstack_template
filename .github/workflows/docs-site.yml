@@ -10,7 +10,8 @@ on:
       - docs-site/**
       - wiki/**
       - CONTRIBUTING.md
-      - tools/pins.tsv
+      - mise.toml
+      - mise.lock
       - frontend/scripts/check-npm-version.mjs
       - .github/workflows/docs-site.yml
       - .github/workflows/reusable-docs-site.yml

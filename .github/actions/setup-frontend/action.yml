@@ -1,18 +1,18 @@
 name: Set up the frontend
 description: >-
-  Install Node and the frontend dependencies. The Node version is read from tools/pins.tsv, the single
+  Install Node and the frontend dependencies. The Node version is read from mise.toml, the single
   source of tool versions; the npm cache is keyed on frontend/package-lock.json. No inputs. Output
   node-version is the version installed.
 outputs:
   node-version:
-    description: The Node version taken from tools/pins.tsv.
+    description: The Node version taken from mise.toml.
     value: ${{ steps.pin.outputs.node-version }}
 runs:
   using: composite
   steps:
     - id: pin
       shell: bash
-      run: echo "node-version=$(awk -F'\t' '$1=="node"{print $2}' tools/pins.tsv)" >> "$GITHUB_OUTPUT"
+      run: echo "node-version=$(awk -F'"' '$2=="core:node"{print $4}' mise.toml)" >> "$GITHUB_OUTPUT"
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: ${{ steps.pin.outputs.node-version }}

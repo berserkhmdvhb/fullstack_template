@@ -55,7 +55,7 @@
 #   --timeout        each upgrade's --wait (default 9m)
 #   --dry-run        check everything and print the steps and the objects it would keep; change nothing
 #   --yes            no confirmation (needed without a terminal)
-# Needs helm, kubectl, jq and the pinned yq (tools/pins.tsv), and cluster-admin rights in that context.
+# Needs helm, kubectl, jq and the pinned yq (mise.toml), and cluster-admin rights in that context.
 # ===========================================================================
 set -Eeuo pipefail
 shopt -s inherit_errexit
@@ -112,7 +112,7 @@ done
   die "pass the values the deploy passes (--values, --set), or --env-values-only if values.$ENV_NAME.yaml is all of them" 2
 
 for tool in helm kubectl jq yq; do command -v "$tool" >/dev/null 2>&1 || die "$tool is required"; done
-# The keep set below is computed with yq: only the pinned one (tools/pins.tsv), whose output it knows.
+# The keep set below is computed with yq: only the pinned one (mise.toml), whose output it knows.
 # shellcheck source=/dev/null
 source "$ROOT/scripts/_yq.sh"
 pinned_yq "$ROOT" || exit 1

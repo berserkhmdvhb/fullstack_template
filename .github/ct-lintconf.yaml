@@ -1,4 +1,4 @@
-# yamllint config for the chart: chart-testing 3.15.0 etc/lintconf.yaml, unchanged (the ct pin is in tools/pins.tsv).
+# yamllint config for the chart: chart-testing 3.15.0 etc/lintconf.yaml, unchanged (the ct pin is in mise.toml).
 ---
 rules:
   braces:

@@ -1,6 +1,6 @@
 name: Set up the backend
 description: >-
-  Install Python, the pinned uv (tools/pins.tsv) and the backend from uv.lock with the dev group, with the uv
+  Install Python, the pinned uv (mise.toml) and the backend from uv.lock with the dev group, with the uv
   cache dir keyed on uv.lock. A stale uv.lock fails the job. The environment is .venv (callers use .venv/bin/<tool>, or make, which does).
   Input python-version (default 3.13). No outputs.
 inputs:

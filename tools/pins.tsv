@@ -1,54 +1,34 @@
-# Pinned dev toolchain, read by scripts/tools.sh (make tools).
+# Pinned dev toolchain, rows left after the move to mise, read by scripts/tools.sh (make tools).
 # Columns (tab-separated): name  version  platform  url  sha256
 #
+# Most tools are in mise.toml and mise.lock (mise install --locked, a sha256 per platform for linux-x64 and macos-arm64,
+# plus a signature or attestation where the vendor publishes one): Node, uv, Helm 3 and 4, both kubectls, kind,
+# kubeconform, promtool, ct, helm-unittest, actionlint, hadolint, gitleaks, squawk, oasdiff, cosign, kyverno, yq,
+# bats, shellcheck, lychee. Renovate moves those; `make pins-refresh` re-locks them. What stays here is what mise
+# cannot verify as well as today or does not manage: mise itself (the bootstrap), Python and the uv tools (hash-pinned
+# requirements), and two data files.
+#
 # Rule: a pin is the newest stable release published at least 7 days before it was pinned
-# (Renovate minimumReleaseAge). Pinned on 2026-11-20. The sha256 comes from the vendor's checksum
-# file (helm: <asset>.sha256sum; node: SHASUMS256.txt; kind, kubeconform, promtool (sha256sums.txt), ct, helm-unittest,
-# actionlint, hadolint, gitleaks, oasdiff, cosign, kyverno: the release checksum file; uv, lychee: the <asset>.sha256 beside the asset; yq: the sha256 column of
-# the release `checksums`). squawk and shellcheck publish no checksum file: their sha256 is the GitHub
-# release-asset digest, confirmed against the downloaded bytes. bats is the GitHub tag archive (no
-# vendor checksum exists), hashed on download; a changed archive is refused.
-# mise: the tool manager that is taking over the dev toolchain. Its sha256 is the release's SHASUMS256.txt. The
+# (Renovate minimumReleaseAge). Pinned on 2026-11-20.
+# mise: the tool manager that installs the rest. Its sha256 is the release's SHASUMS256.txt. The
 # release also ships SHASUMS256.txt.minisig (minisign) and SHASUMS256.asc (OpenPGP); neither is checked here, because
 # checking either needs a minisign or gpg binary that the toolchain does not have before it has installed mise.
 # The mise row is first and is installed first; .tools/bin/mise runs with the repo-local settings in mise.toml (see scripts/tools.sh).
 mise	2026.11.9	linux-amd64	https://github.com/jdx/mise/releases/download/v2026.11.9/mise-v2026.11.9-linux-x64.tar.gz	23ba592fcbc61f057e2b82c1eafd085832712ba0c759b714ca16cd06babca378
 mise	2026.11.9	darwin-arm64	https://github.com/jdx/mise/releases/download/v2026.11.9/mise-v2026.11.9-macos-arm64.tar.gz	e4509f159e0492e89065edcf52f2918e2751e3574620586058468ba0563aed59
-# The uv row comes first of the tools: scripts/tools.sh installs it to .tools/bin/uv, and every uv:<pkg> row below uses it.
-# The backend image copies uv from the official image at the same version (a test keeps the two equal).
+
 # Rows with url uv:<pkg> are Python tools. Each is installed into its own venv,
 # .tools/uv-tools/<name>, with `uv pip install --require-hashes -r tools/requirements/<name>.txt`
 # (every transitive dependency hash-pinned; `make pins-refresh` regenerates a lock in place with
 # `uv pip compile --generate-hashes --no-header --python-version 3.13 --python-platform x86_64-unknown-linux-gnu`
 # plus `--exclude-newer` (now minus 7 days) and pyyaml held at the version in tools/requirements/pyyaml.txt),
-# on the pinned `python` row.
+# on the pinned `python` row. mise's pipx backend does not hash-pin transitive dependencies, so these stay.
 # Their sha256 column is `-` because the hashes live in the requirements file. yamale and yamllint
-# are what `ct lint` shells out to. `uv:python` runs `uv python install <version>` (uv's own cache);
-# uv verifies that download with its built-in checksums, which is accepted here.
-# Node: the Active LTS (26.x). This row is the one source: frontend/.nvmrc, frontend/.node-version, the builder
-# image in Dockerfile.frontend, the runtime image major, engines.node and packageManager
-# are each locked to it by tests/supply_chain/test_frontend_image.py. packageManager names the npm bundled with
-# this Node; frontend/scripts/check-npm-version.mjs fails every frontend CI job and both image builds if the npm
-# that runs differs.
+# are what `ct lint` shells out to. `uv:python` runs `uv python install <version>` (uv's own download, kept under
+# .tools/uv); uv verifies that download with its built-in checksums, which is accepted here.
+# The pinned uv itself is in mise.toml; the backend image copies it from the official image at the same version (a test keeps the two equal).
 #
-# Adding darwin-arm64: copy each linux-amd64 row, set platform to darwin-arm64, point the url at the
-# vendor's darwin/arm64 asset, take its sha256 from the same vendor checksum file, and add the
-# asset's executable path to the case in scripts/tools.sh if its layout differs.
-#
-# kubectl (bare binary from dl.k8s.io, sha256 from <binary>.sha256 beside it): must stay within one
-# minor version of the cluster (the Kubernetes version-skew policy); change the pin when the cluster moves.
-# kubectl-floor is a second kubectl at the chart's kubeVersion floor, for the kind job's floor leg
-# (tools/kind-nodes.tsv names the kubectl of each leg); it installs as .tools/bin/kubectl-floor.
-#
-# k8s-openapi is data, not a tool: the Kubernetes OpenAPI spec at a release tag, which
-# scripts/ci/kubeconform.sh turns into the JSON schemas it validates against, offline. Its version is
-# the chart's kubeVersion floor (Chart.yaml), newest patch of that minor; move it with the floor. No
-# vendor checksum exists: hashed on download, and a changed file is refused.
-#
-uv	0.13.8	linux-amd64	https://github.com/astral-sh/uv/releases/download/0.13.8/uv-x86_64-unknown-linux-gnu.tar.gz	5acfd9177cfecf0bf87578f059728215ccc884388988f55f7a65041b57387d91
-
-# Helm major: see the default-helm line. Both majors are installed
-# (helm3, helm4); `helm` links to the default.
+# Helm major: see the default-helm line. Both majors are installed (helm3, helm4, in mise.toml); `helm` links to the default.
 #default-helm: 4
 # Reason: with Helm 4.3.2 and 3.22.1 against the chart and no cluster, `helm lint`,
 # `helm template | kubeconform -strict` (33 resources valid) and `helm unittest` pass on both majors,
@@ -56,34 +36,16 @@ uv	0.13.8	linux-amd64	https://github.com/astral-sh/uv/releases/download/0.13.8/u
 # yamllint "braces" findings in the chart's values.yaml (a chart issue, not a Helm-major difference); it passes now. Helm 4 is the current line (and what the owner's
 # machine runs), so the template targets it; helm3 stays installed to prove the chart still renders
 # on 3.x. The helm3 pin only has to render the chart.
-helm3	3.22.1	linux-amd64	https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz	896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea
-helm4	4.3.2	linux-amd64	https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz	d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983
-kubectl	1.37.2	linux-amd64	https://dl.k8s.io/release/v1.37.2/bin/linux/amd64/kubectl	c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4
-kubectl-floor	1.34.13	linux-amd64	https://dl.k8s.io/release/v1.34.13/bin/linux/amd64/kubectl	b4bb494e9466a7a94bb851414548bc0d3e2f8da90757e6eccc3371e648648591
-kind	0.33.0	linux-amd64	https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64	aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
-kubeconform	0.8.0	linux-amd64	https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz	9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
-# promtool: the Prometheus release archive; only its promtool is linked (make rules-test checks the chart's rules).
-promtool	3.16.0	linux-amd64	https://github.com/prometheus/prometheus/releases/download/v3.16.0/prometheus-3.16.0.linux-amd64.tar.gz	68727009472a2c02e1ff7f062fd5b3e637285bffc8fc2d340c76fb449d6e0f34
-k8s-openapi	1.34.13	any	https://raw.githubusercontent.com/kubernetes/kubernetes/v1.34.13/api/openapi-spec/swagger.json	d3b0cdc2fda15c753206d25ab459dc7c12df64e2fd652b6809687471ea751c37
-ct	3.15.0	linux-amd64	https://github.com/helm/chart-testing/releases/download/v3.15.0/chart-testing_3.15.0_linux_amd64.tar.gz	467561730f25fe09d5e6cd09a3e1f6aa759871c657a57602947c716d9be2c583
-helm-unittest	1.2.1	linux-amd64	https://github.com/helm-unittest/helm-unittest/releases/download/v1.2.1/helm-unittest-linux-amd64-1.2.1.tgz	48e86ecc1467b009630e5954375e5d8494139f73b466df5fe8c04fa45b634939
-actionlint	1.7.12	linux-amd64	https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz	8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
-hadolint	2.15.1	linux-amd64	https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64	c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
-gitleaks	8.30.1	linux-amd64	https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz	551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-squawk	2.72.0	linux-amd64	https://github.com/sbdchd/squawk/releases/download/v2.72.0/squawk-linux-x64	a61661808119a82515565503111099b070c869f73698f61cb1785de5d0c8b11a
-oasdiff	1.37.0	linux-amd64	https://github.com/oasdiff/oasdiff/releases/download/v1.37.0/oasdiff_1.37.0_linux_amd64.tar.gz	eac87307d31d08c36800c58a409c247f1c5db37fbb72e2544402f22a87cbca3c
-cosign	3.1.4	linux-amd64	https://github.com/sigstore/cosign/releases/download/v3.1.4/cosign-linux-amd64	424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa
-kyverno	1.20.0	linux-amd64	https://github.com/kyverno/kyverno/releases/download/v1.20.0/kyverno-cli_v1.20.0_linux_x86_64.tar.gz	06b8f3ca7b5626473be8fb4d343ad54ab84e317142766f72420e7d44b80942e2
-# kyverno-chart is data, not a tool: the Helm chart of the Kyverno release matching the CLI above, which
+#
+# k8s-openapi is data, not a tool: the Kubernetes OpenAPI spec at a release tag, which
+# scripts/ci/kubeconform.sh turns into the JSON schemas it validates against, offline. Its version is
+# the chart's kubeVersion floor (Chart.yaml), newest patch of that minor; move it with the floor. No
+# vendor checksum exists: hashed on download, and a changed file is refused.
+# kyverno-chart is data, not a tool: the Helm chart of the Kyverno release matching the CLI in mise.toml, which
 # tests/k8s/test_admission.py installs on kind (chart 3.10 is Kyverno 1.20; move the two together). Its sha256 is the
 # digest the chart repository's index.yaml lists, confirmed against the downloaded bytes; hashed on download.
+k8s-openapi	1.34.13	any	https://raw.githubusercontent.com/kubernetes/kubernetes/v1.34.13/api/openapi-spec/swagger.json	d3b0cdc2fda15c753206d25ab459dc7c12df64e2fd652b6809687471ea751c37
 kyverno-chart	3.10.0	any	https://kyverno.github.io/kyverno/kyverno-3.10.0.tgz	55961392dc0821eb367323f0e9585c061dd4407ef7ada921bd56ea1642c2a301
-yq	4.54.3	linux-amd64	https://github.com/mikefarah/yq/releases/download/v4.54.3/yq_linux_amd64.tar.gz	09a25baa0e136b8633949e03117fc82cb9e50d10910f988ef17a1305539ebce4
-bats	1.14.0	linux-amd64	https://github.com/bats-core/bats-core/archive/refs/tags/v1.14.0.tar.gz	bb537b70b15b732f6d8827dd6578e3d8ce166636ce1f18ea9a074184fcce9177
-shellcheck	0.11.0	linux-amd64	https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz	b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
-# lychee: the offline doc link check (make docs-links, the repo job in ci.yml). Its tags are lychee-v<version>.
-lychee	0.24.2	linux-amd64	https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz	1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a
-node	26.13.1	linux-amd64	https://nodejs.org/dist/v26.13.1/node-v26.13.1-linux-x64.tar.xz	5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864
 python	3.13	any	uv:python	-
 zizmor	1.32.0	any	uv:zizmor	-
 schemathesis	4.33.4	any	uv:schemathesis	-

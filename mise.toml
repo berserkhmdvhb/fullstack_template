@@ -1,6 +1,7 @@
-# Settings for the developer toolchain; scripts/tools.sh runs the pinned mise with these and the
-# repo-local environment it sets. No tools are listed yet: tools/pins.tsv still installs them.
-# Only the aqua, github and core backends are on; there are no tasks and no hooks.
+# The developer toolchain: scripts/tools.sh runs the pinned mise (tools/pins.tsv) with these settings and the
+# repo-local environment it sets, installs the tools below --locked from mise.lock (a sha256 per platform, and
+# the vendor's signature or attestation where its recipe has one) and links them into .tools/bin.
+# Python and its tools, the data rows and mise itself stay in tools/pins.tsv. Only the aqua, github and core backends are on; there are no tasks and no hooks.
 [settings]
 # mise.lock is read and kept; installs run --locked from it.
 lockfile = true
@@ -21,3 +22,37 @@ disable_backends = [
   "asdf", "cargo", "conda", "dotnet", "forgejo", "gem", "gitlab", "go", "http", "npm",
   "packslip", "pipx", "pypi", "s3", "spinel", "spm", "ubi", "vfox",
 ]
+
+# Two majors of Helm and two kubectls: one name each, one version each (tools.sh links helm3, helm4 and kubectl-floor).
+[tool_alias]
+helm3 = "aqua:helm/helm"
+helm4 = "aqua:helm/helm"
+kubectl-floor = "aqua:kubernetes/kubernetes/kubectl"
+
+# Node: the Active LTS. frontend/.nvmrc, frontend/.node-version, Dockerfile.frontend, engines.node and
+# packageManager follow it (tests/supply_chain/test_frontend_image.py). uv equals the image tag in Dockerfile.backend.
+# kubectl must stay within one minor of the cluster; kubectl-floor is the chart's kubeVersion floor.
+[tools]
+"core:node" = "26.13.1"
+"aqua:astral-sh/uv" = "0.13.8"
+helm3 = "3.22.1"
+helm4 = "4.3.2"
+"aqua:kubernetes/kubernetes/kubectl" = "1.37.2"
+kubectl-floor = "1.34.13"
+"aqua:kubernetes-sigs/kind" = "0.33.0"
+"aqua:yannh/kubeconform" = "0.8.0"
+"github:prometheus/prometheus" = "3.16.0"
+"aqua:helm/chart-testing" = "3.15.0"
+# helm-unittest ships one binary per platform, named in its plugin.yaml; mise would shorten the name to untt.
+"github:helm-unittest/helm-unittest" = { version = "1.2.1", platforms = { linux-x64 = { rename_exe = "untt-linux-amd64" }, macos-arm64 = { rename_exe = "untt-macos-arm64" } } }
+"aqua:rhysd/actionlint" = "1.7.12"
+"aqua:hadolint/hadolint" = "2.15.1"
+"aqua:gitleaks/gitleaks" = "8.30.1"
+"github:sbdchd/squawk" = "2.72.0"
+"github:oasdiff/oasdiff" = "1.37.0"
+"aqua:sigstore/cosign" = "3.1.4"
+"aqua:kyverno/kyverno" = "1.20.0"
+"aqua:mikefarah/yq" = "4.54.3"
+"aqua:bats-core/bats-core" = "1.14.0"
+"aqua:koalaman/shellcheck" = "0.11.0"
+"aqua:lycheeverse/lychee" = "0.24.2"
