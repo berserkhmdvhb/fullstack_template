@@ -37,7 +37,7 @@ COPY scripts/docker/debian-fixes.sh /usr/local/bin/debian-fixes
 RUN debian-fixes /base-root /out
 
 #################################
-# pnpm for the build platform's architecture
+# pnpm for the target platform's architecture (TARGETARCH)
 #################################
 # One stage per architecture; BuildKit builds only the one TARGETARCH selects, and checks the download against
 # its sha256 before any step can use it.

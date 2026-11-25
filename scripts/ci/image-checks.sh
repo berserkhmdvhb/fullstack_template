@@ -24,7 +24,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PATH="$root/.tools/bin:$PATH"
 
 USER_RE='^[1-9][0-9]*(:[0-9]+)?$'
-FORBIDDEN='sh|bash|ash|dash|zsh|busybox|apt|apt-get|dpkg|apk|pip|pip3|npm|npx|curl|wget'
+FORBIDDEN='sh|bash|ash|dash|zsh|busybox|apt|apt-get|dpkg|apk|pip|pip3|npm|npx|pnpm|curl|wget'
 BIN_DIRS='bin|sbin|usr/bin|usr/sbin|usr/local/bin|usr/local/sbin'
 LABELS=(source version revision created title)
 # The only images that may skip the HEALTHCHECK run (the WAF has no binary to probe with);

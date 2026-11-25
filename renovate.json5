@@ -349,8 +349,12 @@
     {
       // pnpm is named three times: mise.toml (the tool, with its checksums in mise.lock) and packageManager in both
       // package.json files; Dockerfile.frontend's copy follows mise.lock through `make pins-refresh`.
+      // By depName: the mise manager's is the mise.toml key (its packageName is pnpm/pnpm), the npm manager's
+      // packageManager dependency is pnpm. matchPackageNames does not fall back to depName.
       "description": "pnpm: mise.toml and both packageManager fields move together",
-      "matchPackageNames": ["pnpm", "aqua:pnpm/pnpm"],
+      "matchDepNames": ["pnpm", "aqua:pnpm/pnpm"],
+      "matchManagers": ["mise", "npm"],
+      "matchFileNames": ["mise.toml", "frontend/package.json", "docs-site/package.json"],
       "groupName": "pnpm",
       "prBodyNotes": ["Run `make pins-refresh` (it writes `mise.lock` and the pnpm version and checksums in `Dockerfile.frontend`), and push. The `pnpm-lock.yaml` files do not record pnpm (`pmOnFail: ignore`), so they need no change for the bump."]
     },

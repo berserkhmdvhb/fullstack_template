@@ -5,8 +5,8 @@
 # One source of digests: the `FROM <image>@sha256:<digest>` lines of the Dockerfiles. A gcr.io/distroless base is
 # verified with cosign; a base listed in unsigned-base-images.tsv (with its reason) is skipped by name; any other
 # base, an unpinned FROM and an unparsable FROM fail. The same rules apply to `COPY/ADD --from=<image>` and
-# `RUN --mount=from=<image>`. A stage alias, a stage index and `scratch` are skipped, and so is `<stage>-${TARGETARCH}`
-# when both <stage>-amd64 and <stage>-arm64 are earlier stages.
+# `RUN --mount=from=<image>`. An earlier stage's alias, a stage index and `scratch` are skipped, and so is
+# `<stage>-${TARGETARCH}` when both <stage>-amd64 and <stage>-arm64 are earlier stages and no ARG gives TARGETARCH a value.
 #
 # Usage: verify-base-images.sh [--list] [Dockerfile ...]
 #   default files: every tracked Dockerfile (Dockerfile, Dockerfile.*, *.Dockerfile) outside tests/
@@ -40,14 +40,19 @@ fail() { echo "::error::$*" >&2; failures=$((failures + 1)); }
 # Print "<file>\t<ref>" for every image a Dockerfile pulls: FROM, COPY/ADD --from and RUN --mount=...from=;
 # "<file>\t!<line>" for a FROM that does not parse. A stage alias, a stage index and `scratch` are skipped.
 parse() {
-  local file="$1" line tok ref i amd arm var
+  local file="$1" line tok ref i amd arm var alias
   local -a words refs
   local -A stages=()
   while IFS= read -r line || [[ -n "${line}" ]]; do
     read -r -a words <<<"${line}"
     [[ ${#words[@]} -gt 0 ]] || continue
-    refs=()
+    refs=() alias=""
     case "${words[0],,}" in
+      arg)
+        # A default for TARGETARCH would let `FROM <stage>-${TARGETARCH}` (below) name something else.
+        for tok in "${words[@]:1}"; do
+          if [[ "${tok}" == TARGETARCH=* ]]; then printf '%s\t!%s\n' "${file}" "${line}"; fi
+        done ;;
       from)
         ref=""
         for tok in "${words[@]:1}"; do
@@ -55,18 +60,22 @@ parse() {
           ref="${tok}"
           break
         done
-        # The alias after AS (any case) names a stage that later instructions may use.
+        # The alias after AS (any case) names a stage that later instructions may use; it is registered after
+        # this line's own ref is resolved, so a FROM can never name itself (FROM node AS node is an image).
         for ((i = 2; i < ${#words[@]}; i++)); do
-          if [[ "${words[i]}" =~ ^[Aa][Ss]$ && -n "${words[i + 1]:-}" ]]; then stages["${words[i + 1],,}"]=1; fi
+          if [[ "${words[i]}" =~ ^[Aa][Ss]$ && -n "${words[i + 1]:-}" ]]; then alias="${words[i + 1],,}"; fi
         done
-        # One variable is allowed, ${TARGETARCH}, and only when both of its values (amd64, arm64) name an
-        # earlier stage: the build then picks one of those stages, never an image.
+        # One variable is allowed, as `<stage>-${TARGETARCH}`, and only when both of its values (amd64, arm64)
+        # name an earlier stage: the build then picks one of those stages, never an image.
         # shellcheck disable=SC2016 # the literal text ${TARGETARCH}, not an expansion
         var='${TARGETARCH}'
         amd="${ref//"${var}"/amd64}" arm="${ref//"${var}"/arm64}"
-        if [[ "${ref}" == *"${var}"* && -n "${stages[${amd,,}]:-}" && -n "${stages[${arm,,}]:-}" ]]; then continue; fi
-        if [[ -z "${ref}" || "${ref}" == *'$'* ]]; then printf '%s\t!%s\n' "${file}" "${line}"; continue; fi
-        refs+=("${ref}") ;;
+        if [[ "${ref}" =~ ^[a-z][a-z0-9_.-]*-\$\{TARGETARCH\}$ && -n "${stages[${amd,,}]:-}" && -n "${stages[${arm,,}]:-}" ]]; then
+          ref=""
+        elif [[ -z "${ref}" || "${ref}" == *'$'* ]]; then
+          printf '%s\t!%s\n' "${file}" "${line}"; ref=""
+        fi
+        if [[ -n "${ref}" ]]; then refs+=("${ref}"); fi ;;
       copy | add)
         for tok in "${words[@]:1}"; do
           if [[ "${tok}" == --from=* ]]; then refs+=("${tok#--from=}"); fi
@@ -80,6 +89,7 @@ parse() {
       if [[ -n "${stages[${ref,,}]:-}" || "${ref}" == "scratch" || "${ref}" =~ ^[0-9]+$ ]]; then continue; fi
       printf '%s\t%s\n' "${file}" "${ref}"
     done
+    if [[ -n "${alias}" ]]; then stages["${alias}"]=1; fi
   done <"${file}"
 }
 
@@ -102,6 +112,7 @@ is_unsigned() { # repository -> 0 when listed in the data file
 for f in "${files[@]}"; do
   [[ -f "${f}" ]] || { fail "${f}: no such Dockerfile"; continue; }
   while IFS=$'\t' read -r file ref; do
+    if [[ "${ref}" == '!ARG'* || "${ref}" == '!arg'* ]]; then fail "${file}: an ARG may not set TARGETARCH: ${ref#!}"; continue; fi
     if [[ "${ref}" == '!'* ]]; then fail "${file}: unparsable FROM: ${ref#!}"; continue; fi
     if [[ "${list}" == true ]]; then printf '%s\t%s\n' "${file}" "${ref}"; continue; fi
     if [[ ! "${ref}" =~ ^([^@]+)@sha256:[0-9a-f]{64}$ ]]; then fail "${file}: ${ref} is not pinned by digest"; continue; fi

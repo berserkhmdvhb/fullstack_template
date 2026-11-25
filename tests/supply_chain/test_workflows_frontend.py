@@ -455,3 +455,20 @@ def test_the_quality_gate_tools_are_pinned_exactly() -> None:
     dev = _frontend_json()["devDependencies"]
     for name in ("@axe-core/playwright", "@lhci/cli"):
         assert re.fullmatch(r"\d+\.\d+\.\d+", dev[name]), name
+
+
+@pytest.mark.parametrize(
+    ("path", "pins"),
+    [
+        # PNPM_VERSION and the two PNPM_SHA256 ARGs: make pins-refresh --check holds them to the
+        # lock and the release digests.
+        ("Dockerfile.frontend", True),
+        ("Dockerfile.backend", False),
+        ("mise.toml", True),
+        ("frontend/app/page.tsx", False),
+    ],
+)
+def test_pull_request_paths_map_to_the_pins_output(
+    tmp_path: Path, path: str, *, pins: bool
+) -> None:
+    assert _run_filter(tmp_path, "pull_request", [path])["pins"] == str(pins).lower()

@@ -109,6 +109,32 @@ SH
   [ "$status" -eq 1 ]
 }
 
+@test "an ARG that gives TARGETARCH a value makes the per-architecture pick fail" {
+  # shellcheck disable=SC2016 # the Dockerfile text ${TARGETARCH}, written as it is
+  printf 'ARG TARGETARCH=x/evil\nFROM scratch AS tool-amd64\nFROM scratch AS tool-arm64\nFROM tool-${TARGETARCH} AS tool\n' > Dockerfile.argdefault
+  run bash "$SCRIPT" Dockerfile.argdefault
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"an ARG may not set TARGETARCH"* ]]
+}
+
+@test "a FROM's own alias is not a stage it can pick" {
+  # shellcheck disable=SC2016 # as above
+  printf 'FROM scratch AS tool-arm64\nFROM tool-${TARGETARCH} AS tool-amd64\n' > Dockerfile.selfalias
+  run bash "$SCRIPT" Dockerfile.selfalias
+  [ "$status" -eq 1 ]
+  printf 'FROM node AS node\n' > Dockerfile.selfnode
+  run bash "$SCRIPT" Dockerfile.selfnode
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not pinned by digest"* ]]
+}
+
+@test "the per-architecture pick names a stage, nothing more" {
+  # shellcheck disable=SC2016 # as above
+  printf 'FROM scratch AS x/evil-amd64\nFROM scratch AS x/evil-arm64\nFROM x/evil-${TARGETARCH} AS tool\n' > Dockerfile.slash
+  run bash "$SCRIPT" Dockerfile.slash
+  [ "$status" -eq 1 ]
+}
+
 @test "a FROM without a digest fails" {
   echo "FROM gcr.io/distroless/static-debian13:nonroot" > Dockerfile.tag
   run bash "$SCRIPT" Dockerfile.tag

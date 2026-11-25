@@ -102,12 +102,15 @@ def age_exclusions(text: str) -> list[tuple[str, date, str]]:
 
 
 def stale_exclusions(entries: list[tuple[str, date, str]], today: date) -> list[str]:
-    """An entry is kept only while its version is younger than 7 days: then it must go."""
-    return [
+    """An entry is kept only while its version is younger than 7 days: then it must go. A publish
+    date in the future is a wrong date (it would keep the entry alive), so it fails too."""
+    found = [
         f"{sel}: published {day}, at least 7 days ago: remove it from minimumReleaseAgeExclude"
         for sel, day, _ in entries
         if day + timedelta(days=7) <= today
     ]
+    found += [f"{sel}: published {day}, in the future" for sel, day, _ in entries if day > today]
+    return found
 
 
 LOCK = {("old", "1.2.3"), ("fresh", "2.0.0"), ("plain", "1.0.0")}
@@ -215,6 +218,9 @@ def test_an_exclusion_from_the_age_floor_lasts_only_while_the_version_is_young()
         f"bare: published 0001-01-01, {remove}",
     ]
     assert stale_exclusions(entries[:1], date(2026, 11, 26)) == []
+    assert stale_exclusions(entries[:1], date(2026, 11, 19)) == [
+        "young@1.0.1: published 2026-11-20, in the future"
+    ]
     assert stale_exclusions(entries[:1], date(2026, 11, 27)) != []
 
 
@@ -329,3 +335,27 @@ def test_every_job_that_runs_pnpm_installs_the_pinned_one_first() -> None:
         assert "corepack" not in text, path.name
         assert "pnpm/action-setup" not in text, path.name
     assert seen
+
+
+def test_every_ci_install_runs_the_version_check_first() -> None:
+    """pnpm itself does not refuse another version (pmOnFail: ignore): each job checks it first."""
+    files = [
+        *sorted((ROOT / ".github/workflows").glob("*.yml")),
+        ROOT / ".github/actions/setup-frontend/action.yml",
+    ]
+    seen = 0
+    for path in files:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        groups = [job.get("steps", []) for job in doc.get("jobs", {}).values()]
+        for steps in groups or [doc["runs"]["steps"]]:
+            checked = False
+            for step in steps:
+                checked = checked or step.get("uses") == "./.github/actions/setup-frontend"
+                for line in str(step.get("run", "")).splitlines():
+                    checked = checked or "scripts/check-pnpm-version.mjs" in line
+                    if "pnpm install" in line:
+                        seen += 1
+                        assert checked, (path.name, step.get("name"))
+    assert seen
+    builder = (ROOT / "Dockerfile.frontend").read_text(encoding="utf-8")
+    assert builder.index("node scripts/check-pnpm-version.mjs") < builder.index("pnpm install")

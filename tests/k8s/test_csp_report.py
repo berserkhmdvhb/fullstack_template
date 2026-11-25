@@ -81,7 +81,12 @@ def test_a_browser_csp_violation_is_logged_by_the_backend(kube: Kube) -> None:
     marker = f"fst{secrets.token_hex(8)}"
     started = time.time()
     cmd = [str(FORWARD), "pnpm", "exec", "playwright", "test", SPEC, "--retries=0"]
-    env = {**os.environ, "CSP_REPORT_MARKER": marker}
+    # pnpm's state file (its update check) under .tools, as the Makefile runs pnpm.
+    env = {
+        **os.environ,
+        "CSP_REPORT_MARKER": marker,
+        "XDG_STATE_HOME": str(ROOT / ".tools/pnpm/state"),
+    }
     done = subprocess.run(cmd, cwd=ROOT / "frontend", env=env, check=False)
     print(f"playwright: rc {done.returncode}, {time.time() - started:.0f}s")
     assert done.returncode == 0, "the browser's report was not delivered (the spec's output above)"

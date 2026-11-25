@@ -148,8 +148,16 @@ def test_every_name_based_rule_is_scoped_to_the_file_that_names_it() -> None:
         ("custom.regex", "mise.toml"),
         ("mise", "mise.toml"),
     }
+    # The one group across managers: pnpm in mise.toml and in both packageManager fields.
+    across = {
+        "pnpm": ({"mise", "npm"}, {"mise.toml", "frontend/package.json", "docs-site/package.json"})
+    }
     for rule in renovate()["packageRules"]:
-        if "matchDepNames" in rule:
+        if rule.get("groupName") in across:
+            managers, files = across[rule["groupName"]]
+            assert set(rule["matchManagers"]) == managers, rule["description"]
+            assert set(rule["matchFileNames"]) == files, rule["description"]
+        elif "matchDepNames" in rule:
             (manager,) = rule["matchManagers"]
             (file,) = rule["matchFileNames"]
             assert (manager, file) in scopes, rule["description"]
@@ -569,8 +577,57 @@ def test_zizmor_is_read_by_the_mise_manager_and_by_no_pins_manager() -> None:
 
 def test_pnpm_moves_in_one_pull_request_with_a_note_for_the_image_and_the_locks() -> None:
     rule = next(r for r in renovate()["packageRules"] if r.get("groupName") == "pnpm")
-    assert set(rule["matchPackageNames"]) == {"pnpm", "aqua:pnpm/pnpm"}
+    # The mise manager's depName is the mise.toml key, its packageName the bare repository
+    # (pnpm/pnpm); the npm manager's packageManager dependency is depName pnpm.
+    assert set(rule["matchDepNames"]) == {"pnpm", "aqua:pnpm/pnpm"}
+    assert "matchPackageNames" not in rule
     note = " ".join(rule["prBodyNotes"])
     assert "make pins-refresh" in note
     assert "Dockerfile.frontend" in note
     assert "pnpm-lock.yaml" in note
+
+
+# Renovate's mise manager: depName is the mise.toml key (aqua:astral-sh/uv, core:node, or an alias
+# such as helm3), packageName the bare name (astral-sh/uv, node). matchPackageNames does not fall
+# back to depName.
+MISE_TOOLS = tomllib.loads((ROOT / "mise.toml").read_text(encoding="utf-8"))["tools"]
+
+
+def _mise_package_name(key: str) -> str:
+    return key.split(":", 1)[1]
+
+
+def _rule(start: str) -> dict[str, Any]:
+    rules = renovate()["packageRules"]
+    return next(r for r in rules if str(r.get("description", "")).startswith(start))
+
+
+LEAVES = "The mise manager leaves helm and kubectl"
+MISE_RULES = [
+    ("uv:", "matchPackageNames", "aqua:astral-sh/uv"),
+    ("Kyverno:", "matchPackageNames", "aqua:kyverno/kyverno"),
+    ("node stays on", "matchPackageNames", "core:node"),
+    ("pnpm:", "matchDepNames", "aqua:pnpm/pnpm"),
+    ("lychee:", "matchDepNames", "aqua:lycheeverse/lychee"),
+    (LEAVES, "matchDepNames", "aqua:kubernetes/kubernetes/kubectl"),
+    (LEAVES, "matchDepNames", "helm3"),
+    (LEAVES, "matchDepNames", "helm4"),
+    (LEAVES, "matchDepNames", "kubectl-floor"),
+]
+
+
+@pytest.mark.parametrize(("description", "field", "wanted"), MISE_RULES)
+def test_each_rule_for_a_mise_entry_matches_the_key_the_mise_manager_extracts(
+    description: str, field: str, wanted: str
+) -> None:
+    assert wanted in MISE_TOOLS, wanted
+    rule = _rule(description)
+    name = wanted if field == "matchDepNames" else _mise_package_name(wanted)
+    assert name in rule[field], (description, field, name)
+
+
+def test_no_package_name_match_spells_a_mise_backend_prefix() -> None:
+    """`aqua:x/y`, `github:x/y` and `core:x` are depNames; as a packageName they never match."""
+    for rule in renovate()["packageRules"]:
+        for name in rule.get("matchPackageNames", []):
+            assert not re.match(r"(aqua|github|core):", name), (rule.get("description"), name)

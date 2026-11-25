@@ -1,7 +1,8 @@
 // Fails when the pnpm that runs differs from the `packageManager` field of package.json, so CI and the image
 // builds run the pnpm the repository pins (mise.toml; the image's copy is checked against the same sha256).
 // pnpm itself does not refuse another version (pnpm-workspace.yaml's `pmOnFail: ignore`, which keeps the lockfile one YAML
-// document for GitHub's dependency graph), so this check is what enforces it.
+// document for GitHub's dependency graph), so this check is what enforces it: every CI job and the image build run it
+// before they install (tests/supply_chain/test_pnpm_config.py).
 // Run from the frontend or the docs-site directory: node scripts/check-pnpm-version.mjs
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';

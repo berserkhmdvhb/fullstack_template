@@ -20,6 +20,7 @@ STUBBED = {
     "python": "the backend virtualenv's interpreter, not a downloaded pin",
     "node": "named in rebuild-and-roll.sh's probe commands; the kind-forward tests stub it",
     "helm-unittest": "in adopted-copy.sh's install hint; the adopted-copy tests stub it",
+    "pnpm": "named in image-checks.sh's list of binaries an image must not hold; nothing runs it",
 }
 # Bats files that skip in the `repo` job and run in another one, named here with its reason.
 ELSEWHERE = {
