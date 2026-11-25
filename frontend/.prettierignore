@@ -9,3 +9,5 @@ vitest.config.ts
 # breaking the openapi-drift CI gate — so it is formatted by the backend, not Prettier.
 lib/api/openapi.json
 .lighthouseci
+# Written by pnpm.
+pnpm-lock.yaml

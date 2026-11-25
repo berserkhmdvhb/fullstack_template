@@ -4,9 +4,9 @@
 #
 # OSV-Scanner (google/osv-scanner) is the official frontend to OSV.dev: one
 # checksum-verified, offline-capable, multi-language lockfile scanner. It covers
-# known-CVE SCA (npm, here, from package-lock.json) and carries the OSV MAL-*
+# known-CVE SCA (npm, here, from pnpm-lock.yaml) and carries the OSV MAL-*
 # known-malicious corpus — the same feed the hand-rolled matcher used, but
-# maintained and multi-language. It reads RESOLVED lockfiles (package-lock.json,
+# maintained and multi-language. It reads RESOLVED lockfiles (pnpm-lock.yaml,
 # requirements.txt, poetry.lock, …); it does NOT parse PEP 621 pyproject.toml
 # [project].dependencies, so pip_audit stays the Python known-CVE SCA (see
 # wiki/supply-chain-tooling-assessment.md).

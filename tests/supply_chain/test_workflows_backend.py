@@ -295,8 +295,9 @@ def test_setup_frontend_reads_the_node_pin() -> None:
     action = load(ACTIONS / "setup-frontend" / "action.yml")
     text = (ACTIONS / "setup-frontend" / "action.yml").read_text(encoding="utf-8")
     assert "mise.toml" in text
-    assert "frontend/package-lock.json" in text
-    assert "npm ci" in text
+    assert "frontend/pnpm-lock.yaml" in text
+    assert "pnpm install --frozen-lockfile" in text
+    assert "scripts/tools.sh install pnpm" in text
     assert action["description"]
 
 

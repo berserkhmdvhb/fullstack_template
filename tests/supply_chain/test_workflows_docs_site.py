@@ -38,11 +38,11 @@ def test_the_build_is_read_only_uncached_and_strict() -> None:
     node = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/setup-node@"))
     assert node["with"]["package-manager-cache"] is False
     assert "mise.toml" in _step_by_id(job, "pin")["run"]
-    assert _step(job, "Install the site dependencies")["run"] == "npm ci --ignore-scripts"
+    assert _step(job, "Install the site dependencies")["run"] == "pnpm install --frozen-lockfile"
     names = [s.get("name") for s in job["steps"]]
     assert names.index("Resolver unit tests") < names.index("Build the site")
     assert names.index("Build the site") < names.index("axe accessibility scan")
-    assert _step(job, "Resolver unit tests")["run"] == "npm test"
+    assert _step(job, "Resolver unit tests")["run"] == "pnpm test"
     assert job["env"]["SITE_REPOSITORY"] == "${{ github.repository }}"
     assert job["env"]["SITE_URL"] == "${{ inputs.site-url }}"
     assert not any(str(s.get("uses", "")).startswith("actions/cache") for s in job["steps"])

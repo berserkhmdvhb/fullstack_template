@@ -70,8 +70,8 @@ def test_the_copy_is_adopted_with_the_tools_and_a_ruff_and_runs_its_suites() -> 
         lint,
         "make test",
         "make chart-unittest",
-        "npm run lint",
-        "npm run typecheck",
+        "pnpm run lint",
+        "pnpm run typecheck",
     ):
         assert command in runs, command
 
@@ -105,7 +105,7 @@ def test_the_docs_site_runs_off_pull_requests_only() -> None:
     site = [s for s in STEPS if "/adopted/docs-site" in s.get("working-directory", "")]
     assert site
     assert all(s["if"] == OFF_PULL_REQUESTS for s in site)
-    assert any("npm run build" in s["run"] for s in site)
+    assert any("pnpm run build" in s["run"] for s in site)
     off = [s for s in STEPS if s.get("if") == OFF_PULL_REQUESTS]
     assert [s for s in off if s not in site] == [
         s

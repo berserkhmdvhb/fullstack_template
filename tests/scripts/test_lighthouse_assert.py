@@ -29,10 +29,10 @@ MISS = {
 def _run(
     tmp_path: Path, *, exit_code: int, results: list[dict[str, object]] | None
 ) -> tuple[subprocess.CompletedProcess[str], str]:
-    """Run the script with a fake ``npx``: write ``results``, then exit with ``exit_code``."""
+    """Run the script with a fake ``pnpm``: write ``results``, then exit with ``exit_code``."""
     work = tmp_path / "frontend"
     work.mkdir()
-    fake = tmp_path / "npx"
+    fake = tmp_path / "pnpm"
     payload = json.dumps(results) if results is not None else ""
     fake.write_text(
         "#!/usr/bin/env bash\n"

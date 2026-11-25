@@ -14,7 +14,7 @@ summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 rm -f "$results"
 code=0
-npx lhci assert --config="$config" || code=$?
+pnpm exec lhci assert --config="$config" || code=$?
 
 if (( code == 0 )); then
   echo 'Lighthouse CI: all budgets met' >> "$summary"

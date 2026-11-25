@@ -61,16 +61,16 @@ def test_build_runs_before_the_unit_tests() -> None:
     assert "integration" in _needs(jobs["playwright-list"])
 
 
-def test_the_jobs_call_the_npm_scripts() -> None:
+def test_the_jobs_call_the_pnpm_scripts() -> None:
     jobs = _jobs()
     expected = {
-        "eslint": "npm run lint",
-        "prettier": "npm run format-check",
-        "type-check": "npm run typecheck",
-        "build": "npm run build",
-        "unit": "npm run test:unit",
-        "integration": "npm run test:coverage",
-        "playwright-list": "npx playwright test --list",
+        "eslint": "pnpm run lint",
+        "prettier": "pnpm run format-check",
+        "type-check": "pnpm run typecheck",
+        "build": "pnpm run build",
+        "unit": "pnpm run test:unit",
+        "integration": "pnpm run test:coverage",
+        "playwright-list": "pnpm exec playwright test --list",
     }
     for name, command in expected.items():
         # A whole command per line, so a shorter script name never matches a longer one.
@@ -81,9 +81,9 @@ def test_the_jobs_call_the_npm_scripts() -> None:
 
 
 def test_eslint_keeps_zero_warnings() -> None:
-    """The flag lives in the npm script, so the job must call the script rather than bare eslint."""
+    """The flag lives in the package.json script, so the job calls the script, not bare eslint."""
     text = (WORKFLOWS / "reusable-frontend.yml").read_text(encoding="utf-8")
-    assert "npx eslint" not in text
+    assert "pnpm exec eslint" not in text
     scripts = (Path(__file__).parents[2] / "frontend" / "package.json").read_text(encoding="utf-8")
     assert "--max-warnings=0" in next(ln for ln in scripts.splitlines() if '"lint":' in ln)
 
@@ -96,7 +96,7 @@ def test_playwright_only_lists() -> None:
 
 def test_cache_is_keyed_on_the_lockfile() -> None:
     action = (ACTIONS / "setup-frontend" / "action.yml").read_text(encoding="utf-8")
-    assert "hashFiles('frontend/package-lock.json')" in action
+    assert "hashFiles('frontend/pnpm-lock.yaml')" in action
     for name, job in _jobs().items():
         uses = [str(s.get("uses", "")) for s in job["steps"]]
         assert "./.github/actions/setup-frontend" in uses, name
@@ -122,10 +122,10 @@ def test_coverage_gate_is_not_restated() -> None:
 
 
 def test_the_coverage_run_is_blocking_and_covers_the_whole_suite() -> None:
-    """The integration job runs `npm run test:coverage` over every test file, with no `|| true`."""
+    """The integration job runs `pnpm run test:coverage` over every test file, with no `|| true`."""
     job = _jobs()["integration"]
     runs = _runs(job)
-    assert "npm run test:coverage" in runs
+    assert "pnpm run test:coverage" in runs
     assert "|| true" not in runs
     assert "continue-on-error" not in job
     scripts = (Path(__file__).parents[2] / "frontend" / "package.json").read_text(encoding="utf-8")
@@ -144,7 +144,7 @@ def test_drift_check_is_the_make_target_and_runs_once() -> None:
     assert "./.github/actions/setup-backend" in uses
     assert "./.github/actions/setup-frontend" in uses
     # The install-scripts guard runs on a frontend-only change too (the backend filter skips it).
-    assert "tests/supply_chain/test_npm_install_scripts.py" in _runs(jobs["openapi-drift"])
+    assert "tests/supply_chain/test_pnpm_config.py" in _runs(jobs["openapi-drift"])
     for path in sorted(WORKFLOWS.glob("*.yml")):
         text = path.read_text(encoding="utf-8")
         assert "backend.openapi dump" not in text, path.name
@@ -234,7 +234,10 @@ def _run_filter(
         ("pyproject.toml", True, False),
         ("frontend/lib/api/openapi.json", True, True),
         ("frontend/app/page.tsx", False, True),
-        ("frontend/package-lock.json", True, True),
+        ("frontend/pnpm-lock.yaml", True, True),
+        ("frontend/pnpm-workspace.yaml", True, True),
+        ("docs-site/pnpm-workspace.yaml", True, False),
+        ("docs-site/pnpm-lock.yaml", True, False),
         ("frontend/package.json", True, True),
         (".devcontainer/devcontainer.json", True, False),
         ("renovate.json5", True, False),
@@ -372,11 +375,11 @@ def test_a11y_job_is_blocking_scoped_and_reaches_ci_ok() -> None:
     assert job["if"] == "inputs.frontend-changed"
     assert "build" in _needs(job)
     runs = _runs(job).splitlines()
-    assert "npm run test:a11y" in [ln.strip() for ln in runs]
+    assert "pnpm run test:a11y" in [ln.strip() for ln in runs]
     # The browser comes from the runner install, with its system packages, like the live job.
     assert (
-        'bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install chromium'
-        in [ln.strip() for ln in runs]
+        'bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 '
+        "pnpm exec playwright install chromium" in [ln.strip() for ln in runs]
     )
     # Reached through the `frontend` job, which CI OK requires on every event.
     assert "frontend" in workflow("ci.yml")["jobs"]["ci-ok"]["needs"]
@@ -401,9 +404,9 @@ def test_a11y_script_runs_the_spec_against_the_built_app() -> None:
 
 
 def test_the_live_job_runs_every_e2e_spec_including_axe() -> None:
-    """`npm run test:e2e` has no spec filter, so the a11y spec runs against the full stack."""
+    """`pnpm run test:e2e` has no spec filter, so the a11y spec runs against the full stack."""
     job = workflow("reusable-live.yml")["jobs"]["live"]
-    assert "npm run test:e2e" in _runs(job)
+    assert "pnpm run test:e2e" in _runs(job)
     scripts = _frontend_json()["scripts"]
     assert scripts["test:e2e"] == "playwright test"
 

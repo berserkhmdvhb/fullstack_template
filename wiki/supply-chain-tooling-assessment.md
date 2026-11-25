@@ -154,7 +154,7 @@ wasteful overlaps are retired rather than stacked.
 
 > **Adoption outcome (resolved).** Option A was adopted and the §6 verify-on-adopt
 > flags were closed. The retire list resolved **asymmetrically**:
-> - **npm-audit → retired.** OSV-Scanner reads this repo's `frontend/package-lock.json`,
+> - **npm-audit → retired.** OSV-Scanner reads this repo's `frontend/pnpm-lock.yaml`,
 >   so npm known-CVE SCA is now the `osv` leg (`scan-osv.sh`, single source for
 >   CI + `devsec.sh osv`).
 > - **pip-audit → kept.** This repo declares Python deps in PEP 621
@@ -176,9 +176,9 @@ wasteful overlaps are retired rather than stacked.
    reports `MAL-*` findings (advisory) and the hand-rolled `malware_scan`
    matcher was retired onto it — one `MAL-*` source, not two.
 2. **OSV-Scanner lockfile coverage** — confirm it reads this repo's `pyproject.toml`
-   (PEP 508) and `frontend/package-lock.json` (and/or the Syft SBOM) with parity to
+   (PEP 508) and `frontend/pnpm-lock.yaml` (and/or the Syft SBOM) with parity to
    pip-audit/npm-audit before retiring them. **→ resolved:** it reads
-   `frontend/package-lock.json` (npm-audit retired → `osv`) but does **not**
+   `frontend/pnpm-lock.yaml` (npm-audit retired → `osv`) but does **not**
    parse PEP 621 `pyproject.toml` `[project].dependencies` (pip-audit kept).
 3. **GuardDog positive-control** — confirm it flags a known typosquat (e.g. `0requests`)
    and stays non-blocking (advisory) on a finding.

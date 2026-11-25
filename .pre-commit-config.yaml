@@ -25,13 +25,13 @@ repos:
         pass_filenames: false
       - id: prettier
         name: prettier --check
-        entry: scripts/ci/hook-run.sh npm npm --prefix frontend run format-check
+        entry: scripts/ci/hook-run.sh pnpm pnpm --dir frontend run format-check
         language: system
         pass_filenames: false
         always_run: true
       - id: eslint
         name: eslint
-        entry: scripts/ci/hook-run.sh npm npm --prefix frontend run lint
+        entry: scripts/ci/hook-run.sh pnpm pnpm --dir frontend run lint
         language: system
         pass_filenames: false
         always_run: true

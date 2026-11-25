@@ -2,7 +2,7 @@
 # Columns (tab-separated): name  version  platform  url  sha256
 #
 # Most tools are in mise.toml and mise.lock (mise install --locked, a sha256 per platform for linux-x64 and macos-arm64,
-# plus a signature or attestation where the vendor publishes one): Node, uv, zizmor, Helm 3 and 4, both kubectls, kind,
+# plus a signature or attestation where the vendor publishes one): Node, pnpm, uv, zizmor, Helm 3 and 4, both kubectls, kind,
 # kubeconform, promtool, ct, helm-unittest, actionlint, hadolint, gitleaks, squawk, oasdiff, cosign, kyverno, yq,
 # bats, shellcheck, lychee. Renovate moves those; `make pins-refresh` re-locks them. What stays here is what mise
 # cannot verify as well as today or does not manage: mise itself (the bootstrap), Python and the four uv tools (hash-pinned

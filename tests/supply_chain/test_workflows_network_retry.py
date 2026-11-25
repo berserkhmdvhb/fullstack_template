@@ -55,7 +55,7 @@ def test_each_playwright_install_is_two_bounded_retried_steps(file: str, job: st
         assert step["timeout-minutes"] == STEP_MINUTES
         assert step["run"] == (
             f'bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" {ATTEMPTS} {DELAY_SECONDS} '
-            f"{ATTEMPT_SECONDS} npx playwright {cmd}"
+            f"{ATTEMPT_SECONDS} pnpm exec playwright {cmd}"
         )
         # Every attempt, with its pause, fits the step's own budget.
         worst = ATTEMPTS * (ATTEMPT_SECONDS + KILL_AFTER_SECONDS) + (ATTEMPTS - 1) * DELAY_SECONDS

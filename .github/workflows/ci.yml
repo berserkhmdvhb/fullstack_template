@@ -48,7 +48,7 @@ jobs:
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
           changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
-          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|uv\.lock|Makefile|frontend/lib/api/|frontend/package[^/]*\.json$|\.github/|scripts/|infra/|tools/|deploy/|wiki/|\.devcontainer/|mise\.(toml|lock)$|renovate\.json5$|\.pr_agent\.toml$|lychee\.toml$|release-please-config\.json$|\.release-please-manifest\.json$|docker-compose\.yml$|run_backend\.sh$|Dockerfile\.|\.dockerignore$|\.gitignore$|\.gitleaksignore$|\.env\.example$|\.pre-commit-config\.yaml$|(README|CONTRIBUTING|CONVENTIONS|SECURITY|CODE_OF_CONDUCT)\.md$|LICENSE$|charts/|agent/skills/|docs-site/(site\.json$|src/content/)|frontend/(\.node-version$|\.nvmrc$|static-paths\.ts$|lighthouserc\.json$|playwright\.config\.ts$|vitest(\.[a-z]+)?\.config\.ts$|e2e/a11y\.spec\.ts$))' <<<"$changed"; then
+          if grep -Eq '^(src/|tests/|alembic|pyproject\.toml|uv\.lock|Makefile|frontend/lib/api/|(frontend|docs-site)/(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$|\.github/|scripts/|infra/|tools/|deploy/|wiki/|\.devcontainer/|mise\.(toml|lock)$|renovate\.json5$|\.pr_agent\.toml$|lychee\.toml$|release-please-config\.json$|\.release-please-manifest\.json$|docker-compose\.yml$|run_backend\.sh$|Dockerfile\.|\.dockerignore$|\.gitignore$|\.gitleaksignore$|\.env\.example$|\.pre-commit-config\.yaml$|(README|CONTRIBUTING|CONVENTIONS|SECURITY|CODE_OF_CONDUCT)\.md$|LICENSE$|charts/|agent/skills/|docs-site/(site\.json$|src/content/)|frontend/(\.node-version$|\.nvmrc$|static-paths\.ts$|lighthouserc\.json$|playwright\.config\.ts$|vitest(\.[a-z]+)?\.config\.ts$|e2e/a11y\.spec\.ts$))' <<<"$changed"; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"
@@ -78,7 +78,7 @@ jobs:
           # The docs site: its own inputs and every Markdown file (a loaded page links into any of them, #anchors
           # included), plus any deleted or renamed file, since a page may link a tracked file anywhere.
           gone="$(git diff --name-only --diff-filter=DR "$BASE_SHA" "$HEAD_SHA")"
-          if [[ -n "$gone" ]] || grep -Eq '^(docs-site/|tools/pins\.tsv|mise\.(toml|lock)$|frontend/scripts/check-npm-version\.mjs|\.github/|scripts/)|\.md$' <<<"$changed"; then
+          if [[ -n "$gone" ]] || grep -Eq '^(docs-site/|tools/pins\.tsv|mise\.(toml|lock)$|frontend/scripts/check-pnpm-version\.mjs|\.github/|scripts/)|\.md$' <<<"$changed"; then
             echo "docs=true" >> "$GITHUB_OUTPUT"
           else
             echo "docs=false" >> "$GITHUB_OUTPUT"
@@ -306,7 +306,9 @@ jobs:
       # Before the adoption: the copy links these, and the adoption renders the chart's snapshots with them.
       - name: Install the pinned tools
         if: steps.detect.outputs.template == 'true'
-        run: scripts/tools.sh install uv helm4 helm-unittest yq node promtool crd-sources bats shellcheck
+        run: |
+          scripts/tools.sh install uv helm4 helm-unittest yq node pnpm promtool crd-sources bats shellcheck
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
       # The adoption sorts and formats the renamed Python with this tree's ruff, from the lock.
       - name: Install this tree's backend from its lock
         if: steps.detect.outputs.template == 'true'
@@ -363,10 +365,10 @@ jobs:
         if: steps.detect.outputs.template == 'true'
         working-directory: ${{ runner.temp }}/adopted/frontend
         run: |
-          npm ci --ignore-scripts
-          npm run lint
-          npm run typecheck
-          npm run test
+          pnpm install --frozen-lockfile
+          pnpm run lint
+          pnpm run typecheck
+          pnpm run test
       # The tools the copy's bats suites and doc-link check run, beyond those installed above.
       - name: Install the tools for the copy's bats suites and doc links
         if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
@@ -382,24 +384,24 @@ jobs:
       - name: Install the copy's docs site
         if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
         working-directory: ${{ runner.temp }}/adopted/docs-site
-        run: npm ci --ignore-scripts
+        run: pnpm install --frozen-lockfile
       - name: Install the Playwright system deps
         if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
         timeout-minutes: 5
         working-directory: ${{ runner.temp }}/adopted/docs-site
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install-deps chromium
       - name: Download the Playwright browser
         if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
         timeout-minutes: 5
         working-directory: ${{ runner.temp }}/adopted/docs-site
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install chromium
       # Strict: every link into the renamed tree resolves.
       - name: The copy's docs site resolver tests and strict build
         if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
         working-directory: ${{ runner.temp }}/adopted/docs-site
         run: |
-          npm test
-          npm run build
+          pnpm test
+          pnpm run build
 
   # Blocking on pull requests. Plans the image matrix with the same helper the release uses; the images job below
   # builds each image locally and checks its structure. A push to main and a v* tag skip both: the release build

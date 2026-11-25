@@ -244,7 +244,7 @@ mypy-check:
 # refresh it, so the frontend client can never silently drift from what the backend serves.
 openapi-gen:
 	$(PYTHON) -m your_service_name.backend.openapi dump --output frontend/lib/api/openapi.json
-	cd frontend && npm run openapi-gen
+	cd frontend && $(PNPM) run openapi-gen
 
 # Local mirror of the blocking CI `openapi-drift` job: regenerate the snapshot from the
 # backend and the types from the snapshot, and fail if either committed file is stale.
@@ -259,7 +259,7 @@ openapi-drift-check:
 	node_modules/.bin/openapi-typescript ./lib/api/openapi.json --output "$$tmp/types.gen.d.ts" >/dev/null 2>&1; \
 	if ! diff -u lib/api/types.gen.d.ts "$$tmp/types.gen.d.ts"; then \
 		echo "OpenAPI drift: lib/api/types.gen.d.ts is out of date." >&2; \
-		echo "Run 'npm run openapi-gen' to regenerate it." >&2; exit 1; \
+		echo "Run 'pnpm run openapi-gen' to regenerate it." >&2; exit 1; \
 	fi; \
 	echo "OpenAPI snapshot and generated types are in sync with the backend."
 
@@ -308,6 +308,9 @@ docs-links:
 # the pinned helm-unittest plugin through HELM_PLUGINS.
 export PATH := $(CURDIR)/.tools/bin:$(PATH)
 export HELM_PLUGINS := $(CURDIR)/.tools/helm-plugins
+# pnpm (frontend/ and docs-site/): its store and cache are set in each pnpm-workspace.yaml; its state file (the
+# update check) can only be moved by the environment, so it goes to .tools too, never under $HOME.
+PNPM := env XDG_STATE_HOME=$(CURDIR)/.tools/pnpm/state pnpm
 
 tools:
 	@scripts/tools.sh install
@@ -699,7 +702,7 @@ kind-smoke:
 	scripts/ci/kind-forward.sh $(MAKE) smoke-test
 
 kind-e2e:
-	cd frontend && ../scripts/ci/kind-forward.sh npm run test:e2e
+	cd frontend && ../scripts/ci/kind-forward.sh $(PNPM) run test:e2e
 
 kind-zap:
 	DAST_TARGET_RUNNING=true DAST_ZAP_CONTAINER="fst-zap-$$(date +%s)-$$$$" \

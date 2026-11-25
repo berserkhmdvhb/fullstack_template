@@ -1,11 +1,11 @@
-"""Dockerfile.frontend pins node by digest, and the builder's node is the pinned tooling node."""
+"""Dockerfile.frontend pins node by digest, the builder's node is the pinned tooling node, and its
+pnpm is the pinned pnpm, checked against the same sha256 as mise.lock."""
 
 import json
 import re
 from pathlib import Path
 
-import pytest
-
+from tests.supply_chain._pins import lock_entry
 from tests.supply_chain._pins import pin as pinned
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -42,7 +42,7 @@ def test_the_build_derives_the_deployment_id_from_the_version_and_the_commit() -
     assert re.search(r"^ARG VCS_REF$", builder, re.MULTILINE)
     assert re.search(
         r"NEXT_DEPLOYMENT_ID=\"\$\(node scripts/deployment-id\.mjs"
-        r" \"\$\{VERSION\}\" \"\$\{VCS_REF\}\"\)\" npx next build$",
+        r" \"\$\{VERSION\}\" \"\$\{VCS_REF\}\"\)\" pnpm exec next build$",
         builder,
         re.MULTILINE,
     )
@@ -57,14 +57,42 @@ def test_the_version_files_and_engines_follow_the_pin() -> None:
     assert engines["node"] == f">={major} <{major + 1}"
 
 
-def test_package_manager_is_the_npm_bundled_with_the_pinned_node() -> None:
-    pin = _pinned_node_version()
-    meta = ROOT / f".tools/mise/data/installs/node/{pin}/lib/node_modules/npm/package.json"
-    if not meta.is_file():
-        pytest.skip("the pinned Node is not installed in .tools (make tools)")
-    bundled = json.loads(meta.read_text(encoding="utf-8"))["version"]
-    package = json.loads((ROOT / "frontend/package.json").read_text(encoding="utf-8"))
-    assert package["packageManager"] == f"npm@{bundled}"
+def test_package_manager_is_the_pinned_pnpm() -> None:
+    for project in ("frontend", "docs-site"):
+        package = json.loads((ROOT / project / "package.json").read_text(encoding="utf-8"))
+        assert package["packageManager"] == f"pnpm@{pinned('pnpm')}", project
+
+
+def _arg(name: str) -> str:
+    match = re.search(rf"^ARG {name}=(\S+)$", DOCKERFILE, re.MULTILINE)
+    assert match, name
+    return match[1]
+
+
+def test_the_image_pnpm_is_the_pinned_release_with_the_locked_checksum() -> None:
+    """One source: the version is mise.toml's and the amd64 sha256 is mise.lock's linux-x64 entry.
+    mise.lock holds no linux-arm64, so the arm64 sha256 is the release's asset digest, which
+    `make pins-refresh` checks."""
+    assert _arg("PNPM_VERSION") == pinned("pnpm")
+    locked = lock_entry("pnpm", "linux-x64")
+    assert f"sha256:{_arg('PNPM_SHA256_AMD64')}" == locked["checksum"]
+    assert locked["url"] == (
+        f"https://github.com/pnpm/pnpm/releases/download/v{pinned('pnpm')}/pnpm-linux-x64.tar.gz"
+    )
+    assert re.fullmatch(r"[0-9a-f]{64}", _arg("PNPM_SHA256_ARM64"))
+    url = (
+        "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linux-ASSET.tar.gz"
+        " /pnpm.tar.gz"
+    )
+    for arch, asset in (("amd64", "x64"), ("arm64", "arm64")):
+        stage = _stage_text(f"pnpm-{arch}")
+        assert _stage(f"pnpm-{arch}") == "scratch"
+        assert (
+            f"ADD --checksum=sha256:${{PNPM_SHA256_{arch.upper()}}} {url.replace('ASSET', asset)}"
+            in stage
+        ), arch
+    assert _stage("pnpm") == "pnpm-${TARGETARCH}"
+    assert "COPY --from=pnpm /pnpm.tar.gz" in _stage_text("builder")
 
 
 def test_the_runtime_is_the_pinned_nodejs_major_pinned_by_digest() -> None:
@@ -76,26 +104,36 @@ def test_the_runtime_is_the_pinned_nodejs_major_pinned_by_digest() -> None:
     assert len(re.findall(r"^FROM gcr\.io/distroless/", DOCKERFILE, re.MULTILINE)) == 1
 
 
-def test_every_npm_runner_checks_the_package_manager_version() -> None:
-    """CI and both image builds run check-npm-version.mjs; it needs no Node here, only the calls."""
+def test_every_pnpm_runner_checks_the_package_manager_version() -> None:
+    """CI and the image build run check-pnpm-version.mjs before they install (the calls only)."""
     action = (ROOT / ".github/actions/setup-frontend/action.yml").read_text(encoding="utf-8")
-    assert "node scripts/check-npm-version.mjs" in action
-    assert action.index("node scripts/check-npm-version.mjs") < action.index("npm ci")
-    for name in ("Dockerfile.frontend",):
-        text = (ROOT / name).read_text(encoding="utf-8")
-        assert "COPY frontend/scripts/check-npm-version.mjs" in text, name
-        assert text.index("node scripts/check-npm-version.mjs") < text.index("&& npm ci"), name
-    package = json.loads((ROOT / "frontend/package.json").read_text(encoding="utf-8"))
-    assert re.fullmatch(r"npm@\d+\.\d+\.\d+", package["packageManager"])
+    assert "node scripts/check-pnpm-version.mjs" in action
+    assert action.index("node scripts/check-pnpm-version.mjs") < action.index("pnpm install")
+    builder = _stage_text("builder")
+    assert "COPY frontend/scripts/check-pnpm-version.mjs" in builder
+    assert builder.index("node scripts/check-pnpm-version.mjs") < builder.index("&& pnpm install")
 
 
-def test_every_npm_runner_ignores_dependency_install_scripts() -> None:
-    """The install is `npm ci --ignore-scripts` everywhere; `allowScripts` records the policy."""
+def test_every_pnpm_runner_installs_the_lockfile_as_it_is() -> None:
+    """`pnpm install --frozen-lockfile` everywhere, with pnpm-workspace.yaml's settings (no
+    `--ignore-scripts`:
+    it would also turn the unreviewed-build check off)."""
     action = (ROOT / ".github/actions/setup-frontend/action.yml").read_text(encoding="utf-8")
-    assert re.search(r"^\s+run: npm ci --ignore-scripts$", action, re.MULTILINE)
-    for name in ("Dockerfile.frontend",):
-        text = (ROOT / name).read_text(encoding="utf-8")
-        assert "&& npm ci --include=dev --ignore-scripts\n" in text, name
+    assert re.search(r"^\s+run: pnpm install --frozen-lockfile$", action, re.MULTILINE)
+    builder = _stage_text("builder")
+    assert "&& pnpm install --frozen-lockfile\n" in builder
+    assert (
+        "COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./"
+        in builder
+    )
+    for path in [ROOT / "Dockerfile.frontend", *sorted((ROOT / ".github").rglob("*.yml"))]:
+        text = path.read_text(encoding="utf-8")
+        assert not re.search(r"\bnpm (ci|install|run|test)\b|\bnpx\b", text), path.name
+        for line in re.findall(r"pnpm install[^\n]*", text):
+            assert line.strip().rstrip("\\").strip() == "pnpm install --frozen-lockfile", (
+                path.name,
+                line,
+            )
 
 
 def test_the_healthcheck_probes_the_frontends_own_health_route() -> None:

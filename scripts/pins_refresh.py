@@ -19,6 +19,10 @@ Three pin sources are covered:
     vendor still publishes a checksum for the pinned version's asset.
   * charts/your-service-name/ci/crds/sources.tsv (the upstream CRDs of the kubeconform schemas):
     the recorded sha256 must be that of the file at the row's version (hashed on download).
+  * Dockerfile.frontend's pnpm (PNPM_VERSION, PNPM_SHA256_AMD64, PNPM_SHA256_ARM64): mise.toml's
+    version, mise.lock's linux-x64 sha256 and the release's linux-arm64 asset digest (mise.lock
+    holds no linux-arm64; pnpm publishes no checksum file, so the digest is GitHub's). A refresh
+    writes them.
 
 SOURCES is the one place that says where each tool's checksum comes from. With --base REF only rows
 that differ from REF are checked (a pull request); without it every row is (main, schedule).
@@ -760,6 +764,60 @@ def run_mise(*, check: bool) -> bool:
     return bool(found)
 
 
+PNPM_DOCKERFILE = ROOT / "Dockerfile.frontend"
+PNPM_KEY = "aqua:pnpm/pnpm"
+
+
+def pnpm_image_problems(
+    dockerfile: str, config: str, lock: str
+) -> tuple[list[str], list[str], str]:
+    """(vendor problems, Dockerfile drift, the fixed Dockerfile) for the image's pnpm.
+    Network: the pnpm release's asset digests."""
+    version = str(tomllib.loads(config)["tools"][PNPM_KEY])
+    entry = tomllib.loads(lock)["tools"][PNPM_KEY][0]
+    amd64 = str(entry["platforms.linux-x64"]["checksum"]).removeprefix("sha256:")
+    release = json.loads(fetch(f"https://api.github.com/repos/pnpm/pnpm/releases/tags/v{version}"))
+    digests = {
+        str(a.get("name")): str(a.get("digest") or "").removeprefix("sha256:")
+        for a in release.get("assets", [])
+    }
+    vendor: list[str] = []
+    if digests.get("pnpm-linux-x64.tar.gz") != amd64:
+        vendor.append(f"mise.lock's linux-x64 sha256 {amd64} is not the release's digest")
+    arm64 = digests.get("pnpm-linux-arm64.tar.gz", "")
+    if not HEX64.fullmatch(arm64):
+        vendor.append(f"the v{version} release lists no sha256 digest for pnpm-linux-arm64.tar.gz")
+    want = {"PNPM_VERSION": version, "PNPM_SHA256_AMD64": amd64, "PNPM_SHA256_ARM64": arm64}
+    drift: list[str] = []
+    for name, value in want.items():
+        match = re.search(rf"^ARG {name}=(\S*)$", dockerfile, re.MULTILINE)
+        if not match:
+            drift.append(f"no ARG {name}")
+        elif match[1] != value:
+            drift.append(f"{name} is {match[1]}, want {value}")
+            dockerfile = dockerfile.replace(match[0], f"ARG {name}={value}")
+    return vendor, drift, dockerfile
+
+
+def run_pnpm_image(*, check: bool) -> bool:
+    """Check (and on a refresh, write) Dockerfile.frontend's pnpm. True on a problem."""
+    text = PNPM_DOCKERFILE.read_text()
+    try:
+        vendor, drift, new = pnpm_image_problems(text, MISE_TOML.read_text(), MISE_LOCK.read_text())
+    except (PinError, ValueError, KeyError) as exc:
+        out(f"ERROR Dockerfile.frontend pnpm: {exc}")
+        return True
+    if drift and not check and not vendor and new != text:
+        PNPM_DOCKERFILE.write_text(new)
+        out(f"UPDATED Dockerfile.frontend pnpm: {'; '.join(drift)}")
+        drift = [d for d in drift if d.startswith("no ARG")]
+    for line in vendor + drift:
+        out(f"DRIFT Dockerfile.frontend pnpm: {line}")
+    if not vendor and not drift:
+        out("ok Dockerfile.frontend pnpm")
+    return bool(vendor or drift)
+
+
 def run_crds(names: list[str], base: str, *, check: bool) -> tuple[bool, int]:
     """Check or update the CRD sources (the named ones, or the rows changed since `base`):
     (failed, how many were looked at). Rows that are unchanged since `base` are skipped, unless the
@@ -816,6 +874,7 @@ def main(argv: list[str]) -> int:
     for path in locks:
         failed = run_lock(path) or failed
     failed = (not names and run_mise(check=check)) or failed
+    failed = (not names and run_pnpm_image(check=check)) or failed
     if names and not pins and not tools and not locks and not crds:
         out("no pins to check")
     if new_text != text:

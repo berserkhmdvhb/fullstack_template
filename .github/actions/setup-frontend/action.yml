@@ -1,8 +1,8 @@
 name: Set up the frontend
 description: >-
-  Install Node and the frontend dependencies. The Node version is read from mise.toml, the single
-  source of tool versions; the npm cache is keyed on frontend/package-lock.json. No inputs. Output
-  node-version is the version installed.
+  Set up Node, the pinned pnpm and the frontend dependencies. The Node and pnpm versions are read from
+  mise.toml, the single source of tool versions (pnpm is checksum-verified against mise.lock); the pnpm
+  store is keyed on frontend/pnpm-lock.yaml. No inputs. Output node-version is the version installed.
 outputs:
   node-version:
     description: The Node version taken from mise.toml.
@@ -16,25 +16,31 @@ runs:
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: ${{ steps.pin.outputs.node-version }}
-    - name: Check the npm version
+        package-manager-cache: false
+    # The caller's later steps run pnpm, so .tools/bin goes on GITHUB_PATH: a fixed directory of this checkout, holding
+    # only links that tools.sh made to checksum-verified installs; nothing from the event reaches the line.
+    - name: Install the pinned pnpm
+      shell: bash
+      run: | # zizmor: ignore[github-env]
+        scripts/tools.sh install pnpm
+        echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+    - name: Check the pnpm version
       shell: bash
       working-directory: frontend
-      run: node scripts/check-npm-version.mjs
-    # Restored everywhere, saved only from a push to main (never from a pull request or a tag).
-    - id: npm-cache
-      shell: bash
-      run: echo "dir=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+      run: node scripts/check-pnpm-version.mjs
+    # The store is frontend/pnpm-workspace.yaml's storeDir. Restored everywhere, saved only from a push to main
+    # (never from a pull request or a tag).
     - id: restore
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ${{ steps.npm-cache.outputs.dir }}
-        key: npm-${{ runner.os }}-${{ steps.pin.outputs.node-version }}-${{ hashFiles('frontend/package-lock.json') }}
+        path: .tools/pnpm/store
+        key: pnpm-${{ runner.os }}-${{ steps.pin.outputs.node-version }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
     - name: Install the frontend dependencies
       shell: bash
       working-directory: frontend
-      run: npm ci --ignore-scripts
+      run: pnpm install --frozen-lockfile
     - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.restore.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ${{ steps.npm-cache.outputs.dir }}
+        path: .tools/pnpm/store
         key: ${{ steps.restore.outputs.cache-primary-key }}

@@ -12,8 +12,8 @@
  *
  * Usage:
  * ```bash
- * npm run e2e          # Run all E2E tests
- * npm run e2e:ui       # Run with Playwright UI mode
+ * pnpm run e2e          # Run all E2E tests
+ * pnpm run e2e:ui       # Run with Playwright UI mode
  * ```
  *
  * @packageDocumentation

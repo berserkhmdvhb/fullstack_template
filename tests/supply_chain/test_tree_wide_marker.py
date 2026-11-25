@@ -36,7 +36,7 @@ def test_an_unmarked_walker_is_caught(tmp_path: Path) -> None:
     assert unmarked(tmp_path) == ["test_walker.py"]
 
 
-@pytest.mark.parametrize("pathspec", ['"*.md"', '"*package-lock.json"'])
+@pytest.mark.parametrize("pathspec", ['"*.md"', '"*pnpm-lock.yaml"'])
 def test_a_wildcard_pathspec_without_a_directory_is_a_tree_walk(
     tmp_path: Path, pathspec: str
 ) -> None:

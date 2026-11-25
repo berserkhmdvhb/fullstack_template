@@ -221,6 +221,8 @@
   // uv.lock is maintained by Renovate's pep621 manager (part of config:recommended) with `uv lock`, which reads
   // [tool.uv] exclude-newer = "7 days" from pyproject.toml, so a refreshed lock also keeps the 7-day rule. mise.lock is
   // maintained by the mise manager (`mise lock`); every version in mise.toml is exact, so it re-locks what is pinned.
+  // The two pnpm-lock.yaml files are maintained by the npm manager with pnpm, which reads minimumReleaseAge (7 days)
+  // from each project's pnpm-workspace.yaml, and every install checks the lock against it again.
   "lockFileMaintenance": {
     "enabled": true,
     "semanticCommitType": "fix",
@@ -255,10 +257,11 @@
     {
       // Lock file maintenance has no release timestamp, and minimumReleaseAge defaults to
       // minimumReleaseAgeBehaviour "timestamp-required" under internalChecksFilter "strict", so without this rule
-      // no branch would ever be created. The 7 days are enforced inside uv.lock by [tool.uv] exclude-newer; mise.lock only
-      // locks the exact versions of mise.toml, which Renovate wrote after the 7 days.
-      "description": "uv.lock and mise.lock maintenance: no release timestamp to wait for (the 7 days are held where each is written)",
-      "matchManagers": ["pep621", "mise"],
+      // no branch would ever be created. The 7 days are enforced inside uv.lock by [tool.uv] exclude-newer and inside
+      // each pnpm-lock.yaml by pnpm's minimumReleaseAge; mise.lock only locks the exact versions of mise.toml, which
+      // Renovate wrote after the 7 days.
+      "description": "uv.lock, pnpm-lock.yaml and mise.lock maintenance: no release timestamp to wait for (the 7 days are held where each is written)",
+      "matchManagers": ["pep621", "npm", "mise"],
       "matchUpdateTypes": ["lockFileMaintenance"],
       "minimumReleaseAge": null,
       // Without a release timestamp the default timestamp-required behaviour holds the update; uv's exclude-newer still enforces the 7 days in the lock.
@@ -342,6 +345,14 @@
       "matchFileNames": ["frontend/package.json", "docs-site/package.json"],
       "matchPackageNames": ["playwright", "@playwright/test"],
       "groupName": "playwright"
+    },
+    {
+      // pnpm is named three times: mise.toml (the tool, with its checksums in mise.lock) and packageManager in both
+      // package.json files; Dockerfile.frontend's copy follows mise.lock through `make pins-refresh`.
+      "description": "pnpm: mise.toml and both packageManager fields move together",
+      "matchPackageNames": ["pnpm", "aqua:pnpm/pnpm"],
+      "groupName": "pnpm",
+      "prBodyNotes": ["Run `make pins-refresh` (it writes `mise.lock` and the pnpm version and checksums in `Dockerfile.frontend`), then `pnpm install --lockfile-only` in `frontend/` and `docs-site/` so each `pnpm-lock.yaml` records the new pnpm, and push."]
     },
     {
       "description": "mise.toml: the lock moves with the version, or the pins check says so",

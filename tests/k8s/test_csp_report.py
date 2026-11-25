@@ -80,7 +80,7 @@ def kube() -> Iterator[Kube]:
 def test_a_browser_csp_violation_is_logged_by_the_backend(kube: Kube) -> None:
     marker = f"fst{secrets.token_hex(8)}"
     started = time.time()
-    cmd = [str(FORWARD), "npx", "playwright", "test", SPEC, "--retries=0"]
+    cmd = [str(FORWARD), "pnpm", "exec", "playwright", "test", SPEC, "--retries=0"]
     env = {**os.environ, "CSP_REPORT_MARKER": marker}
     done = subprocess.run(cmd, cwd=ROOT / "frontend", env=env, check=False)
     print(f"playwright: rc {done.returncode}, {time.time() - started:.0f}s")

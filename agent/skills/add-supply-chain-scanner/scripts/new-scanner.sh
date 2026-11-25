@@ -380,13 +380,13 @@ EOF
 
 @@INSTFAIL_BLOCK_MARKER@@
 
-# _manifests PYPI NPM — write a pyproject.toml + frontend/package-lock.json fixture.
+# _manifests PYPI NPM — write a pyproject.toml + frontend/package.json fixture (the direct deps).
 _manifests() {
   local root="$BATS_TEST_TMPDIR/repo"
   mkdir -p "$root/frontend" "$BATS_TEST_TMPDIR/out"
   { echo "[project]"; echo 'dependencies = ['; local IFS=','; for d in $1; do printf '  "%s",\n' "$d"; done; echo ']'; } > "$root/pyproject.toml"
-  cat > "$root/frontend/package-lock.json" <<EOF
-{ "name": "root", "lockfileVersion": 3, "packages": { "": { "dependencies": { $2 } } } }
+  cat > "$root/frontend/package.json" <<EOF
+{ "name": "root", "dependencies": { $2 } }
 EOF
   printf '%s' "$root"
 }

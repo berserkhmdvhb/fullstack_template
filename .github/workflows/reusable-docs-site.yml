@@ -40,32 +40,36 @@ jobs:
         with:
           node-version: ${{ steps.pin.outputs.node-version }}
           package-manager-cache: false
-      - name: Check the npm version
+      - name: Install the pinned pnpm
+        run: |
+          scripts/tools.sh install pnpm
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - name: Check the pnpm version
         working-directory: docs-site
-        run: node ../frontend/scripts/check-npm-version.mjs
+        run: node ../frontend/scripts/check-pnpm-version.mjs
       - name: Install the site dependencies
         working-directory: docs-site
-        run: npm ci --ignore-scripts
+        run: pnpm install --frozen-lockfile
       # Mermaid renders at build time in the Playwright Chromium; the axe scan drives the same browser.
       - name: Install the Playwright system deps
         timeout-minutes: 5
         working-directory: docs-site
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install-deps chromium
       - name: Download the Playwright browser
         timeout-minutes: 5
         working-directory: docs-site
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install chromium
       - name: Resolver unit tests
         working-directory: docs-site
-        run: npm test
+        run: pnpm test
       # Strict: a broken link or #anchor, invalid front matter, a missing loaded file or a diagram that does
       # not render fails the build.
       - name: Build the site
         working-directory: docs-site
-        run: npm run build
+        run: pnpm run build
       - name: axe accessibility scan
         working-directory: docs-site
-        run: npm run test:a11y
+        run: pnpm run test:a11y
       - name: Upload the test reports on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

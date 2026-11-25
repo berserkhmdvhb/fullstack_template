@@ -26,7 +26,7 @@ REQS="${REQS:-$ROOT/tools/requirements}"
 TOOLS_DIR="${TOOLS_DIR:-$ROOT/.tools}"
 DRY_RUN=false # only --dry-run sets it
 # The tools mise installs, in install order (uv before the Python tools that use it).
-MISE_TOOLS="node uv zizmor prek helm3 helm4 kubectl kubectl-floor kind kubeconform promtool ct helm-unittest actionlint hadolint
+MISE_TOOLS="node pnpm uv zizmor prek helm3 helm4 kubectl kubectl-floor kind kubeconform promtool ct helm-unittest actionlint hadolint
   gitleaks squawk oasdiff cosign kyverno yq bats shellcheck lychee"
 TMP="" PART=""
 
@@ -79,6 +79,7 @@ exes_for() {
 mise_spec() {
   case "$1" in
     node) echo "core:node node npm npx" ;;
+    pnpm) echo "aqua:pnpm/pnpm pnpm" ;;
     uv) echo "aqua:astral-sh/uv uv uvx" ;;
     zizmor) echo "aqua:zizmorcore/zizmor zizmor" ;;
     prek) echo "aqua:j178/prek prek" ;;

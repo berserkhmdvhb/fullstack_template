@@ -52,10 +52,10 @@ def test_live_is_gated_on_backend_or_frontend_changes() -> None:
     assert "success" not in cond, "requiring success would skip the job whenever a gate is skipped"
 
 
-def test_live_calls_the_make_target_and_the_npm_script() -> None:
+def test_live_calls_the_make_target_and_the_pnpm_script() -> None:
     runs = _runs(_live())
     assert "make test-live" in runs
-    assert "npm run test:e2e" in runs
+    assert "pnpm run test:e2e" in runs
     assert "pytest" not in runs
     assert "playwright test" not in runs
 

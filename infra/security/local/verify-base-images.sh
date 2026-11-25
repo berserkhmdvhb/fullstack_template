@@ -5,7 +5,8 @@
 # One source of digests: the `FROM <image>@sha256:<digest>` lines of the Dockerfiles. A gcr.io/distroless base is
 # verified with cosign; a base listed in unsigned-base-images.tsv (with its reason) is skipped by name; any other
 # base, an unpinned FROM and an unparsable FROM fail. The same rules apply to `COPY/ADD --from=<image>` and
-# `RUN --mount=from=<image>`. A stage alias, a stage index and `scratch` are skipped.
+# `RUN --mount=from=<image>`. A stage alias, a stage index and `scratch` are skipped, and so is `<stage>-${TARGETARCH}`
+# when both <stage>-amd64 and <stage>-arm64 are earlier stages.
 #
 # Usage: verify-base-images.sh [--list] [Dockerfile ...]
 #   default files: every tracked Dockerfile (Dockerfile, Dockerfile.*, *.Dockerfile) outside tests/
@@ -39,7 +40,7 @@ fail() { echo "::error::$*" >&2; failures=$((failures + 1)); }
 # Print "<file>\t<ref>" for every image a Dockerfile pulls: FROM, COPY/ADD --from and RUN --mount=...from=;
 # "<file>\t!<line>" for a FROM that does not parse. A stage alias, a stage index and `scratch` are skipped.
 parse() {
-  local file="$1" line tok ref i
+  local file="$1" line tok ref i amd arm var
   local -a words refs
   local -A stages=()
   while IFS= read -r line || [[ -n "${line}" ]]; do
@@ -58,6 +59,12 @@ parse() {
         for ((i = 2; i < ${#words[@]}; i++)); do
           if [[ "${words[i]}" =~ ^[Aa][Ss]$ && -n "${words[i + 1]:-}" ]]; then stages["${words[i + 1],,}"]=1; fi
         done
+        # One variable is allowed, ${TARGETARCH}, and only when both of its values (amd64, arm64) name an
+        # earlier stage: the build then picks one of those stages, never an image.
+        # shellcheck disable=SC2016 # the literal text ${TARGETARCH}, not an expansion
+        var='${TARGETARCH}'
+        amd="${ref//"${var}"/amd64}" arm="${ref//"${var}"/arm64}"
+        if [[ "${ref}" == *"${var}"* && -n "${stages[${amd,,}]:-}" && -n "${stages[${arm,,}]:-}" ]]; then continue; fi
         if [[ -z "${ref}" || "${ref}" == *'$'* ]]; then printf '%s\t!%s\n' "${file}" "${line}"; continue; fi
         refs+=("${ref}") ;;
       copy | add)

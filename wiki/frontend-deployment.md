@@ -24,9 +24,9 @@ The frontend is built as a **Next.js standalone application** and served by the 
 ```mermaid
 flowchart TB
     subgraph Build["Build (CI/CD)"]
-        NPM["npm ci --ignore-scripts"]
-        OpenAPI["npm run openapi-gen"]
-        NextBuild["npx next build"]
+        NPM["pnpm install --frozen-lockfile"]
+        OpenAPI["pnpm run openapi-gen"]
+        NextBuild["pnpm exec next build"]
     end
 
     subgraph Deploy["Deploy (Runtime)"]
@@ -48,17 +48,21 @@ flowchart TB
 
 ### Steps
 
-1. **Install dependencies**: `npm ci --ignore-scripts` (deterministic; no dependency install script runs, see [Install scripts](#install-scripts))
-2. **Generate API types**: `npm run openapi-gen` (from backend OpenAPI spec)
-3. **Build Next.js**: `npx next build`
+1. **Install dependencies**: `pnpm install --frozen-lockfile` (deterministic; no dependency install script runs, see [Install scripts](#install-scripts))
+2. **Generate API types**: `pnpm run openapi-gen` (from backend OpenAPI spec)
+3. **Build Next.js**: `pnpm exec next build`
 
 ### Install scripts
 
-Dependency install scripts (`preinstall`, `install`, `postinstall`) run arbitrary code at install time, so the
-frontend installs with `npm ci --ignore-scripts` in the CI `setup-frontend` action and in the Dockerfile's builder
-stage. The build, every test, the dev server and Playwright pass without them.
+Dependency install scripts (`preinstall`, `install`, `postinstall`) run arbitrary code at install time. pnpm runs a
+dependency's script only when `allowBuilds` in the project's `pnpm-workspace.yaml` approves it, and with
+`strictDepBuilds: true` an install fails on any package that declares one and is not listed. Both projects list
+every such package with `false`, so no dependency script runs: in the CI `setup-frontend` action, in the
+Dockerfile's builder stage, in the kind job and in a local install. The build, every test, the dev server and
+Playwright pass without them.
 
-Three lockfile packages declare an install script; none is needed:
+Three lockfile packages of the frontend declare an install script (the docs site has `fsevents` only); none is
+needed:
 
 | Package | What the script does | Without it |
 |---|---|---|
@@ -66,34 +70,50 @@ Three lockfile packages declare an install script; none is needed:
 | `unrs-resolver` | Checks the native resolver binding and fetches a fallback if the platform package is missing. | The platform binding arrives as an optional dependency (`@unrs/resolver-binding-*`). |
 | `fsevents` | Rebuilds the macOS file watcher from source (the package ships a prebuilt `fsevents.node`). | Optional and macOS-only; the prebuilt watcher still works. |
 
-Playwright installs no browser from a postinstall: the CI jobs and developers run `npx playwright install`
+Playwright installs no browser from a postinstall: the CI jobs and developers run `pnpm exec playwright install`
 explicitly.
 
-**The allowlist.** npm 11.20 reads an `allowScripts` field in `frontend/package.json` (`name` or `name@version` to
-`true` or `false`; see the npm `install-scripts` and `ci` manual pages). Ours lists the three packages above with
-`false`, so even an install without `--ignore-scripts` skips them quietly. A denial is keyed by the bare name (it
-survives a version bump). An approval (`true`) must be `name@<exact locked version>` and have its row in the
-Exceptions section below; npm ignores ranges and dist-tags, and the guard rejects them. `npm install-scripts ls`
-lists any package not yet reviewed.
+**The policy.** `allowBuilds` maps a package to `true` (run its script) or `false` (never run it, and say it was
+reviewed); see pnpm's [build settings](https://pnpm.io/settings/build). A denial is keyed by the bare name, so it
+survives a version bump. An approval (`true`) must be `name@<exact locked version>` and have its row in the
+Exceptions section below. Every install is `pnpm install --frozen-lockfile` with no `--ignore-scripts`: that flag
+also turns the strict check off, so an unreviewed script would pass without a word, while the policy above
+already runs none.
 
-**The guard.** `tests/supply_chain/test_npm_install_scripts.py` fails when `frontend/package-lock.json` has a
-`hasInstallScript` package with no `allowScripts` entry, so a dependency update that adds an install script is
-caught in review. When it fails, read the script, then deny it: `npm install-scripts deny <name>`, or for a package
-that is not installed on this platform (npm answers ENOMATCH, as for `fsevents` on Linux)
-`npm pkg set 'allowScripts.<name>=false' --json`. Do not run `npm install-scripts prune`: it drops the entries of
-other-platform packages, and the guard then flags the loss. To approve, add the `name@version` row below first.
+**The guard.** pnpm itself fails an install that meets an unreviewed script (`ERR_PNPM_IGNORED_BUILDS`).
+`tests/supply_chain/test_pnpm_config.py` holds the rest offline: the settings below, a denial for a package the
+lockfile no longer has, an approval without its exact locked version or its row here, and a key that is not a
+bare name or one exact version. When an install fails on a new script, read it, then add the package to
+`allowBuilds` with `false` (or, to approve it, the `name@version` row below first).
 
-**Developers.** Install locally with `npm ci --ignore-scripts` as well: it is the same install CI runs, and nothing
-in the local workflow needs a script.
+**The other settings** (both `pnpm-workspace.yaml` files; [dependency resolution
+settings](https://pnpm.io/settings/dependency-resolution)):
+
+| Setting | What it does |
+|---|---|
+| `minimumReleaseAge: 10080` | Resolves only releases at least 7 days old, transitive ones included. A frozen install checks every lockfile entry against it again, so a lock written around it fails. A package younger than 7 days: [Security updates younger than 7 days](./getting-started.md#security-updates-younger-than-7-days). |
+| `blockExoticSubdeps: true` | Only a direct dependency may come from git or a tarball URL. |
+| `trustPolicy: no-downgrade` | Fails when a package's trust evidence (trusted publishing, provenance) is weaker than an earlier release's. Exceptions: below. |
+| `pmOnFail: error` | Fails when the running pnpm is not the `packageManager` one, instead of downloading that pnpm unverified. |
+| `storeDir`, `cacheDir` | The store and the cache under the repository's gitignored `.tools/pnpm/`, never under `$HOME`. |
+
+**Developers.** Install locally with `pnpm install --frozen-lockfile` (the pinned pnpm: `scripts/tools.sh install
+pnpm`): it is the same install CI runs, and nothing in the local workflow needs a script.
 
 #### Exceptions
 
-None: no install script runs. An approved script gets one row here, as `name@exact-version`, with why it is
-needed and how it runs instead (for example an explicit `npm rebuild <name>` step after the install).
+No install script runs. An approved script gets one row here, as `name@exact-version`, with why it is needed and
+how it runs instead (for example an explicit `pnpm rebuild <name>` step after the install).
 
 | Package | Why | How it runs |
 |---|---|---|
 | (none) | | |
+
+Trust-policy exceptions (`trustPolicyExclude`, each exact; the test holds the list):
+
+| Package | Why |
+|---|---|
+| `chromium-bidi@157.0.8090-0` | Published without provenance while the earlier line had it. The frontend gets it through `@lhci/cli` (Lighthouse, Puppeteer); from 157 on, the package is a Chrome-versioned prerelease line published by Google's `chrome-devtools-npm` account, none with provenance. |
 
 ### Build Output
 
@@ -149,7 +169,7 @@ const nextConfig: NextConfig = {
 ### Running the Standalone Server
 
 ```bash
-# From frontend/, after npm run build: copies .next/static and public beside server.js, as the image does
+# From frontend/, after pnpm run build: copies .next/static and public beside server.js, as the image does
 node scripts/serve-standalone.mjs
 
 # Or via Docker Compose (uses Dockerfile.frontend)
@@ -256,11 +276,11 @@ These are read at server startup:
 
 ### Pre-Deploy
 
-- [ ] All tests pass (`npm test`, `npm run test:integration`)
-- [ ] TypeScript type check passes (`npm run typecheck`)
-- [ ] ESLint passes with 0 warnings (`npm run lint`)
-- [ ] Prettier formatting is correct (`npm run format-check`)
-- [ ] Build succeeds (`npm run build`)
+- [ ] All tests pass (`pnpm test`, `pnpm run test:integration`)
+- [ ] TypeScript type check passes (`pnpm run typecheck`)
+- [ ] ESLint passes with 0 warnings (`pnpm run lint`)
+- [ ] Prettier formatting is correct (`pnpm run format-check`)
+- [ ] Build succeeds (`pnpm run build`)
 - [ ] Environment variables are configured
 - [ ] `NEXT_PUBLIC_API_URL` points to the correct backend (Ingress host)
 - [ ] Helm chart renders for the target env (`helm template your-service-name charts/your-service-name -f charts/your-service-name/values.<env>.yaml`)

@@ -1,6 +1,6 @@
 // Serves the production build the way the image does: the standalone server, with `.next/static` and `public`
 // copied beside it (Dockerfile.frontend copies the same two directories). Playwright's webServer runs it, so the
-// copy steps live here and nowhere else. Run from the frontend directory after `npm run build`:
+// copy steps live here and nowhere else. Run from the frontend directory after `pnpm run build`:
 //   PORT=3100 HOSTNAME=127.0.0.1 node scripts/serve-standalone.mjs
 import { spawn } from 'node:child_process';
 import { cpSync, existsSync, rmSync } from 'node:fs';
@@ -16,7 +16,7 @@ export function prepareStandalone(root) {
   const bundle = join(root, '.next', 'standalone');
   const server = join(bundle, 'server.js');
   if (!existsSync(server)) {
-    throw new Error(`${server} is missing: run "npm run build" first`);
+    throw new Error(`${server} is missing: run "pnpm run build" first`);
   }
   // The bundle can hold a symlink to the build host's static directory; replace it with a real copy.
   rmSync(join(bundle, '.next', 'static'), { recursive: true, force: true });

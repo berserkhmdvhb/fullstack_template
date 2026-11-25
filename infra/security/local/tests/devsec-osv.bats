@@ -65,13 +65,23 @@ EOF
   export TOOLS_INSTALLER="$bindir/tools-install.sh"
 }
 
-# _repo — a fixture repo root with an npm lockfile (something OSV can read).
+# _repo — a fixture repo root with a pnpm lockfile (something OSV can read).
 _repo() {
   local root="$BATS_TEST_TMPDIR/repo"
   mkdir -p "$root/frontend" "$BATS_TEST_TMPDIR/out"
-  cat > "$root/frontend/package-lock.json" <<'EOF'
-{ "name": "root", "lockfileVersion": 3,
-  "packages": { "": { "dependencies": { "lodash": "^4.0.0" } } } }
+  cat > "$root/frontend/pnpm-lock.yaml" <<'EOF'
+lockfileVersion: '9.0'
+importers:
+  .:
+    dependencies:
+      lodash:
+        specifier: ^4.0.0
+        version: 4.17.21
+packages:
+  lodash@4.17.21:
+    resolution: {integrity: sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg==}
+snapshots:
+  lodash@4.17.21: {}
 EOF
   printf '%s' "$root"
 }

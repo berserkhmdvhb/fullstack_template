@@ -146,7 +146,8 @@ def test_every_dockerfile_in_the_manifest_is_checked() -> None:
 def test_the_frontend_build_inputs_survive() -> None:
     for path in (
         "frontend/package.json",
-        "frontend/package-lock.json",
+        "frontend/pnpm-lock.yaml",
+        "frontend/pnpm-workspace.yaml",
         "frontend/app",
         "frontend/public",
     ):

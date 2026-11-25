@@ -2,10 +2,11 @@
 """
 Live tests: the headers on the static files the Next.js server serves itself, on real responses.
 
-Starts its own copy of the built standalone server (``npm run build`` first) with temporary files in
-its ``public/`` directory, so the logo, favicon, robots, sitemap and an SVG are all real files and
-nothing is added to the repository. Static files must get no framing and no content policy that
-would let anything run; the proxied text files keep the page policy and the no-framing header.
+Starts its own copy of the built standalone server (``pnpm run build`` first) with temporary
+files in its ``public/`` directory, so the logo, favicon, robots, sitemap and an SVG are all real
+files and nothing is added to the repository. Static files must get no framing and no content
+policy that would let anything run; the proxied text files keep the page policy and the no-framing
+header.
 """
 
 from __future__ import annotations
@@ -89,7 +90,7 @@ def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[httpx.Client]:
         )
     bundle = _ROOT / ".next" / "standalone"
     if not (bundle / "server.js").is_file():
-        _unavailable(f"{bundle}/server.js is missing: run `npm run build` in the frontend first")
+        _unavailable(f"{bundle}/server.js is missing: run `pnpm run build` in the frontend first")
     node = shutil.which("node")
     if node is None:
         _unavailable("node is not on PATH")

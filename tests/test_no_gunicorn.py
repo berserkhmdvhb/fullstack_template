@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 NAME = b"gun" + b"icorn"  # spelled in two parts so this file does not name it
 HISTORY = {"wiki/changelog.md"}  # past entries stay as written
 DECISIONS = "wiki/adr/"  # the decision records name what they removed, and why
-LOCKS = {"uv.lock", "package-lock.json"}
+LOCKS = {"uv.lock", "pnpm-lock.yaml"}
 
 
 def _tracked() -> list[str]:

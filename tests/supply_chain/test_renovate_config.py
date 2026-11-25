@@ -226,10 +226,11 @@ def test_one_pull_request_moves_setuptools_scm_in_the_dev_group_and_the_build_co
 
 def test_uv_lock_maintenance_is_not_blocked_by_the_release_age_check() -> None:
     # A lock refresh has no release timestamp: with minimumReleaseAge set, the default
-    # timestamp-required behaviour would create no branch. uv's exclude-newer holds the 7 days.
+    # timestamp-required behaviour would create no branch. uv's exclude-newer and pnpm's
+    # minimumReleaseAge (each pnpm-workspace.yaml) hold the 7 days.
     rules = renovate()["packageRules"]
     rule = next(r for r in rules if r.get("matchUpdateTypes") == ["lockFileMaintenance"])
-    assert rule["matchManagers"] == ["pep621", "mise"]
+    assert rule["matchManagers"] == ["pep621", "npm", "mise"]
     assert "minimumReleaseAge" in rule
     assert rule["minimumReleaseAge"] is None
     # An update with no release timestamp is held by the default timestamp-required behaviour.
@@ -401,10 +402,11 @@ def test_renovate_titles_are_always_fix_deps_conventional_commits() -> None:
     assert _title_pattern().match(title)
 
 
-def test_every_npm_lockfile_gets_dependabot_security_updates() -> None:
-    """Without an entry, a security pull request for that lockfile misses the `fix(deps)` title."""
+def test_every_pnpm_lockfile_gets_dependabot_security_updates() -> None:
+    """Without an entry, a security pull request for that lockfile misses the `fix(deps)` title.
+    Dependabot's `npm` ecosystem reads pnpm-lock.yaml too."""
     tracked = subprocess.run(
-        [GIT, "ls-files", "*package-lock.json"],
+        [GIT, "ls-files", "*pnpm-lock.yaml"],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -563,3 +565,12 @@ def test_zizmor_is_read_by_the_mise_manager_and_by_no_pins_manager() -> None:
     assert {"pip-audit", "schemathesis", "yamale", "yamllint"} <= names
     # The python row is not a PyPI package: its lookup stays disabled.
     assert any(r.get("matchDepNames") == ["python"] for r in renovate()["packageRules"])
+
+
+def test_pnpm_moves_in_one_pull_request_with_a_note_for_the_image_and_the_locks() -> None:
+    rule = next(r for r in renovate()["packageRules"] if r.get("groupName") == "pnpm")
+    assert set(rule["matchPackageNames"]) == {"pnpm", "aqua:pnpm/pnpm"}
+    note = " ".join(rule["prBodyNotes"])
+    assert "make pins-refresh" in note
+    assert "Dockerfile.frontend" in note
+    assert "pnpm-lock.yaml" in note

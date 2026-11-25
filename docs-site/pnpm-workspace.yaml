@@ -1,0 +1,23 @@
+# pnpm reads its settings from this file (a project of its own; .npmrc holds only auth and registry settings).
+# The same policy as the frontend: wiki/frontend-deployment.md#install-scripts.
+
+# The store and the cache live in the repository's gitignored .tools/, never under $HOME.
+storeDir: ../.tools/pnpm/store
+cacheDir: ../.tools/pnpm/cache
+
+# Resolve, and accept from the lockfile, only releases at least 7 days old (10080 minutes), transitive ones included.
+minimumReleaseAge: 10080
+
+# Only direct dependencies may come from git or a tarball URL.
+blockExoticSubdeps: true
+
+# Fail when a package's trust evidence drops (for example from provenance to none) against its earlier releases.
+trustPolicy: no-downgrade
+
+# Fail when the running pnpm is not packageManager's, instead of downloading another one.
+pmOnFail: error
+
+# No dependency build script runs: every package that declares one is denied here, and an install fails on one not listed.
+strictDepBuilds: true
+allowBuilds:
+  fsevents: false

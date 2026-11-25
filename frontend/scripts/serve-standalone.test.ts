@@ -57,6 +57,6 @@ describe('prepareStandalone', () => {
     const root = mkdtempSync(join(tmpdir(), 'standalone-'));
     roots.push(root);
 
-    expect(() => prepareStandalone(root)).toThrow(/npm run build/);
+    expect(() => prepareStandalone(root)).toThrow(/pnpm run build/);
   });
 });

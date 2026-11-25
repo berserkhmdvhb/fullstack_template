@@ -249,7 +249,7 @@ sized from a replay of its steps on a fresh clone, with headroom for a slower ho
 | Cache | Key | Saved by |
 |---|---|---|
 | uv (`setup-backend`) | `uv-<os>-<python>-<hash of uv.lock>` (pruned with `uv cache prune --ci` before the save) | a push to `main` only |
-| npm (`setup-frontend`) | `npm-<os>-<node>-<hash of frontend/package-lock.json>` | a push to `main` only |
+| npm (`setup-frontend`) | `npm-<os>-<node>-<hash of frontend/pnpm-lock.yaml>` | a push to `main` only |
 | dev tools (`.tools/`) | `tools-<os>-<hash of tools/pins.tsv, mise.toml and mise.lock>` | a push to `main` only |
 
 Pull requests and tags restore caches and never save them, so a pull request cannot poison what `main` restores.

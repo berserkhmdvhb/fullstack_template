@@ -26,7 +26,7 @@ jobs:
       # The script runs eslint with --max-warnings=0.
       - name: ESLint
         working-directory: frontend
-        run: npm run lint
+        run: pnpm run lint
 
   prettier:
     name: Prettier
@@ -42,7 +42,7 @@ jobs:
       - uses: ./.github/actions/setup-frontend
       - name: Prettier
         working-directory: frontend
-        run: npm run format-check
+        run: pnpm run format-check
 
   type-check:
     name: Type check
@@ -58,7 +58,7 @@ jobs:
       - uses: ./.github/actions/setup-frontend
       - name: Type check
         working-directory: frontend
-        run: npm run typecheck
+        run: pnpm run typecheck
 
   # Needs both toolchains: the backend dumps the schema, the frontend regenerates the types.
   openapi-drift:
@@ -76,9 +76,9 @@ jobs:
       - uses: ./.github/actions/setup-frontend
       - name: OpenAPI drift
         run: make openapi-drift-check
-      # The lockfile's install-script review (the backend job runs it too, but not on a frontend-only change).
-      - name: npm install-scripts guard
-        run: .venv/bin/python -m pytest -p no:cacheprovider tests/supply_chain/test_npm_install_scripts.py
+      # pnpm's settings and the build-script review (the backend job runs it too, but not on a frontend-only change).
+      - name: Build-script guard (pnpm-workspace.yaml)
+        run: .venv/bin/python -m pytest -p no:cacheprovider tests/supply_chain/test_pnpm_config.py
 
   # Build runs before the unit tests, as in the original pipeline.
   build:
@@ -96,7 +96,7 @@ jobs:
       - uses: ./.github/actions/setup-frontend
       - name: Next.js build
         working-directory: frontend
-        run: npm run build
+        run: pnpm run build
 
   # The coverage gates live in the vitest config, not here. The unit job runs the pure-logic files for a fast
   # signal; the integration job then runs the WHOLE suite once, with coverage, so the gate counts every test.
@@ -115,7 +115,7 @@ jobs:
       - uses: ./.github/actions/setup-frontend
       - name: Unit tests
         working-directory: frontend
-        run: npm run test:unit
+        run: pnpm run test:unit
       - name: Upload the test reports on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -140,7 +140,7 @@ jobs:
       - uses: ./.github/actions/setup-frontend
       - name: Whole suite with the coverage gate
         working-directory: frontend
-        run: npm run test:coverage
+        run: pnpm run test:coverage
       - name: Upload the test reports on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -168,7 +168,7 @@ jobs:
       - uses: ./.github/actions/setup-frontend
       - name: Playwright test discovery
         working-directory: frontend
-        run: npx playwright test --list
+        run: pnpm exec playwright test --list
 
   # Blocking: axe scans the built app (frontend/e2e/a11y.spec.ts) through Playwright's webServer (`next start`),
   # so a pull request is gated, not only main. The backend is not needed: the spec answers the API itself.
@@ -187,19 +187,19 @@ jobs:
       - uses: ./.github/actions/setup-frontend
       - name: Next.js build
         working-directory: frontend
-        run: npm run build
-      # The version comes from the lockfile because npx runs the locally installed Playwright.
+        run: pnpm run build
+      # The version comes from the lockfile because pnpm exec runs the locally installed Playwright.
       - name: Install the Playwright system deps
         timeout-minutes: 5
         working-directory: frontend
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install-deps chromium
       - name: Download the Playwright browser
         timeout-minutes: 5
         working-directory: frontend
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install chromium
       - name: axe accessibility scan
         working-directory: frontend
-        run: npm run test:a11y
+        run: pnpm run test:a11y
       - name: Upload the test reports on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -231,22 +231,22 @@ jobs:
         run: echo 'Lighthouse CI is advisory, so budget findings are warnings and do not block the merge.' >> "$GITHUB_STEP_SUMMARY"
       - name: Next.js build
         working-directory: frontend
-        run: npm run build
+        run: pnpm run build
       - name: Install the Playwright system deps
         timeout-minutes: 5
         working-directory: frontend
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install-deps chromium
       - name: Download the Playwright browser
         timeout-minutes: 5
         working-directory: frontend
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 npx playwright install chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install chromium
       # Lighthouse drives the Playwright Chromium (CHROME_PATH), so there is no second browser download.
       - name: Collect the Lighthouse runs
         working-directory: frontend
         run: |
           CHROME_PATH="$(node -p "require('@playwright/test').chromium.executablePath()")"
           export CHROME_PATH
-          npx lhci collect --config=lighthouserc.json
+          pnpm exec lhci collect --config=lighthouserc.json
       # A budget miss becomes ::warning annotations and a summary line (exit 0); anything else is a tool error.
       - name: Check the budgets
         working-directory: frontend

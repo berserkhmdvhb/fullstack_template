@@ -72,6 +72,7 @@ def _sample_sources(monkeypatch: pytest.MonkeyPatch) -> None:
 def _no_mise_cross_check(monkeypatch: pytest.MonkeyPatch) -> None:
     """The comparison with the vendors' files (network) has its own tests, below."""
     monkeypatch.setattr(pr, "mise_vendor_problems", lambda _config, _lock: [])
+    monkeypatch.setattr(pr, "run_pnpm_image", lambda **_: False)
 
 
 def rows() -> list[list[str]]:
@@ -1255,3 +1256,75 @@ def test_two_tools_sharing_a_checksum_file_fetch_it_once(monkeypatch: pytest.Mon
     assert VENDOR_CROSS_CHECK(MISE_TOML.read_text(), lock) == []
     assert len(seen) == len(set(seen)), seen  # one fetch per file, not one per platform
     assert len(seen) == 3  # noqa: PLR2004 - helm-unittest, oasdiff and prometheus; squawk has none
+
+
+PNPM_CHECK = pr.run_pnpm_image
+PNPM_RELEASE = "https://api.github.com/repos/pnpm/pnpm/releases/tags/v{}"
+
+
+def _pnpm_release(monkeypatch: pytest.MonkeyPatch, amd64: str, arm64: str) -> list[str]:
+    version = tomllib.loads(MISE_TOML.read_text())["tools"]["aqua:pnpm/pnpm"]
+    assets = [
+        {"name": "pnpm-linux-x64.tar.gz", "digest": f"sha256:{amd64}"},
+        {"name": "pnpm-linux-arm64.tar.gz", "digest": f"sha256:{arm64}"},
+    ]
+    return _stub(
+        monkeypatch, {PNPM_RELEASE.format(version): json.dumps({"assets": assets}).encode()}
+    )
+
+
+def _lock_amd64() -> str:
+    lock = tomllib.loads(MISE_LOCK.read_text())["tools"]["aqua:pnpm/pnpm"][0]
+    return str(lock["platforms.linux-x64"]["checksum"]).removeprefix("sha256:")
+
+
+def test_the_image_pnpm_is_in_step_with_the_lock_and_the_release() -> None:
+    dockerfile = (ROOT / "Dockerfile.frontend").read_text()
+    arm64 = re.search(r"^ARG PNPM_SHA256_ARM64=(\S+)$", dockerfile, re.MULTILINE)
+    assert arm64
+    with pytest.MonkeyPatch.context() as mp:
+        _pnpm_release(mp, _lock_amd64(), arm64[1])
+        vendor, drift, new = pr.pnpm_image_problems(
+            dockerfile, MISE_TOML.read_text(), MISE_LOCK.read_text()
+        )
+    assert (vendor, drift, new) == ([], [], dockerfile)
+
+
+def test_a_pnpm_bump_rewrites_the_image_args_and_check_reports_them(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stale = (
+        "ARG PNPM_VERSION=0.0.1\nARG PNPM_SHA256_AMD64="
+        + "a" * 64
+        + "\nARG PNPM_SHA256_ARM64="
+        + "b" * 64
+        + "\n"
+    )
+    dockerfile = tmp_path / "Dockerfile.frontend"
+    dockerfile.write_text(stale)
+    monkeypatch.setattr(pr, "PNPM_DOCKERFILE", dockerfile)
+    monkeypatch.setattr(pr, "run_pnpm_image", PNPM_CHECK)
+    _pnpm_release(monkeypatch, _lock_amd64(), "c" * 64)
+    assert pr.run_pnpm_image(check=True) is True
+    assert "DRIFT Dockerfile.frontend pnpm: PNPM_VERSION is 0.0.1" in capsys.readouterr().out
+    assert dockerfile.read_text() == stale
+    assert pr.run_pnpm_image(check=False) is False
+    assert "UPDATED Dockerfile.frontend pnpm" in capsys.readouterr().out
+    assert f"ARG PNPM_SHA256_AMD64={_lock_amd64()}" in dockerfile.read_text()
+    assert "ARG PNPM_SHA256_ARM64=" + "c" * 64 in dockerfile.read_text()
+    assert pr.run_pnpm_image(check=True) is False
+
+
+def test_a_lock_that_is_not_the_release_digest_is_refused_and_nothing_is_written(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dockerfile = tmp_path / "Dockerfile.frontend"
+    dockerfile.write_text("ARG PNPM_VERSION=0.0.1\n")
+    monkeypatch.setattr(pr, "PNPM_DOCKERFILE", dockerfile)
+    _pnpm_release(monkeypatch, "d" * 64, "c" * 64)
+    assert PNPM_CHECK(check=False) is True
+    assert "is not the release's digest" in capsys.readouterr().out
+    assert dockerfile.read_text() == "ARG PNPM_VERSION=0.0.1\n"
+    _stub(monkeypatch, {})
+    assert PNPM_CHECK(check=True) is True
+    assert "ERROR Dockerfile.frontend pnpm: 404" in capsys.readouterr().out

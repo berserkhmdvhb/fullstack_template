@@ -130,7 +130,7 @@ FROM debian:13-slim@sha256:... AS debian-fixes                       # as in Doc
 
 FROM node:26-trixie-slim@sha256:... AS builder
 WORKDIR /app
-COPY frontend/package.json frontend/package-lock.json ./
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
 RUN npm ci --include=dev --ignore-scripts
 COPY frontend/ ./
 ARG VERSION

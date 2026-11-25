@@ -2,12 +2,19 @@
 # Frontend — Next.js (React)
 # ===================================================================
 
+# pnpm, the standalone release mise.toml pins: the version, and the sha256 of each architecture's asset. amd64 is
+# mise.lock's linux-x64 entry; arm64 (mise.lock holds no linux-arm64) is the release's asset digest. A test keeps the
+# version and amd64 equal to mise.toml and mise.lock; `make pins-refresh` writes all three after a bump.
+ARG PNPM_VERSION=12.22.0
+ARG PNPM_SHA256_AMD64=07ee196f91af1e21edb0c794401f4152932c74b0dba5d415dc4dbd5783f3c7af
+ARG PNPM_SHA256_ARM64=22b23da8b00d12c2fdfc41b5533b65b467c7b178d93fdfe9128c491585dff1a4
+
 #################################
 # STAGE 0: The runtime base, declared once
 #################################
 # Distroless runtime: gcr.io/distroless/nodejs26-debian13 bundles a pinned Node.js
 # (26.x, the same major as the builder) and its shared libs and nothing else — no shell,
-# no package manager, no npm. So npm's bundled deps (brace-expansion, ip-address,
+# no package manager, no npm or pnpm. So npm's bundled deps (brace-expansion, ip-address,
 # pacote, sigstore, …) are never present (zero CVEs from them) and the surface is
 # smaller than even a hand-trimmed slim base. The debian13/trixie variant matches the
 # trixie builder below, so a native module built there links against the runtime's
@@ -30,33 +37,57 @@ COPY scripts/docker/debian-fixes.sh /usr/local/bin/debian-fixes
 RUN debian-fixes /base-root /out
 
 #################################
+# pnpm for the build platform's architecture
+#################################
+# One stage per architecture; BuildKit builds only the one TARGETARCH selects, and checks the download against
+# its sha256 before any step can use it.
+FROM scratch AS pnpm-amd64
+ARG PNPM_VERSION
+ARG PNPM_SHA256_AMD64
+ADD --checksum=sha256:${PNPM_SHA256_AMD64} https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linux-x64.tar.gz /pnpm.tar.gz
+
+FROM scratch AS pnpm-arm64
+ARG PNPM_VERSION
+ARG PNPM_SHA256_ARM64
+ADD --checksum=sha256:${PNPM_SHA256_ARM64} https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linux-arm64.tar.gz /pnpm.tar.gz
+
+# hadolint ignore=DL3006 # a stage of this file (pnpm-amd64 or pnpm-arm64), not an image: there is no tag to pin
+FROM pnpm-${TARGETARCH} AS pnpm
+
+#################################
 # STAGE 1: Build
 #################################
 FROM node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS builder
 
 WORKDIR /app
 
-# Builder needs the devDeps (typescript for `next build`, openapi-typescript for
-# codegen); `NODE_ENV=production` would make `npm ci` omit them, so include them
-# explicitly. Also skip the one install-time download the build never uses
+# The builder needs the devDeps (typescript for `next build`, openapi-typescript for codegen); pnpm keeps
+# them under `NODE_ENV=production` too. Also skip the one install-time download the build never uses
 # (Playwright browsers) to shrink install surface and speed the build.
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
-# Install dependencies (devDeps included — see note above). `--ignore-scripts`: no dependency install script
-# runs (policy and exceptions: wiki/frontend-deployment.md).
-COPY frontend/package.json frontend/package-lock.json ./
-COPY frontend/scripts/check-npm-version.mjs ./scripts/
-# Fail the build when the image's npm is not the one package.json's packageManager names.
-RUN node scripts/check-npm-version.mjs \
- && npm ci --include=dev --ignore-scripts
+# The pnpm release: its executable and the files beside it.
+COPY --from=pnpm /pnpm.tar.gz /tmp/pnpm.tar.gz
+RUN mkdir /opt/pnpm \
+ && tar -xzf /tmp/pnpm.tar.gz -C /opt/pnpm --no-same-owner \
+ && rm /tmp/pnpm.tar.gz \
+ && ln -s /opt/pnpm/pnpm /usr/local/bin/pnpm
+
+# Install dependencies (devDeps included, see above) from the lockfile as it is, with the settings in
+# pnpm-workspace.yaml: no dependency build script runs (policy and exceptions: wiki/frontend-deployment.md).
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+COPY frontend/scripts/check-pnpm-version.mjs ./scripts/
+# Fail the build when the image's pnpm is not the one package.json's packageManager names.
+RUN node scripts/check-pnpm-version.mjs \
+ && pnpm install --frozen-lockfile
 
 # Copy source and build
 COPY frontend/ ./
 # Regenerate API types from the committed openapi.json before building (K-M2).
-# `prebuild` normally runs `openapi-gen`, but we invoke `npx next build` directly
-# below, which skips npm lifecycle hooks — so run the generator explicitly to keep
+# `prebuild` normally runs `openapi-gen`, but we invoke `pnpm exec next build` directly
+# below, which skips the lifecycle hooks — so run the generator explicitly to keep
 # the image from shipping stale generated types after an openapi.json change.
 #
 # The deploymentId (Next.js version-skew protection during a rollout) is the image's version plus the
@@ -64,8 +95,8 @@ COPY frontend/ ./
 # version alone repeats on every main build. With neither it is empty and the id stays unset.
 ARG VERSION
 ARG VCS_REF
-RUN npm run openapi-gen \
- && NEXT_DEPLOYMENT_ID="$(node scripts/deployment-id.mjs "${VERSION}" "${VCS_REF}")" npx next build
+RUN pnpm run openapi-gen \
+ && NEXT_DEPLOYMENT_ID="$(node scripts/deployment-id.mjs "${VERSION}" "${VCS_REF}")" pnpm exec next build
 
 # Verify standalone output
 RUN test -f .next/standalone/server.js \

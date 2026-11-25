@@ -204,7 +204,7 @@ _UNTRACKED = {
     r"src/your_service_name/_version\.py": "written by setuptools-scm at build time, ignored",
     r"(frontend/)?\.next(/.*)?": "the Next.js build output",
     r"\.local/.*": "written by make kind-up, ignored",
-    r"frontend/node_modules": "installed by npm ci",
+    r"frontend/node_modules": "installed by pnpm install",
     r"charts/your-service-name/values\.secret\.yaml": "a local secrets file, ignored",
     r"path/to/.*": "a placeholder path",
     r".*your-feature.*": "the developer guide's example of a feature to add",

@@ -93,6 +93,22 @@ SH
   [[ "$output" == *"example.com/other/img:1@$D"*"classify it"* ]]
 }
 
+@test "a per-architecture stage pick is a stage only when both architectures are stages" {
+  # shellcheck disable=SC2016 # the Dockerfile text ${TARGETARCH}, written as it is
+  printf 'FROM scratch AS tool-amd64\nFROM scratch AS tool-arm64\nFROM tool-${TARGETARCH} AS tool\n' > Dockerfile.arch
+  run bash "$SCRIPT" Dockerfile.arch
+  [ "$status" -eq 0 ]
+  # shellcheck disable=SC2016 # as above
+  printf 'FROM scratch AS tool-amd64\nFROM tool-${TARGETARCH} AS tool\n' > Dockerfile.half
+  run bash "$SCRIPT" Dockerfile.half
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"unparsable FROM"* ]]
+  # shellcheck disable=SC2016 # as above
+  printf 'FROM debian:${TAG}\n' > Dockerfile.var
+  run bash "$SCRIPT" Dockerfile.var
+  [ "$status" -eq 1 ]
+}
+
 @test "a FROM without a digest fails" {
   echo "FROM gcr.io/distroless/static-debian13:nonroot" > Dockerfile.tag
   run bash "$SCRIPT" Dockerfile.tag

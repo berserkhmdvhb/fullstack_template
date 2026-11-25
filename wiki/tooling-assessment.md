@@ -67,9 +67,9 @@ the way that page describes.
   `registry.npmjs.org`: no git and no tarball-URL dependencies.
 - Every install is `npm ci --ignore-scripts`: CI, the kind tests, both image builds and the documented local install.
   `allowScripts` denies the packages that declare an install script, and
-  `tests/supply_chain/test_npm_install_scripts.py` fails when the frontend's lockfile gains one without an entry
+  `tests/supply_chain/test_pnpm_config.py` fails when the frontend's lockfile gains one without an entry
   ([Install scripts](./frontend-deployment.md#install-scripts)).
-- The release age: [`docs-site/.npmrc`](../docs-site/.npmrc) sets `min-release-age=7`. **The frontend has no
+- The release age: [`docs-site/pnpm-workspace.yaml`](../docs-site/pnpm-workspace.yaml) sets `min-release-age=7`. **The frontend has no
   `.npmrc`**, so nothing holds its lockfile to seven days. Renovate waits seven days for the package it updates, but
   the `npm install` that writes the lock resolves that package's transitive dependencies at their newest. A
   developer's `npm install <package>` does the same.
@@ -99,7 +99,7 @@ No Node LTS bundles npm 12 yet; the 11.x line still gets releases (11.21.3, 2026
 npm's config reference has no counterpart to pnpm's `trustPolicy`.
 
 **Verdict: keep npm; adopt now** the two settings that close the gap with npm alone, in
-a new `.npmrc` in `frontend/`, and in `docs-site/.npmrc`:
+a new `.npmrc` in `frontend/`, and in `docs-site/pnpm-workspace.yaml`:
 
 ```ini
 min-release-age=7
@@ -335,7 +335,7 @@ out of mise. Noted only; not assessed.
 **Adopt now** (each a scoped change that leaves how an adopter installs, builds and deploys as it is):
 
 1. **The frontend's release age and the exotic-source block.** Add an `.npmrc` to `frontend/` with `min-release-age=7`,
-   `allow-git=none` and `allow-remote=none`, and add the two `allow-*` lines to `docs-site/.npmrc`. Then:
+   `allow-git=none` and `allow-remote=none`, and add the two `allow-*` lines to `docs-site/pnpm-workspace.yaml`. Then:
    - extend the docs site's `.npmrc` test to both files;
    - make the young-fix step in [getting-started](./getting-started.md#security-updates-younger-than-7-days) and the
      comment in `.github/dependabot.yml` cover the frontend: adding or bumping a frontend package younger than seven

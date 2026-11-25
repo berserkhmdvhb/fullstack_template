@@ -13,7 +13,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: { baseURL: `http://127.0.0.1:${port}`, browserName: 'chromium' },
   webServer: {
-    command: `npx astro preview --ignore-lock --host 127.0.0.1 --port ${port}`,
+    command: `pnpm exec astro preview --ignore-lock --host 127.0.0.1 --port ${port}`,
     url: `http://127.0.0.1:${port}${base}/`.replace(/\/+$/, '/'),
     reuseExistingServer: false,
   },

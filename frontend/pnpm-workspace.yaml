@@ -1,0 +1,37 @@
+# pnpm reads its settings from this file (a project of its own; .npmrc holds only auth and registry settings).
+# Policy and exceptions: wiki/frontend-deployment.md#install-scripts.
+
+# The store and the cache live in the repository's gitignored .tools/, never under $HOME.
+storeDir: ../.tools/pnpm/store
+cacheDir: ../.tools/pnpm/cache
+
+# Resolve, and accept from the lockfile, only releases at least 7 days old (10080 minutes), transitive ones included.
+minimumReleaseAge: 10080
+
+# Only direct dependencies may come from git or a tarball URL.
+blockExoticSubdeps: true
+
+# Fail when a package's trust evidence drops (for example from provenance to none) against its earlier releases.
+trustPolicy: no-downgrade
+# Each entry is reviewed (tests/supply_chain/test_pnpm_config.py holds the list).
+trustPolicyExclude:
+  # Published without provenance while the earlier line had it (the Chrome-versioned line, via @lhci/cli).
+  - chromium-bidi@157.0.8090-0
+
+# Fail when the running pnpm is not packageManager's, instead of downloading another one.
+pmOnFail: error
+
+# No dependency build script runs: every package that declares one is denied here, and an install fails on one not listed.
+strictDepBuilds: true
+allowBuilds:
+  esbuild: false
+  unrs-resolver: false
+  fsevents: false
+
+catalog:
+  typescript: ~6.0.3
+
+overrides:
+  postcss: ^8.5.32
+  # openapi-typescript's peer range predates TypeScript 6: it gets the project's TypeScript.
+  openapi-typescript>typescript: 'catalog:'

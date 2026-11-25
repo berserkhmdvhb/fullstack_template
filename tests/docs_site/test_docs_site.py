@@ -1,6 +1,6 @@
 """The documentation site's project (docs-site/): pinned like every other tool, its pages loaded.
 
-The build itself (links, anchors, front matter, diagrams) is checked by `npm run build` in CI's
+The build itself (links, anchors, front matter, diagrams) is checked by `pnpm run build` in CI's
 docs-site job; these tests hold the configuration around it, offline.
 """
 
@@ -15,7 +15,7 @@ from typing import Any, cast
 
 import yaml
 
-from tests.supply_chain.test_npm_install_scripts import DOC, problems
+from tests.supply_chain.test_pnpm_config import locked
 
 ROOT = Path(__file__).resolve().parents[2]
 SITE = ROOT / "docs-site"
@@ -63,24 +63,17 @@ def test_every_dependency_is_an_exact_version() -> None:
     assert {n: v for n, v in deps.items() if not EXACT.fullmatch(v)} == {}
 
 
-def test_npm_keeps_the_seven_day_release_age() -> None:
-    assert "min-release-age=7" in (SITE / ".npmrc").read_text(encoding="utf-8").splitlines()
-
-
-def test_the_lockfile_install_scripts_are_reviewed() -> None:
-    lock = _json(SITE / "package-lock.json")
-    allow = _json(SITE / "package.json").get("allowScripts", {})
-    assert problems(lock, allow, DOC) == []
-
-
-def test_one_node_one_npm_and_the_frontends_playwright() -> None:
+def test_one_node_one_pnpm_and_the_frontends_playwright() -> None:
+    """The release age, the build-script review and the trust policy are in
+    tests/supply_chain/test_pnpm_config.py."""
     site, front = _json(SITE / "package.json"), _json(ROOT / "frontend/package.json")
     assert site["engines"] == front["engines"]
     assert site["packageManager"] == front["packageManager"]
-    site_lock = _json(SITE / "package-lock.json")["packages"]
-    front_lock = _json(ROOT / "frontend/package-lock.json")["packages"]
-    for name in ("node_modules/playwright", "node_modules/@playwright/test"):
-        assert site_lock[name]["version"] == front_lock[name]["version"], name
+    site_lock, front_lock = locked("docs-site"), locked("frontend")
+    for name in ("playwright", "@playwright/test"):
+        versions = {v for n, v in site_lock if n == name}
+        assert len(versions) == 1, name
+        assert versions == {v for n, v in front_lock if n == name}, name
 
 
 def test_github_alerts_run_before_starlights_asides() -> None:

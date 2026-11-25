@@ -280,7 +280,7 @@ def test_the_listing_covers_every_required_tool_with_its_version() -> None:
     assert set(listed) >= {
         "helm3", "helm4", "kind", "kubeconform", "promtool", "ct", "helm-unittest", "actionlint",
         "hadolint", "gitleaks", "squawk", "oasdiff", "cosign", "kyverno", "yq", "bats", "node",
-        "kubectl", "kubectl-floor", "uv", "lychee", "shellcheck", "zizmor",
+        "kubectl", "kubectl-floor", "uv", "lychee", "shellcheck", "zizmor", "pnpm",
     } | REQUIRED  # fmt: skip
 
 

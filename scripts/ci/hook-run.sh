@@ -8,14 +8,16 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 PATH="$PWD/.venv/bin:$PWD/.tools/bin:$PATH"
-export PATH
+# pnpm's state file (its update check) under .tools, never under $HOME (as the Makefile runs it).
+XDG_STATE_HOME="$PWD/.tools/pnpm/state"
+export PATH XDG_STATE_HOME
 
 tool="${1:?usage: hook-run.sh TOOL CMD...}"
 shift
 if ! command -v "$tool" >/dev/null 2>&1; then
   case "$tool" in
     ruff) hint="make develop" ;;
-    npm) hint="scripts/tools.sh install node, then npm --prefix frontend ci" ;;
+    pnpm) hint="scripts/tools.sh install node pnpm, then pnpm --dir frontend install --frozen-lockfile" ;;
     *) hint="scripts/tools.sh install $tool" ;;
   esac
   echo "hook: $tool not found; run: $hint" >&2

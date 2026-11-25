@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "type": "module",
-  "packageManager": "npm@11.20.0",
+  "packageManager": "pnpm@12.22.0",
   "engines": {
     "node": ">=26 <27"
   },
@@ -29,8 +29,5 @@
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",
     "@playwright/test": "1.65.1"
-  },
-  "allowScripts": {
-    "fsevents": false
   }
 }
