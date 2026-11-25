@@ -29,6 +29,11 @@ STATE = re.compile(r"<!-- drift-state: ([0-9a-f]{64}) -->")
 ARGS = 3
 
 
+def clean_path(path: str) -> str:
+    """A field path for a code span: clean()'s characters plus the brackets of a list item."""
+    return re.sub(r"[^\w.+:@/~=\[\]-]", "_", path)[:200]
+
+
 def state_of(findings: list[dict[str, str]]) -> str:
     rows = sorted([f["change"], f["kind"], f["namespace"], f["name"], f["path"]] for f in findings)
     return hashlib.sha256(json.dumps(rows).encode()).hexdigest()
@@ -40,16 +45,18 @@ def body_of(env: str, findings: list[dict[str, str]]) -> str:
         f"<!-- drift-state: {state_of(findings)} -->",
         (
             f"The live objects of **{env}** differ from the render of its latest deployment "
-            "(the weekly live-drift check). The next deploy overwrites them: bring a change you "
-            "keep into Git first, then redeploy and close this issue. It is never closed "
-            "automatically."
+            "(the weekly live-drift check). The next deploy restores a changed or removed field "
+            "and a missing object, so bring a change you keep into Git first. It does not remove "
+            "an addition (an `added` item or key, an `extra` object): remove those by hand "
+            "(`kubectl set env ... NAME-`, delete the key or the object). Then close this issue; "
+            "it is never closed automatically."
         ),
         "",
         "| Change | Kind | Namespace | Name | Field |",
         "|---|---|---|---|---|",
     ]
     for f in sorted(findings, key=lambda f: (f["kind"], f["namespace"], f["name"], f["path"])):
-        field = f"`{clean(f['path'])}`" if f["path"] else "the object"
+        field = f"`{clean_path(f['path'])}`" if f["path"] else "the object"
         cells = [
             clean(f["change"]).replace("_", " "),
             clean(f["kind"]),

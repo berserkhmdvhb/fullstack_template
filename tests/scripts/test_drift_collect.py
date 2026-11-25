@@ -105,3 +105,10 @@ def test_a_drift_environments_record_is_never_read_as_a_deployment(api: Api) -> 
     assert (images, bad) == ({}, [])
     assert not [p for p in api.paths if "drift-" in p]
     assert rescan().ENVIRONMENTS == ("dev", "qa", "production")
+
+
+def test_a_run_on_another_commit_is_not_compared(api: Api) -> None:
+    api.deploy("dev", (7, "main", SHA, f"{URL}/100/job/1001"))
+    api.run(100, RELEASE_PATH, head=("b" * 40, "main"))
+    api.artifact(100, 1000, _digests(D1))
+    assert "is not the deployment's" in _mod().collect(api, REPO)["dev"]["skip"]

@@ -9,7 +9,8 @@ name: Live drift
 # Three jobs, each with its own grant: collect reads the GitHub API, drift reads the cluster as the
 # environment's read-only drift identity (GitHub environment drift-<env>, its variables
 # DRIFT_WIF_PROVIDER and DRIFT_SA; wiki/gke-cluster-setup.md), report writes issues and has no
-# cluster access. Without those variables (a fresh fork) each drift job says so and skips.
+# cluster access. Off unless the repository variable DRIFT_ENABLED is 'true' (collect says so); with it
+# on, an environment without those variables says so and skips.
 on:
   schedule:
     - cron: "23 6 * * 4"
@@ -37,16 +38,34 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      # Off unless the repository variable DRIFT_ENABLED is 'true': the drift and report jobs need it,
+      # so a copy that never turns drift on never references (and so never creates) a drift-<env>.
+      - name: Say whether live drift is on
+        id: on
+        env:
+          DRIFT_ENABLED: ${{ vars.DRIFT_ENABLED }}
+        run: |
+          if [[ "${DRIFT_ENABLED}" == true ]]; then
+            echo "on=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          msg="Live drift is off: the repository variable DRIFT_ENABLED is not 'true' (wiki/gke-cluster-setup.md, 12.6)"
+          echo "::notice::${msg}"
+          echo "- ${msg}" >> "$GITHUB_STEP_SUMMARY"
+          echo "on=false" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.on.outputs.on == 'true'
         with:
           persist-credentials: false
       - name: Collect the deployments
         id: collect
+        if: steps.on.outputs.on == 'true'
         run: |
           set -euo pipefail
           python3 scripts/drift_collect.py drift-input
           echo "deployments=$(jq -c . drift-input/deployments.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.on.outputs.on == 'true'
         with:
           name: drift-input
           path: drift-input/
@@ -55,6 +74,7 @@ jobs:
   drift:
     name: Drift (${{ matrix.environment }})
     needs: collect
+    if: vars.DRIFT_ENABLED == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -165,7 +185,7 @@ jobs:
   report:
     name: Open or update the issues
     needs: [collect, drift]
-    if: ${{ !cancelled() && needs.collect.result == 'success' }}
+    if: ${{ !cancelled() && needs.collect.result == 'success' && vars.DRIFT_ENABLED == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

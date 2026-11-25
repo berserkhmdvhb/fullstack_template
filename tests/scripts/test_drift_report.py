@@ -123,3 +123,27 @@ def test_a_skipped_environment_and_a_missing_report_are_said_in_the_summary(
     out = capsys.readouterr().out
     assert "- production: not compared: no successful deployment" in out
     assert "- qa: no report (the drift job skipped or failed; see its summary)" in out
+
+
+def test_a_path_keeps_its_brackets_and_the_body_says_what_a_deploy_leaves(tmp_path: Path) -> None:
+    path = "spec.template.spec.containers[backend].env[LOG_LEVEL].value"
+    d = _setup(
+        tmp_path,
+        {"dev": [_finding("svc-backend", path), _finding("svc-config", "data.X", "added")]},
+    )
+    gh = Gh(["drift"], [])
+    _report(gh, d, tmp_path)
+    body = gh.calls[0][2]
+    assert f"`{path}`" in body
+    assert "| added | ConfigMap |" in body
+    assert "restores a changed or removed field" in body
+    assert "does not remove an addition" in body
+
+
+def test_brackets_are_kept_only_in_the_path_column(tmp_path: Path) -> None:
+    d = _setup(tmp_path, {"dev": [_finding("x[1]", "a[`b`]")]})
+    gh = Gh(["drift"], [])
+    _report(gh, d, tmp_path)
+    body = gh.calls[0][2]
+    assert "`x_1_`" in body
+    assert "`a[_b_]`" in body

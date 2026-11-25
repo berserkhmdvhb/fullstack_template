@@ -8,10 +8,13 @@ objects are read with kubectl (`get` and `list` only, as the drift identity), ne
 
 Only the fields the render sets are compared, recursively: a field the server or a controller adds
 (status, defaults, managedFields, resourceVersion, uid, generation, creationTimestamp, a label or
-annotation the chart does not set) never counts. Lists are compared by position, or by `name`
-when every item has one (containers, env, ports, volumes: Kubernetes merges those by name), and an
-item the render lacks is reported then. Reported, each with kind, namespace, name and field path:
-  * changed   a field the render sets differs, or is gone
+annotation the chart does not set) never counts, but a deleted pointer field the render sets to
+false or 0 (POINTERS: the security settings among them) does. Lists are compared by position, or by
+`name` when every item has one (containers, env, ports, volumes: Kubernetes merges those by name).
+Reported, each with kind, namespace, name and field path:
+  * changed   a field the render sets differs, or is gone (a deploy restores it)
+  * added     an item of a list matched by name, or a ConfigMap key, that the render lacks (a deploy
+              leaves it: remove it by hand)
   * missing   a rendered object does not exist
   * extra     an object of a rendered kind carries the release's instance label but is not rendered
               (not one a controller owns, a Helm hook, an earlier revision's migration Job or a
@@ -69,7 +72,24 @@ RESOURCES = {
     "ExternalSecret": "externalsecrets",
 }
 SERVER_META = {"managedFields", "resourceVersion", "uid", "generation", "creationTimestamp"}
-EMPTY: tuple[object, ...] = (None, "", {}, [], False, 0)  # dropped by the server when set
+# A plain field set to one of these comes back omitted, so its absence is no change...
+EMPTY: tuple[object, ...] = (None, "", {}, [], False, 0)
+# ...but these are pointer fields: the server keeps false and 0 (absent means the default),
+# so deleting one the render sets (most are security settings) is reported.
+POINTERS = {
+    "allowPrivilegeEscalation",
+    "privileged",
+    "readOnlyRootFilesystem",
+    "runAsNonRoot",
+    "automountServiceAccountToken",
+    "enableServiceLinks",
+    "maxUnavailable",
+    "minAvailable",
+    "backoffLimit",
+}
+# Maps read whole (envFrom loads every ConfigMap key), so a key the render lacks is reported too.
+CLOSED = {("ConfigMap", "data"), ("ConfigMap", "binaryData")}
+ADDED = "+"  # a path prefix: an item or key the render lacks
 QUANTITY = re.compile(r"^([+-]?(?:\d+\.?\d*|\.\d+))(Ki|Mi|Gi|Ti|Pi|Ei|n|u|m|k|M|G|T|P|E)?$")
 SCALE = {
     **{s: Decimal(1024) ** (i + 1) for i, s in enumerate(("Ki", "Mi", "Gi", "Ti", "Pi", "Ei"))},
@@ -90,7 +110,8 @@ class Live(Protocol):
 
 
 def quantity(value: object) -> Decimal | None:
-    m = QUANTITY.match(str(value)) if isinstance(value, str | int) else None
+    plain = isinstance(value, str | int | float) and not isinstance(value, bool)
+    m = QUANTITY.match(str(value)) if plain else None
     try:
         return Decimal(m[1]) * SCALE[m[2] or ""] if m else None
     except InvalidOperation:
@@ -117,7 +138,7 @@ def _diff_list(want: list[Any], have: object, path: str) -> list[str]:
     if want and _named(want, have):
         live = {i["name"]: i for i in have}
         names = {w["name"] for w in want}
-        out = [f"{path}[{i['name']}]" for i in have if i["name"] not in names]
+        out = [f"{ADDED}{path}[{i['name']}]" for i in have if i["name"] not in names]
         for item in want:
             sub = f"{path}[{item['name']}]"
             out += diff(item, live[item["name"]], sub) if item["name"] in live else [sub]
@@ -140,7 +161,7 @@ def diff(want: object, have: object, path: str = "") -> list[str]:
     for key, value in want.items():
         sub = f"{path}.{key}" if path else key
         if key not in have or have[key] is None:
-            out += [] if value in EMPTY else [sub]
+            out += [] if value in EMPTY and key not in POINTERS else [sub]
         else:
             out += diff(value, have[key], sub)
     return out
@@ -150,7 +171,12 @@ def compare(rendered: Obj, live: Obj) -> list[str]:
     """The changed paths of one object: the render's fields only, never status or server data."""
     want = {k: v for k, v in rendered.items() if k not in {"status", "apiVersion", "kind"}}
     meta = {k: v for k, v in (want.get("metadata") or {}).items() if k not in SERVER_META}
-    return diff({**want, "metadata": meta}, live)
+    out = diff({**want, "metadata": meta}, live)
+    for kind, field in CLOSED:
+        if rendered.get("kind") == kind:
+            known = rendered.get(field) or {}
+            out += [f"{ADDED}{field}.{k}" for k in sorted(live.get(field) or {}) if k not in known]
+    return out
 
 
 def _key(obj: Obj) -> tuple[str, str, str]:
@@ -263,7 +289,9 @@ def check(
             findings.append(_finding(key, "", "missing"))
             continue
         seen[key] = have
-        findings += [_finding(key, p, "changed") for p in compare(obj, have)]
+        for p in compare(obj, have):
+            added = p.startswith(ADDED)
+            findings.append(_finding(key, p.removeprefix(ADDED), "added" if added else "changed"))
         if key[0] == "ExternalSecret" and not _ready(have):
             findings.append(_finding(key, "status.conditions[Ready]", "not ready"))
     wanted = {_key(o) for o in compared}

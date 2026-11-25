@@ -44,6 +44,7 @@ DRIFT_SA = "fst-drift"
 DRIFT = ROOT / "scripts" / "drift.py"
 EXTRA = f"{RELEASE}-hand-made"
 FRONTEND = "spec.template.spec.containers[frontend]"
+BACKEND = "spec.template.spec.containers[backend]"
 
 
 class Drift:
@@ -231,6 +232,25 @@ def test_a_rollback_after_hand_edits_succeeds_and_restores_git(drift: Drift) -> 
             "5",
         ]
     )
+    assert drift.check() == set()
+
+
+def test_additions_are_reported_and_a_redeploy_leaves_them(drift: Drift) -> None:
+    """An added env var and an added ConfigMap key: the chart sets neither, so a redeploy keeps them
+    (kubectl's field manager owns them), and they stay reported until removed by hand."""
+    backend, config = f"deployment/{RELEASE}-backend", f"{RELEASE}-config"
+    drift.app("set", "env", backend, "-c", "backend", "DRIFT_HAND_MADE=1")
+    drift.app("patch", "configmap", config, "--type", "merge", "-p", '{"data":{"HAND_MADE":"1"}}')
+    want = {
+        ("Deployment", f"{RELEASE}-backend", f"{BACKEND}.env[DRIFT_HAND_MADE]", "added"),
+        ("ConfigMap", config, "data.HAND_MADE", "added"),
+    }
+    assert drift.check() == want
+    drift.deploy()
+    assert drift.check() == want
+    drift.app("set", "env", backend, "-c", "backend", "DRIFT_HAND_MADE-")
+    remove = '[{"op": "remove", "path": "/data/HAND_MADE"}]'
+    drift.app("patch", "configmap", config, "--type", "json", "-p", remove)
     assert drift.check() == set()
 
 

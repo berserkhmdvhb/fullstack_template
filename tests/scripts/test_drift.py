@@ -47,9 +47,17 @@ def _deployment(name: str, **spec: Any) -> Obj:  # noqa: ANN401
         "env": [{"name": "LOG_LEVEL", "value": "INFO"}, {"name": "EMPTY", "value": ""}],
         "ports": [{"name": "http", "containerPort": 8000}],
         "resources": {"requests": {"cpu": "0.5", "memory": "1Gi"}, "limits": {"memory": "1Gi"}},
-        "securityContext": {"readOnlyRootFilesystem": True, "privileged": False},
+        "securityContext": {
+            "readOnlyRootFilesystem": True,
+            "privileged": False,
+            "allowPrivilegeEscalation": False,
+            "runAsNonRoot": True,
+        },
+        "volumeMounts": [{"name": "tmp", "mountPath": "/work", "readOnly": False}],
     }
-    template = {"metadata": {"labels": dict(LABELS)}, "spec": {"containers": [container]}}
+    pod = {"containers": [container], "automountServiceAccountToken": False}
+    pod["enableServiceLinks"] = False
+    template = {"metadata": {"labels": dict(LABELS)}, "spec": pod}
     return _obj("Deployment", name, api="apps/v1", spec={**spec, "template": template})
 
 
@@ -128,7 +136,7 @@ def _server(obj: Obj) -> Obj:
             c["env"] = [e if e["value"] else {"name": e["name"]} for e in c["env"]]  # "" is omitted
             c["ports"][0]["protocol"] = "TCP"
             c["resources"]["requests"]["cpu"] = "500m"
-            c["securityContext"].pop("privileged")  # false, omitted
+            c["volumeMounts"][0].pop("readOnly")  # a plain bool: false is omitted
     if obj["kind"] == "ExternalSecret":
         live["status"] = {
             "conditions": [{"type": "Ready", "status": "True", "reason": "SecretSynced"}]
@@ -225,7 +233,7 @@ def test_a_changed_and_an_added_env_var_are_reported_by_name(live: FakeLive) -> 
     env.append({"name": "DEBUG", "value": "1"})
     assert _run(live)[0] == {
         ("Deployment", "svc-backend", f"{BACKEND}.env[LOG_LEVEL].value", "changed"),
-        ("Deployment", "svc-backend", f"{BACKEND}.env[DEBUG]", "changed"),
+        ("Deployment", "svc-backend", f"{BACKEND}.env[DEBUG]", "added"),
     }
 
 
@@ -406,3 +414,68 @@ def test_a_read_the_identity_is_refused_fails_the_command(
     assert rc == 1
     assert not out.exists()
     assert "::error::kubectl get deployments.v1.apps" in capsys.readouterr().err
+
+
+def test_an_added_configmap_key_is_reported_at_its_path(live: FakeLive) -> None:
+    """ConfigMap data and binaryData are closed maps: the app reads every key (envFrom)."""
+    cm = live.find("ConfigMap", "svc-config")
+    cm["data"]["HAND_MADE"] = SENTINEL
+    cm["binaryData"] = {"blob": "AAAA"}
+    assert _run(live)[0] == {
+        ("ConfigMap", "svc-config", "data.HAND_MADE", "added"),
+        ("ConfigMap", "svc-config", "binaryData.blob", "added"),
+    }
+
+
+def test_an_added_label_or_annotation_elsewhere_is_not_a_finding(live: FakeLive) -> None:
+    """Only ConfigMap data is closed; other maps compare the render's keys only."""
+    live.find("Deployment", "svc-backend")["spec"]["template"]["metadata"]["labels"]["x"] = "y"
+    assert _run(live)[0] == set()
+
+
+POD = "spec.template.spec"
+
+
+@pytest.mark.parametrize(
+    ("where", "key"),
+    [
+        ("container", "allowPrivilegeEscalation"),
+        ("container", "privileged"),
+        ("container", "readOnlyRootFilesystem"),
+        ("container", "runAsNonRoot"),
+        ("pod", "automountServiceAccountToken"),
+        ("pod", "enableServiceLinks"),
+    ],
+)
+def test_deleting_a_security_field_the_render_sets_is_reported(
+    live: FakeLive, where: str, key: str
+) -> None:
+    pod = live.find("Deployment", "svc-backend")["spec"]["template"]["spec"]
+    if where == "pod":
+        del pod[key]
+        path = f"{POD}.{key}"
+    else:
+        del pod["containers"][0]["securityContext"][key]
+        path = f"{BACKEND}.securityContext.{key}"
+    assert _run(live)[0] == {("Deployment", "svc-backend", path, "changed")}
+
+
+def test_a_plain_false_the_server_drops_is_not_reported(live: FakeLive) -> None:
+    """volumeMounts[].readOnly is a plain bool: false comes back omitted (the fixture's server)."""
+    pod = live.find("Deployment", "svc-backend")["spec"]["template"]["spec"]
+    assert "readOnly" not in pod["containers"][0]["volumeMounts"][0]
+    assert _run(live)[0] == set()
+
+
+@pytest.mark.parametrize(
+    ("want", "have", "equal"),
+    [(0.5, "500m", True), (0.25, "250m", True), (1.5, "1500m", True), (0.5, "600m", False)],
+)
+def test_a_float_quantity_compares_by_value(want: float, have: str, *, equal: bool) -> None:
+    assert drift.same(want, have, "spec.resources.requests.cpu") is equal
+
+
+def test_a_bool_is_never_a_quantity() -> None:
+    yes = True
+    assert drift.quantity(yes) is None
+    assert drift.same(yes, "1", "spec.resources.requests.cpu") is False

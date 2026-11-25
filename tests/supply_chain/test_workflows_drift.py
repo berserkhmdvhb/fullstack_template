@@ -64,9 +64,50 @@ def test_one_drift_job_per_environment_in_its_own_drift_environment() -> None:
     job = _jobs()["drift"]
     assert job["needs"] == "collect"
     assert job["strategy"] == {"fail-fast": False, "matrix": {"environment": ENVS}}
-    # The environment's variables and branch policy, but no deployment record: a drift run deploys
-    # nothing, so it must never look like one (the re-scan reads the deployment records).
-    assert job["environment"] == {"name": "drift-${{ matrix.environment }}", "deployment": False}
+    # The environment's variables and branch policy, and no deployment record (a drift run deploys
+    # nothing). GKE §12.6 allows dropping `deployment: false` if the login needs the records: they
+    # land in drift-<env>, which no deployment lookup reads.
+    env = job["environment"]
+    assert env["name"] == "drift-${{ matrix.environment }}"
+    assert env.get("deployment", True) in {False, True}
+    assert set(env) <= {"name", "deployment"}
+
+
+def test_a_repository_that_never_turns_drift_on_never_references_a_drift_environment() -> None:
+    """The drift and report jobs need the repository variable DRIFT_ENABLED, so a copy that never
+    sets it never creates a drift-<env> environment; collect says why in the summary."""
+    jobs = _jobs()
+    assert jobs["drift"]["if"] == "vars.DRIFT_ENABLED == 'true'"
+    assert "vars.DRIFT_ENABLED == 'true'" in jobs["report"]["if"]
+    assert "if" not in jobs["collect"]
+    steps = jobs["collect"]["steps"]
+    assert steps[0]["name"] == "Say whether live drift is on"
+    for step in steps[1:]:
+        assert step["if"] == "steps.on.outputs.on == 'true'", step.get("name")
+
+
+def _on(tmp_path: Path, value: str) -> tuple[str, str]:
+    step = _jobs()["collect"]["steps"][0]
+    assert step["env"] == {"DRIFT_ENABLED": "${{ vars.DRIFT_ENABLED }}"}
+    out, summary = tmp_path / "out", tmp_path / "summary"
+    env = {"DRIFT_ENABLED": value, "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary)}
+    env["PATH"] = "/usr/bin:/bin"
+    done = subprocess.run(
+        [BASH, "-c", step["run"]], env=env, capture_output=True, text=True, check=False
+    )
+    assert done.returncode == 0, done.stderr
+    return out.read_text(), summary.read_text() if summary.exists() else ""
+
+
+def test_a_fresh_fork_says_live_drift_is_off_and_stays_green(tmp_path: Path) -> None:
+    out, summary = _on(tmp_path, "")
+    assert out == "on=false\n"
+    assert "Live drift is off" in summary
+    assert "DRIFT_ENABLED" in summary
+
+
+def test_drift_enabled_runs_the_collection(tmp_path: Path) -> None:
+    assert _on(tmp_path, "true")[0] == "on=true\n"
 
 
 def test_only_the_drift_job_logs_in_and_only_with_its_own_identity() -> None:
@@ -130,7 +171,9 @@ def _gate(tmp_path: Path, **change: str) -> tuple[str, str]:
     return out.read_text(), summary.read_text() if summary.exists() else ""
 
 
-def test_a_fresh_fork_without_the_drift_variables_skips_with_a_summary_line(tmp_path: Path) -> None:
+def test_an_environment_without_its_drift_variables_skips_with_a_summary_line(
+    tmp_path: Path,
+) -> None:
     out, summary = _gate(tmp_path, DRIFT_WIF_PROVIDER="", DRIFT_SA="")
     assert out == "run=false\n"
     assert "drift-dev: skipped" in summary

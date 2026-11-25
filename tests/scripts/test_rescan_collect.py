@@ -55,6 +55,7 @@ class Api:
     def __init__(self) -> None:
         self.routes: dict[str, object] = {}
         self.paths: list[str] = []
+        self.heads: dict[int, tuple[str, str]] = {}
 
     def __call__(self, args: list[str]) -> bytes:
         assert args[0] == "api", args
@@ -74,8 +75,10 @@ class Api:
         self.routes[f"repos/{REPO}/deployments?environment={env}"] = [
             {"id": i, "ref": ref, "sha": sha} for i, ref, sha, _ in deps
         ]
-        for i, _, _, url in deps:
+        for i, ref, sha, url in deps:
             m = re.search(r"/runs/(\d+)/job/(\d+)$", url)
+            if m:  # the run that made it ran on the deployment's commit and ref
+                self.heads.setdefault(int(m[1]), (sha, ref))
             if m and f"repos/{REPO}/actions/jobs/{m[2]}" not in self.routes:
                 self.job(int(m[2]), int(m[1]))
             status = {"state": "failure"} if url == "failure" else {"state": "success"}
@@ -83,8 +86,14 @@ class Api:
                 status["log_url"] = url
             self.routes[f"repos/{REPO}/deployments/{i}/statuses"] = [status]
 
-    def run(self, run_id: int, path: str) -> None:
-        self.routes[f"repos/{REPO}/actions/runs/{run_id}"] = {"id": run_id, "path": path}
+    def run(self, run_id: int, path: str, head: tuple[str, str] | None = None) -> None:
+        sha, branch = head or self.heads.get(run_id, ("", ""))
+        self.routes[f"repos/{REPO}/actions/runs/{run_id}"] = {
+            "id": run_id,
+            "path": path,
+            "head_sha": sha,
+            "head_branch": branch,
+        }
 
     def job(self, job_id: int, run_id: int, started: str = T2) -> None:
         self.routes[f"repos/{REPO}/actions/jobs/{job_id}"] = {
@@ -401,3 +410,23 @@ def test_deployed_fails_when_what_dev_runs_is_unknown(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err.startswith("dev: ")
+
+
+@pytest.mark.parametrize("head", [("other", "main"), ("aaa", "feature")])
+def test_a_run_on_another_commit_or_ref_than_the_deployment_is_reported(
+    api: Api, head: tuple[str, str]
+) -> None:
+    """The status URL names a run that did not run on the deployment's commit and ref: reported,
+    never trusted (a forged or reused status)."""
+    m = _mod()
+    api.deploy("dev", (7, "main", "aaa", f"{URL}/100/job/1001"))
+    api.run(100, RELEASE_PATH, head=head)
+    api.artifact(100, 1000, _digests(D1))
+    images, bad, _ = m.collect(api, REPO)
+    assert images == {}
+    assert bad == [
+        {
+            "where": "dev",
+            "reason": "not scannable: the deploying run's commit or ref is not the deployment's",
+        }
+    ]

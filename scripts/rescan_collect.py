@@ -46,6 +46,7 @@ DIGESTS_FILE = "image-digests.env"
 REFS_FILE = "scan.env"
 EXPIRED = "not scannable: digest artifact expired (redeploy)"
 ROLLBACK = "after rollback: running digest unknown - redeploy or inspect the cluster"
+MISMATCH = "not scannable: the deploying run's commit or ref is not the deployment's"
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 SLUG = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 LIMIT = 30  # the newest deployments and runs that are looked at
@@ -199,8 +200,12 @@ def latest_deployment(
         if job.get("run_id") != run_id:
             msg = "not scannable: the deployment's job does not belong to its run"
             raise LookupError(msg)
-        path = str(api(gh, f"repos/{repo}/actions/runs/{run_id}").get("path", "")).split("@")[0]
+        run = api(gh, f"repos/{repo}/actions/runs/{run_id}")
+        path = str(run.get("path", "")).split("@")[0]
         if path in (OPS_WORKFLOW, RELEASE_WORKFLOW):
+            # The run that made it ran on the deployment's commit and ref, or it is not trusted.
+            if (run.get("head_sha"), run.get("head_branch")) != (dep.get("sha"), dep.get("ref")):
+                raise LookupError(MISMATCH)
             return dep, path, run_id, job
     return None
 
