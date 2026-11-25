@@ -128,3 +128,4 @@ So `..` and absolute names are covered by mise, and an out-of-tree symlink and a
 - [`tools/pins.tsv`](../../tools/pins.tsv) and [`scripts/tools.sh`](../../scripts/tools.sh): the pins and the installer
 - [`mise.toml`](../../mise.toml): the settings
 - [ADR-0015: uv for Python](./0015-uv-for-python.md)
+- [Tooling assessment](../tooling-assessment.md): the layers mise does not manage, checked against current practice

@@ -1,0 +1,401 @@
+# Tooling assessment: everything mise does not manage
+
+> Date: 2026-11-25. Scope: every layer outside the developer toolchain that
+> [ADR-0043](./adr/0043-mise-for-the-developer-toolchain.md) gives to mise: the application's packages, the cluster
+> and deploy configuration, secrets, the task runner, the git hooks, dependency updates, the container base images and
+> the scanners' own installer. This page changes no tool; it records what the template uses, what the mature
+> alternatives are today, and a verdict per layer.
+>
+> **Verdict:** the template is at current practice on most layers. Three gaps are worth closing now, none of which
+> changes how an adopter works: the frontend's lockfile has no release-age floor, the distroless base images' signatures
+> are never verified, and the secrets docs contradict each other (with one dead install URL). Three swaps are the
+> maintainers' decision: pnpm for npm, External Secrets with Secret Manager as the production default, and prek for
+> pre-commit. The recommendation is to take the second and hold the other two.
+
+## 0. How each layer is judged
+
+"More mature" means widely adopted, maintained, secure by default, and fitting this template's constraints:
+hash-pinned, checksum-verified, offline tests, no secrets in Git, read-only pull request jobs, least privilege. Newer
+is not enough.
+
+Each layer gets one of three verdicts:
+
+- **keep**: the template already follows current practice, and the reason is given;
+- **adopt now**: a scoped change that closes a gap without changing how an adopter works;
+- **maintainers' decision**: a swap of a core tool (a package manager, the task runner, the hook runner) or anything
+  that changes how every adopter works. It comes with a recommendation and its cost.
+
+Every version and date below was read from the registry or the release page on 2026-11-25; the sources are listed in
+[section 12](#12-sources).
+
+## 1. Python packages: uv and `uv.lock`
+
+**Today.** uv (pinned in [`mise.toml`](../mise.toml)) resolves [`pyproject.toml`](../pyproject.toml) into
+[`uv.lock`](../uv.lock), with a sha256 for every artifact. `[tool.uv] exclude-newer = "7 days"` keeps every locked
+release at least seven days old, the PEP 517 build backend is pinned with hashes in `build-constraint-dependencies`,
+and [`Dockerfile.backend`](../Dockerfile.backend) installs with `uv sync --frozen --no-dev`, which checks every
+download against the lock. The `uv-lock` hook runs `uv lock --check --offline`. The rationale is
+[ADR-0015](./adr/0015-uv-for-python.md).
+
+**Alternatives.** Poetry 2.5.2 (2026-11-21) and PDM 2.29.7 (2026-11-06) are maintained, lock with hashes, and Poetry
+now has a release-age setting (`solver.min-release-age`). uv is at 0.13.10 (2026-11-24); the pinned 0.13.8 is
+correct under the seven-day rule.
+
+**Verdict: keep.** uv already does everything the alternatives do here, and more that the template uses: a relative
+release-age span stored in the lock (`exclude-newer`, "Accepts ... a 'friendly' duration (e.g., 24 hours, 1 week,
+30 days)"), hashed build dependencies, and a frozen install in the image. Nothing would get stronger by switching.
+
+**Watch.** uv's settings reference now has a `[tool.uv.audit]` table, with an optional `malware-check` during sync
+against `https://api.osv.dev/` (default `false`). It is left off: it would make every `uv sync` call the network, and
+the malicious-package check already runs in CI (OSV-Scanner, [Supply-chain tooling
+assessment](./supply-chain-tooling-assessment.md)).
+
+## 2. The frontend's and the docs site's packages: npm and `package-lock.json`
+
+**Today.**
+
+- npm 11.20.0, pinned as `packageManager` in [`frontend/package.json`](../frontend/package.json) and
+  [`docs-site/package.json`](../docs-site/package.json). It is the npm that Node 26.13.1 (the pinned Node, an LTS
+  release) bundles, per nodejs.org's release index.
+- Both projects lock with `lockfileVersion: 3`. Every `resolved` URL in both lockfiles points at
+  `registry.npmjs.org`: no git and no tarball-URL dependencies.
+- Every install is `npm ci --ignore-scripts`: CI, the kind tests, both image builds and the documented local install.
+  `allowScripts` denies the packages that declare an install script, and
+  `tests/supply_chain/test_npm_install_scripts.py` fails when the frontend's lockfile gains one without an entry
+  ([Install scripts](./frontend-deployment.md#install-scripts)).
+- The release age: [`docs-site/.npmrc`](../docs-site/.npmrc) sets `min-release-age=7`. **The frontend has no
+  `.npmrc`**, so nothing holds its lockfile to seven days. Renovate waits seven days for the package it updates, but
+  the `npm install` that writes the lock resolves that package's transitive dependencies at their newest. A
+  developer's `npm install <package>` does the same.
+
+**What npm offers now** (npm config reference, v11):
+
+- `min-release-age`: "only versions that were available more than the given number of days ago will be installed".
+- `allow-git` and `allow-remote`: they limit git and tarball-URL dependencies. Both default to `"all"` in npm 11.
+- `allowScripts` in `package.json`: the per-project install-script policy.
+
+npm 12.0.0 (2026-07-08) goes further. Its release notes: "Dependency lifecycle scripts are now blocked by default
+unless allowed by the root package's allowScripts policy", and "allow-git and allow-remote now default to 'none'".
+No Node LTS bundles npm 12 yet; the 11.x line still gets releases (11.21.3, 2026-11-18).
+
+**Alternatives.**
+
+| Manager | Version (date) | Install scripts | Release age | Other controls |
+|---|---|---|---|---|
+| pnpm | 12.23.0 (2026-11-22) | `strictDepBuilds` default `true`: an install fails on any unreviewed build script; `allowBuilds` lists the decisions | `minimumReleaseAge`, default 1440 minutes (one day), transitive included | `blockExoticSubdeps` default `true` (only direct dependencies may come from git or a URL); `trustPolicy: no-downgrade` (opt-in) fails when a package's trust evidence drops, for example from trusted publishing to none |
+| Yarn (Berry) | 4.19.0 (2026-11-21) | `enableScripts` default `false` | `npmMinimalAgeGate` | Plug'n'Play by default, a bigger change for Next.js tooling |
+| Bun | 1.4.5 (2026-11-24) | `trustedDependencies` | `minimumReleaseAge`, default disabled | a different runtime as well as a manager |
+
+npm's config reference has no counterpart to pnpm's `trustPolicy`.
+
+**Verdict: keep npm; adopt now** the two settings that close the gap with npm alone, in
+`frontend/.npmrc` (new) and `docs-site/.npmrc`:
+
+```ini
+min-release-age=7
+allow-git=none
+allow-remote=none
+```
+
+This is the docs site's rule, extended to the frontend, plus npm 12's defaults brought forward. Neither lockfile has
+a git or URL dependency, so no install changes. It holds the frontend's transitive dependencies to the same seven
+days as everything else, and blocks the exotic sources pnpm blocks by default.
+
+**pnpm is the maintainers' decision** (section 11). The template already has the install-script control pnpm makes
+default (`--ignore-scripts` everywhere plus `allowScripts`). With the settings above, it also has the release age and
+the exotic-source block. What pnpm would add is `trustPolicy: no-downgrade`, its content-addressed store, and strict
+failures on any new build script.
+
+## 3. The cluster configuration: Helm values and `values.schema.json`
+
+**Today.** One chart, [`charts/your-service-name`](../charts/your-service-name), with one values file per environment
+(`values.dev.yaml`, `values.qa.yaml`, `values.production.yaml`, `values.preview.yaml`, `values.local.yaml`) over
+`values.yaml`. [`values.schema.json`](../charts/your-service-name/values.schema.json) (JSON Schema draft-07, 69
+`additionalProperties` rules) makes Helm refuse an unknown key or a wrong type on every `lint`, `template` and
+`install`. `templates/validate-values.yaml` refuses invalid combinations and placeholders, and CI runs `ct lint`,
+`helm lint`, helm-unittest, and kubeconform (strict, offline) over every environment's render
+([`reusable-chart.yml`](../.github/workflows/reusable-chart.yml)).
+
+**Alternatives.**
+
+- Kustomize v5.8.3 (2026-10-08): overlays over plain manifests, with no schema of its own and no install lifecycle
+  (hooks, rollback, release history).
+- Helmfile v1.8.5 (2026-11-22): "a declarative spec for deploying helm charts". It sits on top of Helm and helps when
+  one repository deploys many releases; this template deploys one chart per environment from one workflow.
+- Timoni v0.38.0 (2026-11-25) on CUE v0.18.0 (2026-11-24), and KCL v0.13.3 (2026-11-17): typed configuration
+  languages. All are still below 1.0.
+
+**Verdict: keep.** A schema-validated chart with per-environment values, linted and rendered strictly in CI, is the
+mature practice for one service. The typed alternatives are pre-1.0, and Kustomize would drop the schema and the
+release lifecycle. A switch would rewrite the chart, the deploy workflow, the bootstrap and every chart test.
+
+## 4. Secrets
+
+**Today.** The app Secret has exactly one of three sources, and two at once fail the render
+([`values.yaml`](../charts/your-service-name/values.yaml), [Secret sources](./security.md#secret-sources)):
+
+1. the chart's own Secret from `secrets.dbPassword` and `secrets.statsPass`, for dev and local only, fed from a
+   gitignored `values.secret.yaml`;
+2. `secrets.existingSecret`, a Secret managed outside the chart;
+3. `secrets.externalSecret.enabled`: an `external-secrets.io/v1` `ExternalSecret`
+   ([`templates/externalsecret.yaml`](../charts/your-service-name/templates/externalsecret.yaml)) that syncs the keys
+   from the platform's store, for example Google Secret Manager through a `ClusterSecretStore` with Workload Identity.
+
+[`values.production.yaml`](../charts/your-service-name/values.production.yaml) uses source 2, with a comment showing
+`kubectl create secret generic`. The deploy jobs hold no app secret: GitHub holds only the deploy credentials, in
+environment-scoped secrets.
+
+**What the docs say, and where they disagree.**
+
+- [`security.md`](./security.md#secret-sources) heads a section "Sealed Secrets (Recommended)" and installs
+  the controller from `https://bitnami-labs.github.io/sealed-secrets`. That URL now returns 404. The project moved to
+  `github.com/bitnami/sealed-secrets`, whose README uses `https://bitnami.github.io/sealed-secrets` (200).
+- The same page describes External Secrets with Secret Manager as the platform's store.
+- [`disaster-recovery.md`](./disaster-recovery.md) states as fact that the credentials "live in Secret Manager, and
+  the External Secrets Operator syncs them again into the restored namespace". That holds only with source 3, and
+  the production values use source 2.
+- No setup guide installs the operator or the store.
+
+**Alternatives.**
+
+| Option | Version (date) | How the app gets the value | Fit |
+|---|---|---|---|
+| External Secrets Operator + Secret Manager | chart 2.15.0 (2026-11-10) | a synced Kubernetes Secret, read as env vars as today | the chart already renders it; portable across clouds; a CNCF project (its security contact is a `lists.cncf.io` address) |
+| Secrets Store CSI driver + GCP provider, or GKE's Secret Manager add-on | driver v1.6.2 (2026-11-05), provider v1.20.0 (2026-11-20) | files on a mounted volume | the app reads env vars, so it would need code changes. Google's docs: "The Secret Manager add-on doesn't support the Sync as Kubernetes Secret feature"; GKE's separate sync uses a GKE-only `SecretSync` resource |
+| SOPS | v3.13.3 (2026-07-23) | encrypted values files in Git, decrypted at deploy | ciphertext in Git, and the deploy job needs a KMS decrypt grant |
+| Sealed Secrets | v0.41.2 (2026-10-26) | a `SealedSecret` in Git, decrypted by a per-cluster controller | one controller key per cluster to back up and rotate; no link to a cloud store |
+
+**Verdict: keep the three sources.** They are the right shape: External Secrets is first-class and the others remain
+possible.
+
+**Adopt now:** make the docs agree.
+
+- Retitle the Sealed Secrets section in `security.md` as one way to fill `existingSecret`, not "Recommended", and fix
+  its Helm repository URL.
+- Make the two disaster-recovery sentences conditional on `secrets.externalSecret.enabled`.
+
+**Making External Secrets with Secret Manager the production default is the maintainers' decision** (section 11). It
+changes what every adopter sets up before the first production deploy.
+
+## 5. Deploy settings: GitHub environments and variables
+
+**Today.** [`deploy.yml`](../.github/workflows/deploy.yml) deploys through the `dev`, `qa` and `production`
+environments:
+
+- Deploy rules: `dev` and `qa` take branch `main` and tag `v*`; `production` takes tag `v*` only, with a required
+  reviewer.
+- The cloud login is Workload Identity Federation, with one deployer service account per environment and
+  `id-token: write` only on the deploy jobs.
+- Every non-secret setting is a variable: one table in [Platform Setup](./platform-setup.md#variables-and-secrets),
+  kept equal to the settings script by a test. The one optional secret, `KUBECONFIG_B64`, is environment-scoped.
+- [`scripts/github-settings.sh`](../scripts/github-settings.sh) applies the environments, their rules and the
+  variables as code ([GitHub repository settings](./github-repository-settings.md)).
+
+**Practice.** GitHub's environment docs give required reviewers, deployment branch and tag rules, and environment
+secrets. Its OIDC docs recommend short-lived cloud tokens over "long-lived GitHub secrets". The template uses all
+four.
+
+**Verdict: keep.** Per-environment deploy rules and OIDC with no stored cloud key is current practice. Helm values
+hold what the cluster runs; GitHub holds who may deploy where.
+
+## 6. The task runner: make
+
+**Today.** [`Makefile`](../Makefile) (789 lines, about 125 targets) is the front door. 145 tracked files name a
+`make` target, 8 of them under `.github/`.
+
+**Alternatives.**
+
+- just 1.59.0 (2026-10-15), "just a command runner".
+- Task v3.54.0 (2026-10-01), YAML Taskfiles.
+- mise tasks, ruled out by ADR-0043: `mise.toml` holds no tasks, so mise stays the toolchain and nothing else.
+
+**Verdict: keep.** make is already on every CI runner and in the devcontainer, so it needs no pin, and the targets
+are plain shell calls into scripts that CI runs too. A switch would rewrite those 145 files and every adopter's
+habits for no gain in security or reproducibility. A maintainer who wants nicer syntax should weigh it against that
+cost. It is not recommended.
+
+## 7. Git hooks: pre-commit
+
+**Today.** pre-commit 4.7.0 (PyPI, 2026-10-12; first released 2014), installed into its own venv from hash-pinned
+requirements (`tools/requirements/pre-commit.txt`). [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) holds 11
+hooks, all `repo: local` with `language: system`: each calls the tool CI uses, nothing is fetched, and nothing needs
+the network.
+
+**Alternatives.**
+
+- prek 0.5.11 (2026-11-16; first PyPI release 2025-08-08). Its README: "Fully compatible with the original pre-commit
+  configurations and hooks", "A single binary with no dependencies, does not require Python". The aqua registry has
+  a recipe, so mise could lock it.
+- hk v2.14.0 (2026-11-23), configured in Pkl.
+- lefthook v2.2.3 (2026-11-24), YAML. Both would need a new config file.
+
+**Verdict: keep; a swap to prek is the maintainers' decision** (section 11). Because every hook is local and runs a
+system command, the gains prek is built for (speed and disk when pre-commit builds per-hook environments, no Python)
+barely apply here. prek is not yet 1.0.
+
+## 8. Dependency updates: Renovate (Dependabot for security only)
+
+**Today.** [`renovate.json5`](../renovate.json5):
+
+- a 7-day `minimumReleaseAge`, a weekly minor and patch group, and majors on their own;
+- digest pins for Actions and images;
+- the `mise` manager, which runs `mise lock` in safe mode (`MISE_SAFE=1`, per Renovate's mise manager docs), plus
+  regex managers for the lines it cannot read.
+
+[`.github/dependabot.yml`](../.github/dependabot.yml) is limited to security updates (`open-pull-requests-limit: 0`),
+with a 7-day cooldown.
+
+**Alternatives.** Renovate is at 44.262.2 (npm, 2026-11-25). Dependabot's list of supported ecosystems has no mise
+and no custom (regex) managers, so it cannot update `mise.toml`, `tools/pins.tsv`, `infra/security/config.yaml` or
+the digests in values files.
+
+**Verdict: keep.** Renovate is the only one of the two that covers every pinned file here, and the split (Renovate for
+versions, Dependabot for GitHub's security alerts) is already in place.
+
+## 9. Container base images
+
+**Today.**
+
+- Each Dockerfile declares its runtime base once, by digest:
+  - `gcr.io/distroless/python3-debian13` ([`Dockerfile.backend`](../Dockerfile.backend));
+  - `gcr.io/distroless/nodejs26-debian13` ([`Dockerfile.frontend`](../Dockerfile.frontend));
+  - `envoyproxy/envoy:distroless-v1.39.6` with its index digest ([`Dockerfile.waf`](../Dockerfile.waf)).
+- The build stages use `debian:13-slim`, `node:26.13.1-trixie-slim` and the uv image, all by digest.
+- Renovate's `docker:pinDigests` keeps the digests current; Envoy's tag has its own versioning rule.
+- A `debian-fixes` stage lays a Debian security fix over a base that has not shipped it yet
+  ([Debian fixes](./containerization.md#debian-fixes-the-base-has-not-shipped-yet)).
+- The images are scanned at build and weekly ([`rescan.yml`](../.github/workflows/rescan.yml)).
+
+**Alternatives.**
+
+- Chainguard's free images are "limited to the latest build of a given image, tagged as latest and latest-dev";
+  version tags and patch SLAs are paid.
+- Docker Hardened Images: "DHI's core features are free to use, share, and build on under Apache 2.0", but the
+  community images come from `dhi.io` after `docker login dhi.io` with a Docker account. A registry login in a pull
+  request build breaks [convention 5](../CONVENTIONS.md#5-image-level-ops-run-on-main-and-release-tags-only).
+
+**The gap.** The distroless README: "All distroless images are signed by cosign with ephemeral keys (keyless). We
+recommend verifying any distroless image you use before building your image". It gives the identity
+`keyless@distroless.iam.gserviceaccount.com` and the issuer `https://accounts.google.com`. The template never checks
+it: no file names that identity. `cosign tree` (2026-11-25) shows a signature and an attestation for both pinned
+distroless digests. It shows none for the pinned Envoy and `debian:13-slim` digests, so those two cannot be checked
+this way.
+
+**Verdict: keep the bases; adopt now** a `cosign verify` of the two distroless digests with that identity and issuer,
+before the build. It reads the refs from the Dockerfiles, uses the pinned cosign, and needs no secret and no write
+token. A changed digest that Google did not sign then fails before anything is built on it.
+
+## 10. The scanners' own installer (frozen)
+
+[`infra/security/tools-install.sh`](../infra/security/tools-install.sh) and
+[`infra/security/config.yaml`](../infra/security/config.yaml) install and pin the scanners (Syft, Grype, OSV-Scanner
+and the rest) with their own checksums. Both are frozen ([AGENTS.md](../AGENTS.md) rule 6), and ADR-0043 leaves them
+out of mise. Noted only; not assessed.
+
+## 11. Summary
+
+| Layer | Today | Verdict | Reason |
+|---|---|---|---|
+| Python packages | uv, `uv.lock` (hashes, `exclude-newer` 7 days, hashed build backend) | keep | Already the strongest option: frozen hashed installs and a release-age span in the lock |
+| Frontend and docs-site packages | npm 11.20.0, `package-lock.json`, `--ignore-scripts`, `allowScripts` | keep; adopt now: `.npmrc` release age and exotic-source block; pnpm: maintainers' decision | The frontend lock has no release-age floor; npm can close it without a switch |
+| Cluster configuration | Helm values per environment, `values.schema.json`, strict offline renders | keep | Schema-validated chart linted per environment; the typed alternatives are pre-1.0 |
+| Secrets | three exclusive sources; production uses `existingSecret` | keep; adopt now: consistent docs and the moved Sealed Secrets URL; ESO as production default: maintainers' decision | The shape is right; the docs disagree and one install URL is dead |
+| Deploy settings | GitHub environments, variables, OIDC Workload Identity | keep | Per-environment rules and no stored cloud key |
+| Task runner | make | keep | Preinstalled, plain, and a switch would touch 145 files for no security gain |
+| Git hooks | pre-commit 4.7.0, local system hooks | keep; prek: maintainers' decision | Local hooks leave prek little to improve; prek is pre-1.0 |
+| Dependency updates | Renovate; Dependabot for security only | keep | The only updater that covers mise, the pin files and the values digests |
+| Base images | distroless and Debian by digest, Renovate, `debian-fixes` | keep; adopt now: verify the distroless signatures | The vendor signs them and asks users to verify; the template does not |
+| Scanners' installer | `infra/security/tools-install.sh` | frozen; noted | Out of scope |
+
+**Adopt now** (each a scoped change that leaves how an adopter works as it is):
+
+1. **The frontend's release age and the exotic-source block.** Add `frontend/.npmrc` with `min-release-age=7`,
+   `allow-git=none` and `allow-remote=none`, and add the two `allow-*` lines to `docs-site/.npmrc`. Then:
+   - extend the docs site's `.npmrc` test to both files;
+   - make the young-fix step in [getting-started](./getting-started.md#security-updates-younger-than-7-days) and the
+     comment in `.github/dependabot.yml` cover the frontend.
+
+   First prove that `npm ci --ignore-scripts` still passes on the current frontend lock.
+2. **Verify the distroless base signatures.** Add a script that takes every `gcr.io/distroless/...@sha256:` reference
+   from the Dockerfiles and runs the pinned cosign with the vendor's identity and issuer. Call it in the image check
+   job before the build. Add a test that the script finds every distroless reference and fails on a wrong identity,
+   and a line in [Containerization](./containerization.md).
+3. **Make the secrets docs agree.** In `security.md`, retitle the Sealed Secrets section and fix its Helm repository
+   URL to `https://bitnami.github.io/sealed-secrets`. In `disaster-recovery.md`, make the two Secret Manager sentences
+   conditional on `secrets.externalSecret.enabled`.
+
+**Maintainers' decision:**
+
+1. **External Secrets with Secret Manager as the production default.** Recommended. It matches what the
+   disaster-recovery guide already assumes, keeps secrets out of Git and off the deploy job, and the chart already
+   renders it. Cost:
+   - `values.production.yaml` sets `externalSecret.enabled: true`, and the placeholder store name makes the render
+     refuse until an adopter names theirs;
+   - a new GKE guide section (the operator's chart pinned by digest, a `ClusterSecretStore` for Secret Manager, the
+     Workload Identity binding with Secret Accessor on those secrets);
+   - a Renovate rule for the operator's chart and a test of the production render;
+   - one more platform component to run and upgrade. `existingSecret` stays for clusters without it.
+2. **pnpm instead of npm.** Not recommended now. With adopt-now item 1, npm has the release age, the install-script
+   policy and the exotic-source block. pnpm would add `trustPolicy: no-downgrade` and strict build failures. Cost:
+   - two lockfiles regenerated (`pnpm-lock.yaml`), a pnpm pin in `mise.toml`, and `packageManager` in both projects;
+   - [`Dockerfile.frontend`](../Dockerfile.frontend), the `setup-frontend` action and five workflows;
+   - the install-scripts guard and its test rewritten for `allowBuilds`;
+   - 63 tracked files that name an npm command or the lockfile, 18 of them wiki pages.
+
+   Revisit when a Node LTS bundles npm 12 (scripts blocked by default) or if npm stays without a trust-downgrade check.
+3. **prek instead of pre-commit.** Not recommended before prek 1.0. Cost:
+   - the `pre-commit` row and its requirements file move to a `mise.toml` entry;
+   - the `precommit` target, `scripts/ci/hook-run.sh` messages, and about 20 files that name pre-commit (AGENTS.md,
+     CONTRIBUTING.md, the quality-gates skill, the pin tests).
+
+   `.pre-commit-config.yaml` stays as it is. The switch is cheap whenever it is wanted.
+
+## 12. Sources
+
+All checked on 2026-11-25.
+
+- uv: [PyPI](https://pypi.org/project/uv/) (0.13.10, 2026-11-24); [settings
+  reference](https://docs.astral.sh/uv/reference/settings/) (`exclude-newer`, `build-constraint-dependencies`,
+  `[tool.uv.audit] malware-check`).
+- Poetry: [PyPI](https://pypi.org/project/poetry/) (2.5.2, 2026-11-21); [configuration](https://python-poetry.org/docs/configuration/)
+  (`solver.min-release-age`). PDM: [PyPI](https://pypi.org/project/pdm/) (2.29.7, 2026-11-06).
+- npm: registry (`npm view npm time`: 11.20.0 2026-09-22, 12.0.0 2026-07-08, 11.21.3 2026-11-18); [config
+  reference v11](https://docs.npmjs.com/cli/v11/using-npm/config) (`min-release-age`, `allow-git`, `allow-remote`,
+  `allow-scripts`); [v12.0.0 release notes](https://github.com/npm/cli/releases/tag/v12.0.0); [Node.js release
+  index](https://nodejs.org/dist/index.json) (v26.13.1, 2026-11-10, npm 11.20.0, LTS).
+- pnpm: registry (12.23.0, 2026-11-22); [build settings](https://pnpm.io/settings/build) (`strictDepBuilds`,
+  `allowBuilds`); [dependency resolution settings](https://pnpm.io/settings/dependency-resolution)
+  (`minimumReleaseAge`, `blockExoticSubdeps`, `trustPolicy`).
+- Yarn: registry (`@yarnpkg/cli-dist` 4.19.0, 2026-11-21); [yarnrc](https://yarnpkg.com/configuration/yarnrc)
+  (`enableScripts`, `npmMinimalAgeGate`). Bun: registry (1.4.5); [bunfig](https://bun.com/docs/runtime/bunfig)
+  (`minimumReleaseAge`).
+- Kustomize [v5.8.3](https://github.com/kubernetes-sigs/kustomize/releases/tag/kustomize/v5.8.3); Helmfile
+  [v1.8.5](https://github.com/helmfile/helmfile/releases/tag/v1.8.5) and its [docs](https://helmfile.readthedocs.io/en/latest/);
+  Timoni [v0.38.0](https://github.com/stefanprodan/timoni/releases/tag/v0.38.0); CUE
+  [v0.18.0](https://github.com/cue-lang/cue/releases/tag/v0.18.0); KCL [v0.13.3](https://github.com/kcl-lang/kcl/releases/tag/v0.13.3).
+- External Secrets [chart 2.15.0](https://github.com/external-secrets/external-secrets/releases/tag/helm-chart-2.15.0)
+  and [README](https://github.com/external-secrets/external-secrets); Secrets Store CSI driver
+  [v1.6.2](https://github.com/kubernetes-sigs/secrets-store-csi-driver/releases/tag/v1.6.2); GCP provider
+  [v1.20.0](https://github.com/GoogleCloudPlatform/secrets-store-csi-driver-provider-gcp/releases/tag/v1.20.0); [GKE
+  Secret Manager add-on](https://cloud.google.com/secret-manager/docs/secret-manager-managed-csi-component) and
+  [sync to Kubernetes Secrets](https://cloud.google.com/secret-manager/docs/sync-k8-secrets); SOPS
+  [v3.13.3](https://github.com/getsops/sops/releases/tag/v3.13.3); Sealed Secrets
+  [v0.41.2](https://github.com/bitnami/sealed-secrets/releases/tag/v0.41.2) and its
+  [README](https://github.com/bitnami/sealed-secrets) (the Helm repository `https://bitnami.github.io/sealed-secrets`
+  answers 200; `https://bitnami-labs.github.io/sealed-secrets/` answers 404).
+- GitHub: [deployments and environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments);
+  [OpenID Connect](https://docs.github.com/en/actions/concepts/security/openid-connect); [Dependabot supported
+  ecosystems](https://docs.github.com/en/code-security/dependabot/ecosystems-supported-by-dependabot/supported-ecosystems-and-repositories).
+- just [1.59.0](https://github.com/casey/just/releases/tag/1.59.0) and [README](https://github.com/casey/just); Task
+  [v3.54.0](https://github.com/go-task/task/releases/tag/v3.54.0).
+- pre-commit: [PyPI](https://pypi.org/project/pre-commit/) (4.7.0, 2026-10-12); prek
+  [v0.5.11](https://github.com/j178/prek/releases/tag/v0.5.11), [README](https://github.com/j178/prek) and
+  [PyPI](https://pypi.org/project/prek/) (first release 2025-08-08); hk [v2.14.0](https://github.com/jdx/hk/releases/tag/v2.14.0)
+  and [docs](https://hk.jdx.dev/); lefthook [v2.2.3](https://github.com/evilmartians/lefthook/releases/tag/v2.2.3); the
+  [aqua registry](https://github.com/aquaproj/aqua-registry) (`pkgs/j178/prek`, `pkgs/jdx/hk`,
+  `pkgs/evilmartians/lefthook`).
+- Renovate: registry (44.262.2, 2026-11-25); [mise manager](https://docs.renovatebot.com/modules/manager/mise/);
+  [Docker](https://docs.renovatebot.com/docker/).
+- Base images: [distroless README](https://github.com/GoogleContainerTools/distroless) (signing, the debian13 images);
+  `cosign tree` on the pinned digests; [Chainguard Containers overview](https://edu.chainguard.dev/chainguard/chainguard-images/overview/);
+  [Docker Hardened Images](https://docs.docker.com/dhi/) and its [quickstart](https://docs.docker.com/dhi/get-started/).
