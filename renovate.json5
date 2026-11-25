@@ -239,17 +239,17 @@
       "prBodyNotes": ["If this pull request did not change `setuptools-scm` and `vcs-versioning` in `[tool.uv] build-constraint-dependencies` in `pyproject.toml`, set them there to the versions it gives the dev group (a test fails until the two match). Then replace those entries' sha256 hashes with the new versions' files and run `make lock`, as wiki/getting-started.md (Build dependencies) describes."]
     },
     {
-      // The uv pin in tools/pins.tsv and the uv image tag in Dockerfile.backend must stay equal (a test checks it),
-      // so one pull request moves both. The image digest is refreshed by Renovate; the pins.tsv checksum by make pins-refresh.
-      "description": "uv: the pins.tsv row and the backend image tag move together",
+      // The uv pin in mise.toml (locked in mise.lock) and the uv image tag in Dockerfile.backend must stay equal (a test checks it),
+      // so one pull request moves both. The image digest is refreshed by Renovate; the mise.lock checksums by make pins-refresh.
+      "description": "uv: the mise.toml entry and the backend image tag move together",
       "matchPackageNames": ["astral-sh/uv", "ghcr.io/astral-sh/uv"],
       "groupName": "uv"
     },
     {
       // The Kyverno CLI (the offline policy tests), the chart the kind admission test installs and that chart's
       // two images are one release (wiki/admission-control.md, Version pair): one pull request moves the CLI and
-      // chart rows of tools/pins.tsv and the image tags and digests in deploy/policies/test/kyverno-values.yaml.
-      // The pins.tsv checksums still come from make pins-refresh.
+      // chart pins (the CLI in mise.toml and mise.lock, the chart row in tools/pins.tsv) and the image tags and digests in deploy/policies/test/kyverno-values.yaml.
+      // The checksums still come from make pins-refresh (mise.lock for the CLI, tools/pins.tsv for the chart).
       "description": "Kyverno: the CLI pin, the chart pin and the chart's images move together",
       "matchPackageNames": ["kyverno/kyverno", "kyverno", "ghcr.io/kyverno/kyverno", "ghcr.io/kyverno/kyvernopre"],
       "groupName": "kyverno"

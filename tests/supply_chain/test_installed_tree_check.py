@@ -166,3 +166,20 @@ def test_remove_deletes_a_tree_inside_the_installs_dir_and_only_that(tmp_path: P
     assert run("--remove", tmp_path, gone).returncode == 0
     assert not gone.exists()
     assert kept.exists()
+
+
+def test_a_removal_that_fails_is_reported_with_the_path_and_a_non_zero_exit(tmp_path: Path) -> None:
+    stuck = tree(tmp_path, "a/1")
+    locked = stuck / "bin"
+    locked.chmod(0o555)  # nothing inside can be unlinked
+    try:
+        r = run("--remove", tmp_path, stuck)
+        assert r.returncode != 0
+        assert str(stuck) in r.stderr, r.stderr
+        assert (locked / "tool").exists()
+        (stuck / "x").symlink_to("/etc")
+        r = check(tmp_path, stuck)
+        assert r.returncode != 0
+        assert "could not remove" in r.stderr, r.stderr
+    finally:
+        locked.chmod(0o755)

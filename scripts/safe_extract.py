@@ -75,7 +75,7 @@ def bounded(installs: str, trees: list[str], *, must_exist: bool) -> list[Path]:
     if root == os.sep or (home and (home == root or home.startswith(root + os.sep))):
         msg = f"the installs directory {installs!r} is the filesystem root or holds $HOME"
         raise RefusedPathError(msg)
-    if not Path(root).is_dir():
+    if must_exist and not Path(root).is_dir():
         msg = f"the installs directory {installs!r} does not exist"
         raise RefusedPathError(msg)
     real: list[Path] = []
@@ -100,6 +100,15 @@ def bounded(installs: str, trees: list[str], *, must_exist: bool) -> list[Path]:
     return real
 
 
+def remove(path: Path) -> str:
+    """Remove a tree; the first error, or an empty string."""
+    if not path.exists():
+        return ""
+    errors: list[str] = []
+    shutil.rmtree(path, onexc=lambda _func, name, exc: errors.append(f"{name}: {exc}"))
+    return errors[0] if errors else ""
+
+
 def check_installed(installs: str, trees: list[str], *, remove_only: bool = False) -> int:
     """Check each tree and remove the ones that fail (--remove: remove them all). 1 on a refusal
     or a failed tree."""
@@ -113,11 +122,13 @@ def check_installed(installs: str, trees: list[str], *, remove_only: bool = Fals
         try:
             if not remove_only:
                 check_tree(path)
-            else:
-                shutil.rmtree(path, ignore_errors=True)
+            elif error := remove(path):
+                sys.stderr.write(f"safe_extract: could not remove {path}: {error}\n")
+                failed = 1
         except (OSError, UnsafeTreeError) as exc:
             sys.stderr.write(f"safe_extract: refusing {path}: {exc}; removing it\n")
-            shutil.rmtree(path, ignore_errors=True)
+            if error := remove(path):
+                sys.stderr.write(f"safe_extract: could not remove {path}: {error}\n")
             failed = 1
     return failed
 

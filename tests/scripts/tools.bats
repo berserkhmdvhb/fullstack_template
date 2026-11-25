@@ -262,3 +262,15 @@ PY
   tools bash "$PROJ/scripts/tools.sh" install kind
   [[ "$output" != *"reinstalling"* ]]
 }
+
+@test "a reinstall with no downloads directory has nothing to remove there and succeeds" {
+  fixture_project
+  tools bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -eq 0 ]
+  rm -rf "$TOOLS/mise/data/downloads"
+  sed -i 's|^"aqua:kubernetes-sigs/kind" = "0.33.0"|"aqua:kubernetes-sigs/kind" = { version = "0.33.0", platforms = { linux-x64 = { rename_exe = "kind" } } }|' "$PROJ/mise.toml"
+  tools bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"reinstalling"* ]]
+  [ "$("$TOOLS/bin/kind")" = "fake kind" ]
+}
