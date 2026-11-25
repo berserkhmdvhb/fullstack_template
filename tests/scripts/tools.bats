@@ -186,3 +186,79 @@ write_lock() { # sha256 of the kind artifact the lock records
   [[ "$output" == *"mise install --locked helm4 aqua:yannh/kubeconform"$'\n'* ]]
   [[ "$output" != *"yq"* && "$output" != *"node"* && "$output" != *"kind"* ]]
 }
+
+INSTALL_DIR='mise/data/installs/aqua-kubernetes-sigs-kind/0.33.0'
+
+# A safe_extract.py that first plants a link out of the first tree it is given, then runs the real one.
+plant_a_bad_tree() {
+  mv "$PROJ/scripts/safe_extract.py" "$PROJ/scripts/real_safe_extract.py"
+  cat > "$PROJ/scripts/safe_extract.py" <<'PY'
+import os, runpy, sys
+if sys.argv[1] in ("--check", "--remove"):
+    os.symlink("/etc", os.path.join(sys.argv[3], "evil"))
+runpy.run_path(os.path.join(os.path.dirname(__file__), "real_safe_extract.py"), run_name="__main__")
+PY
+}
+
+@test "a tree that fails the check: non-zero exit, nothing linked, the tool's install removed" {
+  fixture_project
+  tools bash "$PROJ/scripts/tools.sh" install mise
+  [ "$status" -eq 0 ]
+  plant_a_bad_tree
+  tools bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"outside"* ]]
+  [[ "$output" == *"nothing was linked"* ]]
+  [ ! -e "$TOOLS/bin/kind" ]
+  [ ! -e "$TOOLS/$INSTALL_DIR" ]
+  [ -d "$PROJ/scripts" ] && [ -f "$PROJ/mise.toml" ]
+}
+
+@test "mise where printing nothing stops tools.sh before the check runs or anything is removed" {
+  fixture_project
+  # shellcheck disable=SC2016 # the wrapper expands $1 and $@ itself
+  printf '#!/bin/sh\n[ "$1" = where ] && exit 0\nexec "%s" "$@"\n' "$ROOT/.tools/bin/mise" > "$BATS_TEST_TMPDIR/art/mise/bin/mise"
+  tar -czf "$BATS_TEST_TMPDIR/mise.tar.gz" -C "$BATS_TEST_TMPDIR/art" mise
+  printf 'mise\t9.9.9\tlinux-amd64\tfile://%s\t%s\n' "$BATS_TEST_TMPDIR/mise.tar.gz" "$(sha256sum "$BATS_TEST_TMPDIR/mise.tar.gz" | cut -d' ' -f1)" > "$PROJ/tools/pins.tsv"
+  tools bash "$PROJ/scripts/tools.sh" install mise
+  [ "$status" -eq 0 ]
+  mv "$PROJ/scripts/safe_extract.py" "$PROJ/scripts/real_safe_extract.py"
+  printf 'import pathlib, sys\npathlib.Path(sys.argv[0]).with_name("called").write_text("yes")\n' > "$PROJ/scripts/safe_extract.py"
+  tools bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"where"* ]]
+  [ ! -e "$PROJ/scripts/called" ]
+  [ ! -e "$TOOLS/bin/kind" ]
+  [ -d "$PROJ/scripts" ] && [ -f "$PROJ/mise.toml" ]
+}
+
+@test "a lock checksum changed after the install: the next install refuses and unlinks the tool" {
+  fixture_project
+  tools bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -eq 0 ]
+  [ -L "$TOOLS/bin/kind" ]
+  write_lock "${ART_SHA:0:63}$([ "${ART_SHA:63:1}" = 0 ] && echo 1 || echo 0)"
+  tools bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"reinstalling"* ]]
+  [ ! -e "$TOOLS/bin/kind" ] && [ ! -L "$TOOLS/bin/kind" ]
+  [ ! -e "$TOOLS/$INSTALL_DIR" ]
+}
+
+@test "only an option changed in mise.toml: the tool is reinstalled; unchanged, it is left alone" {
+  fixture_project
+  tools bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -eq 0 ]
+  inode="$(stat -c %i "$TOOLS/$INSTALL_DIR/kind")"
+  tools bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"reinstalling"* ]]
+  [ "$(stat -c %i "$TOOLS/$INSTALL_DIR/kind")" = "$inode" ]
+  sed -i 's|^"aqua:kubernetes-sigs/kind" = "0.33.0"|"aqua:kubernetes-sigs/kind" = { version = "0.33.0", platforms = { linux-x64 = { rename_exe = "kind" } } }|' "$PROJ/mise.toml"
+  tools bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"reinstalling"* ]]
+  [ "$("$TOOLS/bin/kind")" = "fake kind" ]
+  tools bash "$PROJ/scripts/tools.sh" install kind
+  [[ "$output" != *"reinstalling"* ]]
+}

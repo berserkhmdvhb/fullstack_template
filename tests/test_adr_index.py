@@ -3,8 +3,9 @@
 
 The seven ADRs of the minimum set (GitHub only, IaC placement, one Uvicorn process, migrations
 as a Job, the edge modes, uv, the supply-chain level) must exist, and no ADR may restate a version
-pinned in tools/pins.tsv or tools/kind-nodes.tsv: Renovate moves those files, not the ADRs. The
-documentation site's pages (docs-site/src/content/docs/) are held to the same version rule."""
+pinned in mise.toml, tools/pins.tsv or tools/kind-nodes.tsv: Renovate moves those files, not the
+ADRs. The documentation site's pages (docs-site/src/content/docs/) are held to the same version
+rule."""
 
 from __future__ import annotations
 

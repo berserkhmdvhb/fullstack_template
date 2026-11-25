@@ -47,31 +47,16 @@ def _load() -> ModuleType:
 
 pr = _load()
 PRODUCTION_SOURCES = dict(pr.SOURCES)
-# The rows that moved to mise leave these checksum sources unused. The kinds stay for a row that has
-# to come back to tools/pins.tsv (a tool mise cannot verify as well): each kind keeps a sample row.
+# The rows that moved to mise leave their checksum sources unused. The kinds stay for a row that has
+# to come back to tools/pins.tsv (a tool mise cannot verify as well): one sample row per kind (kind
+# stands in as the generic row of most tests; gitleaks has the {dir} and {ver} placeholders).
 SAMPLE_SOURCES = {
     "helm4": ("sumfile", "{url}.sha256sum", "https://get.helm.sh/"),
-    "kubectl": ("hashfile", "{url}.sha256", "https://dl.k8s.io/release/"),
     "kind": ("sumfile", "{url}.sha256sum", "https://github.com/kubernetes-sigs/kind/releases/download/"),
-    "promtool": ("sumfile", "{dir}/sha256sums.txt", "https://github.com/prometheus/prometheus/releases/download/"),
+    "kubectl": ("hashfile", "{url}.sha256", "https://dl.k8s.io/release/"),
     "yq": ("yq-columns", "{dir}/checksums", "https://github.com/mikefarah/yq/releases/download/"),
-    "bats": ("archive", "", "https://github.com/bats-core/bats-core/archive/refs/tags/"),
     "squawk": ("gh-digest", "", "https://github.com/sbdchd/squawk/releases/download/"),
-    "node": ("sumfile", "https://nodejs.org/dist/v{ver}/SHASUMS256.txt", "https://nodejs.org/dist/"),
-    "uv": ("hashfile", "{url}.sha256", "https://github.com/astral-sh/uv/releases/download/"),
-    "cosign": ("sumfile", "{dir}/cosign_checksums.txt", "https://github.com/sigstore/cosign/releases/download/"),
-    "shellcheck": ("gh-digest", "", "https://github.com/koalaman/shellcheck/releases/download/"),
-    "lychee": ("hashfile", "{url}.sha256", "https://github.com/lycheeverse/lychee/releases/download/"),
     "gitleaks": ("sumfile", "{dir}/gitleaks_{ver}_checksums.txt", "https://github.com/gitleaks/gitleaks/releases/download/"),
-    "hadolint": ("sumfile", "{dir}/checksums.sha256", "https://github.com/hadolint/hadolint/releases/download/"),
-    "oasdiff": ("sumfile", "{dir}/checksums.txt", "https://github.com/oasdiff/oasdiff/releases/download/"),
-    "kyverno": ("sumfile", "{dir}/checksums.txt", "https://github.com/kyverno/kyverno/releases/download/"),
-    "ct": ("sumfile", "{dir}/checksums.txt", "https://github.com/helm/chart-testing/releases/download/"),
-    "actionlint": ("sumfile", "{dir}/actionlint_{ver}_checksums.txt", "https://github.com/rhysd/actionlint/releases/download/"),
-    "kubeconform": ("sumfile", "{dir}/CHECKSUMS", "https://github.com/yannh/kubeconform/releases/download/"),
-    "helm-unittest": ("sumfile", "{dir}/helm-unittest-checksum.sha", "https://github.com/helm-unittest/helm-unittest/releases/download/"),
-    "helm3": ("sumfile", "{url}.sha256sum", "https://get.helm.sh/"),
-    "kubectl-floor": ("hashfile", "{url}.sha256", "https://dl.k8s.io/release/"),
 }  # fmt: skip
 
 
@@ -181,24 +166,12 @@ def _pin(name: str, version: str, url: str, sha: str) -> object:
             "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64.sha256sum",
         ),
         (
-            ("node", "22.1.0", "https://nodejs.org/dist/v22.1.0/node-v22.1.0-linux-x64.tar.xz"),
-            "https://nodejs.org/dist/v22.1.0/SHASUMS256.txt",
-        ),
-        (
             (
                 "gitleaks",
                 "8.1.0",
                 "https://github.com/gitleaks/gitleaks/releases/download/v8.1.0/gitleaks_8.1.0_linux_x64.tar.gz",
             ),
             "https://github.com/gitleaks/gitleaks/releases/download/v8.1.0/gitleaks_8.1.0_checksums.txt",
-        ),
-        (
-            (
-                "hadolint",
-                "2.1.0",
-                "https://github.com/hadolint/hadolint/releases/download/v2.1.0/hadolint-linux-x86_64",
-            ),
-            "https://github.com/hadolint/hadolint/releases/download/v2.1.0/checksums.sha256",
         ),
     ],
 )
@@ -217,7 +190,7 @@ def test_kubectl_hash_only_file(monkeypatch: pytest.MonkeyPatch) -> None:
     assert pr.vendor_sha(_pin("kubectl", "1.0.0", url, "x")) == "e" * 64
 
 
-def test_github_release_digest_for_squawk_and_shellcheck(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_github_release_digest_for_squawk(monkeypatch: pytest.MonkeyPatch) -> None:
     api = "https://api.github.com/repos/sbdchd/squawk/releases/tags/v2.0.0"
     body = (
         '{"assets": [{"name": "squawk-linux-x64", "digest": "sha256:' + "f" * 64 + '"}]}'
@@ -225,13 +198,13 @@ def test_github_release_digest_for_squawk_and_shellcheck(monkeypatch: pytest.Mon
     _stub(monkeypatch, {api: body})
     url = "https://github.com/sbdchd/squawk/releases/download/v2.0.0/squawk-linux-x64"
     assert pr.vendor_sha(_pin("squawk", "2.0.0", url, "x")) == "f" * 64
-    assert pr.SOURCES["shellcheck"][0] == "gh-digest"
 
 
-def test_bats_hashes_the_tag_archive(monkeypatch: pytest.MonkeyPatch) -> None:
-    url = "https://github.com/bats-core/bats-core/archive/refs/tags/v1.0.0.tar.gz"
+def test_a_data_file_at_a_tag_is_hashed_on_download(monkeypatch: pytest.MonkeyPatch) -> None:
+    url = "https://raw.githubusercontent.com/kubernetes/kubernetes/v1.0.0/api/openapi-spec/swagger.json"
     _stub(monkeypatch, {url: b"archive"})
-    assert pr.vendor_sha(_pin("bats", "1.0.0", url, "x")) == hashlib.sha256(b"archive").hexdigest()
+    row = _pin("k8s-openapi", "1.0.0", url, "x")
+    assert pr.vendor_sha(row) == hashlib.sha256(b"archive").hexdigest()
 
 
 def test_uv_row_checks_the_version_against_its_lock(
@@ -442,7 +415,7 @@ def test_config_sources_pin_the_repo_the_annotation_names() -> None:
         ("kind", "https://github.com/evil/kind/releases/download/v0.33.0/kind-linux-amd64"),
         ("helm4", "https://evil.example/helm-v4.3.2-linux-amd64.tar.gz"),
         ("squawk", "https://github.com/evil/squawk/releases/download/v2.0.0/squawk-linux-x64"),
-        ("bats", "https://github.com/evil/bats-core/archive/refs/tags/v1.0.0.tar.gz"),
+        ("k8s-openapi", "https://github.com/evil/kubernetes/v1.0.0/swagger.json"),
         ("zizmor", "uv:zizmor-lookalike"),
     ],
 )

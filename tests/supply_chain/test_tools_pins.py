@@ -397,31 +397,63 @@ def test_the_node_mise_installed_is_the_pinned_one_and_its_npm_runs() -> None:
     assert npm.returncode == 0, npm.stderr
 
 
-def test_the_ci_unit_job_installs_node_before_the_tests() -> None:
-    """The Node tarball test reads the verified download the tool install keeps."""
+def test_the_ci_unit_job_installs_what_the_tool_tests_read_before_the_tests() -> None:
+    """The tests above run the installed Node and read the helm-unittest plugin, so the unit job
+    that runs them (`make test-unit`) installs both first."""
     backend = ROOT / ".github" / "workflows" / "reusable-backend.yml"
     steps = yaml.safe_load(backend.read_text(encoding="utf-8"))["jobs"]["unit"]["steps"]
     runs = [str(s.get("run", "")) for s in steps]
     install = next(i for i, r in enumerate(runs) if "scripts/tools.sh install" in r)
-    assert "node" in runs[install].split("scripts/tools.sh install", 1)[1].split()
+    named = runs[install].split("scripts/tools.sh install", 1)[1].split()
+    assert {"node", "helm-unittest"} <= set(named)
     assert install < next(i for i, r in enumerate(runs) if "make test-unit" in r)
 
 
-def test_the_node_test_advises_the_command_that_fixes_it() -> None:
-    assert 'run `scripts/tools.sh install node`"' in Path(__file__).read_text(encoding="utf-8")
-
-
-def test_uv_is_a_mise_tool_installed_before_every_uv_row() -> None:
-    """tools.sh runs the mise tools (uv among them) before the rows that need the pinned uv."""
+def test_uv_is_installed_before_a_uv_tool_and_a_dry_run_says_so(tmp_path: Path) -> None:
+    env = {**os.environ, "TOOLS_DIR": str(tmp_path / ".tools")}
+    r = run(["--dry-run", "install", "zizmor"], env)
+    assert r.returncode == 0, r.stderr
     assert listing()["uv"][1] == "aqua:astral-sh/uv"
-    assert not any(r[0] == "uv" for r in rows())
-    assert SRC.index('install_mise_tools "${tools[@]}"') < SRC.index("install_pin\n")
-    assert 'wanted+="uv "' in SRC, "naming a uv tool installs uv with it"
+    assert r.stdout.index("==> uv ") < r.stdout.index("==> zizmor ")
+    assert not (tmp_path / ".tools").exists()
 
 
-def test_uv_keeps_its_cache_and_its_pythons_in_the_repository() -> None:
-    assert 'UV_CACHE_DIR="$TOOLS_DIR/uv/cache"' in SRC
-    assert 'UV_PYTHON_INSTALL_DIR="$TOOLS_DIR/uv/python"' in SRC
+def test_the_pinned_uv_is_the_one_used_and_keeps_its_cache_and_pythons_in_the_repository(
+    tmp_path: Path,
+) -> None:
+    """A stub uv in .tools/bin records what it is called with; a different uv first on PATH is never
+    called, and uv's cache and its Python directory are inside .tools."""
+    tools = tmp_path / ".tools"
+    (tools / "bin").mkdir(parents=True)
+    log = tmp_path / "uv.log"
+    stub = (
+        f'#!/bin/sh\necho "$0 $UV_CACHE_DIR $UV_PYTHON_INSTALL_DIR" >> {log}\necho /fake/python\n'
+    )
+    (tools / "bin/uv").write_text(stub)
+    (tools / "bin/uv").chmod(0o755)
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "uv").write_text(f"#!/bin/sh\necho WRONG >> {log}\n")
+    (other / "uv").chmod(0o755)
+    reqs = tmp_path / "reqs"
+    reqs.mkdir()
+    (reqs / "zizmor.txt").write_text("zizmor==1.0.0 \\\n    --hash=sha256:" + "0" * 64 + "\n")
+    pins = tmp_path / "pins.tsv"
+    pins.write_text("zizmor\t1.0.0\tany\tuv:zizmor\t-\n")
+    env = {
+        **os.environ,
+        "PINS": str(pins),
+        "TOOLS_DIR": str(tools),
+        "REQS": str(reqs),
+        "PATH": f"{other}{os.pathsep}{os.environ['PATH']}",
+    }
+    r = run(["install", "zizmor"], env)
+    assert r.returncode == 0, r.stderr
+    calls = log.read_text().splitlines()
+    assert calls
+    assert "WRONG" not in calls
+    for call in calls:
+        assert call == f"{tools}/bin/uv {tools}/uv/cache {tools}/uv/python", call
 
 
 def test_a_dry_run_names_exactly_the_requested_mise_tools(tmp_path: Path) -> None:
@@ -432,10 +464,6 @@ def test_a_dry_run_names_exactly_the_requested_mise_tools(tmp_path: Path) -> Non
     assert r.returncode == 0, r.stderr
     assert "mise install --locked helm4 aqua:yannh/kubeconform\n" in r.stdout
     assert not (tmp_path / ".tools").exists()
-
-
-def test_tools_sh_prefers_the_pinned_uv() -> None:
-    assert 'PATH="$TOOLS_DIR/bin:$PATH"' in SRC
 
 
 # --- mise: the first pin, installed through the same verified path as every other tool ---
@@ -492,7 +520,10 @@ def test_mise_installs_from_a_verified_archive_to_bin(tmp_path: Path) -> None:
 def test_the_installed_helm_unittest_plugin_has_the_binary_its_plugin_yaml_runs() -> None:
     plugin = ROOT / ".tools/helm-plugins/helm-unittest"
     if not plugin.is_dir():
-        pytest.skip("helm-unittest is not installed (scripts/tools.sh install helm-unittest)")
+        msg = "helm-unittest is not installed (run: scripts/tools.sh install helm-unittest)"
+        if os.environ.get("CI"):
+            pytest.fail(msg)  # CI installs it first (the unit job, checked above): no silent skip
+        pytest.skip(msg)
     commands = yaml.safe_load((plugin / "plugin.yaml").read_text())["platformCommand"]
     linux = next(
         c["command"] for c in commands if (c.get("os"), c.get("arch")) == ("linux", "amd64")

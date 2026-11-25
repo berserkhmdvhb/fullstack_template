@@ -4,9 +4,10 @@ The image admission policy on the kind cluster fst (wiki/admission-control.md, "
 
 Run with ``make kind-admission-test`` after ``make kind-up``; ``make test`` never collects it
 (tests/conftest.py ignores tests/k8s). It talks to fst only, through .local/kind/kubeconfig, and
-refuses any other context. As cluster admin it installs the pinned Kyverno (tools/pins.tsv,
-kyverno-chart; deploy/policies/test/kyverno-values.yaml) and applies the policy's kind variant
-(deploy/policies/test/kyverno-verify-images-kind.yaml), which matches only ``NAMESPACE``, so the
+refuses any other context. As cluster admin it installs the pinned Kyverno (mise.toml;
+tools/pins.tsv, kyverno-chart; deploy/policies/test/kyverno-values.yaml) and applies the policy's
+kind variant (deploy/policies/test/kyverno-verify-images-kind.yaml), which matches only
+``NAMESPACE``, so the
 main release is never judged by it. Two ephemeral cosign key pairs are generated in a temporary
 directory (a random password in the environment), with an empty signing config: no transparency
 log, no signing service. The images live in a throwaway registry container, ``fst-registry`` on the

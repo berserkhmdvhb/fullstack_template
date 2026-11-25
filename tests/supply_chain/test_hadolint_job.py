@@ -1,7 +1,7 @@
 """The `hadolint` job in ci.yml: a blocking lint of every tracked Dockerfile.
 
 The discovery and the lint live in scripts/ci/hadolint.sh (shared with the pre-commit hook), run
-with the pinned binary that scripts/tools.sh installs from tools/pins.tsv.
+with the pinned binary that scripts/tools.sh installs from mise.toml.
 """
 
 from __future__ import annotations
