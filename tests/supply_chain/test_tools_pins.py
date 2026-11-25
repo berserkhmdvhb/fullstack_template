@@ -443,8 +443,8 @@ def test_the_pinned_uv_is_the_one_used_and_keeps_its_cache_and_pythons_in_the_re
     (tools / "bin").mkdir(parents=True)
     log = tmp_path / "uv.log"
     stub = (
-        '#!/bin/sh\necho "$0 $UV_CACHE_DIR $UV_PYTHON_INSTALL_DIR [$UV_PYTHON] [$UV_PYTHON_PREFERENCE]'
-        f' $UV_PYTHON_DOWNLOADS" >> {log}\necho /fake/python\n'
+        '#!/bin/sh\necho "$0 $UV_CACHE_DIR $UV_PYTHON_INSTALL_DIR'
+        f' [$UV_PYTHON] [$UV_PYTHON_PREFERENCE] $UV_PYTHON_DOWNLOADS" >> {log}\necho /fake/python\n'
     )
     (tools / "bin/uv").write_text(stub)
     (tools / "bin/uv").chmod(0o755)
