@@ -157,51 +157,45 @@ release lifecycle. A switch would rewrite the chart, the deploy workflow, the bo
 
 ## 4. Secrets
 
-**Today.** The app Secret has exactly one of three sources, and two at once fail the render
-([`values.yaml`](../charts/your-service-name/values.yaml), [Secret sources](./security.md#secret-sources)):
+**Decided: External Secrets with Google Secret Manager is the default for dev, qa and production.** The app Secret
+has exactly one of three sources, and two at once fail the render ([Secret sources](./security.md#secret-sources)):
 
-1. the chart's own Secret from `secrets.dbPassword` and `secrets.statsPass`, for dev and local only, fed from a
-   gitignored `values.secret.yaml`;
-2. `secrets.existingSecret`, a Secret managed outside the chart;
-3. `secrets.externalSecret.enabled`: an `external-secrets.io/v1` `ExternalSecret`
-   ([`templates/externalsecret.yaml`](../charts/your-service-name/templates/externalsecret.yaml)) that syncs the keys
-   from the platform's store, for example Google Secret Manager through a `ClusterSecretStore` with Workload Identity.
+1. `secrets.externalSecret.enabled`: an `external-secrets.io/v1` `ExternalSecret`
+   ([`templates/externalsecret.yaml`](../charts/your-service-name/templates/externalsecret.yaml)) per namespace,
+   synced from the environment's store: dev, qa and production. Each namespace has its own `SecretStore` and
+   identity, which reads only its environment's secrets
+   ([GKE Cluster Setup, External Secrets](./gke-cluster-setup.md#14-the-apps-secrets-external-secrets-with-secret-manager));
+2. `secrets.existingSecret`, a Secret managed outside the chart: previews, whose bootstrap makes it;
+3. the chart's own Secret from `secrets.dbPassword` and `secrets.statsPass`, fed from a gitignored
+   `values.secret.yaml`: local and kind.
 
-[`values.production.yaml`](../charts/your-service-name/values.production.yaml) uses source 2, with a comment showing
-`kubectl create secret generic`. The deploy jobs hold no app secret: GitHub holds only the deploy credentials, in
-environment-scoped secrets.
+The store reference and a remote-key template are values per environment, so moving to another store changes no
+template and no app code; the kind job runs the chart against OpenBao with only those values switched. The deploy
+jobs hold no app secret: GitHub holds only the deploy credentials, in environment-scoped secrets.
 
-**What the docs say, and where they disagree.**
-
-- [`security.md`](./security.md#secret-sources) heads a section "Sealed Secrets (Recommended)" and installs
-  the controller from `https://bitnami-labs.github.io/sealed-secrets`. That URL now returns 404. The project moved to
-  `github.com/bitnami/sealed-secrets`, whose README uses `https://bitnami.github.io/sealed-secrets` (200).
-- The same page describes External Secrets with Secret Manager as the platform's store.
-- [`disaster-recovery.md`](./disaster-recovery.md) states as fact that the credentials "live in Secret Manager, and
-  the External Secrets Operator syncs them again into the restored namespace". That holds only with source 3, and
-  the production values use source 2.
-- No setup guide installs the operator or the store.
+**What the docs said, and what changed.** [`security.md`](./security.md#secret-sources) headed a section "Sealed
+Secrets (Recommended)" and installed the controller from `https://bitnami-labs.github.io/sealed-secrets`, which now
+returns 404; it is now one way to fill `existingSecret`, from `https://bitnami.github.io/sealed-secrets` (200), the
+project's current README. [`disaster-recovery.md`](./disaster-recovery.md) states that the credentials "live in Secret
+Manager, and the External Secrets Operator syncs them again into the restored namespace", which held only with
+source 1 and is now the default. The GKE guide installs the operator and the stores.
 
 **Alternatives.**
 
 | Option | Version (date) | How the app gets the value | Fit |
 |---|---|---|---|
-| External Secrets Operator + Secret Manager | chart 2.15.0 (2026-11-10) | a synced Kubernetes Secret, read as env vars as today | the chart already renders it; portable across clouds; a CNCF project (its security contact is a `lists.cncf.io` address) |
+| External Secrets Operator + Secret Manager | chart 2.15.0 (2026-11-10) | a synced Kubernetes Secret, read as env vars as today | the chart already renders it; portable across clouds; a CNCF project (its security contact is a `lists.cncf.io` address). **The default** |
+| External Secrets Operator + OpenBao | OpenBao v2.7.2 (2026-10-26) | the same synced Secret, from OpenBao's KV engine | MPL-2.0, a fork of Vault under the Linux Foundation; runs anywhere, no cloud account. You run it: storage, high availability, unsealing, upgrades and its own backups. Least privilege per environment through Kubernetes-auth roles and path policies. **Documented** ([OpenBao](./security.md#openbao)) |
+| External Secrets Operator + Infisical | v0.167.x (weekly releases) | the same synced Secret, from an Infisical project | MIT outside an `ee/` directory under its own licence; a hosted service or self-hosted. Per-environment machine identities, but through the operator the namespace-scoped login is Universal Auth, a client secret in each namespace. **Documented** ([Infisical](./security.md#infisical)) |
 | Secrets Store CSI driver + GCP provider, or GKE's Secret Manager add-on | driver v1.6.2 (2026-11-05), provider v1.20.0 (2026-11-20) | files on a mounted volume | the app reads env vars, so it would need code changes. Google's docs: "The Secret Manager add-on doesn't support the Sync as Kubernetes Secret feature"; GKE's separate sync uses a GKE-only `SecretSync` resource |
 | SOPS | v3.13.3 (2026-07-23) | encrypted values files in Git, decrypted at deploy | ciphertext in Git, and the deploy job needs a KMS decrypt grant |
-| Sealed Secrets | v0.41.2 (2026-10-26) | a `SealedSecret` in Git, decrypted by a per-cluster controller | one controller key per cluster to back up and rotate; no link to a cloud store |
+| Sealed Secrets | v0.41.2 (2026-10-26) | a `SealedSecret` in Git, decrypted by a per-cluster controller | one controller key per cluster to back up and rotate; no link to a cloud store. One way to fill `existingSecret` |
 
-**Verdict: keep the three sources.** They are the right shape: External Secrets is first-class and the others remain
-possible.
-
-**Adopt now:** make the docs agree.
-
-- Retitle the Sealed Secrets section in `security.md` as one way to fill `existingSecret`, not "Recommended", and fix
-  its Helm repository URL.
-- Make the two disaster-recovery sentences conditional on `secrets.externalSecret.enabled`.
-
-**Making External Secrets with Secret Manager the production default is the maintainers' decision** (section 11). It
-changes what every adopter sets up before the first production deploy.
+**Cost of the decision**, for an adopter: before the first deploy of each environment, install the operator, the
+Secret Accessor bindings and a store per namespace, create the secrets in Secret Manager, and name the store in
+`values.<env>.yaml` (the placeholder makes the deploy refuse until then). One more platform component to run and
+upgrade (its chart, image and CRDs move together in one Renovate group). `existingSecret` stays for a cluster without
+the operator.
 
 ## 5. Deploy settings: GitHub environments and variables
 
@@ -330,7 +324,7 @@ out of mise. Noted only; not assessed.
 | Python packages | uv, `uv.lock` (hashes, `exclude-newer` 7 days, hashed build backend) | keep | Already the strongest option: frozen hashed installs and a release-age span in the lock |
 | Frontend and docs-site packages | npm, `package-lock.json`, `--ignore-scripts`, `allowScripts` | keep; adopt now: `.npmrc` release age and exotic-source block; pnpm: maintainers' decision | The frontend lock has no release-age floor; npm can close it without a switch |
 | Cluster configuration | Helm values per environment, `values.schema.json`, strict offline renders | keep | Schema-validated chart linted per environment; the typed alternatives are pre-1.0 |
-| Secrets | three exclusive sources; production uses `existingSecret` | keep; adopt now: consistent docs and the moved Sealed Secrets URL; ESO as production default: maintainers' decision | The shape is right; the docs disagree and one install URL is dead |
+| Secrets | three exclusive sources; External Secrets with Secret Manager in dev, qa and production | decided: External Secrets the default, OpenBao and Infisical documented (done); the docs agree, and the Sealed Secrets URL is the current one (done) | The shape was right; the docs disagreed and one install URL was dead |
 | Deploy settings | GitHub environments, variables, OIDC Workload Identity | keep | Per-environment rules and no stored cloud key |
 | Task runner | make | keep | Preinstalled, plain, and a switch would touch every file that names a target, for no security gain |
 | Git hooks | prek, local system hooks | prek (maintainers' decision, [ADR-0044](./adr/0044-prek-for-git-hooks.md)) | One locked, attested binary and no Python venv; prek is pre-1.0 |
@@ -353,21 +347,19 @@ out of mise. Noted only; not assessed.
    from the Dockerfiles and runs the pinned cosign with the vendor's identity and issuer. Call it in the image check
    job before the build. Add a test that the script finds every distroless reference and fails on a wrong identity,
    and a line in [Containerization](./containerization.md).
-3. **Make the secrets docs agree.** In `security.md`, retitle the Sealed Secrets section and fix its Helm repository
-   URL to `https://bitnami.github.io/sealed-secrets`. In `disaster-recovery.md`, make the two Secret Manager sentences
-   conditional on `secrets.externalSecret.enabled`.
+3. **Make the secrets docs agree: done.** `security.md` heads with External Secrets; Sealed Secrets is one way to fill
+   `existingSecret`, from `https://bitnami.github.io/sealed-secrets`. With External Secrets the default (decision 1),
+   `disaster-recovery.md` is true as written.
 
 **Maintainers' decision:**
 
-1. **External Secrets with Secret Manager as the production default.** Recommended. It matches what the
-   disaster-recovery guide already assumes, keeps secrets out of Git and off the deploy job, and the chart already
-   renders it. Cost:
-   - `values.production.yaml` sets `externalSecret.enabled: true`, and the placeholder store name makes the render
-     refuse until an adopter names theirs;
-   - a new GKE guide section (the operator's chart pinned by digest, a `ClusterSecretStore` for Secret Manager, the
-     Workload Identity binding with Secret Accessor on those secrets);
-   - a Renovate rule for the operator's chart and a test of the production render;
-   - one more platform component to run and upgrade. `existingSecret` stays for clusters without it.
+1. **External Secrets with Secret Manager as the default: decided, done** ([Secrets](#4-secrets)). dev, qa and
+   production turn `secrets.externalSecret.enabled` on, with a namespaced `SecretStore` per namespace whose Workload
+   Identity principal reads only its environment's secrets (an IAM condition on the `<service>-<env>-` prefix), not a
+   `ClusterSecretStore` with one identity for every environment. The GKE guide installs the pinned operator and the
+   stores; the store reference and key template are values, so OpenBao and Infisical are documented alternatives a
+   values change away, and the kind job proves the switch against OpenBao. `existingSecret` stays for previews and
+   for clusters without the operator.
 2. **pnpm instead of npm.** Not recommended now. With adopt-now item 1, npm has the release age, the install-script
    policy and the exotic-source block. pnpm would add `trustPolicy: no-downgrade` and strict build failures. Cost:
    - two lockfiles regenerated (`pnpm-lock.yaml`), a pnpm pin in `mise.toml`, and `packageManager` in both projects;
@@ -416,7 +408,13 @@ All checked on 2026-11-25.
   [v3.13.3](https://github.com/getsops/sops/releases/tag/v3.13.3); Sealed Secrets
   [v0.41.2](https://github.com/bitnami/sealed-secrets/releases/tag/v0.41.2) and its
   [README](https://github.com/bitnami/sealed-secrets) (the Helm repository `https://bitnami.github.io/sealed-secrets`
-  answers 200; `https://bitnami-labs.github.io/sealed-secrets/` answers 404).
+  answers 200; `https://bitnami-labs.github.io/sealed-secrets/` answers 404); OpenBao
+  [v2.7.2](https://github.com/openbao/openbao/releases/tag/v2.7.2) and its MPL-2.0
+  [licence](https://github.com/openbao/openbao/blob/main/LICENSE); Infisical's
+  [releases](https://github.com/Infisical/infisical/releases) and [licence](https://github.com/Infisical/infisical/blob/main/LICENSE);
+  the operator's [Google Secret Manager](https://external-secrets.io/latest/provider/google-secrets-manager/),
+  [Vault](https://external-secrets.io/latest/provider/hashicorp-vault/) and
+  [Infisical](https://external-secrets.io/latest/provider/infisical/) provider pages.
 - GitHub: [deployments and environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments);
   [OpenID Connect](https://docs.github.com/en/actions/concepts/security/openid-connect); [Dependabot supported
   ecosystems](https://docs.github.com/en/code-security/dependabot/ecosystems-supported-by-dependabot/supported-ecosystems-and-repositories)

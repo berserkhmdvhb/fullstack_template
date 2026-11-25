@@ -99,8 +99,9 @@ placeholder. The deploy sets the image digests itself, so in the file:
 - `config.OIDC_ISSUER` and `config.OIDC_AUDIENCE`: your identity provider's issuer (https) and the
   API's audience. To use another mode, change `config.AUTH_MODE` and set its own settings
   ([Security](./security.md));
-- `externalDatabase` (`host`, `egressCIDR`) and `secrets.existingSecret`: your managed database and
-  its Secret.
+- `externalDatabase` (`host`, `egressCIDR`): your managed database;
+- `secrets.externalSecret.secretStoreRef.name`: the environment's store
+  ([GKE Cluster Setup, External Secrets](./gke-cluster-setup.md#14-the-apps-secrets-external-secrets-with-secret-manager)).
 
 A hand-run `helm upgrade` also passes `--set images.<name>.digest=sha256:<64 hex>` for each image.
 The guard lists every field it refuses, in one message.

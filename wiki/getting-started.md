@@ -490,13 +490,9 @@ docker push <registry>/your-service-name-frontend:latest
 
 ### 2. Configure Secrets
 
-Create sealed-secrets or configure External Secrets Operator for production secrets:
-
-```bash
-# Production leaves secrets empty in values.production.yaml; supply them via sealed-secrets / ESO / SOPS.
-# Example: seal DB credentials into the production app namespace
-kubeseal --format yaml < db-credentials.json | kubectl apply -f - -n your-service-name-production
-```
+dev, qa and production take the app Secret from the External Secrets Operator: set up the operator, the stores and
+the secrets as in [GKE Cluster Setup, External Secrets](./gke-cluster-setup.md#14-the-apps-secrets-external-secrets-with-secret-manager),
+then name the store in each `values.<env>.yaml`. The other sources are in [Security, Secret sources](./security.md#secret-sources).
 
 ### 3. Deploy to Production
 

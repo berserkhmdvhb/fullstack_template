@@ -386,7 +386,7 @@ Client role through Workload Identity.
   `127.0.0.1`, and the default-deny policy keeps other Pods out, so only the kubelet probes it.
 - **IAM authentication.** Set `autoIamAuthn`, grant the Cloud SQL Instance User role, and use the database
   user `<service-account>@<project>.iam`. The proxy supplies the password, so `DB_PASSWORD` may be missing from
-  the app Secret (the Job reads it as an optional key; drop it from `secrets.externalSecret.remoteKeys`). An absent
+  the app Secret (the Job reads it as an optional key; drop it from `secrets.externalSecret.keys`). An absent
   key leaves the literal `$(DB_PASSWORD)` in the URL, which the proxy ignores.
 - Your own sidecars still go in `backend.extraInitContainers`, ahead of the proxy. `guards.rejectPlaceholders`
   refuses the placeholder instance connection name.

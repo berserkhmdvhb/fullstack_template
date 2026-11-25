@@ -109,8 +109,8 @@ The deploy jobs authenticate with **workload identity federation**: on GKE (`DEP
 the job's GitHub Actions OIDC token is exchanged for a short-lived token of the environment's deployer
 service account ([`.github/actions/cluster-access`](../.github/actions/cluster-access/action.yml)), with no
 stored cloud key. The other mode, `kubeconfig`, reads a stored kubeconfig secret of the environment, and is
-the one left on a long-lived credential. Images are pushed with the job's own `GITHUB_TOKEN`. App secrets can
-come from the External Secrets Operator (`secrets.externalSecret.enabled` in the chart). Setup:
+the one left on a long-lived credential. Images are pushed with the job's own `GITHUB_TOKEN`. App secrets
+come from the External Secrets Operator in dev, qa and production (`secrets.externalSecret.enabled` in the chart). Setup:
 [GKE cluster setup](./gke-cluster-setup.md) and [CI/CD, Deploy chain](./ci-cd.md#deploy-chain).
 
 ---

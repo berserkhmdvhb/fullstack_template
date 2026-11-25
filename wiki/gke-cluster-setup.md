@@ -1,13 +1,13 @@
 # GKE cluster setup for the fullstack template
 
-This guide builds the Google Kubernetes Engine (GKE) cluster that the template's GitHub pipeline deploys to. It's step 1 of [Platform Setup](./platform-setup.md). It also sets up the keyless link between GitHub Actions and Google Cloud.
+This guide builds the Google Kubernetes Engine (GKE) cluster that the template's GitHub pipeline deploys to. It's steps 1 and 2 of [Platform Setup](./platform-setup.md). It also sets up the keyless link between GitHub Actions and Google Cloud.
 
 Each section starts with a tag (**Do now**, **Planned change**, or **Managed as code**); [How to read this guide](./platform-setup.md#how-to-read-this-guide) explains them. Work through it top to bottom. Every step ends with a **Check** that tells you what you should see. Don't go on to the next step until the check passes.
 
 | | |
 |---|---|
 | Time | 60 to 90 minutes, about 15 of it waiting for Google Cloud |
-| Cost | about $40 to $120 a month while the cluster runs (see [Costs](#14-costs-pausing-and-teardown)) |
+| Cost | about $40 to $120 a month while the cluster runs (see [Costs](#15-costs-pausing-and-teardown)) |
 | You need | a Google Cloud project with billing, a GitHub account and a Linux or macOS terminal |
 | Matches | the GitHub Actions workflows in `.github/workflows/`. Written 2026-11-20; checked against Google's docs on 2026-11-25. Cloud CLIs change, so each step checks your own tools before it relies on them. |
 
@@ -26,10 +26,11 @@ Each section starts with a tag (**Do now**, **Planned change**, or **Managed as 
 11. [The GitHub repository](#11-the-github-repository)
 12. [Keyless access for GitHub Actions](#12-keyless-access-for-github-actions)
 13. [The end-to-end check from GitHub](#13-the-end-to-end-check-from-github)
-14. [Costs, pausing and teardown](#14-costs-pausing-and-teardown)
-15. [Final checklist and the values to hand over](#15-final-checklist-and-the-values-to-hand-over)
-16. [Troubleshooting](#16-troubleshooting)
-17. [What comes next](#17-what-comes-next)
+14. [The app's secrets: External Secrets with Secret Manager](#14-the-apps-secrets-external-secrets-with-secret-manager)
+15. [Costs, pausing and teardown](#15-costs-pausing-and-teardown)
+16. [Final checklist and the values to hand over](#16-final-checklist-and-the-values-to-hand-over)
+17. [Troubleshooting](#17-troubleshooting)
+18. [What comes next](#18-what-comes-next)
 
 ---
 
@@ -145,7 +146,7 @@ Set the budget before you create anything that costs money.
 3. **Amount:** a specified amount, for example **$100 a month**.
 4. **Alerts:** at **50 %, 90 % and 100 %** of actual spend, plus **100 % of forecasted** spend. Email the billing admins, which is you.
 
-A budget alerts you; it doesn't stop spending. [Section 14](#14-costs-pausing-and-teardown) shows how to pause the cluster.
+A budget alerts you; it doesn't stop spending. [Section 14](#15-costs-pausing-and-teardown) shows how to pause the cluster.
 
 **Check:**
 
@@ -316,7 +317,7 @@ What the flags are for:
 | `--shielded-*` | Secure boot and integrity monitoring on the nodes. |
 | `--maintenance-window-*` | Upgrades happen only from 00:00 to 08:00 UTC on Saturday and Sunday. GKE needs at least 48 hours of maintenance time in any 32 days, counted in blocks of 4 hours or more, and two 8-hour days a week give at least 64. Choose your own hours, but keep that total. |
 
-Both flags, `--enable-dns-access` and `--no-enable-ip-access`, are described in GKE's [network isolation how-to](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/latest/network-isolation). The public IP endpoint stays on for now: closing it with `--enable-private-endpoint` is a step of the platform rollout ([17.2](#172-close-the-public-ip-endpoint-at-the-platform-rollout)), and you never put a CIDR allowlist on it for CI.
+Both flags, `--enable-dns-access` and `--no-enable-ip-access`, are described in GKE's [network isolation how-to](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/latest/network-isolation). The public IP endpoint stays on for now: closing it with `--enable-private-endpoint` is a step of the platform rollout ([18.2](#182-close-the-public-ip-endpoint-at-the-platform-rollout)), and you never put a CIDR allowlist on it for CI.
 
 If the command asks for `--master-ipv4-cidr`, your gcloud or GKE version still uses the older private-cluster model. Add `--master-ipv4-cidr=172.16.0.32/28` and run it again.
 
@@ -346,7 +347,7 @@ Expected:
 
 ```bash
 source ~/gke-setup.env              # sets KUBECONFIG to the separate file
-# the DNS-based endpoint, as CI uses; it keeps working once the public IP endpoint is closed (17.2)
+# the DNS-based endpoint, as CI uses; it keeps working once the public IP endpoint is closed (18.2)
 gcloud container clusters get-credentials "$CLUSTER" --location="$ZONE" --dns-endpoint
 ```
 
@@ -396,14 +397,14 @@ kubectl delete namespace np-test
 **Check:**
 - **Probe A** prints `<title>Welcome to nginx!</title>`.
 - **Probe B** times out and prints a non-zero `exit=`.
-- **If the `web` Pod is stuck in `ImagePullBackOff`,** Cloud NAT isn't working. See [Troubleshooting](#16-troubleshooting).
+- **If the `web` Pod is stuck in `ImagePullBackOff`,** Cloud NAT isn't working. See [Troubleshooting](#17-troubleshooting).
 
 ### 9.4 Choose the edge mode
 
 Decide how traffic reaches the chart. The two modes:
 
 - **`tunnel`, this platform's choice.** Cloudflare Tunnel ([Cloudflare §8](./cloudflare-setup.md#8-cloudflare-tunnel-into-gke)): no load balancer and no public origin. Set `edge.mode: tunnel` in `charts/your-service-name/values.dev.yaml`, `values.qa.yaml` and `values.production.yaml`, with your hostnames (`edge.hosts`; [Infrastructure, Edge](./infrastructure.md#edge)). The chart's default is `gateway`, and a deploy that still names the placeholder Gateway is refused. Nothing else to do on GKE now: skip the rest of 9.4. **Check:** `grep -H 'mode: tunnel' charts/your-service-name/values.{dev,qa,production}.yaml` prints three lines. (Pull request previews still use a Gateway, an internal one: [12.5](#125-optional-pull-request-previews).)
-- **`gateway`.** A public GKE Gateway: an external load balancer (about $18 to $20 a month, see [14](#14-costs-pausing-and-teardown)), a listener certificate you manage, and Cloudflare in front as a proxied DNS record ([Cloudflare §1](./cloudflare-setup.md#1-what-you-will-build)). Do the steps below at the platform rollout, after the bootstrap ([13.2](#132-the-namespaces-and-the-deployer-rbac-come-from-the-bootstrap)) has created the namespaces; the chart isn't deployed before then.
+- **`gateway`.** A public GKE Gateway: an external load balancer (about $18 to $20 a month, see [14](#15-costs-pausing-and-teardown)), a listener certificate you manage, and Cloudflare in front as a proxied DNS record ([Cloudflare §1](./cloudflare-setup.md#1-what-you-will-build)). Do the steps below at the platform rollout, after the bootstrap ([13.2](#132-the-namespaces-and-the-deployer-rbac-come-from-the-bootstrap)) has created the namespaces; the chart isn't deployed before then.
 
 The `gateway` steps:
 
@@ -909,7 +910,7 @@ Run it from **Actions → Deploy operations → Run workflow**, with `operation:
 - a server version from `kubectl version`;
 - a short `can-i --list` for the namespace: the default rights every authenticated user has, possibly with a "may be incomplete" warning. Before the namespace and RBAC bootstrap the deployer has no rights of its own in that namespace, so a short list is expected, and the run is still green. A server version plus that list prove the identity chain.
 
-If a step fails, see [Troubleshooting](#16-troubleshooting).
+If a step fails, see [Troubleshooting](#17-troubleshooting).
 
 **Order:** set `DEPLOY_ENABLED=true` only after the first successful `check` of each environment you will deploy to, and not before the platform rollout.
 
@@ -932,7 +933,182 @@ unset GHCR_PULL_TOKEN
 
 Then list the secret in the values of each environment: `global.imagePullSecrets: [registry-credentials]`. The production values already do; `values.dev.yaml` and `values.qa.yaml` don't, so add it there. The token never goes on a command line or into Git.
 
-## 14. Costs, pausing and teardown
+## 14. The app's secrets: External Secrets with Secret Manager
+
+> **Do now** for 14.1 to 14.5, after the bootstrap of 13.2. **Managed as code** for the IAM bindings of 14.2: you can do them by hand, or leave them to your infrastructure-as-code repository. **After the first push:** the check of 14.6.
+
+In dev, qa and production the app's Secret (`DB_USER`, `DB_PASSWORD`, `STATS_PASS`) comes from the [External Secrets Operator](https://external-secrets.io/), which reads it from Google Secret Manager and writes it into the namespace. In dev and qa, a second `ExternalSecret` writes the same `DB_PASSWORD` into the database namespace for the in-cluster PostgreSQL, so the app and the database share one value. The chart renders the `ExternalSecret`s; this section sets up what they read from. The chart's values are described in [Security, External Secrets Operator](./security.md#external-secrets-operator).
+
+```text
+ namespace your-service-name-dev                         Google Secret Manager
+   ExternalSecret ──► SecretStore "secret-manager"           your-service-name-dev-db-user       ✓
+                        │ uses the namespace's own            your-service-name-dev-db-password   ✓
+                        │ ServiceAccount "external-secrets"   your-service-name-dev-stats-pass    ✓
+                        ▼                                     your-service-name-production-…      ✗
+   Workload Identity principal ns/your-service-name-dev/sa/external-secrets:
+   Secret Accessor only on names that start with "your-service-name-dev-" (an IAM condition)
+```
+
+**Why this design:**
+- **An environment reads only its own secrets.** Each namespace has its own store and its own identity, and IAM grants that identity Secret Accessor only on secret names that start with `<service>-<env>-`. A dev `ExternalSecret` that names a production secret is refused by Google, whatever it asks for.
+- **No Google service account and no key.** The pinned operator supports a Kubernetes service account as an IAM principal directly ([External Secrets: Google Secret Manager](https://external-secrets.io/latest/provider/google-secrets-manager/), "Using a Kubernetes service account as a GCP IAM principal"), so the namespace's own identity is the one IAM checks: no service account to impersonate, no annotation to link them, and nothing a key could be made for.
+- **The deployer can't change what a store reads.** It may create and update `ExternalSecret`s in its namespaces, never a `SecretStore` or a `ClusterSecretStore` ([Infrastructure: namespace bootstrap](./infrastructure.md#namespace-bootstrap-one-time-admin-step)).
+- **Switching the store later is a values change.** [OpenBao](./security.md#openbao) and [Infisical](./security.md#infisical) are documented alternatives.
+
+### 14.1 Install the operator from its pinned chart
+
+The chart version and its checksum are pinned in `tools/pins.tsv` (`external-secrets-chart`); `scripts/tools.sh` downloads the chart, checks its sha256 and unpacks it, and installs a Helm of its own. Run it from your clone of the repository. The values ([`deploy/external-secrets/external-secrets-values.yaml`](../deploy/external-secrets/external-secrets-values.yaml)) pin the images by digest and keep the store kinds out of every namespace's `edit` and `admin` roles.
+
+```bash
+scripts/tools.sh install helm4 external-secrets-chart
+ESO_VERSION="$(awk -F'\t' '$1 == "external-secrets-chart" {print $2}' tools/pins.tsv)"
+.tools/bin/helm upgrade --install external-secrets ".tools/opt/external-secrets-chart-$ESO_VERSION/external-secrets" \
+  --namespace external-secrets --create-namespace \
+  -f deploy/external-secrets/external-secrets-values.yaml --wait --timeout 5m
+```
+
+To upgrade later, run the same three lines after Renovate moves the pin.
+
+**Check:**
+
+```bash
+.tools/bin/helm -n external-secrets list --output json | jq -r '.[0].chart'
+# → external-secrets-<the version in tools/pins.tsv>
+kubectl -n external-secrets get deployments
+# → external-secrets, external-secrets-cert-controller and external-secrets-webhook, each 1/1
+kubectl get crd secretstores.external-secrets.io externalsecrets.external-secrets.io
+# → both listed
+```
+
+### 14.2 One identity per namespace, limited to its environment
+
+Turn on the Secret Manager API, then grant each namespace's `external-secrets` service account Secret Accessor under a condition on the secret names. The app namespaces read `<service>-<env>-*`; the database namespaces (dev and qa) read only `<service>-<env>-db-password`. The bindings are on the project, so each one has its own condition title.
+
+```bash
+source ~/gke-setup.env
+export SERVICE_NAME="your-service-name"   # the SERVICE_NAME repository variable (13.1)
+echo "export SERVICE_NAME=\"$SERVICE_NAME\"" >> ~/gke-setup.env
+gcloud services enable secretmanager.googleapis.com
+
+pool="projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$PROJECT_ID.svc.id.goog"
+grant() {   # grant <namespace> <secret-name prefix>
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" --role=roles/secretmanager.secretAccessor \
+    --member="principal://iam.googleapis.com/$pool/subject/ns/$1/sa/external-secrets" \
+    --condition="expression=resource.name.startsWith(\"projects/$PROJECT_NUMBER/secrets/$2\"),title=eso-$1" \
+    --format=none
+}
+for env in dev qa production; do grant "$SERVICE_NAME-$env" "$SERVICE_NAME-$env-"; done
+for env in dev qa; do grant "$SERVICE_NAME-$env-db" "$SERVICE_NAME-$env-db-password"; done
+```
+
+**Check:** five bindings, each with its namespace's title and a condition:
+
+```bash
+gcloud projects get-iam-policy "$PROJECT_ID" --flatten=bindings \
+  --filter='bindings.role=roles/secretmanager.secretAccessor' \
+  --format='table(bindings.condition.title,bindings.condition.expression)'
+# → eso-<service>-dev  resource.name.startsWith("projects/<number>/secrets/<service>-dev-")
+#   and one row each for qa, production, dev-db and qa-db; no row without a condition
+```
+
+### 14.3 A store in each namespace
+
+The same manifest in every namespace of every environment: a `ServiceAccount` named `external-secrets` (the identity of 14.2; no Pod runs as it) and a `SecretStore` named `secret-manager` that uses it ([`deploy/external-secrets/secretstore-secret-manager.yaml`](../deploy/external-secrets/secretstore-secret-manager.yaml); `make kubeconform` validates it against the operator's CRDs).
+
+```bash
+for ns in "$SERVICE_NAME-dev" "$SERVICE_NAME-dev-db" "$SERVICE_NAME-qa" "$SERVICE_NAME-qa-db" "$SERVICE_NAME-production"; do
+  kubectl apply -n "$ns" -f deploy/external-secrets/secretstore-secret-manager.yaml
+done
+```
+
+Then name the store in each environment's values: in `charts/your-service-name/values.dev.yaml`, `values.qa.yaml` and `values.production.yaml`, replace the placeholder `name: your-secret-store` under `secrets.externalSecret.secretStoreRef` with `secret-manager`. The deploy refuses the placeholder.
+
+**Check:**
+
+```bash
+kubectl get secretstores --all-namespaces
+# → secret-manager in the five namespaces, STATUS Valid, READY True
+for env in dev qa production; do
+  as="gh-deployer-$env@$PROJECT_ID.iam.gserviceaccount.com"
+  echo "$env: $(kubectl auth can-i create externalsecrets.external-secrets.io -n "$SERVICE_NAME-$env" --as="$as")" \
+    "$(kubectl auth can-i create secretstores.external-secrets.io -n "$SERVICE_NAME-$env" --as="$as")"
+done
+# → yes no   (three times; a first "no" means the bootstrap of 13.2 predates this section: re-run it)
+```
+
+### 14.4 Create the secrets
+
+One secret per key and environment, named `<service>-<env>-<key>`: `db-user`, `db-password` and `stats-pass`. Each value is read without being shown and reaches `gcloud` on its standard input (`--data-file=-`), so it is never on a command line, in the shell history or on the screen. In production, `db-user` and `db-password` are the managed database's user and password ([Database](./database.md)); in dev and qa, choose a password: the in-cluster database is created with it.
+
+```bash
+for env in dev qa production; do
+  for key in db-user db-password stats-pass; do
+    name="$SERVICE_NAME-$env-$key"
+    printf 'Value of %s (not shown): ' "$name"
+    IFS= read -rs value && echo
+    printf '%s' "$value" | gcloud secrets create "$name" --replication-policy=user-managed \
+      --locations="$REGION" --data-file=- --format=none
+    unset value
+  done
+done
+```
+
+To change a value later, add a version the same way (`gcloud secrets versions add <name> --data-file=-`, after the same `read -rs`); the operator picks it up within the `refreshInterval` (1 hour), and the Pods read it when they next start.
+
+**Check:** nine names, and no value printed:
+
+```bash
+gcloud secrets list --filter="name~^$SERVICE_NAME-" --format='value(name)' | sort
+# → <service>-dev-db-password … <service>-qa-stats-pass   (9 lines)
+```
+
+### 14.5 Dev cannot read a production secret
+
+Prove the conditions before a deploy relies on them: one `ExternalSecret` in the dev namespace reads a dev secret, and one asks for a production secret.
+
+```bash
+probe() {   # probe <name> <remote key>
+kubectl -n "$SERVICE_NAME-dev" apply -f - <<EOF
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: $1
+spec:
+  secretStoreRef: {name: secret-manager, kind: SecretStore}
+  refreshInterval: 1h
+  target: {name: $1}
+  data:
+    - secretKey: value
+      remoteRef: {key: $2}
+EOF
+}
+probe probe-own "$SERVICE_NAME-dev-db-user"
+probe probe-production "$SERVICE_NAME-production-db-user"
+kubectl -n "$SERVICE_NAME-dev" wait externalsecret/probe-own --for=condition=Ready --timeout=60s
+kubectl -n "$SERVICE_NAME-dev" wait externalsecret/probe-production --for=condition=Ready=false --timeout=60s
+kubectl -n "$SERVICE_NAME-dev" get externalsecrets probe-own probe-production
+kubectl -n external-secrets logs deployment/external-secrets --tail=500 \
+  | grep '"name":"probe-production"' | grep -m1 -o 'PermissionDenied'
+kubectl -n "$SERVICE_NAME-dev" delete externalsecret probe-own probe-production
+```
+
+**Check:** `probe-own` shows `SecretSynced`, READY `True`; `probe-production` shows `SecretSyncedError`, READY `False`, and the operator's log line prints `PermissionDenied` (its event only says it could not get the data). The `delete` removes both, and the Secret `probe-own` made with them (it held only the dev database user name). If `probe-production` synced, a binding of 14.2 has no condition or a wrong one: fix it before any deploy.
+
+### 14.6 After the first deploy: every ExternalSecret is ready
+
+> **After the first push.** The deploys render the `ExternalSecret`s once `DEPLOY_ENABLED` is set (13.3).
+
+**Check:**
+
+```bash
+kubectl get externalsecrets --all-namespaces
+# → <service>-secret in each app namespace and <service>-db-password in the dev and qa database
+#   namespaces, each STATUS SecretSynced, READY True
+```
+
+If one shows `SecretSyncedError`, `kubectl -n <namespace> describe externalsecret <name>` names what it could not read: a secret that does not exist yet (14.4), or a namespace without its binding (14.2).
+
+## 15. Costs, pausing and teardown
 
 > **Do now.**
 
@@ -949,6 +1125,7 @@ These are list prices from 2026 and change over time. The [GKE pricing](https://
 | Artifact Registry | cents, for a few GB of images |
 | Load balancer, only if you choose the Gateway option over the Cloudflare Tunnel | about $18 to $20 |
 | Internal load balancer, only for previews ([12.5](#125-optional-pull-request-previews)) | billed like the external one; see the [Cloud Load Balancing pricing](https://cloud.google.com/vpc/network-pricing) page |
+| Secret Manager, for the app's secrets ([14](#14-the-apps-secrets-external-secrets-with-secret-manager)) | cents: nine secrets, each with one active version in one region, and the operator's reads once an hour; see the [Secret Manager pricing](https://cloud.google.com/secret-manager/pricing) page |
 
 ### Pause and resume
 
@@ -990,14 +1167,16 @@ gcloud compute networks subnets delete apps-proxy-only --region="$REGION" --quie
 gcloud compute networks delete "$NETWORK" --quiet
 gcloud iam workload-identity-pools delete github --location=global --quiet   # kept for 30 days: the name stays reserved until it is purged
 for env in dev qa production; do gcloud iam service-accounts delete "gh-deployer-$env@$PROJECT_ID.iam.gserviceaccount.com" --quiet; done
+gcloud secrets list --filter="name~^$SERVICE_NAME-" --format='value(name)' \
+  | while read -r name; do gcloud secrets delete "$name" --quiet; done   # the secrets of 14.4
 gcloud iam service-accounts delete "$NODE_SA" --quiet
 ```
 
 In the service-account loop, add `preview` to the list if 12.5 made it. If 12.3 created the custom role: `gcloud iam roles delete gkeDnsConnect --project="$PROJECT_ID" --quiet`.
 
-Remove the project-level role bindings too, or simply delete the whole project.
+Remove the project-level role bindings too (the Secret Accessor bindings of 14.2 name namespaces of the deleted cluster), or simply delete the whole project.
 
-## 15. Final checklist and the values to hand over
+## 16. Final checklist and the values to hand over
 
 > **Do now.**
 
@@ -1015,11 +1194,13 @@ Remove the project-level role bindings too, or simply delete the whole project.
 | 10 | Repository hardened | Settings → Actions | SHA pinning, read-only token |
 | 11 | Provider is active, with the three-part condition | step 12.2 check | `ACTIVE` |
 | 12 | CI can't deploy yet, for each of the three deployers | step 12.3 check | `no`, three times |
-| 13 | End-to-end from GitHub, **after the first push** | step 13.3 | green `deploy-ops` `check` |
+| 13 | Dev can't read a production secret | step 14.5 check | `probe-production` `SecretSyncedError` |
+| 14 | End-to-end from GitHub, **after the first push** | step 13.3 | green `deploy-ops` `check` |
+| 15 | Every `ExternalSecret` synced, **after the first deploy** | step 14.6 check | `SecretSynced`, READY `True` |
 
-When rows 1 to 12 pass (leaving out optional row 9 if you skipped section 10), you're ready for the first push: set the values of [13.1](#131-variables-and-secrets) in GitHub (none is secret), push, then run row 13.
+When rows 1 to 13 pass (leaving out optional row 9 if you skipped section 10), you're ready for the first push: set the values of [13.1](#131-variables-and-secrets) in GitHub (none is secret), push, then run row 14, and row 15 after the first deploy.
 
-## 16. Troubleshooting
+## 17. Troubleshooting
 
 > **Do now.**
 
@@ -1039,16 +1220,17 @@ When rows 1 to 12 pass (leaving out optional row 9 if you skipped section 10), y
 | `Maintenance policy would go longer than 32d without 48h maintenance availability` | the maintenance window is too short | widen it, as in [8.2](#82-create-it) |
 | `kubectl` hangs or times out | wrong kubeconfig, or the cluster is resized to 0 | `source ~/gke-setup.env`, then check `kubectl config current-context` and the node count |
 
-## 17. What comes next
+## 18. What comes next
 
-> **Planned changes.** 17.1 is a status table and 17.2 is a step of the platform rollout. The rest of 17.3 is not implemented yet, except the settings script, which is in the repository.
+> **Planned changes.** 18.1 is a status table and 18.2 is a step of the platform rollout. The rest of 18.3 is not implemented yet, except the settings script, which is in the repository.
 
-### 17.1 Before production: what is done and what is still open
+### 18.1 Before production: what is done and what is still open
 
 | Area | Status | Where |
 |---|---|---|
 | private nodes, Dataplane V2, Workload Identity, Shielded nodes, the release channel, keyless CI, per-namespace deploy rights | done in this guide | 6 to 13 |
-| closing the public IP endpoint | a step of the platform rollout | [17.2](#172-close-the-public-ip-endpoint-at-the-platform-rollout) |
+| the app's secrets in Secret Manager, each environment reading only its own | done in this guide | 14 |
+| closing the public IP endpoint | a step of the platform rollout | [18.2](#182-close-the-public-ip-endpoint-at-the-platform-rollout) |
 | signed images only, on this cluster | **open**: the example policies are tested on kind ([Admission control](./admission-control.md)); installing Kyverno here (its chart version is pinned in `tools/pins.tsv`), first in Audit and then Enforce, or Binary Authorization, is not written up yet | — |
 | backups | **open**: the chart's in-cluster PostgreSQL backup runs ([Disaster Recovery](./disaster-recovery.md)); Backup for GKE and an off-site copy ([Cloudflare §12](./cloudflare-setup.md#12-optional-a-private-r2-bucket-for-off-site-backups)) aren't set up by this guide | — |
 | the production database | **open**: Cloud SQL for PostgreSQL, private, with IAM authentication | [Database](./database.md) |
@@ -1056,7 +1238,7 @@ When rows 1 to 12 pass (leaving out optional row 9 if you skipped section 10), y
 | audit and flow logs | **open**: VPC flow logs, and Data Access audit logs for the GKE API | the infrastructure-as-code repository |
 | one shared zonal cluster | a choice | [2.3](#23-decisions-to-make-now) |
 
-### 17.2 Close the public IP endpoint (at the platform rollout)
+### 18.2 Close the public IP endpoint (at the platform rollout)
 
 ```bash
 gcloud container clusters update "$CLUSTER" --location="$ZONE" --enable-private-endpoint
@@ -1066,7 +1248,7 @@ This turns off the external IP endpoint and keeps the internal one, which the no
 
 **Check:** `gcloud container clusters describe "$CLUSTER" --location="$ZONE" --format='yaml(controlPlaneEndpointsConfig.ipEndpointsConfig)'` shows `enablePublicEndpoint: false`; `kubectl get nodes` still works; a `deploy-ops` `check` ([13.3](#133-the-first-check-deploy-ops-check)) is still green.
 
-### 17.3 The rest
+### 18.3 The rest
 
 - **Settings script and release App (in the repository):** [`scripts/github-settings.sh`](../scripts/github-settings.sh) replaces the hand steps of 11.2 and adds the `release` environment and the release GitHub App's tag ruleset ([GitHub repository settings](./github-repository-settings.md)).
 - **Domain, TLS and public traffic:** through Cloudflare. See [Cloudflare Setup](./cloudflare-setup.md): a Tunnel by default, so the cluster has no public load balancer. The alternative is a `Gateway` with a Google-managed certificate.

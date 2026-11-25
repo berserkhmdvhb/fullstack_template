@@ -837,70 +837,186 @@ Sensitive data is stored in Kubernetes Secrets:
 
 | Secret | Contents |
 |--------|----------|
-| `your-service-name-secret` (app namespace; the chart's own app Secret) | DB_USER, DB_PASSWORD, STATS_PASS |
-| `your-service-name-db-credentials` (database namespace, with the in-cluster PostgreSQL) | username, password, database |
-
-### Sealed Secrets (Recommended)
-
-For GitOps workflows, use [sealed-secrets](https://github.com/bitnami-labs/sealed-secrets):
-
-```bash
-# Install sealed-secrets controller
-helm install sealed-secrets sealed-secrets \
-  --repo https://bitnami-labs.github.io/sealed-secrets \
-  --namespace kube-system
-
-# Create a sealed secret
-kubeseal --format yaml < secret.json > sealed-secret.yaml
-
-# Apply to cluster
-kubectl apply -f sealed-secret.yaml
-```
+| `your-service-name-secret` (app namespace; synced by the External Secrets Operator in dev, qa and production, the chart's own locally) | DB_USER, DB_PASSWORD, STATS_PASS |
+| `your-service-name-db-password` (database namespace, with the in-cluster PostgreSQL and the External Secrets Operator: dev and qa) | password (the app's DB_PASSWORD, synced from the same remote key) |
+| `your-service-name-db-credentials` (database namespace, with the in-cluster PostgreSQL) | username, database, and the password with the chart's own Secret (local) |
 
 ### Secret sources
 
 The app Secret (`DB_USER`, `DB_PASSWORD`, `STATS_PASS`) has exactly one source, and two at once fail the render:
 
-| Source | Set | Renders |
-|---|---|---|
-| the chart's own Secret | `secrets.dbPassword` or `secrets.statsPass` (dev and local) | a `Secret` |
-| a Secret you manage | `secrets.existingSecret` (sealed-secrets, SOPS, by hand) | nothing |
-| External Secrets Operator | `secrets.externalSecret.enabled` | an `ExternalSecret` |
+| Source | Set | Renders | Used by |
+|---|---|---|---|
+| External Secrets Operator | `secrets.externalSecret.enabled` | an `ExternalSecret` (and the database's, with the in-cluster PostgreSQL) | dev, qa and production |
+| a Secret you manage | `secrets.existingSecret` (one made by hand, [Sealed Secrets](#sealed-secrets), SOPS) | nothing | previews (the preview bootstrap creates it) |
+| the chart's own Secret | `secrets.dbPassword` or `secrets.statsPass` (from the gitignored `values.secret.yaml`) | a `Secret` | local and kind |
+
+Previews keep the Secret the preview bootstrap creates: every preview of the namespace shares one random password
+that `scripts/k8s-bootstrap.sh preview --create-secrets` makes once, for throwaway databases, so there is nothing
+worth keeping in a store ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews)).
 
 ### External Secrets Operator
 
-[External Secrets Operator](https://external-secrets.io/) syncs the Secret from the platform's secret store. With
+[External Secrets Operator](https://external-secrets.io/) syncs the Secret from the environment's secret store:
+Google Secret Manager by default, [OpenBao](#openbao) or [Infisical](#infisical) instead. With
 `secrets.externalSecret.enabled` the chart renders one `external-secrets.io/v1` `ExternalSecret` that creates the
 Secret the backend and the migration Job read (`creationPolicy: Owner`), with one `data` entry per key in
-`secrets.externalSecret.remoteKeys` (the Secret key and its remote key in the store; the names in the values are
-placeholders):
+`secrets.externalSecret.keys`. With the in-cluster PostgreSQL (dev and qa) and no `postgresql.existingSecret`, a
+second `ExternalSecret` in the database namespace syncs the same `DB_PASSWORD` remote key into
+`<release>-db-password`, which the StatefulSet and the backup jobs read: the app and the database share one value.
+
+Each remote key is `remoteKeyTemplate` with `{key}` replaced by the key's name, so moving to another store changes
+three values and no template or app code (the schema validates them):
 
 ```yaml
 secrets:
   externalSecret:
     enabled: true
     refreshInterval: 1h
-    secretStoreRef: {name: <store>, kind: ClusterSecretStore}   # or SecretStore
-    remoteKeys:
-      DB_USER: <remote-key-for-the-user>
-      DB_PASSWORD: <remote-key-for-the-password>
-      STATS_PASS: <remote-key-for-the-stats-password>
+    secretStoreRef: {name: secret-manager, kind: SecretStore}   # the environment's store
+    remoteKeyTemplate: "your-service-name-dev-{key}"            # OpenBao: "your-service-name/dev/{key}"
+    remoteProperty: ""                                          # OpenBao: "value"
+    keys:                                                       # the Secret key -> {key}
+      DB_USER: db-user
+      DB_PASSWORD: db-password
+      STATS_PASS: stats-pass
 ```
 
-With the in-cluster PostgreSQL (dev, qa, local) the database password cannot come from `secrets.dbPassword`
-(empty in these two modes), so set `postgresql.existingSecret` (and `existingSecretKey`, default `password`) to a
-Secret in the database namespace that holds it; the render fails without it. It feeds the StatefulSet and the
-backup jobs, and the chart then renders no password of its own. A managed database needs none of this.
-`guards.rejectPlaceholders` refuses the placeholder store name `your-secret-store`.
+`values.dev.yaml`, `values.qa.yaml` and `values.production.yaml` turn it on with the store name as a placeholder,
+`your-secret-store`, which `guards.rejectPlaceholders` refuses at deploy time. Add a key (for example
+`RATE_LIMIT_STORAGE: rate-limit-storage`) to sync it too.
 
-The store is the platform's, not the chart's: the operator, a `ClusterSecretStore` for GCP Secret Manager and its
-Workload Identity binding (a Google service account with the Secret Accessor role on those secrets, bound to the
-operator's Kubernetes service account) are installed once per cluster. The app chart ships none of them. The
-deployer's Role (`infra/k8s/bootstrap`) holds `externalsecrets` in the `external-secrets.io` group for this.
+The stores are the platform's, not the chart's: the operator and one namespaced `SecretStore` per namespace, each
+with an identity that reads only its environment's secrets. [GKE Cluster Setup, External
+Secrets](./gke-cluster-setup.md#14-the-apps-secrets-external-secrets-with-secret-manager) installs them for Secret
+Manager. The deployer's Roles (`infra/k8s/bootstrap`) hold `externalsecrets` in the `external-secrets.io` group, in
+the app and the database namespace, and no store kind: the deployer chooses which keys a release reads, never what a
+store may read. `make kind-external-secrets-test` runs the chart this way on kind
+([`tests/k8s/test_external_secrets.py`](../tests/k8s/test_external_secrets.py)): the pinned operator, an OpenBao
+store, and the release with only the store values switched.
+
+### OpenBao
+
+[OpenBao](https://openbao.org/) (MPL-2.0, a Linux Foundation fork of Vault) instead of Secret Manager, for a
+cluster outside Google Cloud or a store you run yourself. The trade-offs are in [Tooling assessment,
+Secrets](./tooling-assessment.md#4-secrets). The operator's `vault` provider talks to it.
+
+**The store**, one per namespace:
+[`deploy/external-secrets/secretstore-openbao.yaml`](../deploy/external-secrets/secretstore-openbao.yaml) (validated
+against the operator's CRDs by `make kubeconform`, and run on kind by the test above): the KV v2 engine at `secret`,
+Kubernetes auth as the namespace's `external-secrets` service account, and OpenBao's CA from a ConfigMap. Then the
+values of each environment:
+
+```yaml
+secrets:
+  externalSecret:
+    secretStoreRef: {name: openbao, kind: SecretStore}
+    remoteKeyTemplate: "your-service-name/dev/{key}"
+    remoteProperty: value
+```
+
+**Least privilege**: a policy per environment that reads only its path, and a Kubernetes-auth role per environment,
+bound to that environment's namespaces and its `external-secrets` service account (OpenBao's own service account
+needs `system:auth-delegator` to review the tokens):
+
+```bash
+export BAO_ADDR="https://openbao.example.internal:8200"   # your OpenBao; log in first (bao login)
+export SERVICE_NAME="your-service-name"
+bao auth enable kubernetes   # once; then bao write auth/kubernetes/config kubernetes_host=<the API server>
+for env in dev qa production; do
+  printf 'path "secret/data/%s/%s/*" { capabilities = ["read"] }\n' "$SERVICE_NAME" "$env" \
+    | bao policy write "$SERVICE_NAME-$env" -
+  namespaces="$SERVICE_NAME-$env"
+  [ "$env" = production ] || namespaces="$namespaces,$SERVICE_NAME-$env-db"
+  bao write "auth/kubernetes/role/$SERVICE_NAME-$env" bound_service_account_names=external-secrets \
+    bound_service_account_namespaces="$namespaces" token_policies="$SERVICE_NAME-$env" \
+    audience=openbao token_ttl=10m
+done
+```
+
+Set the role in each namespace's store (`role: your-service-name-<env>`). **Check:** `kubectl get secretstores
+--all-namespaces` shows `openbao` READY `True` in each namespace; an `ExternalSecret` in dev that names
+`your-service-name/production/db-user` shows `SecretSyncedError`, and the operator's log has OpenBao's `403`, as the
+kind test proves.
+
+**Migrating from Secret Manager**, one environment at a time, dev first:
+
+1. Create the paths: for each key, copy the value from Secret Manager to OpenBao without showing it (it goes from one
+   standard input to the other):
+
+   ```bash
+   env=dev
+   for key in db-user db-password stats-pass; do
+     gcloud secrets versions access latest --secret="$SERVICE_NAME-$env-$key" \
+       | bao kv put -mount=secret "$SERVICE_NAME/$env/$key" value=- > /dev/null
+   done
+   bao kv list -mount=secret "$SERVICE_NAME/$env"   # → the three names, no values
+   ```
+
+2. Apply the OpenBao store in each of the environment's namespaces (above) and wait for READY `True`.
+3. Switch the values (`secretStoreRef`, `remoteKeyTemplate`, `remoteProperty`) in `values.<env>.yaml` and deploy.
+4. Wait for `Ready`: `kubectl -n <namespace> wait externalsecret --all --for=condition=Ready --timeout=120s`, in the
+   app namespace and the database namespace; the Pods keep running on the same values.
+5. Remove the old secrets once the environment runs on OpenBao: the Secret Manager store (`kubectl -n <namespace>
+   delete secretstore secret-manager`), the environment's Secret Accessor bindings, and the secrets
+   (`gcloud secrets delete "$SERVICE_NAME-$env-<key>"`).
+
+### Infisical
+
+[Infisical](https://infisical.com/) (MIT, with an `ee/` directory under its own licence; a hosted service or
+self-hosted) instead of Secret Manager. The trade-offs are in [Tooling assessment,
+Secrets](./tooling-assessment.md#4-secrets).
+
+**The store**, one per namespace:
+[`deploy/external-secrets/secretstore-infisical.yaml`](../deploy/external-secrets/secretstore-infisical.yaml)
+(validated by `make kubeconform`): the project and environment slugs, and Universal Auth with a client ID and secret
+from a Secret in the namespace. Then the values of each environment (the store's `environmentSlug` picks the
+environment):
+
+```yaml
+secrets:
+  externalSecret:
+    secretStoreRef: {name: infisical, kind: SecretStore}
+    remoteKeyTemplate: "/your-service-name/{key}"
+    remoteProperty: ""
+```
+
+**Least privilege**: one machine identity per environment, with a project role that reads only that environment's
+secrets, and its Universal Auth client in that environment's namespaces only. The operator's Kubernetes Auth for
+Infisical reads a service account token from a path in the operator's Pod (its own, by default), so it cannot tell
+the namespaces apart: use Universal Auth. Create the credentials Secret without showing the secret:
+
+```bash
+ns="your-service-name-dev"   # and its database namespace
+read -r CLIENT_ID; IFS= read -rs CLIENT_SECRET && echo
+printf '%s' "$CLIENT_SECRET" | kubectl -n "$ns" create secret generic infisical-universal-auth \
+  --from-literal=clientId="$CLIENT_ID" --from-file=clientSecret=/dev/stdin
+unset CLIENT_SECRET
+```
+
+**Check:** the store is READY `True`; a copy of it with `environmentSlug: production` and dev's client does not
+sync (the identity has no access there).
+
+### Sealed Secrets
+
+[Sealed Secrets](https://github.com/bitnami/sealed-secrets) is one way to fill `secrets.existingSecret` from Git:
+a per-cluster controller decrypts a `SealedSecret` into the Secret the release names. Its controller key is one more
+thing to back up and rotate per cluster.
+
+```bash
+# Install the controller
+helm install sealed-secrets sealed-secrets \
+  --repo https://bitnami.github.io/sealed-secrets \
+  --namespace kube-system
+
+# Seal a Secret manifest, then apply the sealed one
+kubeseal --format yaml < secret.json > sealed-secret.yaml
+kubectl apply -f sealed-secret.yaml
+```
 
 ### Best Practices
 
-- **Never commit secrets** — Use GitHub environment secrets, sealed-secrets, or External Secrets Operator
+- **Never commit secrets** — use the External Secrets Operator (or a Secret you manage), and GitHub environment secrets for the deploy's own credentials
 - **Rotate regularly** — Especially `STATS_PASS`, database passwords
 - **Use environment-scoped secrets** — For deployment secrets, on the GitHub Environment of the job that needs them, never repository-wide
 - **Gate the environments** — `production` is limited to `v*` tags and needs a reviewer (see [GitHub repository settings](./github-repository-settings.md))

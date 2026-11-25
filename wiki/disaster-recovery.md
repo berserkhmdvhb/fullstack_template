@@ -152,7 +152,10 @@ section plays this part.
 
 - the managed database: Cloud SQL is recovered by [point-in-time recovery](#production-cloud-sql-point-in-time-recovery);
 - the external secrets themselves: they live in Secret Manager, and the External Secrets Operator syncs them again
-  into the restored namespace;
+  into the restored namespace (its `SecretStore` and `external-secrets` service account are namespaced objects in
+  the backup, and the Secret Accessor bindings name the namespace and the service account, so they hold for a
+  namespace restored under the same name in the same project;
+  [GKE Cluster Setup, External Secrets](./gke-cluster-setup.md#14-the-apps-secrets-external-secrets-with-secret-manager));
 - the images (they stay in the registry), and the platform's cluster-scoped objects and the bootstrap's RBAC (from
   git, through the admin bootstrap).
 
@@ -189,7 +192,7 @@ gcloud container backup-restore backup-plans create <app>-daily --project "$PROJ
      --backup="projects/$PROJECT_ID/locations/$REGION/backupPlans/<app>-daily/backups/<backup>"
    ```
 
-3. Wait for the ExternalSecret to sync and the Pods to turn ready, then run a deploy of the release's current
+3. Wait for the ExternalSecrets to sync and the Pods to turn ready, then run a deploy of the release's current
    revision, so the cluster matches git again.
 
 ## The in-cluster database

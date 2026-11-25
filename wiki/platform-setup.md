@@ -27,21 +27,22 @@ The platform runs on three providers. This page says what each one is for, the o
 
 ## The order
 
-> **Do now** for rows 0 to 4. **After the first push** for rows 5 to 8.
+> **Do now** for rows 0 to 5. **After the first push** for rows 6 to 9.
 
 | Step | What | Where | Takes |
 |---|---|---|---|
 | 0 | Two-factor sign-in on all three accounts, and a budget alert on Google Cloud | GKE §4, Cloudflare §4, GitHub settings | 15 min |
-| 1 | The cluster and its keyless access, through to the laptop-side proof of the provider (the `check` run comes after the first push, step 5; 9.4 is a decision: on the Tunnel, skip its Gateway) | [GKE §1 to §13](./gke-cluster-setup.md) (12.5 belongs to the optional previews row) | 60 to 90 min |
-| 2 | The domain and the edge, through to the deploy-token check | [Cloudflare §1 to §11](./cloudflare-setup.md) | 45 to 75 min |
-| 3 | Optional, for a site repository only: off-site backups | [Cloudflare §12](./cloudflare-setup.md#12-optional-a-private-r2-bucket-for-off-site-backups) | 15 min |
-| 4 | Set the values of the table below in GitHub. Variables, and the secrets only where the table says so. | GitHub settings | 5 min |
-| 5 | After the first push: a green `deploy-ops` `check` per environment | [GKE §13.3](./gke-cluster-setup.md#133-the-first-check-deploy-ops-check) | 10 min |
-| 6 | After the first push and the settings script: the documentation site on GitHub Pages, and optionally its custom domain | [GitHub Pages §2 to §5](./github-pages-setup.md) | 10 min, plus the certificate |
-| 7 | Optional: the AI reviewer | [PR-Agent §2 to §8](./pr-agent-setup.md) | 15 min |
-| 8 | After the first push, optional: pull request previews | [GKE §12.5](./gke-cluster-setup.md#125-optional-pull-request-previews), [Cloudflare §9.2](./cloudflare-setup.md#92-optional-the-previews-hostnames-access-application-and-service-token), [CI/CD](./ci-cd.md#pull-request-previews) | 30 min |
+| 1 | The cluster and its keyless access, through to the laptop-side proof of the provider (the `check` run comes after the first push, step 6; 9.4 is a decision: on the Tunnel, skip its Gateway) | [GKE §1 to §13](./gke-cluster-setup.md) (12.5 belongs to the optional previews row) | 60 to 90 min |
+| 2 | The app's secrets: the External Secrets Operator from its pinned chart, one identity and store per namespace that reads only its environment's secrets, the secrets in Secret Manager, and the check that dev cannot read production's (the `ExternalSecret`s' own check comes after the first deploy) | [GKE §14](./gke-cluster-setup.md#14-the-apps-secrets-external-secrets-with-secret-manager) | 30 min |
+| 3 | The domain and the edge, through to the deploy-token check | [Cloudflare §1 to §11](./cloudflare-setup.md) | 45 to 75 min |
+| 4 | Optional, for a site repository only: off-site backups | [Cloudflare §12](./cloudflare-setup.md#12-optional-a-private-r2-bucket-for-off-site-backups) | 15 min |
+| 5 | Set the values of the table below in GitHub. Variables, and the secrets only where the table says so. | GitHub settings | 5 min |
+| 6 | After the first push: a green `deploy-ops` `check` per environment | [GKE §13.3](./gke-cluster-setup.md#133-the-first-check-deploy-ops-check) | 10 min |
+| 7 | After the first push and the settings script: the documentation site on GitHub Pages, and optionally its custom domain | [GitHub Pages §2 to §5](./github-pages-setup.md) | 10 min, plus the certificate |
+| 8 | Optional: the AI reviewer | [PR-Agent §2 to §8](./pr-agent-setup.md) | 15 min |
+| 9 | After the first push, optional: pull request previews | [GKE §12.5](./gke-cluster-setup.md#125-optional-pull-request-previews), [Cloudflare §9.2](./cloudflare-setup.md#92-optional-the-previews-hostnames-access-application-and-service-token), [CI/CD](./ci-cd.md#pull-request-previews) | 30 min |
 
-Step 2 needs step 1, because the Tunnel runs inside the cluster. Steps 1 and 2 each end with a checklist. Don't start the next step until every check in the previous one passes.
+Steps 2 and 3 need step 1: the operator and the Tunnel run inside the cluster. Steps 1 and 3 each end with a checklist. Don't start the next step until every check in the previous one passes.
 
 ## Variables and secrets
 
