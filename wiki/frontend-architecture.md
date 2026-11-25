@@ -284,7 +284,7 @@ flowchart LR
 
 **Generation**:
 ```bash
-npm run openapi-gen
+pnpm run openapi-gen
 # Reads: lib/api/openapi.json
 # Writes: lib/api/types.gen.d.ts
 ```
@@ -368,14 +368,14 @@ flowchart LR
 
 **Dark mode** is the default. Toggle via the theme button in the header.
 
-### npm overrides
+### pnpm overrides
 
-`frontend/package.json` keeps only the overrides still needed; recheck them after a major bump (remove one, run `npm install`, read `npm ls <name>` and `npm audit`):
+`frontend/pnpm-workspace.yaml` keeps only the overrides still needed; recheck them after a major bump (remove one, run `pnpm install`, read `pnpm why <name>` and `pnpm audit`):
 
 | Override | Why it stays |
 |----------|--------------|
 | `postcss` `^8.5.32` | Next.js pins its own older `postcss` (8.5.23); the override moves that copy to the override floor and keeps one version in the tree. |
-| `openapi-typescript` > `typescript` `$typescript` | TypeScript 6 is outside openapi-typescript's `^5.x` peer range; the generated types are byte-identical. |
+| `openapi-typescript>typescript` `catalog:` | TypeScript 6 is outside openapi-typescript's `^5.x` peer range; it gets the project's TypeScript from the catalog (`catalog.typescript`, which `devDependencies.typescript` names too), and the generated types are byte-identical. |
 
 Vite 8 verified with the suites; the next lock refresh may move to it.
 

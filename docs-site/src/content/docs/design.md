@@ -66,6 +66,7 @@ replace it on purpose.
 - [Debian fixes over the base](../../../../wiki/adr/0014-debian-fixes-over-the-base.md), [uv for Python](../../../../wiki/adr/0015-uv-for-python.md),
   [mise for the developer toolchain](../../../../wiki/adr/0043-mise-for-the-developer-toolchain.md),
   [prek for the git hooks](../../../../wiki/adr/0044-prek-for-git-hooks.md),
+  [pnpm for the frontend and the docs site](../../../../wiki/adr/0045-pnpm.md),
   [aiming at SLSA Build L3](../../../../wiki/adr/0016-slsa-build-l3-for-release-images.md),
   [no release cache](../../../../wiki/adr/0017-release-builds-use-no-cache.md),
   [keyless signing and Kyverno admission](../../../../wiki/adr/0018-cosign-keyless-and-kyverno-admission.md),

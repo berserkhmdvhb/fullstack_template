@@ -6,14 +6,13 @@
 > the scanners' own installer. This page changes no tool; it records what the template uses, what the mature
 > alternatives are today, and a verdict per layer.
 >
-> **Verdict:** the template is at current practice on most layers. Three gaps are worth closing now, none of which
-> changes how an adopter installs, builds or deploys: the frontend's lockfile has no release-age floor (with one, `npm ci`
-> still installs the lock as it is, tried on the assessment date; only adding a package younger than seven days needs
-> the existing exemption flag), the distroless base images' signatures are never verified, and the secrets docs
-> contradict each other (with one dead install URL). Three swaps are the
-> maintainers' decision: pnpm for npm, External Secrets with Secret Manager as the production default, and prek for
-> the git hooks. The recommendation was to take the second and hold the other two; the maintainers chose prek too
-> ([ADR-0044](./adr/0044-prek-for-git-hooks.md)).
+> **Verdict:** the template is at current practice on most layers. Three gaps were worth closing now, none of which
+> changes how an adopter installs, builds or deploys: the frontend's lockfile had no release-age floor, the distroless
+> base images' signatures were never verified, and the secrets docs contradicted each other (with one dead install
+> URL). Three swaps were the maintainers' decision: pnpm for npm, External Secrets with Secret Manager as the
+> production default, and prek for the git hooks. The recommendation was to take the second and hold the other two;
+> the maintainers chose all three: prek ([ADR-0044](./adr/0044-prek-for-git-hooks.md)) and pnpm
+> ([ADR-0045](./adr/0045-pnpm.md)), which also closes the frontend's release-age gap.
 
 ## 0. How each layer is judged
 
@@ -56,9 +55,30 @@ reopen it: OSV-Scanner stops covering PyPI's `MAL-*` entries, or uv's audit can 
 supply-chain assessment keeps because OSV-Scanner does not read `pyproject.toml`). Either is a scanner change, made
 the way that page describes.
 
-## 2. The frontend's and the docs site's packages: npm and `package-lock.json`
+## 2. The frontend's and the docs site's packages: pnpm and `pnpm-lock.yaml`
 
-**Today.**
+**Decided: pnpm** ([ADR-0045](./adr/0045-pnpm.md)). The maintainers chose the swap below over the npm-only
+settings. Both projects install the standalone pnpm 12.22.0 (`aqua:pnpm/pnpm` in [`mise.toml`](../mise.toml), the
+newest release at least seven days old on the decision date), configured in their own `pnpm-workspace.yaml`:
+`minimumReleaseAge: 10080`, `strictDepBuilds: true` with `allowBuilds` from the former `allowScripts`,
+`blockExoticSubdeps: true`, `trustPolicy: no-downgrade`, `pmOnFail: error`. Every install is
+`pnpm install --frozen-lockfile` ([Install scripts](./frontend-deployment.md#install-scripts)).
+
+What the switch found, which npm had let pass:
+
+- the frontend's `package-lock.json` held 53 versions younger than seven days (7 direct ones among them). A frozen
+  pnpm install checks every lockfile entry against `minimumReleaseAge`, so the imported lock moved each to the newest
+  release at least seven days old; the pinned OSV-Scanner reported no advisory in either lock (914 and 925 packages
+  read), so no exclusion was needed;
+- `chromium-bidi@157.0.8090-0` (through `@lhci/cli`) is a trust downgrade: published without provenance while the
+  earlier line had it. It is the one reviewed `trustPolicyExclude` entry;
+- the lock's `semver@6.3.1` is a trust downgrade as well; pnpm's choice, 6.3.2 (trusted publisher, provenance, older
+  than seven days), replaced it.
+
+The docs site's lock imported with an identical resolved set (576 `name@version` pairs).
+
+
+**Before the decision** (the assessment as written on 2026-11-25).
 
 - npm, pinned as `packageManager` in [`frontend/package.json`](../frontend/package.json) and
   [`docs-site/package.json`](../docs-site/package.json). On the assessment date it is the npm that the pinned Node
@@ -67,9 +87,9 @@ the way that page describes.
   `registry.npmjs.org`: no git and no tarball-URL dependencies.
 - Every install is `npm ci --ignore-scripts`: CI, the kind tests, both image builds and the documented local install.
   `allowScripts` denies the packages that declare an install script, and
-  `tests/supply_chain/test_pnpm_config.py` fails when the frontend's lockfile gains one without an entry
+  a test failed when the frontend's lockfile gained one without an entry
   ([Install scripts](./frontend-deployment.md#install-scripts)).
-- The release age: [`docs-site/pnpm-workspace.yaml`](../docs-site/pnpm-workspace.yaml) sets `min-release-age=7`. **The frontend has no
+- The release age: the docs site's `.npmrc` set `min-release-age=7`. **The frontend had no
   `.npmrc`**, so nothing holds its lockfile to seven days. Renovate waits seven days for the package it updates, but
   the `npm install` that writes the lock resolves that package's transitive dependencies at their newest. A
   developer's `npm install <package>` does the same.
@@ -99,7 +119,7 @@ No Node LTS bundles npm 12 yet; the 11.x line still gets releases (11.21.3, 2026
 npm's config reference has no counterpart to pnpm's `trustPolicy`.
 
 **Verdict: keep npm; adopt now** the two settings that close the gap with npm alone, in
-a new `.npmrc` in `frontend/`, and in `docs-site/pnpm-workspace.yaml`:
+a new `.npmrc` in `frontend/`, and in the docs site's `.npmrc`:
 
 ```ini
 min-release-age=7
@@ -322,7 +342,7 @@ out of mise. Noted only; not assessed.
 | Layer | Today | Verdict | Reason |
 |---|---|---|---|
 | Python packages | uv, `uv.lock` (hashes, `exclude-newer` 7 days, hashed build backend) | keep | Already the strongest option: frozen hashed installs and a release-age span in the lock |
-| Frontend and docs-site packages | npm, `package-lock.json`, `--ignore-scripts`, `allowScripts` | keep; adopt now: `.npmrc` release age and exotic-source block; pnpm: maintainers' decision | The frontend lock has no release-age floor; npm can close it without a switch |
+| Frontend and docs-site packages | pnpm, `pnpm-lock.yaml`, `pnpm-workspace.yaml` (was npm, `package-lock.json`, `--ignore-scripts`, `allowScripts`) | pnpm (maintainers' decision, [ADR-0045](./adr/0045-pnpm.md)); the npm-only adopt-now item is superseded | The frontend lock had no release-age floor; pnpm checks it against the lock, fails on an unreviewed build script and on a trust downgrade |
 | Cluster configuration | Helm values per environment, `values.schema.json`, strict offline renders | keep | Schema-validated chart linted per environment; the typed alternatives are pre-1.0 |
 | Secrets | three exclusive sources; External Secrets with Secret Manager in dev, qa and production | decided: External Secrets the default, OpenBao and Infisical documented (done); the docs agree, and the Sealed Secrets URL is the current one (done) | The shape was right; the docs disagreed and one install URL was dead |
 | Deploy settings | GitHub environments, variables, OIDC Workload Identity | keep | Per-environment rules and no stored cloud key |
@@ -334,15 +354,10 @@ out of mise. Noted only; not assessed.
 
 **Adopt now** (each a scoped change that leaves how an adopter installs, builds and deploys as it is):
 
-1. **The frontend's release age and the exotic-source block.** Add an `.npmrc` to `frontend/` with `min-release-age=7`,
-   `allow-git=none` and `allow-remote=none`, and add the two `allow-*` lines to `docs-site/pnpm-workspace.yaml`. Then:
-   - extend the docs site's `.npmrc` test to both files;
-   - make the young-fix step in [getting-started](./getting-started.md#security-updates-younger-than-7-days) and the
-     comment in `.github/dependabot.yml` cover the frontend: adding or bumping a frontend package younger than seven
-     days then needs `--min-release-age-exclude=<package>`.
-
-   `npm ci` installs the lock as it is (section 2), so CI, the images and the local install do not change; a run of
-   the frontend jobs on the change confirms it on the real lock.
+1. **The frontend's release age and the exotic-source block: superseded by pnpm** (maintainers' decision 2). The
+   proposal was an `.npmrc` per project with `min-release-age=7`, `allow-git=none` and `allow-remote=none`. pnpm's
+   `minimumReleaseAge` and `blockExoticSubdeps` in each `pnpm-workspace.yaml` hold the same rules, and the young-fix
+   step in [getting-started](./getting-started.md#security-updates-younger-than-7-days) covers both projects.
 2. **Verify the distroless base signatures.** Add a script that takes every `gcr.io/distroless/...@sha256:` reference
    from the Dockerfiles and runs the pinned cosign with the vendor's identity and issuer. Call it in the image check
    job before the build. Add a test that the script finds every distroless reference and fails on a wrong identity,
@@ -360,15 +375,18 @@ out of mise. Noted only; not assessed.
    stores; the store reference and key template are values, so OpenBao and Infisical are documented alternatives a
    values change away, and the kind job proves the switch against OpenBao. `existingSecret` stays for previews and
    for clusters without the operator.
-2. **pnpm instead of npm.** Not recommended now. With adopt-now item 1, npm has the release age, the install-script
-   policy and the exotic-source block. pnpm would add `trustPolicy: no-downgrade` and strict build failures. Cost:
+2. **pnpm instead of npm: decided, done** ([ADR-0045](./adr/0045-pnpm.md), [section 2](#2-the-frontends-and-the-docs-sites-packages-pnpm-and-pnpm-lockyaml)).
+   The recommendation was to hold it: with adopt-now item 1, npm would have had the release age, the install-script
+   policy and the exotic-source block, and pnpm would add `trustPolicy: no-downgrade` and strict build failures. The
+   maintainers chose pnpm. The cost, as estimated:
    - two lockfiles regenerated (`pnpm-lock.yaml`), a pnpm pin in `mise.toml`, and `packageManager` in both projects;
    - [`Dockerfile.frontend`](../Dockerfile.frontend), the `setup-frontend` action and five workflows;
    - the install-scripts guard and its test rewritten for `allowBuilds`;
    - every tracked file that names an npm command or the lockfile (measured on the assessment date: 63, 18 of them
      wiki pages).
 
-   Revisit when a Node LTS bundles npm 12 (scripts blocked by default) or if npm stays without a trust-downgrade check.
+   The switch also found what npm had let pass: 53 frontend versions under seven days old, and two trust downgrades
+   (section 2).
 3. **prek instead of the previous runner: done** ([ADR-0044](./adr/0044-prek-for-git-hooks.md)). The row and its requirements
    moved to a `mise.toml` entry, the `precommit` target runs prek, and the docs say `prek install`;
    `.pre-commit-config.yaml` stays as it is.
@@ -389,7 +407,7 @@ All checked on 2026-11-25.
   [npm 11 changelog](https://github.com/npm/cli/blob/release/v11/CHANGELOG.md) (`allow-git` in 11.9.0,
   `min-release-age` in 11.10.0, `allow-remote` in 11.14.0, `min-release-age-exclude` in 11.17.0); the `npm ci` trial in section 2, with the
   pinned npm and `undici-types` 8.13.1 (published 2026-11-20).
-- pnpm: registry (12.23.0, 2026-11-22); [build settings](https://pnpm.io/settings/build) (`strictDepBuilds`,
+- pnpm: registry (12.23.0, 2026-11-22; 12.22.0, 2026-11-17, the pin); [GitHub release v12.22.0](https://github.com/pnpm/pnpm/releases/tag/v12.22.0) (asset digests); [aqua recipe](https://github.com/aquaproj/aqua-registry/blob/main/pkgs/pnpm/pnpm/registry.yaml) (GitHub artifact attestations); [settings](https://pnpm.io/settings) (`pmOnFail`, `storeDir`, `cacheDir`, `stateDir`); [`pnpm import`](https://pnpm.io/cli/import); [build settings](https://pnpm.io/settings/build) (`strictDepBuilds`,
   `allowBuilds`); [dependency resolution settings](https://pnpm.io/settings/dependency-resolution)
   (`minimumReleaseAge`, `blockExoticSubdeps`, `trustPolicy`).
 - Yarn: registry (`@yarnpkg/cli-dist` 4.19.0, 2026-11-21); [yarnrc](https://yarnpkg.com/configuration/yarnrc)

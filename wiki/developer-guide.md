@@ -28,7 +28,7 @@ Local development workflow, Makefile commands, code quality tools, Kubernetes de
 ### Hot Reload
 
 - **Backend**: `./run_backend.sh` runs the same launcher as the image (`python -m your_service_name.backend.serve`) with `BACKEND_RELOAD=true` (its default there), so Uvicorn restarts the app when its code changes; the reload child starts the metrics server too. `BACKEND_RELOAD=false` turns it off. The launcher refuses reload when `ENV` is production
-- **Frontend**: `npm run dev` includes hot module replacement (HMR) by default
+- **Frontend**: `pnpm run dev` includes hot module replacement (HMR) by default
 
 ---
 
@@ -136,21 +136,21 @@ All frontend commands are run from the `frontend/` directory:
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start Next.js development server |
-| `npm run build` | Production build (generates `.next/standalone`) |
-| `npm run start` | Start production server |
-| `npm run lint` | ESLint (0 warnings allowed) |
-| `npm run lint-fix` | ESLint with auto-fix |
-| `npm run typecheck` | TypeScript type check |
-| `npm run test` | Run all Vitest tests (unit + component) |
-| `npm run test:unit` | Run unit tests only |
-| `npm run test:integration` | Run integration/component tests (with MSW) |
-| `npm run test:coverage` | Run the whole suite once with the coverage thresholds (what CI runs) |
-| `npm run test:e2e` | Run Playwright E2E tests |
-| `npm run test:e2e:ui` | Run Playwright E2E tests with UI mode |
-| `npm run format` | Prettier format all files |
-| `npm run format-check` | Prettier check (dry run) |
-| `npm run openapi-gen` | Generate TypeScript types from OpenAPI spec |
+| `pnpm run dev` | Start Next.js development server |
+| `pnpm run build` | Production build (generates `.next/standalone`) |
+| `pnpm run start` | Start production server |
+| `pnpm run lint` | ESLint (0 warnings allowed) |
+| `pnpm run lint-fix` | ESLint with auto-fix |
+| `pnpm run typecheck` | TypeScript type check |
+| `pnpm run test` | Run all Vitest tests (unit + component) |
+| `pnpm run test:unit` | Run unit tests only |
+| `pnpm run test:integration` | Run integration/component tests (with MSW) |
+| `pnpm run test:coverage` | Run the whole suite once with the coverage thresholds (what CI runs) |
+| `pnpm run test:e2e` | Run Playwright E2E tests |
+| `pnpm run test:e2e:ui` | Run Playwright E2E tests with UI mode |
+| `pnpm run format` | Prettier format all files |
+| `pnpm run format-check` | Prettier check (dry run) |
+| `pnpm run openapi-gen` | Generate TypeScript types from OpenAPI spec |
 
 ---
 
@@ -274,16 +274,16 @@ python -c "from your_service_name.backend.main import create_app; app = create_a
 
 ```bash
 # Start dev server with verbose output
-npm run dev
+pnpm run dev
 
 # Check TypeScript errors
-npm run typecheck
+pnpm run typecheck
 
 # Run a single test file
-npx vitest run frontend/lib/config.test.ts
+pnpm exec vitest run frontend/lib/config.test.ts
 
 # Run tests in watch mode
-npx vitest
+pnpm exec vitest
 ```
 
 ### Kubernetes
@@ -319,9 +319,9 @@ from fastapi import APIRouter
 
 router = APIRouter(prefix="/new-feature", tags=["New Feature"])
 
+
 @router.get("/")
-async def list_new_features():
-    ...
+async def list_new_features(): ...
 ```
 
 2. **Register router** in `main.py`:

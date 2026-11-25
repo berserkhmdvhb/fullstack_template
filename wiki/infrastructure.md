@@ -328,7 +328,7 @@ make kind-preview-test          # after kind-deploy: pull request previews in na
 make kind-admission-test        # after kind-up: the image admission policy with its own Kyverno (admission-control.md)
 make kind-live                   # after kind-deploy: the live suites (make test-live) against the release
 make kind-smoke                  # after kind-deploy: the smoke test against the public forward
-make kind-e2e                    # after kind-deploy: the Playwright suite (frontend: npm ci, browsers installed)
+make kind-e2e                    # after kind-deploy: the Playwright suite (frontend: pnpm install --frozen-lockfile, browsers installed)
 make kind-zap                    # after kind-deploy: an advisory ZAP baseline (pulls the pinned ZAP image)
 make kind-down                   # delete fst and .local/kind
 ```

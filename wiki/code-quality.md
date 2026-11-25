@@ -27,9 +27,9 @@ flowchart TB
     end
 
     subgraph Local["Local Development"]
-        Lint2["make ruff-lint<br/>npm run lint"]
-        Format2["make ruff-format<br/>npm run format"]
-        TypeCheck["make mypy-check<br/>npm run typecheck"]
+        Lint2["make ruff-lint<br/>pnpm run lint"]
+        Format2["make ruff-format<br/>pnpm run format"]
+        TypeCheck["make mypy-check<br/>pnpm run typecheck"]
     end
 
     subgraph CI["CI/CD Pipeline"]
@@ -99,8 +99,8 @@ search path, so a bare `mypy` checks the configured files.
 
 | Command | Description |
 |---------|-------------|
-| `npm run lint` | Run linter (0 warnings allowed) |
-| `npm run lint-fix` | Auto-fix errors |
+| `pnpm run lint` | Run linter (0 warnings allowed) |
+| `pnpm run lint-fix` | Auto-fix errors |
 
 **Plugins**:
 - `@typescript-eslint` — TypeScript rules
@@ -117,8 +117,8 @@ search path, so a bare `mypy` checks the configured files.
 
 | Command | Description |
 |---------|-------------|
-| `npm run format` | Format all files |
-| `npm run format-check` | Check formatting (dry run) |
+| `pnpm run format` | Format all files |
+| `pnpm run format-check` | Check formatting (dry run) |
 
 ### TypeScript
 
@@ -126,7 +126,7 @@ search path, so a bare `mypy` checks the configured files.
 
 | Command | Description |
 |---------|-------------|
-| `npm run typecheck` | Run TypeScript compiler (no emit) |
+| `pnpm run typecheck` | Run TypeScript compiler (no emit) |
 
 **Configuration** (`tsconfig.json`):
 - `strict: true` — Full strict mode
@@ -166,8 +166,8 @@ The `lint` job of [`reusable-backend.yml`](../.github/workflows/reusable-backend
 
 ### Frontend CI
 
-[`reusable-frontend.yml`](../.github/workflows/reusable-frontend.yml) runs `eslint` (`npm run lint`, 0 warnings),
-`prettier` (`npm run format-check`) and `type-check` (`npm run typecheck`) as separate jobs, beside the build,
+[`reusable-frontend.yml`](../.github/workflows/reusable-frontend.yml) runs `eslint` (`pnpm run lint`, 0 warnings),
+`prettier` (`pnpm run format-check`) and `type-check` (`pnpm run typecheck`) as separate jobs, beside the build,
 the tests and the OpenAPI drift check. All of them are **blocking**, behind `CI OK`.
 
 ---
@@ -198,4 +198,4 @@ the tests and the OpenAPI drift check. All of them are **blocking**, behind `CI 
 2. **Small commits** — Each commit should pass all checks independently
 3. **Review CI** — Check pipeline results before merging
 4. **Validate the chart** — Run `helm lint` + `helm template` before committing chart/`values.*` changes
-5. **Test locally** — Run `make test` and `npm test` before pushing
+5. **Test locally** — Run `make test` and `pnpm test` before pushing

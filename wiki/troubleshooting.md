@@ -65,13 +65,13 @@ relax `S101` and a few more for `tests/*`.
 **Solution**:
 ```bash
 cd frontend
-npm ci --ignore-scripts
-npm run openapi-gen
+pnpm install --frozen-lockfile
+pnpm run openapi-gen
 ```
 
 ### TypeScript Errors
 
-**Symptom**: `npm run typecheck` shows errors
+**Symptom**: `pnpm run typecheck` shows errors
 
 **Common causes**:
 - Missing type imports: use `import type { X } from '...'`
@@ -80,7 +80,7 @@ npm run openapi-gen
 
 ### ESLint Errors
 
-**Symptom**: `npm run lint` shows errors (0 warnings allowed)
+**Symptom**: `pnpm run lint` shows errors (0 warnings allowed)
 
 **Common fixes**:
 - Import order: value imports before type imports
@@ -392,8 +392,8 @@ docker compose up -d
 **Symptom**: the `unit` or `integration` job of `reusable-frontend.yml` fails
 
 **Solutions**:
-- Clear cache: delete `frontend/node_modules` and re-run `npm ci --ignore-scripts`
-- Check `package-lock.json` is committed and up-to-date
+- Clear cache: delete `frontend/node_modules` and re-run `pnpm install --frozen-lockfile`
+- Check `pnpm-lock.yaml` is committed and up-to-date
 - Verify MSW handlers match the actual API endpoints
 
 ### Grype Scan Fails (`main` and Tags)
@@ -450,7 +450,7 @@ python --version
 
 # Check Node version
 node --version
-npm --version
+pnpm --version
 ```
 
 ### Kubernetes Quick Diagnostics
@@ -480,8 +480,8 @@ alembic upgrade head
 # Frontend
 cd frontend
 rm -rf node_modules .next
-npm ci --ignore-scripts
-npm run openapi-gen
+pnpm install --frozen-lockfile
+pnpm run openapi-gen
 
 # Docker
 docker compose down -v

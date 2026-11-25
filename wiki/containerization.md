@@ -130,13 +130,13 @@ FROM debian:13-slim@sha256:... AS debian-fixes                       # as in Doc
 
 FROM node:26-trixie-slim@sha256:... AS builder
 WORKDIR /app
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
-RUN npm ci --include=dev --ignore-scripts
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
 ARG VERSION
 ARG VCS_REF
-RUN npm run openapi-gen \
- && NEXT_DEPLOYMENT_ID="$(node scripts/deployment-id.mjs "${VERSION}" "${VCS_REF}")" npx next build
+RUN pnpm run openapi-gen \
+ && NEXT_DEPLOYMENT_ID="$(node scripts/deployment-id.mjs "${VERSION}" "${VCS_REF}")" pnpm exec next build
 
 FROM runtime-base AS runtime
 COPY --from=debian-fixes /out/ /

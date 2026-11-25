@@ -167,7 +167,7 @@ Pure logic tests with no DOM or network:
 
 **Run**:
 ```bash
-cd frontend && npm run test:unit
+cd frontend && pnpm run test:unit
 ```
 
 ### Integration Tests (Component + MSW)
@@ -195,7 +195,7 @@ Component tests with Mock Service Worker for API mocking:
 
 **Run**:
 ```bash
-cd frontend && npm run test:integration
+cd frontend && pnpm run test:integration
 ```
 
 ### E2E Tests (Playwright)
@@ -212,7 +212,7 @@ Browser automation tests:
 
 **Run**:
 ```bash
-cd frontend && npm run test:e2e
+cd frontend && pnpm run test:e2e
 ```
 
 ---
@@ -312,15 +312,15 @@ A failed run uploads its JUnit and coverage reports as an artifact (7 days).
 | Job | Tests |
 |-----|-------|
 | `build` | Next.js build |
-| `unit` | Vitest pure-logic tests, fast signal (`npm run test:unit`, writes `test-results/junit.xml`) |
-| `integration` | The whole Vitest suite once with coverage (`npm run test:coverage`); blocks on the thresholds below and uploads `frontend/coverage/` on failure |
+| `unit` | Vitest pure-logic tests, fast signal (`pnpm run test:unit`, writes `test-results/junit.xml`) |
+| `integration` | The whole Vitest suite once with coverage (`pnpm run test:coverage`); blocks on the thresholds below and uploads `frontend/coverage/` on failure |
 | `playwright-list` | Playwright config validation |
-| `a11y` | axe scan of the built app (`npm run test:a11y`), blocking |
+| `a11y` | axe scan of the built app (`pnpm run test:a11y`), blocking |
 | `lighthouse` | Lighthouse CI budgets (`frontend/lighthouserc.json`), advisory: findings are warnings |
 | `eslint`, `prettier`, `type-check`, `openapi-drift` | Lint, format, types, API-type drift |
 
 The other Playwright specs run in the `live` job, which also runs the axe spec against the full stack. The `a11y` job
-does not need a backend: `npm run test:a11y` serves the built app with the standalone server the image ships
+does not need a backend: `pnpm run test:a11y` serves the built app with the standalone server the image ships
 (`frontend/scripts/serve-standalone.mjs`, the Playwright `webServer`, switched on by `E2E_START_SERVER=1`, on port 3100
 unless `E2E_SERVER_PORT` says otherwise) and the spec answers the API itself.
 
@@ -343,7 +343,7 @@ every link fully visible, and the items list at 390 to 1280 px: no sideways scro
 **Lighthouse CI** (advisory) builds the app, runs Lighthouse three times on `/` and `/items` in the Playwright Chromium,
 and checks the budgets in `frontend/lighthouserc.json`: a minimum score for performance, accessibility, best practices
 and SEO, and a ceiling on script and stylesheet bytes. A miss is a `::warning` annotation and a summary line, never a
-failed check. To change a budget, run `npx lhci collect --config=lighthouserc.json` on a build and set the value a little
+failed check. To change a budget, run `pnpm exec lhci collect --config=lighthouserc.json` on a build and set the value a little
 above (or below) the measured one.
 
 ### Deployment Tests
@@ -408,17 +408,17 @@ make test-coverage
 make test-cov-html
 
 # Frontend — all tests
-cd frontend && npm test
+cd frontend && pnpm test
 
 # Frontend — unit tests only
-cd frontend && npm run test:unit
+cd frontend && pnpm run test:unit
 
 # Frontend — integration tests
-cd frontend && npm run test:integration
+cd frontend && pnpm run test:integration
 
 # Frontend — E2E tests
-cd frontend && npm run test:e2e
+cd frontend && pnpm run test:e2e
 
 # Frontend — whole suite with the coverage thresholds (what CI runs)
-cd frontend && npm run test:coverage
+cd frontend && pnpm run test:coverage
 ```

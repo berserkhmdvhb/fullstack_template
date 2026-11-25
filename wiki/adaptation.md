@@ -232,9 +232,9 @@ docker compose up -d backend
 curl -fsS http://127.0.0.1:8000/api/v1/health
 
 # Check frontend builds
-cd frontend && npm run build
+cd frontend && pnpm run build
 
 # Run tests
 make test
-cd frontend && npm test
+cd frontend && pnpm test
 ```

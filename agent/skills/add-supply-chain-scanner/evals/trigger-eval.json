@@ -14,7 +14,7 @@
   {"query": "add eslint + jest unit tests for the React frontend components", "should_trigger": false},
   {"query": "set up Renovate or Dependabot to auto-bump our dependencies", "should_trigger": false},
   {"query": "write a wiki page documenting our SDLC security gates and where each runs", "should_trigger": false},
-  {"query": "there's a CVE in lodash in our package-lock.json, investigate if we're exposed", "should_trigger": false},
+  {"query": "there's a CVE in lodash in our pnpm-lock.yaml, investigate if we're exposed", "should_trigger": false},
   {"query": "add a generic CI job that runs our pytest suite on every PR", "should_trigger": false},
   {"query": "the osv-scanner security job started failing this morning, figure out why the pipeline broke", "should_trigger": false},
   {"query": "create a new service project from your-service-name and point it at our registry", "should_trigger": false},

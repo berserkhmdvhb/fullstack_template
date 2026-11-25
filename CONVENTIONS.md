@@ -29,7 +29,7 @@ and must not assume the placeholder — it adapts per adopter via
 - You wrote a fixed port/URL (`:8000`, `http://localhost`) as if it were permanent → make it
   env-driven (see convention 4).
 - You are adapting the template for a real service and edited files by hand → run the adaptation
-  script instead, then verify (`python -c "import <name>"`, `make test`, `npm run build`).
+  script instead, then verify (`python -c "import <name>"`, `make test`, `pnpm run build`).
 
 **Why.** The placeholder is the seam the whole template flexes on. A hard-coded name is a landmine
 for the next adopter, who must hunt it down. Depth: [`wiki/adaptation.md`](wiki/adaptation.md).

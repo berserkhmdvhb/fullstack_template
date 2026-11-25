@@ -77,9 +77,9 @@ git clone <YOUR_REPO_URL> && cd $_
 cp .env.example .env                 # then edit to taste
 infra/adapt/replace_service_name.sh -n <your_service> --dry-run   # preview the rename
 infra/adapt/replace_service_name.sh -n <your_service>             # apply it
-scripts/tools.sh install uv && export PATH="$PWD/.tools/bin:$PATH"
+scripts/tools.sh install uv node pnpm && export PATH="$PWD/.tools/bin:$PATH"
 make develop && source .venv/bin/activate   # locked set; the uv workflow: wiki/getting-started.md#lock-file-and-the-7-day-rule
-cd frontend && npm ci --ignore-scripts && npm run dev # frontend at :3000 (no install scripts: wiki/frontend-deployment.md#install-scripts)
+cd frontend && pnpm install --frozen-lockfile && pnpm run dev # frontend at :3000 (no install scripts: wiki/frontend-deployment.md#install-scripts)
 # backend:  ./run_backend.sh  (migrates, then serves the API at :8000)
 ```
 
@@ -115,8 +115,8 @@ that owns it, don't reach past it ([`CONVENTIONS.md`](./CONVENTIONS.md#2-one-con
 
 Match the existing `frontend/` structure (components, `lib/api`, generated types).
 
-- `prettier` + `eslint` (`--max-warnings=0`) + `npm run typecheck` (app and tests) all clean.
-- Regenerate API types after a backend change (`npm run openapi-gen`) so the client stays in sync.
+- `prettier` + `eslint` (`--max-warnings=0`) + `pnpm run typecheck` (app and tests) all clean.
+- Regenerate API types after a backend change (`pnpm run openapi-gen`) so the client stays in sync.
 - Unit (Vitest) for logic; RTL+MSW for component behavior; Playwright for full-stack E2E.
 - Depth: [`wiki/frontend-architecture.md`](wiki/frontend-architecture.md).
 
@@ -199,11 +199,11 @@ model: [`wiki/code-quality.md`](wiki/code-quality.md).
 
 | Gate | Command | CI job |
 |---|---|---|
-| Format (prettier) | `npm run format-check` | `reusable-frontend` / `prettier` |
-| Lint (eslint) | `npm run lint` | `reusable-frontend` / `eslint` |
-| Type check (tsc) | `npm run typecheck` | `reusable-frontend` / `type-check` |
-| Unit (vitest) | `npm run test` | `reusable-frontend` / `unit` |
-| Build (Next.js) | `npm run build` | `reusable-frontend` / `build` |
+| Format (prettier) | `pnpm run format-check` | `reusable-frontend` / `prettier` |
+| Lint (eslint) | `pnpm run lint` | `reusable-frontend` / `eslint` |
+| Type check (tsc) | `pnpm run typecheck` | `reusable-frontend` / `type-check` |
+| Unit (vitest) | `pnpm run test` | `reusable-frontend` / `unit` |
+| Build (Next.js) | `pnpm run build` | `reusable-frontend` / `build` |
 
 Real browser E2E runs in `reusable-live` / `live`; `playwright-list` only validates the Playwright config.
 
@@ -245,7 +245,7 @@ Correctness / conventions
 
 Gates
 - [ ] Backend:  make check-all-dry && make test   → green
-- [ ] Frontend: npm run format-check && npm run lint && npm run typecheck && npm run test → green
+- [ ] Frontend: pnpm run format-check && pnpm run lint && pnpm run typecheck && pnpm run test → green
 - [ ] shellcheck clean.
 
 Safety / hygiene

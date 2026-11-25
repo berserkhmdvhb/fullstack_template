@@ -27,7 +27,7 @@ Complete guide to setting up, configuring, and running the service template loca
 | **Git** | 2.x | Version control |
 | **Python** | 3.12 | Backend runtime |
 | **Node.js** | 26 | Frontend runtime |
-| **npm** | 11 | Frontend package manager |
+| **pnpm** | 12 (`make tools` installs the pinned one) | Package manager of the frontend and the docs site |
 | **Docker** or **Podman** | Latest | Container runtime |
 | **kubectl** | 1.34+ (within one minor of your cluster) | Kubernetes CLI |
 | **Helm** | 3.0+ | Deploy the chart (`helm upgrade --install`) |
@@ -252,10 +252,22 @@ updates, the lock's span does). To ship such a fix at once:
 3. Remove the exemption at the next routine refresh (`make lock`), so the package falls back under the
    7-day rule.
 
-The documentation site's lockfile has the same rule, as `min-release-age=7` in `docs-site/pnpm-workspace.yaml`. For a
-fix younger than that, run `npm install <package>@<version> --ignore-scripts --min-release-age-exclude=<package>`
-in `docs-site/` and commit `package.json` and `pnpm-lock.yaml`; the exemption lasts for that one command
-(npm config reference, `min-release-age`: "To install the fix, add the package to `min-release-age-exclude`").
+The frontend's and the documentation site's lockfiles have the same rule, as `minimumReleaseAge: 10080` (7 days,
+in minutes) in each project's `pnpm-workspace.yaml`; a frozen install checks every lockfile entry against it again.
+For a fix younger than that, in that project:
+
+1. Exempt that one exact version, with its publish date and the reason, in `pnpm-workspace.yaml`:
+
+   ```yaml
+   minimumReleaseAgeExclude:
+     - <package>@<version>  # published <YYYY-MM-DD>; <advisory id>
+   ```
+
+   The pnpm settings reference: "You may also exempt specific versions (or a list of specific versions using a
+   disjunction with ||). This allows pinning exceptions to mature-time rules."
+2. Run `pnpm up <package>@<version>` and commit `pnpm-workspace.yaml`, `package.json` and `pnpm-lock.yaml`.
+3. Remove the entry once the version is 7 days old: `tests/supply_chain/test_pnpm_config.py` fails from that day
+   on, so no exemption outlives its purpose.
 
 #### Build dependencies
 
@@ -293,20 +305,25 @@ python -m your_service_name.scripts.seed
 
 ```bash
 cd frontend
-npm ci --ignore-scripts
+pnpm install --frozen-lockfile
 ```
+
+The pinned pnpm comes with `make tools` (or `scripts/tools.sh install pnpm`); its store and cache live in `.tools/pnpm/`
+(`pnpm-workspace.yaml`). pnpm also keeps a small state file for its update check; the Makefile and the git hooks
+point it at `.tools/pnpm/state` too (`XDG_STATE_HOME`), and a bare `pnpm` call writes it under
+`~/.local/state/pnpm` unless you export the same.
 
 ### 2. Generate API Types
 
 ```bash
 # Generates TypeScript types from the backend OpenAPI spec
-npm run openapi-gen
+pnpm run openapi-gen
 ```
 
 ### 3. Start Development Server
 
 ```bash
-npm run dev
+pnpm run dev
 # Frontend runs at http://127.0.0.1:3000
 ```
 
@@ -328,7 +345,7 @@ Run each service in its own terminal. Two terminals minimum (backend + frontend)
 
 ```bash
 cd frontend
-npm run dev
+pnpm run dev
 # Frontend at http://127.0.0.1:3000
 ```
 

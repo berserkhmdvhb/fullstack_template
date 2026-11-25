@@ -390,7 +390,7 @@ snapshot, not the live schema). ReDoc is intentionally not shipped
 The frontend uses `openapi.json` to generate typed TypeScript API client code:
 
 ```bash
-npm run openapi-gen
+pnpm run openapi-gen
 # Reads: frontend/lib/api/openapi.json
 # Writes: frontend/lib/api/types.gen.d.ts
 ```

@@ -1,7 +1,7 @@
 ---
 name: quality-gates
 description: Run this service template's full code-quality gates before any commit, push, or pull request - backend ruff (format + lint), mypy type-check, and pytest unit/integration/e2e/live; frontend prettier, ESLint, TypeScript type-check (tsc), and Vitest. Trigger this skill whenever a change is made to the backend (src/, tests/) or frontend (frontend/) and it must be verified clean, or the user says "check / lint / test / format / type-check my code", "run the gates / quality checks / commit checks", "make sure the tests pass", "does this pass ruff/mypy", or "before I commit / open a PR / push" - even when they name no specific tool or file. Do NOT trigger for writing new tests, debugging a crashing process, fixing a single lint error, answering ruff/mypy/config questions, viewing coverage, or setting up a venv / installing deps. Covers both backend and frontend; a green backend does not excuse a skipped frontend.
-compatibility: bash, make, ruff, mypy, pytest, npm, tsc, vitest; GitHub Actions (`.github/workflows/reusable-backend.yml`, `reusable-frontend.yml`, `reusable-live.yml`).
+compatibility: bash, make, ruff, mypy, pytest, pnpm, tsc, vitest; GitHub Actions (`.github/workflows/reusable-backend.yml`, `reusable-frontend.yml`, `reusable-live.yml`).
 ---
 
 # Quality Gates
@@ -32,7 +32,7 @@ make test-e2e                      # e2e suite (ASGI in-process)
 make test-live                     # live suite (needs a running full stack)
 
 # ---------- FRONTEND (run from frontend/) ----------
-npm run format-check && npm run lint && npm run typecheck && npm run test
+pnpm run format-check && pnpm run lint && pnpm run typecheck && pnpm run test
 ```
 
 For auto-formatting instead of a dry check, use `make check-all` (runs `ruff format` and rewrites
@@ -77,19 +77,19 @@ pytest markers live in `pyproject.toml` → `[tool.pytest.ini_options].markers`:
 
 Next.js 16 / React / TypeScript. Run from the `frontend/` directory.
 
-| Gate | npm script | Raw command | CI job |
+| Gate | package.json script | Raw command | CI job |
 |---|---|---|---|
-| Format (prettier) | `npm run format-check` | `prettier . --check` | `reusable-frontend` / `prettier` |
-| Lint (eslint) | `npm run lint` | `eslint . --max-warnings=0` | `reusable-frontend` / `eslint` |
-| Type check (TS) | `npm run typecheck` | `next typegen && tsc --noEmit && tsc --noEmit -p tsconfig.test.json` (also type-checks the tests) | `reusable-frontend` / `type-check` |
-| Unit tests (vitest) | `npm run test` | `vitest run` | `reusable-frontend` / `unit` and `integration` (CI runs `npm run test:unit`, then `npm run test:coverage`: the whole suite with the coverage thresholds) |
-| Build (Next.js) | `npm run build` | `next build` | `reusable-frontend` / `build` — gates the unit tests |
-| E2E (playwright) | `npm run test:e2e` | `playwright test` | `reusable-frontend` / `playwright-list` (config/discovery only); the real run is `reusable-live` / `live` |
+| Format (prettier) | `pnpm run format-check` | `prettier . --check` | `reusable-frontend` / `prettier` |
+| Lint (eslint) | `pnpm run lint` | `eslint . --max-warnings=0` | `reusable-frontend` / `eslint` |
+| Type check (TS) | `pnpm run typecheck` | `next typegen && tsc --noEmit && tsc --noEmit -p tsconfig.test.json` (also type-checks the tests) | `reusable-frontend` / `type-check` |
+| Unit tests (vitest) | `pnpm run test` | `vitest run` | `reusable-frontend` / `unit` and `integration` (CI runs `pnpm run test:unit`, then `pnpm run test:coverage`: the whole suite with the coverage thresholds) |
+| Build (Next.js) | `pnpm run build` | `next build` | `reusable-frontend` / `build` — gates the unit tests |
+| E2E (playwright) | `pnpm run test:e2e` | `playwright test` | `reusable-frontend` / `playwright-list` (config/discovery only); the real run is `reusable-live` / `live` |
 
 Notes:
 - In CI the frontend gates run in parallel and `build` waits for lint, format and type-check; the
   unit tests wait for `build` (a broken production build fails before tests run). Locally, run
-  `npm run build` before the unit tests if you want to reproduce that gate.
+  `pnpm run build` before the unit tests if you want to reproduce that gate.
 - The full browser E2E runs in the `live` job against a started stack (advisory on pull requests,
   blocking on `main` and tags); `playwright-list` only validates the Playwright config and test
   discovery.

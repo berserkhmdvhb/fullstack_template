@@ -15,14 +15,14 @@ Why it exists and why Starlight: [ADR-0041](../wiki/adr/0041-documentation-site.
 
 ## Local preview
 
-Use the pinned Node (`make tools`, then `.tools/bin` on `PATH`), from this directory:
+Use the pinned Node and pnpm (`make tools`, then `.tools/bin` on `PATH`), from this directory:
 
 ```bash
-npm ci --ignore-scripts               # the repository's install-scripts policy (wiki/frontend-deployment.md#install-scripts)
-npx playwright install chromium       # once: the diagrams render at build time in Playwright's Chromium
-npm run dev                           # live preview
-npm test                              # the link resolver's unit tests (node:test)
-npm run build && npm run test:a11y    # what CI runs: the strict build, then axe over every built page
+pnpm install --frozen-lockfile          # the repository's install-scripts policy (wiki/frontend-deployment.md#install-scripts)
+pnpm exec playwright install chromium   # once: the diagrams render at build time in Playwright's Chromium
+pnpm run dev                            # live preview
+pnpm test                               # the link resolver's unit tests (node:test)
+pnpm run build && pnpm run test:a11y    # what CI runs: the strict build, then axe over every built page
 ```
 
 `DOCS_SITE_PORT` moves the axe scan's preview server off its default port.
@@ -59,8 +59,9 @@ count or a command that lives elsewhere ([`tests/test_adr_index.py`](../tests/te
 
 [`docs-site.yml`](../.github/workflows/docs-site.yml) publishes `dist/` to GitHub Pages from `main`
 ([CI/CD](../wiki/ci-cd.md#documentation-site)). The build is plain static files, so **Cloudflare Pages** can host the
-same output instead: build command `npm ci --ignore-scripts && npx playwright install chromium && npm run build`, root
-directory `docs-site`, output directory `dist`, the Node version from `mise.toml`, and `SITE_URL` set to the
+same output instead: build command `pnpm install --frozen-lockfile && pnpm exec playwright install chromium && pnpm run build`, root
+directory `docs-site`, output directory `dist`, the Node version from `mise.toml`, the pnpm version from
+`packageManager` (pnpm-workspace.yaml's `pmOnFail: error` fails the build on another one), and `SITE_URL` set to the
 address it is served at.
 
 The build's `site` and `base` follow `SITE_URL`: the deploy passes the published URL (`html_url`) from the Pages
