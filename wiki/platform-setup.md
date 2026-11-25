@@ -27,7 +27,7 @@ The platform runs on three providers. This page says what each one is for, the o
 
 ## The order
 
-> **Do now** for rows 0 to 5. **After the first push** for rows 6 to 9.
+> **Do now** for rows 0 to 5. **After the first push** for rows 6 to 9, and row 10 after the first deploy.
 
 | Step | What | Where | Takes |
 |---|---|---|---|
@@ -41,6 +41,7 @@ The platform runs on three providers. This page says what each one is for, the o
 | 7 | After the first push and the settings script: the documentation site on GitHub Pages, and optionally its custom domain | [GitHub Pages §2 to §5](./github-pages-setup.md) | 10 min, plus the certificate |
 | 8 | Optional: the AI reviewer | [PR-Agent §2 to §8](./pr-agent-setup.md) | 15 min |
 | 9 | After the first push, optional: pull request previews | [GKE §12.5](./gke-cluster-setup.md#125-optional-pull-request-previews), [Cloudflare §9.2](./cloudflare-setup.md#92-optional-the-previews-hostnames-access-application-and-service-token), [CI/CD](./ci-cd.md#pull-request-previews) | 30 min |
+| 10 | After the first deploy, optional: the weekly live-drift check, its read-only identity per environment and the `drift-<env>` GitHub environments | [GKE §12.6](./gke-cluster-setup.md#126-optional-the-live-drift-identity), [CI/CD](./ci-cd.md#live-drift) | 20 min |
 
 Steps 2 and 3 need step 1: the operator and the Tunnel run inside the cluster. Steps 1 and 3 each end with a checklist. Don't start the next step until every check in the previous one passes.
 
@@ -48,7 +49,7 @@ Steps 2 and 3 need step 1: the operator and the Tunnel run inside the cluster. S
 
 > The repository variables and environments are set by [scripts/github-settings.sh](../scripts/github-settings.sh); see [GitHub repository settings](./github-repository-settings.md).
 
-This is the single list. Every `vars.*` and `secrets.*` that a template workflow reads is here, and the GKE guide links to it rather than repeating it. "Environment" means a GitHub environment (`dev`, `qa`, `production`, and `preview` if you turn the pull request previews on: it takes the same cluster variables, with its own deployer and provider); "repository" means a repository-wide variable.
+This is the single list. Every `vars.*` and `secrets.*` that a template workflow reads is here, and the GKE guide links to it rather than repeating it. "Environment" means a GitHub environment (`dev`, `qa`, `production`, `preview` if you turn the pull request previews on: it takes the same cluster variables, with its own deployer and provider, and `drift-<env>` if you turn the live-drift check on: two variables of its own); "repository" means a repository-wide variable.
 
 | Name | Kind | Scope | Purpose | Comes from |
 |---|---|---|---|---|
@@ -70,6 +71,8 @@ This is the single list. Every `vars.*` and `secrets.*` that a template workflow
 | `PREVIEW_TTL_DAYS` | variable | repository | optional: the daily sweep removes a preview last deployed this many days ago (default `7`) | you |
 | `PREVIEW_DOMAIN` | variable | environment `preview` | optional: the zone of the previews' hostnames (`<SERVICE_NAME>-pr-<N>.<PREVIEW_DOMAIN>`); unset, previews get no public URL | you |
 | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | **secret** | environment `preview`, with `PREVIEW_DOMAIN` | the Cloudflare Access service token the smoke test sends through the preview's URL | [Cloudflare §9.2](./cloudflare-setup.md#92-optional-the-previews-hostnames-access-application-and-service-token) |
+| `DRIFT_WIF_PROVIDER` | variable | environment `drift-<env>` (you create it; optional) | the live-drift provider of that environment (`github-oidc-drift-<env>`); unset, the weekly drift run skips the environment with a summary line ([CI/CD](./ci-cd.md#live-drift)) | [GKE §12.6](./gke-cluster-setup.md#126-optional-the-live-drift-identity) |
+| `DRIFT_SA` | variable | environment `drift-<env>`, a **different** service account in each | the read-only drift reader it acts as (`gh-drift-<env>@<PROJECT_ID>.iam.gserviceaccount.com`) | [GKE §12.6](./gke-cluster-setup.md#126-optional-the-live-drift-identity) |
 | `PR_AGENT_ENABLED` | variable | repository | optional: `true` turns on the advisory AI reviewer, PR-Agent ([CI/CD](./ci-cd.md#ai-pull-request-review)); unset (the default) skips it | [PR-Agent §4](./pr-agent-setup.md#4-turn-it-on) |
 | `ANTHROPIC_KEY` | **secret** | environment `ai-review` (you create it), only with `PR_AGENT_ENABLED` | the model provider's API key PR-Agent reviews with; give it a spend limit | [PR-Agent §2 and §3](./pr-agent-setup.md#3-the-ai-review-environment-and-its-secret) |
 | `RELEASE_APP_ID` | variable | repository | the release GitHub App's ID: [`release-please.yml`](../.github/workflows/release-please.yml) mints its token with it, and the `release-tags` ruleset names it as the one actor that may create a `v*` tag. Unset skips release-please, with a notice | [The release GitHub App](./github-repository-settings.md#the-release-github-app) |

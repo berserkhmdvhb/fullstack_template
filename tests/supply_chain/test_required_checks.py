@@ -188,11 +188,15 @@ def test_script_variable_lists_match_the_platform_setup_table() -> None:
     table = _table()
     repo_vars, env_vars = _script_list("REPO_VARS"), _script_list("ENV_VARS")
     repo_scoped = {n for n, scope in table.items() if "repository" in scope}
-    # The opt-in `preview` environment is created by hand, not by the script (not one of its ENVS).
+    # The opt-in `preview` and `drift-<env>` environments are created by hand, not by the script
+    # (not among its ENVS).
     env_scoped = {
-        n for n, scope in table.items() if "environment" in scope and "`preview`" not in scope
+        n
+        for n, scope in table.items()
+        if "environment" in scope and "`preview`" not in scope and "`drift-" not in scope
     }
     assert "PREVIEW_DOMAIN" in set(table) - env_scoped
+    assert {"DRIFT_WIF_PROVIDER", "DRIFT_SA"} <= set(table) - env_scoped
     assert repo_scoped <= repo_vars
     assert env_scoped <= env_vars
     assert repo_vars <= set(table)

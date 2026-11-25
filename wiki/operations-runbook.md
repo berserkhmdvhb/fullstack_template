@@ -87,8 +87,9 @@ Use the [`deploy-ops`](../.github/workflows/deploy-ops.yml) workflow (Actions ta
 # Check the release history
 helm history your-service-name -n your-service-name-<environment>
 
-# Roll back to a revision (omit the number for the previous one)
-helm rollback your-service-name <N> -n your-service-name-<environment> --wait
+# Roll back to a revision (omit the number for the previous one). --force-conflicts takes back the
+# fields a hand edit changed, as the workflow's rollback does; without it the rollback fails on them.
+helm rollback your-service-name <N> -n your-service-name-<environment> --force-conflicts --wait
 
 # Verify rollback
 kubectl -n your-service-name-<environment> rollout status deployment/your-service-name-backend
@@ -139,9 +140,17 @@ A Pod that stays unready with `reason: schema_behind` or `schema_missing` is wai
 
 ---
 
+### Hand edits and the next deploy
+
+**The deploy always wins over a hand edit.** Every upgrade and rollback the template runs passes `--force-conflicts`, so a `kubectl scale`, `kubectl set image`, `kubectl set env`, `kubectl edit` or `kubectl patch` of a field the chart sets is overwritten by the next deploy or rollback, never a reason for it to fail. The weekly [live-drift check](./ci-cd.md#live-drift) reports such an edit before that: one `drift` issue per environment, with each field's path.
+
+So a fix made by hand during an incident is temporary. To keep it, make it permanent in Git (the environment's `values.<env>.yaml`, or the chart) before the next deploy; otherwise that deploy reverts it. An object you created by hand is not Helm's: a deploy leaves it, and the drift check reports it while it carries the release's `app.kubernetes.io/instance` label.
+
 ## Scaling
 
 ### Manual Scaling
+
+A manual scale lasts until the next deploy when the HPA is off (the chart sets `replicas`; [Hand edits and the next deploy](#hand-edits-and-the-next-deploy)). With the HPA on, the chart sets no `replicas`, so the HPA owns the count and the deploy leaves it.
 
 ```bash
 # Scale backend to 5 replicas

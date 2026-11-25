@@ -13,6 +13,7 @@ GitHub Actions workflows: what runs when, what blocks a merge, how an image is b
 - [Image operations](#image-operations)
 - [Deploy chain](#deploy-chain)
 - [Pull request previews](#pull-request-previews)
+- [Live drift](#live-drift)
 - [AI pull request review](#ai-pull-request-review)
 - [Documentation site](#documentation-site)
 - [The adopted copy](#the-adopted-copy)
@@ -64,6 +65,7 @@ flowchart LR
 | [`pins-drift.yml`](../.github/workflows/pins-drift.yml) | weekly (Monday 04:41 UTC); manual | `pins` over every row |
 | [`scorecard.yml`](../.github/workflows/scorecard.yml) | weekly (Monday 03:17 UTC); push to `main` | `analysis`: the OpenSSF Scorecard, published and uploaded as SARIF. Public repositories only; never a gate |
 | [`rescan.yml`](../.github/workflows/rescan.yml) | weekly (Wednesday 05:41 UTC); manual | `collect` (digests from deployments and the latest release), `scan` (Grype by digest, no VEX), `report` (opens or updates `vuln` issues). See [vulnerability management](./vulnerability-management.md) |
+| [`drift.yml`](../.github/workflows/drift.yml) | weekly (Thursday 06:23 UTC); manual | `collect` (what each environment's latest deployment applied), `drift` (one leg per environment, as its read-only `drift-<env>` identity: the deployed commit's render against the live objects), `report` (opens or updates `drift` issues). Each environment skips with a summary line until its drift identity is set up. See [Live drift](#live-drift) |
 | [`dast.yml`](../.github/workflows/dast.yml) | after `Release` succeeds; manual | The ZAP baseline against the backend image just pushed |
 
 `ci.yml` jobs: `repo` runs shellcheck, the secret-template check, the offline doc link check (`make docs-links`: the pinned lychee over the docs, file links and in-repo anchors only, [`lychee.toml`](../lychee.toml)), the bats suites, the admission policy tests and the tree-wide guards (`pytest -m tree_wide`, the tests that read every tracked file, on every pull request); `hadolint` lints every tracked Dockerfile with the pinned hadolint (`scripts/ci/hadolint.sh`, also a git hook); `workflows` runs the CI hardening lint, actionlint and zizmor over `.github/`; `image-plan` and `images` build each image of the manifest into the runner's local daemon and run `scripts/ci/image-checks.sh --strict` on it (see [Image structure checks](./containerization.md#image-structure-checks)).
@@ -138,6 +140,8 @@ flowchart LR
 5. **Deployment records.** Each deploy job declares its environment with `url: ${{ vars.DEPLOY_URL }}` (an optional environment variable, [Platform setup](./platform-setup.md#variables-and-secrets)), so GitHub records one deployment per job in that environment's history, linking the URL, with the job's result: *success* when the upgrade, verify and smoke passed; *failure* when any of them failed, a failed verify or smoke that the script rolled back included (the record does not say it rolled back: the job's log and step summary name the revision it returned to). A `rollback` from `deploy-ops.yml` records its own deployment (the other operations record none).
 6. [`deploy-ops.yml`](../.github/workflows/deploy-ops.yml) is the manual follow-up: `rollback` (needs the input `confirm` set to `ROLLBACK`; empty `revision` means the previous one), `history`, `cleanup` (a report; Helm has no per-revision removal) and `check` (proves the login and the deployer's rights, read-only).
 
+**The deploy always wins over a hand edit.** Helm 4 applies server-side, and a hand edit (`kubectl scale`, `set image`, `set env`, `edit`, `patch`) makes kubectl's field manager own the field it changed; without more, the next upgrade would fail on that conflict, and its automatic rollback the same way. Every Helm upgrade and rollback the template runs (`deploy-env.sh`, `deploy-ops.yml`'s `rollback`, the previews, `k8s-env.sh`, `kind-deploy.sh`, `migrate-to-bootstrap.sh`) passes `--force-conflicts` and takes the field back; server-side apply stays on ([`tests/supply_chain/test_helm_force_conflicts.py`](../tests/supply_chain/test_helm_force_conflicts.py)). The chart never sets a field another controller owns at runtime, so the deploy never fights one: with the HPA on, a Deployment renders no `replicas`, and with External Secrets the chart renders no Secret the operator writes ([`runtime_owners_test.yaml`](../charts/your-service-name/tests/runtime_owners_test.yaml)). The weekly [live-drift check](#live-drift) reports a hand edit before the next deploy reverts it; a fix made by hand during an incident must be made permanent in the values (or the chart), or the next deploy undoes it ([Operations runbook](./operations-runbook.md#hand-edits-and-the-next-deploy)).
+
 Every Helm wait of a deploy path is below the backend's `rollout.progressDeadlineSeconds`, or a retry after a failed first install fails on a stale `ProgressDeadlineExceeded` ([Proven on kind](./database.md#proven-on-kind)); [`tests/supply_chain/test_deploy_timeouts.py`](../tests/supply_chain/test_deploy_timeouts.py) checks each. Keep a `HELM_TIMEOUT` you set below it too.
 
 ### Proven on kind
@@ -200,6 +204,31 @@ So a malicious same-repository pull request **can**, through the preview deploye
 | The deployer fenced | the API server refuses the preview deployer a namespace, the main release's Secrets and Deployment, and its Helm release; the cleanup refuses the main namespace |
 | Closed | `preview-cleanup.sh --pr 1` removes the release, its kept Jobs and its database volume; pull request 2 keeps serving |
 | Expired | the sweep keeps open, fresh pull request 2 at a 7-day TTL and removes it at 0 days |
+
+## Live drift
+
+Optional: [`drift.yml`](../.github/workflows/drift.yml) runs weekly (Thursday 06:23 UTC) and on demand, and compares each of dev, qa and production with what its latest deployment applied. Without the drift identity (the `drift-<env>` environments' variables) every environment's job skips with a summary line saying which variable is missing, and the run is green. Why this design: [ADR-0046](./adr/0046-read-only-live-drift.md).
+
+1. **`collect`** (`contents`, `actions` and `deployments: read`) finds each environment's newest successful deployment the way the [re-scan](./vulnerability-management.md#the-weekly-re-scan) does ([`scripts/drift_collect.py`](../scripts/drift_collect.py), on [`rescan_collect.py`](../scripts/rescan_collect.py)): its commit, its ref (`main` or the `v*` tag) and the digests it deployed. A `deploy-ops.yml` rollback, an expired digest artifact, or no deployment at all is a reason not to compare, said in the summary; a failing API call fails the run.
+2. **`drift`**, one job per environment in the GitHub environment `drift-<env>` (`contents: read`, `id-token: write`; `deployment: false`, so a drift run gets the environment's variables and branch policy but records no deployment, and the deployment lookups above only ever ask for `dev`, `qa` and `production` by name), renders the deployed commit **before** it logs in: [`scripts/ci/drift-render.sh`](../scripts/ci/drift-render.sh) runs that commit's own `deploy-env.sh` with `DEPLOY_RENDER_ONLY`, which writes the upgrade's render (the same values files and `--set` flags, one array in the script; [`deploy-env.bats`](../tests/scripts/deploy-env.bats) checks the two match) and stops before any cluster call, with that commit's `deploy.yml` constants, the deployment's ref and commit as the release ran on them (so the image matrix and tag come out the same) and the deployed digests. Nothing is recorded at deploy time: every input is in Git or the deployment record. A deployed commit whose deploy script predates the render mode is reported as not comparable until its next deploy. Then it logs in as the environment's drift reader ([GKE §12.6](./gke-cluster-setup.md#126-optional-the-live-drift-identity)) and [`scripts/drift.py`](../scripts/drift.py) compares, with `get` and `list` only:
+   - only the fields the render sets, recursively, so server defaults, `status`, `managedFields`, `resourceVersion`, `uid`, `generation`, `creationTimestamp` and labels or annotations a controller adds never count; lists by position, or by `name` where Kubernetes merges by name (containers, env, ports, volumes), where an item the render lacks counts too; resource quantities by value (`0.5` is `500m`);
+   - reported, each with kind, namespace, name and field path, never a value: a **changed** field, a **missing** object, an **extra** object of a rendered kind that carries the release's `app.kubernetes.io/instance` label (not one a controller owns, a Helm hook, an earlier revision's kept migration Job or a StatefulSet's claim), an `ExternalSecret` that is **not ready**, and a workload the HPA scales whose replicas are **outside the HPA's range**;
+   - not compared, each with its reason in the summary: Secrets (the identity has no right on Secrets at all, since a `list` returns their data; the `ExternalSecret` that writes one is checked instead), Jobs (a run, named by the Helm revision and removed after its TTL) and Helm hooks.
+   A read the identity is refused (the bootstrap's drift Role behind the chart) fails the job.
+3. **`report`** (`issues: write`, no cluster access; [`scripts/drift_report.py`](../scripts/drift_report.py)) opens or updates one issue per environment, labelled `drift`, with a table of the findings; an unchanged state changes nothing, a changed one rewrites the body and adds a comment, and no issue is ever closed automatically, not even once the drift is gone. The next deploy overwrites what it reports ([Deploy chain](#deploy-chain)): bring a change you keep into Git first, then redeploy and close the issue. It runs after a failed `drift` job too, so one environment's error doesn't hide another's findings.
+
+Findings keep the run green; a failure in collecting, rendering or reading fails it. The jobs never run on a pull request.
+
+### Live drift proven on kind
+
+[`tests/k8s/test_drift.py`](../tests/k8s/test_drift.py) (`make kind-drift-test` after `make kind-up kind-deploy`; the kind job's newest leg) bootstraps a release of its own with the bootstrap's drift Role bound to a ServiceAccount, deploys it with `deploy-env.sh` (the test-only kind seam, the main release's images by digest from the throwaway registry), renders it with the same script and `DEPLOY_RENDER_ONLY`, and runs `drift.py` with nothing but a short-lived token of that ServiceAccount (TokenRequest, never printed). In order:
+
+| Case | What it shows |
+|------|---------------|
+| A clean deploy | nothing reported |
+| Each of six hand edits, then a redeploy | `kubectl scale`, `kubectl set image`, `kubectl set env`, a patched ConfigMap key, a deleted PodDisruptionBudget and an extra ConfigMap with the release's label: each reported with its field path and nothing else; then `deploy-env.sh` again (the extra object first removed by hand: Helm doesn't own it) succeeds over kubectl's field managers, and nothing is reported |
+| A rollback over hand edits | three hand edits, then `deploy-ops.yml`'s rollback command as the deployer: it succeeds, and nothing is reported |
+| The identity fenced | the API server refuses it every Secret read and every write (`patch`, `scale`, `delete`, `create`) |
 
 ## AI pull request review
 

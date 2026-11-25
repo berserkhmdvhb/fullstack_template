@@ -164,6 +164,8 @@ the deployer needs no cluster-scoped rights and no RBAC rights at all.
   Job, with 20% headroom): raising replicas, an HPA `maxReplicas` or a request needs a quota bump in
   `infra/k8s/bootstrap/values.yaml`, or that test fails;
 - in each namespace, the Role and RoleBinding `bootstrap-deployer` for the deploy identity;
+- with `drift.name` set (optional; [CI/CD, Live drift](./ci-cd.md#live-drift)), in each namespace the Role and RoleBinding
+  `bootstrap-drift` for the read-only drift identity: `get` and `list` on the chart's kinds there, nothing on Secrets;
 - the app's own Role and RoleBinding (its ServiceAccount reads ConfigMaps), rendered from the chart's
   `templates/rbac.yaml` with `helm template --show-only`, so their rules have one source.
 

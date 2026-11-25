@@ -548,7 +548,7 @@ GitHub signs a short-lived token for each workflow run. Google accepts it only i
 - the **repository ID** matches, so a deleted and re-created repository of the same name is a stranger;
 - the running workflow file is `deploy.yml` or `deploy-ops.yml` of this repository, on `main` or a `v*` tag (`job_workflow_ref`).
 
-The workflow then acts as the deployer service account of its own GitHub environment, and no other (12.3). No key file is created.
+The workflow then acts as the deployer service account of its own GitHub environment, and no other (12.3). No key file is created. The optional live-drift check reads the cluster through providers and accounts of its own, which can't deploy (12.6).
 
 ### 12.1 Look up your numeric owner and repository IDs
 
@@ -844,6 +844,110 @@ EOF
 ```
 
 **Check:** `kubectl -n gateway-system get gateway preview-internal` shows `PROGRAMMED` `True` and a private address, normally from `$SUBNET`'s range (`10.10.0.0/20`), never from the proxy-only subnet; `kubectl -n cloudflared get networkpolicy` lists `cloudflared-to-preview-gateway`.
+
+### 12.6 Optional: the live-drift identity
+
+> **Only if you turn the live-drift check on** ([CI/CD, Live drift](./ci-cd.md#live-drift)); without it the weekly run skips each environment with a summary line and stays green. Do this after the first deploy (Platform Setup, the optional live-drift row), not on the first pass through this guide. **Managed as code** for the providers, the accounts and their bindings (1 and 2).
+
+The weekly `drift.yml` compares each environment with the render of its latest deployment. It acts per environment as a drift reader that can connect and read, and nothing else: no write verb, so no `kubectl diff` (its server-side dry run needs `patch`), and no right on Secrets at all, since a `list` returns their data and Helm's release Secrets hold the rendered values. Each environment gets a provider, a service account, a Kubernetes Role from the bootstrap and a GitHub environment `drift-<env>` of its own.
+
+#### 1. The providers
+
+One provider per environment, in the same pool, with the issuer and attribute mapping of 12.2. Each admits only `drift.yml` on `main`, in that environment's `drift-<env>` GitHub environment:
+
+```bash
+for env in dev qa production; do
+  condition="assertion.repository_owner_id=='$GH_OWNER_ID' && assertion.repository_id=='$GH_REPO_ID' && assertion.environment=='drift-$env' && assertion.job_workflow_ref.matches('^$GH_REPO/\\\\.github/workflows/drift\\\\.yml@refs/heads/main\$')"
+  gcloud iam workload-identity-pools providers create-oidc "github-oidc-drift-$env" \
+    --location=global --workload-identity-pool=github \
+    --display-name="GitHub OIDC (drift $env)" \
+    --issuer-uri="https://token.actions.githubusercontent.com" \
+    --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner_id=assertion.repository_owner_id,attribute.repository_id=assertion.repository_id,attribute.job_workflow_ref=assertion.job_workflow_ref,attribute.ref=assertion.ref" \
+    --attribute-condition="$condition"
+done
+```
+
+The condition, as Google stores it for `dev`:
+
+```text
+assertion.repository_owner_id=='<OWNER_ID>' && assertion.repository_id=='<REPO_ID>' && assertion.environment=='drift-dev' && assertion.job_workflow_ref.matches('^<owner>/<repo>/\\.github/workflows/drift\\.yml@refs/heads/main$')
+```
+
+**Check:** each stored condition names its own environment and `drift.yml` only:
+
+```bash
+for env in dev qa production; do
+  actual="$(gcloud iam workload-identity-pools providers describe "github-oidc-drift-$env" \
+    --location=global --workload-identity-pool=github --format='value(state,attributeCondition)')"
+  [[ "$actual" == ACTIVE*"environment=='drift-$env'"*"drift\\\\.yml@refs/heads/main"* ]] \
+    && echo "$env: condition matches" || echo "$env: DIFFERENT: compare by eye with the block above"
+done
+# → dev: condition matches   (and qa, production)
+```
+
+#### 2. The drift readers
+
+A service account per environment, which only that environment's `drift-<env>` job may act as, with only the role that connects to the cluster (`$DEPLOYER_CLUSTER_ROLE`, 12.3), never `roles/container.viewer` or `roles/container.developer`:
+
+```bash
+for env in dev qa production; do
+  sa="gh-drift-$env"
+  gcloud iam service-accounts create "$sa" --display-name="GitHub Actions drift reader ($env)"
+  gcloud iam service-accounts add-iam-policy-binding "$sa@$PROJECT_ID.iam.gserviceaccount.com" \
+    --role="roles/iam.workloadIdentityUser" \
+    --member="principal://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/subject/repo:$GH_REPO:environment:drift-$env"
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" --condition=None \
+    --member="serviceAccount:$sa@$PROJECT_ID.iam.gserviceaccount.com" --role="$DEPLOYER_CLUSTER_ROLE"
+done
+```
+
+**Check:** each account holds one project role, the connect role:
+
+```bash
+for env in dev qa production; do
+  echo "$env: $(gcloud projects get-iam-policy "$PROJECT_ID" --flatten=bindings \
+    --filter="bindings.members:serviceAccount:gh-drift-$env@$PROJECT_ID.iam.gserviceaccount.com" \
+    --format='value(bindings.role)' | tr '\n' ' ')"
+done
+# → dev: <the DEPLOYER_CLUSTER_ROLE value>   (and qa, production; nothing else)
+```
+
+#### 3. The drift Role comes from the bootstrap
+
+Set each environment's drift reader in `infra/k8s/bootstrap/values.<env>.yaml` (`drift.name: gh-drift-<env>@<PROJECT_ID>.iam.gserviceaccount.com`; the bootstrap binds it as a Kubernetes `User`), then re-run the bootstrap of [13.2](#132-the-namespaces-and-the-deployer-rbac-come-from-the-bootstrap). It adds, in each of the environment's namespaces, the `Role` and `RoleBinding` `bootstrap-drift`: `get` and `list` on exactly the kinds the chart renders there, and nothing on Secrets ([`drift-rbac.yaml`](../infra/k8s/bootstrap/templates/drift-rbac.yaml); a test keeps the list equal to the render). Unset, the bootstrap binds no drift reader.
+
+**Check:** the drift identity can read the app's objects, cannot write, and cannot read a Secret. As an admin:
+
+```bash
+SERVICE_NAME="your-service-name"   # the SERVICE_NAME repository variable (13.1)
+for env in dev qa production; do
+  who="gh-drift-$env@$PROJECT_ID.iam.gserviceaccount.com" ns="$SERVICE_NAME-$env"
+  echo "$env:" \
+    "$(kubectl auth can-i list deployments.apps -n "$ns" --as="$who")" \
+    "$(kubectl auth can-i patch deployments.apps -n "$ns" --as="$who")" \
+    "$(kubectl auth can-i delete configmaps -n "$ns" --as="$who")" \
+    "$(kubectl auth can-i get secrets -n "$ns" --as="$who")" \
+    "$(kubectl auth can-i list secrets -n "$ns" --as="$who")"
+done
+# → yes no no no no   (three times)
+```
+
+#### 4. The GitHub environments and their variables
+
+Create the environments `drift-dev`, `drift-qa` and `drift-production` (**Settings → Environments → New environment**; the settings script doesn't, as with `preview`): **no required reviewers**, so the weekly run never waits, and deployment branches limited to `main`, the one ref the providers admit. Give each its own two variables; the cluster variables (`GCP_PROJECT_ID`, `GKE_CLUSTER`, `GKE_LOCATION`) come from the repository. With the GitHub CLI:
+
+```bash
+for env in dev qa production; do
+  gh api -X PUT "repos/$GH_REPO/environments/drift-$env" \
+    -F 'deployment_branch_policy[protected_branches]=false' -F 'deployment_branch_policy[custom_branch_policies]=true' >/dev/null
+  gh api -X POST "repos/$GH_REPO/environments/drift-$env/deployment-branch-policies" -f name=main -f type=branch >/dev/null
+  gh variable set DRIFT_WIF_PROVIDER --env "drift-$env" --repo "$GH_REPO" \
+    --body "projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-oidc-drift-$env"
+  gh variable set DRIFT_SA --env "drift-$env" --repo "$GH_REPO" --body "gh-drift-$env@$PROJECT_ID.iam.gserviceaccount.com"
+done
+```
+
+**Check:** run **Actions → Live drift → Run workflow** from `main`. The run is green; each `Drift (<env>)` job logs in, and its summary lists the findings or says `no drift`, with what it didn't compare and why (Jobs, Helm hooks, Secrets). An environment you skipped says `skipped` and which variable is missing. Findings open or update one issue per environment, labelled `drift`.
 
 ## 13. The end-to-end check from GitHub
 

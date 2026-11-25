@@ -76,7 +76,8 @@ replace it on purpose.
   [Renovate for updates](../../../../wiki/adr/0025-renovate-for-updates.md),
   [blocking pull request gates](../../../../wiki/adr/0026-blocking-pr-security-gates.md),
   [frozen supply-chain scripts](../../../../wiki/adr/0028-frozen-supply-chain-scripts.md),
-  [the weekly re-scan](../../../../wiki/adr/0037-weekly-rescan-scope.md).
+  [the weekly re-scan](../../../../wiki/adr/0037-weekly-rescan-scope.md),
+  [the read-only live-drift check](../../../../wiki/adr/0046-read-only-live-drift.md).
 
 **Reviews and documentation**
 - [an optional AI reviewer](../../../../wiki/adr/0040-optional-ai-pr-review.md), [this documentation site](../../../../wiki/adr/0041-documentation-site.md).

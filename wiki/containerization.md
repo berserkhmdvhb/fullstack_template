@@ -491,5 +491,5 @@ A failed verify or smoke step rolls back to the recorded revision by itself. By 
 
 ```bash
 helm history your-service-name -n your-service-name-<environment>
-helm rollback your-service-name <N> -n your-service-name-<environment> --wait
+helm rollback your-service-name <N> -n your-service-name-<environment> --force-conflicts --wait
 ```

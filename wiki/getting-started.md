@@ -30,7 +30,7 @@ Complete guide to setting up, configuring, and running the service template loca
 | **pnpm** | 12 (`make tools` installs the pinned one) | Package manager of the frontend and the docs site |
 | **Docker** or **Podman** | Latest | Container runtime |
 | **kubectl** | 1.34+ (within one minor of your cluster) | Kubernetes CLI |
-| **Helm** | 3.0+ | Deploy the chart (`helm upgrade --install`) |
+| **Helm** | 4 (`make tools` installs the pinned one) | Deploy the chart (`helm upgrade --install`; the scripts pass Helm 4's `--force-conflicts`) |
 | **make** | — | Development shortcuts (optional) |
 
 ### For Kubernetes Deployment
