@@ -11,7 +11,7 @@ Accepted.
 ## Context
 
 The chart asked for three hostnames per environment (`root`, `app` and `api`): nine across dev, qa and
-production, plus three per pull request preview. Each is a DNS record, a tunnel route and, while the
+production, plus three per pull request preview. Each is a DNS record, the tunnel routes NOTES prints for it and, while the
 environment is private, a Cloudflare Access application.
 
 The browser needs one. It calls `/api` on the page's own host, and the Next.js server forwards the frontend's
@@ -44,7 +44,7 @@ The template has no release yet, so this is not a migration: adopters configure 
 - Good: one origin means no CORS configuration and no cross-host cookie or CSP rules.
 - Good: a platform that hosts many services can adopt the same scheme under one domain.
 - Bad: a non-browser client that needs different edge rules needs `edge.hosts.api` set, and its own DNS record,
-  route and Access application.
+  routes and Access application.
 - Bad: a values file that still sets an `app` host fails the render.
 
 ## Alternatives considered

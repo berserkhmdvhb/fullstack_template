@@ -565,16 +565,17 @@ Use a zone of its own for previews (a second domain, with the section 6 baseline
 
 ```bash
 source ~/cloudflare-setup.env
-[ -n "$PREVIEW_DOMAIN" ] || { echo "set PREVIEW_DOMAIN in ~/cloudflare-setup.env (9.2)"; exit 1; }
-P="<SERVICE_NAME>-pr-<N>.$PREVIEW_DOMAIN"
-curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "https://$P"
-# → 302 https://<team>.cloudflareaccess.com/...   (anonymous visitors go to the login)
-read -rs CF_ACCESS_CLIENT_ID && read -rs CF_ACCESS_CLIENT_SECRET
-curl -sS -o /dev/null -w '%{http_code}\n' \
-  -H @<(printf 'CF-Access-Client-Id: %s\nCF-Access-Client-Secret: %s\n' "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET") \
-  "https://$P"
-# → 200   (the service token passes; the secret never reaches a command line)
-unset CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET
+if [ -z "$PREVIEW_DOMAIN" ]; then echo "set PREVIEW_DOMAIN in ~/cloudflare-setup.env (9.2)"; else
+  P="<SERVICE_NAME>-pr-<N>.$PREVIEW_DOMAIN"
+  curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "https://$P"
+  # → 302 https://<team>.cloudflareaccess.com/...   (anonymous visitors go to the login)
+  read -rs CF_ACCESS_CLIENT_ID && read -rs CF_ACCESS_CLIENT_SECRET
+  curl -sS -o /dev/null -w '%{http_code}\n' \
+    -H @<(printf 'CF-Access-Client-Id: %s\nCF-Access-Client-Secret: %s\n' "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET") \
+    "https://$P"
+  # → 200   (the service token passes; the secret never reaches a command line)
+  unset CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET
+fi
 ```
 
 ## 10. Static hosting for your site: prove the deploy token
