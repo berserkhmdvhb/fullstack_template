@@ -708,133 +708,141 @@ Then create the three new deployers (12.3) and update the environment variables 
 
 ### 12.5 Optional: pull request previews
 
-> **Only if you turn previews on** ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews)); they're off by default.
+> **Only if you turn previews on** ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews)); they're off by default. Do this after [Cloudflare §8.3](./cloudflare-setup.md#83-run-the-connector-in-the-cluster) and the first push (Platform Setup, the optional previews row), not on the first pass through this guide.
 
 Previews need, on Google Cloud, a deployer, a second provider, and an internal Gateway that the Tunnel reaches privately. One wildcard tunnel route carries every preview hostname, and the Gateway routes each one to its preview by host name.
 
-1. **The deployer,** as in 12.3 with `env=preview`:
+#### 1. The deployer
 
-   ```bash
-   env=preview
-   sa="gh-deployer-$env"
-   gcloud iam service-accounts create "$sa" --display-name="GitHub Actions deployer ($env)"
-   gcloud iam service-accounts add-iam-policy-binding "$sa@$PROJECT_ID.iam.gserviceaccount.com" \
-     --role="roles/iam.workloadIdentityUser" \
-     --member="principal://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/subject/repo:$GH_REPO:environment:$env"
-   gcloud projects add-iam-policy-binding "$PROJECT_ID" --condition=None \
-     --member="serviceAccount:$sa@$PROJECT_ID.iam.gserviceaccount.com" --role="$DEPLOYER_CLUSTER_ROLE"
-   ```
+As in 12.3 with `env=preview`:
 
-   **Check:** as in 12.3, `kubectl auth can-i create deployments --namespace default --as="gh-deployer-preview@$PROJECT_ID.iam.gserviceaccount.com"` prints `no`.
+```bash
+env=preview
+sa="gh-deployer-$env"
+gcloud iam service-accounts create "$sa" --display-name="GitHub Actions deployer ($env)"
+gcloud iam service-accounts add-iam-policy-binding "$sa@$PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principal://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/subject/repo:$GH_REPO:environment:$env"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --condition=None \
+  --member="serviceAccount:$sa@$PROJECT_ID.iam.gserviceaccount.com" --role="$DEPLOYER_CLUSTER_ROLE"
+```
 
-2. **The provider** `github-oidc-preview`, in the same pool, with the issuer and attribute mapping of 12.2:
+**Check:** as in 12.3, `kubectl auth can-i create deployments --namespace default --as="gh-deployer-preview@$PROJECT_ID.iam.gserviceaccount.com"` prints `no`.
 
-   ```bash
-   PREVIEW_CONDITION="assertion.repository_owner_id=='$GH_OWNER_ID' && assertion.repository_id=='$GH_REPO_ID' && assertion.environment=='preview' && assertion.job_workflow_ref.matches('^$GH_REPO/\\\\.github/workflows/preview\\\\.yml@refs/(pull/[0-9]+/merge|heads/main)\$')"
+#### 2. The provider
 
-   gcloud iam workload-identity-pools providers create-oidc github-oidc-preview \
-     --location=global --workload-identity-pool=github \
-     --display-name="GitHub OIDC (previews)" \
-     --issuer-uri="https://token.actions.githubusercontent.com" \
-     --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner_id=assertion.repository_owner_id,attribute.repository_id=assertion.repository_id,attribute.job_workflow_ref=assertion.job_workflow_ref,attribute.ref=assertion.ref" \
-     --attribute-condition="$PREVIEW_CONDITION"
-   ```
+The provider `github-oidc-preview`, in the same pool, with the issuer and attribute mapping of 12.2:
 
-   The condition expands to exactly the one [CI/CD, Pull request previews](./ci-cd.md#pull-request-previews) states, with your owner and repository IDs.
+```bash
+PREVIEW_CONDITION="assertion.repository_owner_id=='$GH_OWNER_ID' && assertion.repository_id=='$GH_REPO_ID' && assertion.environment=='preview' && assertion.job_workflow_ref.matches('^$GH_REPO/\\\\.github/workflows/preview\\\\.yml@refs/(pull/[0-9]+/merge|heads/main)\$')"
 
-   **Check:** the same stored-condition comparison as 12.2, against `$PREVIEW_CONDITION`:
+gcloud iam workload-identity-pools providers create-oidc github-oidc-preview \
+  --location=global --workload-identity-pool=github \
+  --display-name="GitHub OIDC (previews)" \
+  --issuer-uri="https://token.actions.githubusercontent.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner_id=assertion.repository_owner_id,attribute.repository_id=assertion.repository_id,attribute.job_workflow_ref=assertion.job_workflow_ref,attribute.ref=assertion.ref" \
+  --attribute-condition="$PREVIEW_CONDITION"
+```
 
-   ```bash
-   actual="$(gcloud iam workload-identity-pools providers describe github-oidc-preview \
-     --location=global --workload-identity-pool=github --format='value(attributeCondition)')"
-   [[ "$actual" == "$PREVIEW_CONDITION" ]] && echo "condition matches" || echo "DIFFERENT: compare by eye with the CI/CD page"
-   # → condition matches
-   ```
+The condition expands to exactly the one [CI/CD, Pull request previews](./ci-cd.md#pull-request-previews) states, with your owner and repository IDs.
 
-   Then set these variables on the `preview` GitHub environment (print them, as 13.1 does):
+**Check:** the same stored-condition comparison as 12.2, against `$PREVIEW_CONDITION`:
 
-   ```bash
-   printf '%s\n' \
-     "GCP_WIF_PROVIDER=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-oidc-preview" \
-     "GCP_DEPLOYER_SA=gh-deployer-preview@$PROJECT_ID.iam.gserviceaccount.com"
-   ```
+```bash
+actual="$(gcloud iam workload-identity-pools providers describe github-oidc-preview \
+  --location=global --workload-identity-pool=github --format='value(attributeCondition)')"
+[[ "$actual" == "$PREVIEW_CONDITION" ]] && echo "condition matches" || echo "DIFFERENT: compare by eye with the CI/CD page"
+# → condition matches
+```
 
-3. **The proxy-only subnet** the internal load balancer needs (one per region and network):
+Then set these variables on the `preview` GitHub environment (print them, as 13.1 does):
 
-   ```bash
-   gcloud compute networks subnets create apps-proxy-only --purpose=REGIONAL_MANAGED_PROXY --role=ACTIVE \
-     --network="$NETWORK" --region="$REGION" --range=10.129.0.0/23
-   ```
+```bash
+printf '%s\n' \
+  "GCP_WIF_PROVIDER=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-oidc-preview" \
+  "GCP_DEPLOYER_SA=gh-deployer-preview@$PROJECT_ID.iam.gserviceaccount.com"
+```
 
-   GKE creates the firewall rules for its Gateways itself (on a Shared VPC you write them by hand).
+#### 3. The proxy-only subnet
 
-   **Check:** `gcloud compute networks subnets describe apps-proxy-only --region="$REGION" --format='value(purpose,role)'` prints `REGIONAL_MANAGED_PROXY  ACTIVE`.
+The subnet the internal load balancer needs (one per region and network):
 
-4. **The internal Gateway,** after the preview bootstrap ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews), step 1) so the namespaces exist. Create the namespace `gateway-system` first if it doesn't exist.
+```bash
+gcloud compute networks subnets create apps-proxy-only --purpose=REGIONAL_MANAGED_PROXY --role=ACTIVE \
+  --network="$NETWORK" --region="$REGION" --range=10.129.0.0/23
+```
 
-   ```bash
-   kubectl create namespace gateway-system --dry-run=client -o yaml | kubectl apply -f -
-   kubectl apply -f - <<'EOF'
-   apiVersion: gateway.networking.k8s.io/v1
-   kind: Gateway
-   metadata:
-     name: preview-internal
-     namespace: gateway-system
-   spec:
-     gatewayClassName: gke-l7-rilb
-     listeners:
-       - name: http
-         protocol: HTTP
-         port: 80
-         allowedRoutes:
-           namespaces:
-             from: Selector
-             selector:
-               matchLabels: {tier: preview-app}
-   EOF
-   ```
+GKE creates the firewall rules for its Gateways itself (on a Shared VPC you write them by hand).
 
-   The selector is `tier: preview-app`, not `app-ns`: the preview namespaces carry that label (the bootstrap's `appTier` for previews). HTTP is right here: Cloudflare terminates TLS, and the hop from the connector to the Gateway stays inside the VPC, as the Tunnel's hop to a Service does. Then:
+**Check:** `gcloud compute networks subnets describe apps-proxy-only --region="$REGION" --format='value(purpose,role)'` prints `REGIONAL_MANAGED_PROXY  ACTIVE`.
 
-   ```bash
-   kubectl -n gateway-system wait --for=condition=Programmed gateway/preview-internal --timeout=600s
-   export PREVIEW_GW_IP="$(kubectl -n gateway-system get gateway preview-internal -o jsonpath='{.status.addresses[0].value}')"
-   echo "export PREVIEW_GW_IP=\"$PREVIEW_GW_IP\"" >> ~/gke-setup.env
-   echo "$PREVIEW_GW_IP"   # → a private address; Cloudflare §9.2 routes to it
-   ```
+#### 4. The internal Gateway
 
-   The address lasts as long as the Gateway; if you recreate the Gateway, update the route in [Cloudflare §9.2](./cloudflare-setup.md#92-optional-the-previews-hostnames-access-application-and-service-token). Then set these in the chart's `charts/your-service-name/values.preview.yaml`:
+Do this after the preview bootstrap ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews), step 1) so the namespaces exist. Create the namespace `gateway-system` first if it doesn't exist.
 
-   ```yaml
-   edge:
-     gateway:
-       parentRefs:
-         - {name: preview-internal, namespace: gateway-system}
-       gke:
-         enabled: true
-     extraPeers:
-       - {ipBlock: {cidr: 10.129.0.0/23}}
-   ```
+```bash
+kubectl create namespace gateway-system --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f - <<'EOF'
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: preview-internal
+  namespace: gateway-system
+spec:
+  gatewayClassName: gke-l7-rilb
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels: {tier: preview-app}
+EOF
+```
 
-   `gke.enabled` renders the HealthCheckPolicy (GKE doesn't read readiness probes) and admits Google's health-check ranges. `extraPeers` admits the load balancer's proxies, which come from the proxy-only subnet. Finally, allow the connector's egress to the Gateway (the connector's NetworkPolicy of [Cloudflare §8.3](./cloudflare-setup.md#83-run-the-connector-in-the-cluster) allows no private address by default):
+The selector is `tier: preview-app`, not `app-ns`: the preview namespaces carry that label (the bootstrap's `appTier` for previews). HTTP is right here: Cloudflare terminates TLS, and the hop from the connector to the Gateway stays inside the VPC, as the Tunnel's hop to a Service does. Then:
 
-   ```bash
-   kubectl apply -f - <<EOF
-   apiVersion: networking.k8s.io/v1
-   kind: NetworkPolicy
-   metadata:
-     name: cloudflared-to-preview-gateway
-     namespace: cloudflared
-   spec:
-     podSelector: {}
-     policyTypes: [Egress]
-     egress:
-       - to: [{ipBlock: {cidr: ${PREVIEW_GW_IP}/32}}]
-         ports: [{protocol: TCP, port: 80}]
-   EOF
-   ```
+```bash
+kubectl -n gateway-system wait --for=condition=Programmed gateway/preview-internal --timeout=600s
+export PREVIEW_GW_IP="$(kubectl -n gateway-system get gateway preview-internal -o jsonpath='{.status.addresses[0].value}')"
+echo "export PREVIEW_GW_IP=\"$PREVIEW_GW_IP\"" >> ~/gke-setup.env
+echo "$PREVIEW_GW_IP"   # → a private address; Cloudflare §9.2 routes to it
+```
 
-   **Check:** `kubectl -n gateway-system get gateway preview-internal` shows `PROGRAMMED` `True` and a private address, normally from `$SUBNET`'s range (`10.10.0.0/20`), never from the proxy-only subnet; `kubectl -n cloudflared get networkpolicy` lists `cloudflared-to-preview-gateway`.
+The address lasts as long as the Gateway; if you recreate the Gateway, update the route in [Cloudflare §9.2](./cloudflare-setup.md#92-optional-the-previews-hostnames-access-application-and-service-token). Then set these in the chart's `charts/your-service-name/values.preview.yaml`:
+
+```yaml
+edge:
+  gateway:
+    parentRefs:
+      - {name: preview-internal, namespace: gateway-system}
+    gke:
+      enabled: true
+  extraPeers:
+    - {ipBlock: {cidr: 10.129.0.0/23}}
+```
+
+`gke.enabled` renders the HealthCheckPolicy (GKE doesn't read readiness probes) and admits Google's health-check ranges. `extraPeers` admits the load balancer's proxies, which come from the proxy-only subnet. Finally, allow the connector's egress to the Gateway (the connector's NetworkPolicy of [Cloudflare §8.3](./cloudflare-setup.md#83-run-the-connector-in-the-cluster) allows no private address by default):
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cloudflared-to-preview-gateway
+  namespace: cloudflared
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to: [{ipBlock: {cidr: ${PREVIEW_GW_IP}/32}}]
+      ports: [{protocol: TCP, port: 80}]
+EOF
+```
+
+**Check:** `kubectl -n gateway-system get gateway preview-internal` shows `PROGRAMMED` `True` and a private address, normally from `$SUBNET`'s range (`10.10.0.0/20`), never from the proxy-only subnet; `kubectl -n cloudflared get networkpolicy` lists `cloudflared-to-preview-gateway`.
 
 ## 13. The end-to-end check from GitHub
 

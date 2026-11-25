@@ -53,7 +53,7 @@ Every step ends with a **Check**. Don't move on until it passes.
     ├── <domain>, www           → your static site (Workers static assets)        [at publish]
     ├── preview.<domain>        → your site's previews, behind Cloudflare Access  [now]
     │
-    └── app hostnames  ──────►  Cloudflare Tunnel ◄─── outbound only ─── cloudflared (2 Pods)
+    └── service hostnames ───►  Cloudflare Tunnel ◄─── outbound only ─── cloudflared (2 Pods)
                                                                            in GKE "apps-dev"
                                                                                │ in-cluster
                                                                                ▼
@@ -105,7 +105,7 @@ Decide these now. The rest of the guide uses them.
 
 Your site's `preview.<domain>` and the app's pull request previews are different things. The app's previews need one hostname per pull request, each one label under a zone: the free Universal SSL certificate covers `<zone>` and `*.<zone>`, never a second level such as `*.preview.<domain>`.
 
-Each hostname is one tunnel route (8.4) and, while it is not public, one Access application (9).
+Each hostname is one DNS record, the tunnel routes that the chart's NOTES print for it (8.4), and, while it isn't public, one Access application (9).
 
 Buying the domain now just reserves the name. Pointing the apex at a live site is the publish step.
 
@@ -120,6 +120,7 @@ cat > ~/cloudflare-setup.env <<'EOF'
 export DOMAIN="your-domain.example"  # your registered domain
 export CF_ACCOUNT_ID=""              # filled in section 5
 export CF_ZONE_ID=""                 # filled in section 5
+export PREVIEW_DOMAIN=""             # only for pull request previews (9.2): the previews' own zone
 EOF
 source ~/cloudflare-setup.env
 ```
@@ -563,7 +564,8 @@ Use a zone of its own for previews (a second domain, with the section 6 baseline
 **Check,** once a preview is deployed:
 
 ```bash
-export PREVIEW_DOMAIN="your-preview-domain.example"   # the previews' zone
+source ~/cloudflare-setup.env
+[ -n "$PREVIEW_DOMAIN" ] || { echo "set PREVIEW_DOMAIN in ~/cloudflare-setup.env (9.2)"; exit 1; }
 P="<SERVICE_NAME>-pr-<N>.$PREVIEW_DOMAIN"
 curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "https://$P"
 # → 302 https://<team>.cloudflareaccess.com/...   (anonymous visitors go to the login)
@@ -754,7 +756,7 @@ These come with the pipeline work:
   - **Provider:** `cloudflare/cloudflare`, pinned to the v5 series. Its syntax differs from v4.
   - **State:** in a versioned, locked Google Cloud Storage bucket, never on a laptop or in Git.
   - **Changes:** reviewed as a plan in a pull request before anyone applies them.
-- **App routes:** each environment's hostname becomes a tunnel route, defined in code. (Already in the chart: in `edge.mode: tunnel` its NetworkPolicy admits the `cloudflared` namespace, and its NOTES print the route table, as in 8.4.)
+- **App routes:** each environment's hostname becomes one DNS record and one Access application, and the tunnel routes for a host are the NOTES table's lines, all defined in code. (Already in the chart: in `edge.mode: tunnel` its NetworkPolicy admits the `cloudflared` namespace, and its NOTES print the route table, as in 8.4.)
 - **Your site's pipeline:**
   - build, run the link and accessibility checks, then deploy with the pinned Wrangler and the environment-scoped token;
   - previews on `preview.<domain>`, behind Access;

@@ -25,7 +25,7 @@ The free Cloudflare Universal SSL certificate covers `<zone>` and `*.<zone>`, ne
 ## Decision
 
 `edge.hosts.root` serves the whole app: one origin, so no CORS, host-locked cookies, `connect-src 'self'`, and
-one certificate, one route and one Access application per environment. `edge.hosts.api` is optional: a
+one certificate, one DNS record and one Access application per environment (the tunnel routes for a host are the NOTES table's lines). `edge.hosts.api` is optional: a
 backend-only host, serving the `backend` routes, for clients that are not a browser and need their own rules (a
 rate limit, an Access policy, a service token). Empty, nothing renders for it. There is no `app` host: the
 schema refuses it, and refuses a missing or empty `root`.
@@ -40,7 +40,7 @@ The template has no release yet, so this is not a migration: adopters configure 
 
 ## Consequences
 
-- Good: a third of the DNS records, routes and Access applications; a preview needs one hostname.
+- Good: a third of the DNS records and Access applications (and of the tunnel routes' hostnames); a preview needs one hostname.
 - Good: one origin means no CORS configuration and no cross-host cookie or CSP rules.
 - Good: a platform that hosts many services can adopt the same scheme under one domain.
 - Bad: a non-browser client that needs different edge rules needs `edge.hosts.api` set, and its own DNS record,

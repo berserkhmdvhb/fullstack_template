@@ -32,7 +32,7 @@ The platform runs on three providers. This page says what each one is for, the o
 | Step | What | Where | Takes |
 |---|---|---|---|
 | 0 | Two-factor sign-in on all three accounts, and a budget alert on Google Cloud | GKE §4, Cloudflare §4, GitHub settings | 15 min |
-| 1 | The cluster and its keyless access, through to the laptop-side proof of the provider (the `check` run comes after the first push, step 5; 9.4 is a decision: on the Tunnel, skip its Gateway) | [GKE §1 to §13](./gke-cluster-setup.md) | 60 to 90 min |
+| 1 | The cluster and its keyless access, through to the laptop-side proof of the provider (the `check` run comes after the first push, step 5; 9.4 is a decision: on the Tunnel, skip its Gateway) | [GKE §1 to §13](./gke-cluster-setup.md) (12.5 belongs to the optional previews row) | 60 to 90 min |
 | 2 | The domain and the edge, through to the deploy-token check | [Cloudflare §1 to §11](./cloudflare-setup.md) | 45 to 75 min |
 | 3 | Optional, for a site repository only: off-site backups | [Cloudflare §12](./cloudflare-setup.md#12-optional-a-private-r2-bucket-for-off-site-backups) | 15 min |
 | 4 | Set the values of the table below in GitHub. Variables, and the secrets only where the table says so. | GitHub settings | 5 min |
