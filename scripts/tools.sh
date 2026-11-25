@@ -30,7 +30,9 @@ MISE_TOOLS="node uv helm3 helm4 kubectl kubectl-floor kind kubeconform promtool 
   gitleaks squawk oasdiff cosign kyverno yq bats shellcheck lychee"
 TMP="" PART=""
 
-# The environment every mise run gets; it overrides whatever the caller has set.
+# The environment every mise run gets; it overrides whatever the caller has set. No other MISE_ variable gets
+# through (MISE_NODE_VERSION, MISE_<TOOL>_VERSION and the like would change what is installed).
+for _v in $(compgen -e | grep '^MISE_' || true); do unset "$_v"; done
 export MISE_DATA_DIR="$TOOLS_DIR/mise/data" MISE_CACHE_DIR="$TOOLS_DIR/mise/cache" MISE_STATE_DIR="$TOOLS_DIR/mise/state"
 export MISE_CONFIG_DIR="$TOOLS_DIR/mise/config" MISE_TMP_DIR="$TOOLS_DIR/mise/tmp" MISE_SYSTEM_DATA_DIR="$TOOLS_DIR/mise/system"
 export MISE_SYSTEM_CONFIG_DIR="$TOOLS_DIR/mise/system-config"

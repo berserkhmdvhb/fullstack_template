@@ -40,6 +40,7 @@ tools() {
   run env PINS="$PROJ/tools/pins.tsv" TOOLS_DIR="$TOOLS" \
     MISE_DATA_DIR=/elsewhere MISE_CONFIG_DIR="$HOME/.config/mise" MISE_GLOBAL_CONFIG_FILE="$HOME/.config/mise/config.toml" \
     GITHUB_TOKEN=secret MISE_GITHUB_TOKEN=secret GH_TOKEN=secret \
+    MISE_NODE_VERSION=20.0.0 MISE_JOBS=1 MISE_EXPERIMENTAL=1 \
     bash "$PROJ/scripts/tools.sh" mise
   [ "$status" -eq 0 ]
   [[ "$output" == *"cwd=$PROJ"$'\n'* ]]
@@ -49,6 +50,7 @@ tools() {
   [[ "$output" == *"MISE_CEILING_PATHS=$HOME"$'\n'* ]]
   [[ "$output" == *"MISE_OVERRIDE_CONFIG_FILENAMES=mise.toml"* ]]
   [[ "$output" != *secret* ]]
+  [[ "$output" != *MISE_NODE_VERSION* && "$output" != *MISE_JOBS* && "$output" != *MISE_EXPERIMENTAL* ]]
   [[ "$output" != *"/elsewhere"* ]]
 }
 
