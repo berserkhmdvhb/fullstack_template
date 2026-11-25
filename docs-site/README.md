@@ -61,7 +61,7 @@ count or a command that lives elsewhere ([`tests/test_adr_index.py`](../tests/te
 ([CI/CD](../wiki/ci-cd.md#documentation-site)). The build is plain static files, so **Cloudflare Pages** can host the
 same output instead: build command `pnpm install --frozen-lockfile && pnpm exec playwright install chromium && pnpm run build`, root
 directory `docs-site`, output directory `dist`, the Node version from `mise.toml`, the pnpm version from
-`packageManager` (pnpm-workspace.yaml's `pmOnFail: error` fails the build on another one), and `SITE_URL` set to the
+`packageManager` (another pnpm is not refused by pnpm itself: `pmOnFail: ignore`, so set it exactly), and `SITE_URL` set to the
 address it is served at.
 
 The build's `site` and `base` follow `SITE_URL`: the deploy passes the published URL (`html_url`) from the Pages

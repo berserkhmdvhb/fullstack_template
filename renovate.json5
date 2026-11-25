@@ -352,7 +352,7 @@
       "description": "pnpm: mise.toml and both packageManager fields move together",
       "matchPackageNames": ["pnpm", "aqua:pnpm/pnpm"],
       "groupName": "pnpm",
-      "prBodyNotes": ["Run `make pins-refresh` (it writes `mise.lock` and the pnpm version and checksums in `Dockerfile.frontend`), then `pnpm install --lockfile-only` in `frontend/` and `docs-site/` so each `pnpm-lock.yaml` records the new pnpm, and push."]
+      "prBodyNotes": ["Run `make pins-refresh` (it writes `mise.lock` and the pnpm version and checksums in `Dockerfile.frontend`), and push. The `pnpm-lock.yaml` files do not record pnpm (`pmOnFail: ignore`), so they need no change for the bump."]
     },
     {
       "description": "mise.toml: the lock moves with the version, or the pins check says so",

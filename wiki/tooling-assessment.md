@@ -61,7 +61,8 @@ the way that page describes.
 settings. Both projects install the standalone pnpm 12.22.0 (`aqua:pnpm/pnpm` in [`mise.toml`](../mise.toml), the
 newest release at least seven days old on the decision date), configured in their own `pnpm-workspace.yaml`:
 `minimumReleaseAge: 10080`, `strictDepBuilds: true` with `allowBuilds` from the former `allowScripts`,
-`blockExoticSubdeps: true`, `trustPolicy: no-downgrade`, `pmOnFail: error`. Every install is
+`blockExoticSubdeps: true`, `trustPolicy: no-downgrade`, `pmOnFail: ignore` (a one-document lock for GitHub's dependency
+graph; the version check is `check-pnpm-version.mjs`). Every install is
 `pnpm install --frozen-lockfile` ([Install scripts](./frontend-deployment.md#install-scripts)).
 
 What the switch found, which npm had let pass:

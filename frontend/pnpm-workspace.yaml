@@ -18,8 +18,10 @@ trustPolicyExclude:
   # Published without provenance while the earlier line had it (the Chrome-versioned line, via @lhci/cli).
   - chromium-bidi@157.0.8090-0
 
-# Fail when the running pnpm is not packageManager's, instead of downloading another one.
-pmOnFail: error
+# Never download another pnpm, and keep pnpm's own record out of pnpm-lock.yaml: a lock with that record is two YAML
+# documents, which GitHub's dependency graph (and so Dependabot's alerts) cannot read. The version is enforced by
+# scripts/check-pnpm-version.mjs, which CI and the image build run before every install.
+pmOnFail: ignore
 
 # No dependency build script runs: every package that declares one is denied here, and an install fails on one not listed.
 strictDepBuilds: true

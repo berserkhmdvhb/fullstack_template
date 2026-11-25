@@ -94,7 +94,7 @@ settings](https://pnpm.io/settings/dependency-resolution)):
 | `minimumReleaseAge: 10080` | Resolves only releases at least 7 days old, transitive ones included. A frozen install checks every lockfile entry against it again, so a lock written around it fails. A package younger than 7 days: [Security updates younger than 7 days](./getting-started.md#security-updates-younger-than-7-days). |
 | `blockExoticSubdeps: true` | Only a direct dependency may come from git or a tarball URL. |
 | `trustPolicy: no-downgrade` | Fails when a package's trust evidence (trusted publishing, provenance) is weaker than an earlier release's. Exceptions: below. |
-| `pmOnFail: error` | Fails when the running pnpm is not the `packageManager` one, instead of downloading that pnpm unverified. |
+| `pmOnFail: ignore` | Never downloads another pnpm, and keeps pnpm's own record out of `pnpm-lock.yaml`, so the lock is one YAML document that GitHub's dependency graph (and Dependabot's alerts) can read. `scripts/check-pnpm-version.mjs` enforces the version before every CI and image install. |
 | `storeDir`, `cacheDir` | The store and the cache under the repository's gitignored `.tools/pnpm/`, never under `$HOME`. |
 
 **Developers.** Install locally with `pnpm install --frozen-lockfile` (the pinned pnpm: `scripts/tools.sh install

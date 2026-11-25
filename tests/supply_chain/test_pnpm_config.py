@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -52,8 +53,8 @@ def package(project: str) -> dict[str, Any]:
 
 
 def locked(project: str) -> set[tuple[str, str]]:
-    """Every name@version in the project's pnpm-lock.yaml. Its first YAML document records pnpm
-    itself (packageManagerDependencies); the dependencies are in the last one."""
+    """Every name@version in the project's pnpm-lock.yaml (one YAML document; a lock that also
+    records pnpm itself has the dependencies in the last one)."""
     docs = list(yaml.safe_load_all((ROOT / project / "pnpm-lock.yaml").read_text()))
     keys = docs[-1].get("packages", {})
     return {cast("tuple[str, str]", tuple(k.rsplit("@", 1))) for k in keys}
@@ -173,7 +174,9 @@ def test_the_settings_hold_the_policy(project: str) -> None:
     assert s["strictDepBuilds"] is True
     assert s["blockExoticSubdeps"] is True
     assert s["trustPolicy"] == "no-downgrade"
-    assert s["pmOnFail"] == "error"
+    # Never download another pnpm, and write no pnpm record into the lock (the lockfile test
+    # below): check-pnpm-version.mjs enforces the version in CI and in the image.
+    assert s["pmOnFail"] == "ignore"
     # The store and the cache in the repository's gitignored .tools/, never under $HOME.
     assert s["storeDir"] == "../.tools/pnpm/store"
     assert s["cacheDir"] == "../.tools/pnpm/cache"
@@ -243,10 +246,43 @@ def test_pnpm_is_the_only_package_manager(project: str) -> None:
 
 
 @pytest.mark.parametrize("project", PROJECTS)
-def test_the_lockfile_records_the_pinned_pnpm(project: str) -> None:
-    first = next(yaml.safe_load_all((ROOT / project / "pnpm-lock.yaml").read_text()))
-    record = first["importers"]["."]["packageManagerDependencies"]["pnpm"]
-    assert record == {"specifier": pin("pnpm"), "version": pin("pnpm")}
+def test_the_lockfile_is_one_yaml_document(project: str) -> None:
+    """GitHub's dependency graph, and so Dependabot's alerts and security updates, cannot read a
+    pnpm-lock.yaml written as two documents (the pnpm record pnpm 12 adds unless pmOnFail is
+    ignore)."""
+    text = (ROOT / project / "pnpm-lock.yaml").read_text()
+    docs = list(yaml.safe_load_all(text))
+    assert len(docs) == 1, project
+    assert not text.startswith("---"), project
+    assert "packageManagerDependencies" not in text, project
+
+
+def _check_pnpm(tmp_path: Path, version: str) -> subprocess.CompletedProcess[str]:
+    """Run check-pnpm-version.mjs from frontend/ with a fake pnpm that prints `version`."""
+    node = ROOT / ".tools/bin/node"
+    if not node.is_file():
+        pytest.skip("the pinned Node is not installed in .tools (make tools)")
+    fake = tmp_path / "pnpm"
+    fake.write_text(f"#!/bin/sh\necho {version}\n", encoding="utf-8")
+    fake.chmod(0o755)
+    return subprocess.run(
+        [str(node), "scripts/check-pnpm-version.mjs"],
+        cwd=ROOT / "frontend",
+        env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_the_version_check_fails_on_another_pnpm_and_passes_on_the_pinned_one(
+    tmp_path: Path,
+) -> None:
+    """With pmOnFail: ignore, the check is what refuses another pnpm (CI and the image run it)."""
+    other = _check_pnpm(tmp_path, "12.0.0")
+    assert other.returncode == 1
+    assert f"pnpm 12.0.0 is running but packageManager names pnpm@{pin('pnpm')}" in other.stderr
+    assert _check_pnpm(tmp_path, pin("pnpm")).returncode == 0
 
 
 def test_the_frontend_typescript_has_one_source_for_its_override() -> None:
