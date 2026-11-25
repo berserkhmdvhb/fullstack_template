@@ -300,7 +300,7 @@ secrets:
     # same name in the database namespace). A placeholder: guards.rejectPlaceholders refuses it.
     secretStoreRef:
       name: your-secret-store
-      kind: SecretStore            # one per namespace (least privilege), or ClusterSecretStore
+      kind: SecretStore            # the only kind: one store per namespace (least privilege)
     # The remote name of each key: {key} is replaced by the key's name in `keys`. Secret Manager:
     # <service>-<env>-{key}; OpenBao's KV engine: <service>/<env>/{key} with remoteProperty "value".
     # Switching the store is a change of these three values only.

@@ -9,16 +9,19 @@ never collects it (tests/conftest.py ignores tests/k8s). It talks to fst only, t
 operator (tools/pins.tsv, external-secrets-chart) with the values the GKE guide uses
 (deploy/external-secrets/external-secrets-values.yaml), and OpenBao in dev mode (``OPENBAO_TAG``,
 by digest), whose root token is generated here, held in a Secret of OpenBao's namespace and read
-only inside its container: never printed, never written to a file. OpenBao gets Kubernetes auth
-with one role per environment, bound to that environment's namespaces, and a policy that reads
-only that environment's path; each namespace gets the store
+only inside its container: never printed, never written to a file. OpenBao's dev server also
+writes its root token to its own container log, so no step here may print that log (the failure
+dump prints the operator's). OpenBao gets Kubernetes auth with one role per namespace, bound to
+that namespace only: the app namespace's policy reads its environment's path, the database
+namespace's only its db-password; each namespace gets the store
 deploy/external-secrets/secretstore-openbao.yaml (the server and the role replaced, no CA: dev mode
 serves http). The release (``RELEASE`` in ``NAMESPACE`` and its database namespace, bootstrapped as
 cluster admin, deployed as the bootstrap's deployer with values.local.yaml and the kind job's
 images) turns ``secrets.externalSecret`` on with only the store values set to OpenBao. A namespace
 of another environment (``OTHER``) has a store of its own, which reads its own path and is refused
-the release's. Everything is removed at the end; the images come from ghcr.io, and nothing else
-leaves the runner.
+the release's; the database namespace's store is refused db-user; and an ExternalSecret naming a
+ClusterSecretStore is never synced (the operator runs with processClusterStore false). Everything
+is removed at the end; the images come from ghcr.io, and nothing else leaves the runner.
 """
 
 from __future__ import annotations
@@ -60,6 +63,8 @@ TOKEN_REVIEW = "fst-openbao-token-review"  # noqa: S105 - a name, not a password
 # renovate: image=ghcr.io/openbao/openbao  # noqa: ERA001 - an annotation, not code
 OPENBAO_TAG = "2.7.2@sha256:5046911075e137e154ce49ab051502f4ec7cf367d484ae4a4dce665d9b90561f"
 STORE = "openbao"  # the store's name in deploy/external-secrets/secretstore-openbao.yaml
+CLUSTER_STORE = "fst-cluster-store"
+SKIP_WAIT = 30  # seconds a synced ExternalSecret would have needed (a few) to show it
 SERVICE = "your-service-name"
 # The values the switch to OpenBao changes, and nothing else (wiki/security.md, OpenBao).
 STORE_VALUES = {
@@ -165,9 +170,9 @@ def _openbao_objects(token: str) -> str:
     return json.dumps({"apiVersion": "v1", "kind": "List", "items": items})
 
 
-def _policy(env: str) -> str:
-    """An environment's policy: read its own path of the KV engine, nothing else."""
-    return f'path "secret/data/{SERVICE}/{env}/*" {{ capabilities = ["read"] }}\n'
+def _policy(path: str) -> str:
+    """A namespace's policy: read one path (or path glob) of the KV engine, nothing else."""
+    return f'path "secret/data/{path}" {{ capabilities = ["read"] }}\n'
 
 
 def _store(role: str) -> str:
@@ -228,27 +233,29 @@ class Setup:
             ' kubernetes_host="https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT"'
             " >/dev/null"
         )
-        # One policy and one role per environment: the release's namespaces, and OTHER.
-        for env, namespaces in ((ENV, f"{NAMESPACE},{DB_NAMESPACE}"), ("other", OTHER)):
-            role = NAMESPACE if env == ENV else OTHER
-            self.bao_sh('bao policy write "$1" - >/dev/null', env, stdin=_policy(env))
+        # One role and one policy per namespace, named for it, bound to that namespace only: the
+        # app namespace reads its environment's path, the database namespace only db-password.
+        keys = VALUES["secrets"]["externalSecret"]["keys"]
+        for namespace, path in (
+            (NAMESPACE, f"{SERVICE}/{ENV}/*"),
+            (DB_NAMESPACE, f"{SERVICE}/{ENV}/{keys['DB_PASSWORD']}"),
+            (OTHER, f"{SERVICE}/other/*"),
+        ):
+            self.bao_sh('bao policy write "$1" - >/dev/null', namespace, stdin=_policy(path))
             self.bao_sh(
                 'bao write "auth/kubernetes/role/$1" bound_service_account_names=external-secrets'
-                ' bound_service_account_namespaces="$2" token_policies="$3" audience=openbao'
+                ' bound_service_account_namespaces="$1" token_policies="$1" audience=openbao'
                 " token_ttl=10m >/dev/null",
-                role,
-                namespaces,
-                env,
+                namespace,
             )
         # Each value through stdin, never an argument (`value=-`).
         put = 'bao kv put -mount=secret "$1" value=- >/dev/null'
-        keys = VALUES["secrets"]["externalSecret"]["keys"]
         for key, value in self.values.items():
             self.bao_sh(put, f"{SERVICE}/{ENV}/{keys[key]}", stdin=value)
         self.bao_sh(put, f"{SERVICE}/other/{keys['DB_PASSWORD']}", stdin=self.other_value)
 
     def stores(self) -> None:
-        for kube, role in ((self.app, NAMESPACE), (self.db, NAMESPACE), (self.other, OTHER)):
+        for kube, role in ((self.app, NAMESPACE), (self.db, DB_NAMESPACE), (self.other, OTHER)):
             kube("apply", "-f", "-", stdin=_store(role))
         for kube in (self.app, self.db, self.other):
 
@@ -293,6 +300,7 @@ class Setup:
         _run([*delete, "-f", "-"], objects, check=False)
         _run([*delete, "namespace", OTHER, OPENBAO_NAMESPACE], check=False)
         _run([*delete, "clusterrolebinding", TOKEN_REVIEW], check=False)
+        _run([*delete, "clustersecretstore", CLUSTER_STORE], check=False)
         helm = [*self.helm_admin, "-n", OPERATOR_NAMESPACE]
         if _run([*helm, "status", OPERATOR_RELEASE], check=False):
             _run([*helm, "uninstall", OPERATOR_RELEASE, "--wait"], check=False)
@@ -332,12 +340,17 @@ def test_both_external_secrets_sync_from_the_environments_store(setup: Setup) ->
 
 
 def test_the_synced_secrets_hold_the_stores_values(setup: Setup) -> None:
+    # Each comparison first, then a boolean: a failed comparison in an assert prints both sides.
     app = setup.secret_data(setup.app, f"{RELEASE}-secret")
-    assert set(app) == set(setup.values)
-    assert all(app[k] == v for k, v in setup.values.items()), "the app Secret differs from OpenBao"
+    same_keys = sorted(app) == sorted(setup.values)
+    assert same_keys, f"the app Secret's keys are {sorted(app)}"
+    same = all(app[k] == v for k, v in setup.values.items())
+    assert same, "the app Secret differs from OpenBao"
     db = setup.secret_data(setup.db, f"{RELEASE}-db-password")
-    assert set(db) == {"password"}
-    assert db["password"] == setup.values["DB_PASSWORD"], "the database's password differs"
+    same_keys = sorted(db) == ["password"]
+    assert same_keys, f"the database's Secret's keys are {sorted(db)}"
+    same = db["password"] == setup.values["DB_PASSWORD"]
+    assert same, "the database's password differs from the app's"
     owner = setup.app.get("secret", f"{RELEASE}-secret")["metadata"]["ownerReferences"][0]
     assert owner["kind"] == "ExternalSecret", owner
 
@@ -364,52 +377,84 @@ def test_the_app_pods_start_with_the_value(setup: Setup) -> None:
     assert all(j["status"].get("succeeded") == 1 for j in jobs), [j["status"] for j in jobs]
 
 
+def _external_secret(name: str, key: str, kind: str = "SecretStore", store: str = STORE) -> str:
+    """An ExternalSecret of one key (property value) from the named store, as JSON."""
+    ref = {"key": key, "property": "value"}
+    spec = {
+        "secretStoreRef": {"name": store, "kind": kind},
+        "refreshInterval": "1h",
+        "target": {"name": name},
+        "data": [{"secretKey": "value", "remoteRef": ref}],
+    }
+    obj = {"apiVersion": "external-secrets.io/v1", "kind": "ExternalSecret"}
+    return json.dumps({**obj, "metadata": {"name": name}, "spec": spec})
+
+
+def _refused(kube: Kube, name: str, what: str) -> None:
+    """The ExternalSecret ``name`` fails to sync, makes no Secret, and the operator's log has
+    OpenBao's 403 for it (the event is generic: "could not get secret data from provider")."""
+    _wait(
+        f"the refusal of {what}",
+        lambda: _ready(kube.get("externalsecret", name))[0] == "False",
+        120,
+    )
+    status, reason = _ready(kube.get("externalsecret", name))
+    print(f"{what}: Ready={status} ({reason})")
+    assert reason == "SecretSyncedError", reason
+    assert not kube.get("secret", name), f"the refused read of {what} still made a Secret"
+    log = Kube(OPERATOR_NAMESPACE)("logs", "deployment/external-secrets", "--tail=1000")
+    namespace = kube.base[-1]
+    refused = [
+        ln
+        for ln in log.splitlines()
+        if f'"name":"{name}","namespace":"{namespace}"' in ln and "Code: 403" in ln
+    ]
+    assert refused, f"no 403 from OpenBao for {what} in the operator's log"
+
+
 def test_a_store_of_another_environment_cannot_read_the_path(setup: Setup) -> None:
     """OTHER's store reads its own path, and is refused this environment's."""
     keys = VALUES["secrets"]["externalSecret"]["keys"]
-
-    def external_secret(name: str, env: str) -> str:
-        return json.dumps(
-            {
-                "apiVersion": "external-secrets.io/v1",
-                "kind": "ExternalSecret",
-                "metadata": {"name": name},
-                "spec": {
-                    "secretStoreRef": {"name": STORE, "kind": "SecretStore"},
-                    "refreshInterval": "1h",
-                    "target": {"name": name},
-                    "data": [
-                        {
-                            "secretKey": "value",
-                            "remoteRef": {
-                                "key": f"{SERVICE}/{env}/{keys['DB_PASSWORD']}",
-                                "property": "value",
-                            },
-                        }
-                    ],
-                },
-            }
-        )
-
-    setup.other("apply", "-f", "-", stdin=external_secret("fst-own", "other"))
-    setup.other("apply", "-f", "-", stdin=external_secret("fst-theirs", ENV))
+    own = _external_secret("fst-own", f"{SERVICE}/other/{keys['DB_PASSWORD']}")
+    setup.other("apply", "-f", "-", stdin=own)
+    theirs = _external_secret("fst-theirs", f"{SERVICE}/{ENV}/{keys['DB_PASSWORD']}")
+    setup.other("apply", "-f", "-", stdin=theirs)
     _wait(
         "the other environment's own secret synced",
         lambda: _ready(setup.other.get("externalsecret", "fst-own"))[0] == "True",
         120,
     )
-    assert setup.secret_data(setup.other, "fst-own") == {"value": setup.other_value}
-    _wait(
-        "the refusal",
-        lambda: _ready(setup.other.get("externalsecret", "fst-theirs"))[0] == "False",
-        120,
+    same = setup.secret_data(setup.other, "fst-own") == {"value": setup.other_value}
+    assert same, "the other environment's own secret differs from OpenBao"
+    _refused(setup.other, "fst-theirs", "another environment's store, this environment's path")
+
+
+def test_the_database_namespaces_store_reads_only_the_database_password(setup: Setup) -> None:
+    """The database namespace's role reads db-password (the release's own ExternalSecret above)
+    and is refused every other key of its environment."""
+    keys = VALUES["secrets"]["externalSecret"]["keys"]
+    user = _external_secret("fst-db-user", f"{SERVICE}/{ENV}/{keys['DB_USER']}")
+    setup.db("apply", "-f", "-", stdin=user)
+    _refused(setup.db, "fst-db-user", "the database namespace's store, the app's db-user")
+
+
+def test_an_external_secret_naming_a_cluster_store_is_never_synced(setup: Setup) -> None:
+    """The operator runs with processClusterStore false (the guide's values): an ExternalSecret a
+    deployer points at a ClusterSecretStore is skipped, even at a store that could read the path."""
+    keys = VALUES["secrets"]["externalSecret"]["keys"]
+    store = yaml.safe_load(_store(NAMESPACE))["items"][1]
+    store["kind"] = "ClusterSecretStore"
+    store["metadata"] = {"name": CLUSTER_STORE}
+    store["spec"]["provider"]["vault"]["auth"]["kubernetes"]["serviceAccountRef"]["namespace"] = (
+        NAMESPACE
     )
-    status, reason = _ready(setup.other.get("externalsecret", "fst-theirs"))
-    print(f"another environment's store, this environment's path: Ready={status} ({reason})")
-    assert reason == "SecretSyncedError", reason
-    assert not setup.other.get("secret", "fst-theirs"), "the refused path still made a Secret"
-    # The event is generic ("could not get secret data from provider"); the operator's log has
-    # OpenBao's answer: the policy refuses the path.
-    log = Kube(OPERATOR_NAMESPACE)("logs", "deployment/external-secrets", "--tail=500")
-    refused = [ln for ln in log.splitlines() if '"name":"fst-theirs"' in ln and "Code: 403" in ln]
-    assert refused, "no 403 from OpenBao for the other environment's read in the operator's log"
+    _run([*setup.cluster_wide, "apply", "-f", "-"], json.dumps(store))
+    via = _external_secret(
+        "fst-via-cluster", f"{SERVICE}/{ENV}/{keys['DB_USER']}", "ClusterSecretStore", CLUSTER_STORE
+    )
+    setup.other("apply", "-f", "-", stdin=via)
+    time.sleep(SKIP_WAIT)  # a skipped ExternalSecret gets no status at all: wait, then look
+    es = setup.other.get("externalsecret", "fst-via-cluster")
+    print(f"an ExternalSecret naming a ClusterSecretStore: status {es.get('status', {})}")
+    assert _ready(es)[0] != "True", es.get("status")
+    assert not setup.other.get("secret", "fst-via-cluster"), "a ClusterSecretStore was read"

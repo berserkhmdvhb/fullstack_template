@@ -3,6 +3,7 @@ running the same scripts as `make kind-up kind-deploy`; CI OK lets it be skipped
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import yaml
 
 from tests.supply_chain._workflows import REPO, workflow
 
@@ -436,3 +438,37 @@ def test_the_external_secrets_test_runs_on_the_newest_leg_after_the_shutdown_che
     assert names.index(SHUTDOWN) < names.index(name) < names.index(ZAP)
     assert "tests/k8s/test_external_secrets.py" in _recipe("kind-external-secrets-test")
     assert "external-secrets-chart" in _step("Install the pinned tools")["run"]
+
+
+ESO_TEST = REPO / "tests" / "k8s" / "test_external_secrets.py"
+ESO_VALUES = REPO / "deploy" / "external-secrets" / "external-secrets-values.yaml"
+
+
+def test_the_operator_processes_no_cluster_store_and_keeps_stores_out_of_edit_and_admin() -> None:
+    """A deployer may write ExternalSecrets: one that names a ClusterSecretStore must be skipped,
+    and no namespace role may create a store (the guide and the kind test install these values)."""
+    values = yaml.safe_load(ESO_VALUES.read_text(encoding="utf-8"))
+    assert values["processClusterStore"] is False
+    assert values["rbac"] == {"aggregateToEdit": False, "aggregateToAdmin": False}
+
+
+def test_the_external_secrets_test_never_asserts_on_a_secret_value() -> None:
+    """pytest's assertion rewriting prints both sides of a failed comparison: a comparison that
+    holds a secret value is computed first, and the assert takes the boolean."""
+    secret_names = {"values", "other_value", "secret_data", "password"}
+    tree = ast.parse(ESO_TEST.read_text(encoding="utf-8"))
+    offending = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assert) and isinstance(node.test, ast.Compare):
+            names = {
+                n.attr if isinstance(n, ast.Attribute) else getattr(n, "id", None)
+                for n in ast.walk(node.test)
+            }
+            subs = {
+                n.slice.value
+                for n in ast.walk(node.test)
+                if isinstance(n, ast.Subscript) and isinstance(n.slice, ast.Constant)
+            }
+            if names & secret_names or subs & {"password", "DB_PASSWORD"}:
+                offending.append(node.lineno)
+    assert offending == [], f"asserts that would print a secret value, lines {offending}"

@@ -44,5 +44,6 @@ Port-forward the backend API locally:
 {{- if not .Values.postgresql.enabled }}
 
 NOTE: internal PostgreSQL is disabled — ensure externalDatabase.host/credentials
-are supplied (sealed-secrets / ESO / SOPS) before the backend can serve traffic.
+are supplied (the app Secret's DB_USER / DB_PASSWORD, from the External Secrets Operator in
+production) before the backend can serve traffic.
 {{- end }}

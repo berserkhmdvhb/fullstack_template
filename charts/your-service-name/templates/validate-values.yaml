@@ -130,11 +130,12 @@
 {{- end }}
 {{- /*
   These two can hold a password or a token, and a ConfigMap is readable by anyone who can read the
-  namespace: they belong in the app Secret (secrets.existingSecret), never in config.
+  namespace: they belong in the app Secret (secrets.externalSecret.keys, or secrets.existingSecret),
+  never in config.
 */ -}}
 {{- range $name := list "RATE_LIMIT_STORAGE" "OTEL_EXPORTER_OTLP_HEADERS" }}
 {{- if hasKey $.Values.config $name }}
-{{- fail (printf "%s: config.%s must not be set: it can hold a credential. Put %s in the app Secret (secrets.existingSecret) instead." (include "chart.fullname" $) $name $name) }}
+{{- fail (printf "%s: config.%s must not be set: it can hold a credential. Put %s in the app Secret instead: a key of secrets.externalSecret.keys (and the store), or a key of the Secret secrets.existingSecret names." (include "chart.fullname" $) $name $name) }}
 {{- end }}
 {{- end }}
 {{- /*

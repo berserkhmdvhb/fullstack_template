@@ -213,7 +213,7 @@
               "required": ["name", "kind"],
               "properties": {
                 "name": { "type": "string", "minLength": 1 },
-                "kind": { "type": "string", "enum": ["SecretStore", "ClusterSecretStore"] }
+                "kind": { "description": "SecretStore only: a store per namespace, and the operator processes no ClusterSecretStore (deploy/external-secrets/external-secrets-values.yaml).", "type": "string", "enum": ["SecretStore"] }
               }
             },
             "remoteKeyTemplate": { "description": "The remote name of each key; {key} is replaced by its name in keys (Secret Manager <service>-<env>-{key}, OpenBao KV <service>/<env>/{key}).", "type": "string", "pattern": "^[^{}]*\\{key\\}[^{}]*$" },
