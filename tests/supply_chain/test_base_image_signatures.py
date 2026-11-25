@@ -50,5 +50,5 @@ def test_every_unsigned_base_has_a_reason() -> None:
         for r in UNSIGNED.read_text(encoding="utf-8").splitlines()
         if r and r[0] != "#"
     ]
-    assert {r[0] for r in rows} == {"debian", "node", "envoyproxy/envoy"}
+    assert {r[0] for r in rows} == {"debian", "node", "envoyproxy/envoy", "ghcr.io/astral-sh/uv"}
     assert all(len(r) > 1 and r[1].strip() for r in rows)

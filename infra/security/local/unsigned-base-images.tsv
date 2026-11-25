@@ -4,3 +4,4 @@
 debian	Docker Official Image: no cosign signature or attestation is published (cosign tree finds none)
 node	Docker Official Image: no cosign signature or attestation is published (cosign tree finds none)
 envoyproxy/envoy	the project publishes no cosign signature for its images (cosign tree finds none)
+ghcr.io/astral-sh/uv	Astral publishes no registry signature or attestation for the image (cosign tree and verify-attestation find none; its GitHub attestation needs `gh attestation verify` and a token)

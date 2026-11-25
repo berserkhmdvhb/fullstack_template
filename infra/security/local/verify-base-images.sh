@@ -4,15 +4,20 @@
 #
 # One source of digests: the `FROM <image>@sha256:<digest>` lines of the Dockerfiles. A gcr.io/distroless base is
 # verified with cosign; a base listed in unsigned-base-images.tsv (with its reason) is skipped by name; any other
-# base, an unpinned FROM and an unparsable FROM fail. A stage alias (`FROM runtime-base`) and `scratch` are skipped.
+# base, an unpinned FROM and an unparsable FROM fail. The same rules apply to `COPY/ADD --from=<image>` and
+# `RUN --mount=from=<image>`. A stage alias, a stage index and `scratch` are skipped.
 #
-# Usage: verify-base-images.sh [--list] [Dockerfile ...]   (default: ./Dockerfile*)
-# Env:   COSIGN (default cosign), BASE_IMAGES_UNSIGNED (default: the .tsv next to this script)
+# Usage: verify-base-images.sh [--list] [Dockerfile ...]
+#   default files: every tracked Dockerfile (Dockerfile, Dockerfile.*, *.Dockerfile) outside tests/
+# Env:   COSIGN (default cosign), BASE_IMAGES_UNSIGNED (default: the .tsv next to this script),
+#        BASE_IMAGES_ATTEMPTS (default 3), BASE_IMAGES_BACKOFF (seconds, default 5; attempt n waits n times that)
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cosign_bin="${COSIGN:-cosign}"
 unsigned_file="${BASE_IMAGES_UNSIGNED:-${here}/unsigned-base-images.tsv}"
+attempts="${BASE_IMAGES_ATTEMPTS:-3}"
+backoff="${BASE_IMAGES_BACKOFF:-5}"
 # The distroless README: keyless signatures by this service account, issued by Google's OIDC.
 identity="keyless@distroless.iam.gserviceaccount.com"
 issuer="https://accounts.google.com"
@@ -20,33 +25,67 @@ issuer="https://accounts.google.com"
 list=false
 if [[ "${1:-}" == "--list" ]]; then list=true; shift; fi
 files=("$@")
-if [[ ${#files[@]} -eq 0 ]]; then files=(Dockerfile*); fi
+if [[ ${#files[@]} -eq 0 ]]; then
+  root="$(cd "${here}/../../.." && pwd)"
+  cd "${root}"
+  mapfile -t files < <(git ls-files -- '*Dockerfile*' \
+    | grep -E '(^|/)(Dockerfile(\..*)?|[^/]*\.Dockerfile)$' | grep -Ev '(^|/)tests/' || true)
+  [[ ${#files[@]} -gt 0 ]] || { echo "::error::no tracked Dockerfile found" >&2; exit 1; }
+fi
 
 failures=0
 fail() { echo "::error::$*" >&2; failures=$((failures + 1)); }
 
-# Print "<file>\t<ref>" for every FROM that names an image; "<file>\t!<line>" for one that does not parse.
+# Print "<file>\t<ref>" for every image a Dockerfile pulls: FROM, COPY/ADD --from and RUN --mount=...from=;
+# "<file>\t!<line>" for a FROM that does not parse. A stage alias, a stage index and `scratch` are skipped.
 parse() {
-  local file="$1" line tok ref
-  local -a words
+  local file="$1" line tok ref i
+  local -a words refs
   local -A stages=()
   while IFS= read -r line || [[ -n "${line}" ]]; do
-    [[ "${line}" =~ ^[[:space:]]*[Ff][Rr][Oo][Mm][[:space:]] ]] || continue
     read -r -a words <<<"${line}"
-    ref=""
-    for tok in "${words[@]:1}"; do
-      case "${tok}" in --*) continue ;; esac
-      ref="${tok}"
-      break
+    [[ ${#words[@]} -gt 0 ]] || continue
+    refs=()
+    case "${words[0],,}" in
+      from)
+        ref=""
+        for tok in "${words[@]:1}"; do
+          case "${tok}" in --*) continue ;; esac
+          ref="${tok}"
+          break
+        done
+        # The alias after AS (any case) names a stage that later instructions may use.
+        for ((i = 2; i < ${#words[@]}; i++)); do
+          if [[ "${words[i]}" =~ ^[Aa][Ss]$ && -n "${words[i + 1]:-}" ]]; then stages["${words[i + 1],,}"]=1; fi
+        done
+        if [[ -z "${ref}" || "${ref}" == *'$'* ]]; then printf '%s\t!%s\n' "${file}" "${line}"; continue; fi
+        refs+=("${ref}") ;;
+      copy | add)
+        for tok in "${words[@]:1}"; do
+          if [[ "${tok}" == --from=* ]]; then refs+=("${tok#--from=}"); fi
+        done ;;
+      run)
+        for tok in "${words[@]:1}"; do
+          if [[ "${tok}" == --mount=* && ",${tok#--mount=}," =~ ,from=([^,]+), ]]; then refs+=("${BASH_REMATCH[1]}"); fi
+        done ;;
+    esac
+    for ref in "${refs[@]}"; do
+      if [[ -n "${stages[${ref,,}]:-}" || "${ref}" == "scratch" || "${ref}" =~ ^[0-9]+$ ]]; then continue; fi
+      printf '%s\t%s\n' "${file}" "${ref}"
     done
-    # The alias after AS (any case) names a stage that later FROMs may use.
-    for ((i = 2; i < ${#words[@]}; i++)); do
-      if [[ "${words[i]}" =~ ^[Aa][Ss]$ && -n "${words[i + 1]:-}" ]]; then stages["${words[i + 1]}"]=1; fi
-    done
-    if [[ -z "${ref}" || "${ref}" == *'$'* ]]; then printf '%s\t!%s\n' "${file}" "${line}"; continue; fi
-    if [[ -n "${stages[${ref}]:-}" || "${ref}" == "scratch" ]]; then continue; fi
-    printf '%s\t%s\n' "${file}" "${ref}"
   done <"${file}"
+}
+
+# Verify one ref with up to ${attempts} tries; sets $out to cosign's last output. Fails closed.
+verify() {
+  local ref="$1" n
+  for ((n = 1; n <= attempts; n++)); do
+    if out="$("${cosign_bin}" verify --certificate-identity "${identity}" --certificate-oidc-issuer "${issuer}" "${ref}" 2>&1 >/dev/null)"; then
+      return 0
+    fi
+    if ((n < attempts)); then sleep "$((n * backoff))"; fi
+  done
+  return 1
 }
 
 is_unsigned() { # repository -> 0 when listed in the data file
@@ -64,10 +103,12 @@ for f in "${files[@]}"; do
     # A registry port (host:5000/img) holds a colon before the last slash: keep it.
     if [[ "${name}" == */* && "${name##*/}" != *:* ]]; then repo="${name}"; fi
     if [[ "${repo}" == gcr.io/distroless/* ]]; then
-      if out="$("${cosign_bin}" verify --certificate-identity "${identity}" --certificate-oidc-issuer "${issuer}" "${ref}" 2>&1 >/dev/null)"; then
+      if verify "${ref}"; then
         echo "verified: ${ref}"
+      elif grep -Eiq 'tuf|timeout|timed out|deadline exceeded|connection (refused|reset)|no such host|dial tcp|temporary failure|unexpected eof|tls|\b(429|500|502|503|504)\b|too many requests|rekor.*(unavailable|error)' <<<"${out}"; then
+        fail "${file}: the signature of ${ref} could not be checked, the registry or Sigstore could not be reached (${attempts} attempts):"$'\n'"${out}"
       else
-        fail "${file}: the signature of ${ref} did not verify (identity ${identity}): ${out##*$'\n'}"
+        fail "${file}: the signature of ${ref} did not verify (identity ${identity}, ${attempts} attempts):"$'\n'"${out}"
       fi
     elif is_unsigned "${repo}"; then
       echo "skipped (no vendor signature, see $(basename "${unsigned_file}")): ${ref}"

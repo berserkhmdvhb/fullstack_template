@@ -209,7 +209,7 @@ the [Debian fixes](#debian-fixes-the-base-has-not-shipped-yet) over it, then onl
 
 ## Base image signatures
 
-`infra/security/local/verify-base-images.sh` (also `devsec.sh base-images`) reads every `FROM <image>@sha256:<digest>` of the root Dockerfiles, the one list of digests, and runs it before the build in the pull-request `images` job and in the release `build` job. It is a read of public data (the registry, Rekor, the TUF root): `contents: read`, no secret, no `id-token`.
+`infra/security/local/verify-base-images.sh` (also `devsec.sh base-images`) reads every `<image>@sha256:<digest>` the Dockerfiles pull, the one list of digests, and runs it before the build in the pull-request `images` job and in the release `build` job. It is a read of public data (the registry, Rekor, the TUF root): `contents: read`, no secret, no `id-token`.
 
 | Base | Checked | Evidence |
 |------|---------|----------|
@@ -217,8 +217,9 @@ the [Debian fixes](#debian-fixes-the-base-has-not-shipped-yet) over it, then onl
 | `debian:13-slim` | no | A Docker Official Image; `cosign tree` finds no signature or attestation |
 | `node:*-trixie-slim` | no | A Docker Official Image; `cosign tree` finds no signature or attestation |
 | `envoyproxy/envoy` | no | `cosign tree` finds no signature or attestation |
+| `ghcr.io/astral-sh/uv` (`COPY --from`) | no | `cosign tree` and `cosign verify-attestation` find none; its GitHub attestation needs `gh attestation verify` and a token, which a pull request does not hold |
 
-The unsigned bases are listed with their reason in [`unsigned-base-images.tsv`](../infra/security/local/unsigned-base-images.tsv); they stay protected by the digest pin and the scans only. The check fails on a missing signature, another identity, a `FROM` without a digest or one it cannot parse (an `ARG` in the reference), and on a base that is neither distroless nor listed, so a new distroless base is covered at once and any other base must be classified. `COPY --from=<image>` references (the uv image) are not `FROM` lines and are not checked.
+The unsigned bases are listed with their reason in [`unsigned-base-images.tsv`](../infra/security/local/unsigned-base-images.tsv); they stay protected by the digest pin and the scans only. The check fails on a missing signature, another identity, a `FROM` without a digest or one it cannot parse (an `ARG` in the reference), and on a base that is neither distroless nor listed, so a new distroless base is covered at once and any other base must be classified. The same rules cover an image named by `COPY --from=`, `ADD --from=` or `RUN --mount=from=` (a stage alias or index is not an image). It tries each signature three times with a growing pause, still fails closed, prints the full cosign output, and says so when the registry or Sigstore could not be reached rather than the signature being wrong. It reads every tracked `Dockerfile*` outside `tests/`.
 
 ---
 
