@@ -21,8 +21,9 @@ Renovate owns every version update ([`renovate.json5`](../../renovate.json5)), w
 checksum-pinned tools, the image digests in values files and Dockerfiles, and the tool versions in workflows. It
 proposes a release only once it is seven days old (`minimumReleaseAge: "7 days"`). Dependabot keeps its security
 alerts and security-update pull requests; its version updates are off (`open-pull-requests-limit: 0`).
-`make pins-refresh` recomputes checksums and locks after a bump, and a CI drift check fails when a pinned version has
-no matching checksum. Renovate and Dependabot titles are `fix(deps)`, so they pass the title check. The Renovate
+Its mise manager moves the tool versions in `mise.toml` and runs `mise lock` for `mise.lock`; `make pins-refresh`
+recomputes the other checksums and locks after a bump, and a CI drift check fails when a pinned version has no
+matching checksum, or `mise.lock` lags `mise.toml`. Renovate and Dependabot titles are `fix(deps)`, so they pass the title check. The Renovate
 GitHub App is installed by the owner; until then the file is inert.
 
 ## Consequences

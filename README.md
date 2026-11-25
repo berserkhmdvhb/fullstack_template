@@ -67,7 +67,7 @@ Follow [`wiki/getting-started.md`](wiki/getting-started.md) for a proper and det
 
 * Git installed and configured
 * Python ≥ 3.12
-* Node.js at the pinned version (the `node` row of [`tools/pins.tsv`](tools/pins.tsv); `frontend/.nvmrc` follows it)
+* Node.js at the pinned version (in [`mise.toml`](mise.toml), installed by `make tools`; `frontend/.nvmrc` follows it)
 * Docker or Podman (for local container builds)
 * kubectl + Helm (for Kubernetes deployment)
 * A Kubernetes cluster (kind, minikube, or production cluster)

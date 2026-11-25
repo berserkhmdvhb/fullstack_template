@@ -16,7 +16,7 @@ tool spreads that across three tools and several files.
 
 ## Decision
 
-uv, at the version `tools/pins.tsv` pins (checksum-verified), is the one Python tool. `pyproject.toml` declares the
+uv, at the version `mise.toml` pins (checksum-verified in `mise.lock`), is the one Python tool. `pyproject.toml` declares the
 dependencies and the dev group; `uv.lock` pins every package with hashes; CI and the image install exactly the lock
 (`uv sync --locked`, `uv sync --frozen`), and a stale lock fails (`make lock-check`, in CI and pre-commit).
 `[tool.uv] exclude-newer = "7 days"` keeps any release younger than seven days out of a resolve, the same rule
@@ -37,6 +37,6 @@ tools that need one, and not tracked.
 
 ## Links
 
-- [`pyproject.toml`](../../pyproject.toml), [`uv.lock`](../../uv.lock), [`tools/pins.tsv`](../../tools/pins.tsv)
+- [`pyproject.toml`](../../pyproject.toml), [`uv.lock`](../../uv.lock), [`mise.toml`](../../mise.toml)
 - [Getting started: lock file and the 7-day rule](../getting-started.md#lock-file-and-the-7-day-rule)
 - [`.github/actions/setup-backend/action.yml`](../../.github/actions/setup-backend/action.yml)

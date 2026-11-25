@@ -133,7 +133,7 @@ written the new sha256, and then `make crd-schemas` regenerates the files.
 rules on in both monitoring flavours, extracts every `spec.groups` into a Prometheus rule file per
 flavour, runs `promtool check rules` on it, and runs `promtool test rules` on each file in
 `charts/your-service-name/tests/rules` against both. promtool comes from the Prometheus release,
-pinned with its sha256 in `tools/pins.tsv` (`scripts/tools.sh install promtool`); the check is offline.
+pinned in `mise.toml`, with its sha256 in `mise.lock` (`scripts/tools.sh install promtool`); the check is offline.
 A test proves it fails on a broken rule. The objectives and alerts are described in
 [Service Level Objectives](./operations-runbook.md#service-level-objectives).
 

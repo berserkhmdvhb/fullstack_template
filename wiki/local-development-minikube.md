@@ -70,7 +70,7 @@ tags read from the node daemon) is used throughout.
 ## Step 1: Prerequisites
 
 Install the tooling once, by hand as below. kind, kubectl and Helm can instead come from the
-repository's pins ([`tools/pins.tsv`](../tools/pins.tsv)), checksum-verified into `.tools/bin`:
+repository's pins ([`mise.toml`](../mise.toml); [how they install](./getting-started.md#the-developer-toolchain)), checksum-verified into `.tools/bin`:
 `scripts/tools.sh install kind kubectl helm4` (then put `.tools/bin` on `PATH`).
 
 ```bash
@@ -90,7 +90,7 @@ sudo usermod -aG docker "$USER"; newgrp docker
 curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
 sudo install minikube-linux-amd64 /usr/local/bin/minikube
 # kind
-curl -Lo ./kind https://kind.sigs.k8s.io/dl/v<version>/kind-linux-amd64   # the kind row of tools/pins.tsv
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/v<version>/kind-linux-amd64   # the kind entry of mise.toml
 chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
 
 # kubectl
@@ -98,7 +98,7 @@ curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stabl
 sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
 # Helm: the repository's pinned, checksum-verified installer (Helm 4, the default major in
-# tools/pins.tsv); it installs into .tools/bin, so put that on PATH
+# mise.toml); it installs into .tools/bin, so put that on PATH
 ./scripts/tools.sh install helm4
 ```
 
@@ -733,4 +733,4 @@ make deploy HELM_ENV=local HELM_ARGS="--values charts/your-service-name/values.s
 
 ---
 
-**Cluster**: Minikube / kind · **Helm**: the pinned versions in [`tools/pins.tsv`](../tools/pins.tsv) · **Images**: bare `:local` tags off the node daemon
+**Cluster**: Minikube / kind · **Helm**: the pinned versions in [`mise.toml`](../mise.toml) · **Images**: bare `:local` tags off the node daemon

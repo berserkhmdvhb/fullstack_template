@@ -24,7 +24,7 @@ The template ships two example Kyverno policies, which the chart does not instal
 - a `ValidatingPolicy` that denies alias spellings of that path (a port or a different case).
 
 cosign and Kyverno are pinned to a pair that agree on the cosign v3 bundle format (the
-[version pair](../admission-control.md#version-pair), pinned in [`tools/pins.tsv`](../../tools/pins.tsv)).
+[version pair](../admission-control.md#version-pair), pinned in [`mise.toml`](../../mise.toml)).
 Kyverno is the one admission path; the Sigstore policy-controller is not shipped.
 
 ## Consequences

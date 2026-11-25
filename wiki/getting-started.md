@@ -48,15 +48,45 @@ Complete guide to setting up, configuring, and running the service template loca
 
 ---
 
+### The developer toolchain
+
+`make tools` (or `scripts/tools.sh install [name ...]`) installs the pinned tools into `.tools/bin`, on linux x64 and
+macOS arm64. It needs `bash`, `curl` and a `python3` (3.9 is enough: macOS's own works), and nothing else: no mise, no
+uv, no Python of 3.12 or later. It writes only inside the repository, never in your home directory.
+
+- **Where the versions are.** [`mise.toml`](../mise.toml) lists 22 tools (Node, uv, Helm 3 and 4, two kubectls, kind,
+  kubeconform, promtool, ct, helm-unittest, actionlint, hadolint, gitleaks, squawk, oasdiff, cosign, kyverno, yq, bats,
+  shellcheck, lychee). [`mise.lock`](../mise.lock) holds, for each, the exact download url and its sha256 for both
+  platforms, and a signature or attestation where the vendor publishes one. Installs run `mise install --locked`, so a
+  changed byte in a download or in the lock refuses the install and links nothing; every installed tree is then
+  checked for links out of it and setuid files. [`tools/pins.tsv`](../tools/pins.tsv) keeps what mise does not
+  install: mise itself (the bootstrap, checksum-verified), Python and the six uv tools (hash-pinned requirements), and
+  two data rows. [ADR-0043](./adr/0043-mise-for-the-developer-toolchain.md) says why.
+- **Run mise through `scripts/tools.sh mise ...`**, for example `scripts/tools.sh mise ls` or
+  `scripts/tools.sh mise doctor`. It runs the pinned mise with this repository's directories under `.tools/`, ignores
+  your own mise configuration and any `MISE_*` or GitHub token in your environment. The bare `.tools/bin/mise` would
+  write `~/.cache/mise` and `~/.local/state/mise`.
+- **Your own mise** (`mise activate`) is not needed. If you have it, `mise.toml`'s `[env]` puts `.tools/bin` on `PATH`
+  inside the repository; `.env` is read by the app itself and is not loaded by mise.
+- **Updating.** Renovate bumps a version in `mise.toml` and runs `mise lock`, so `mise.toml` and `mise.lock` change in
+  the same pull request. By hand: change the version (a release at least 7 days old), run `make pins-refresh`, commit
+  both files. `mise lock` makes about 50 of the 60 GitHub API calls an unauthenticated address gets per hour: wait for
+  the limit to reset if it stops, and do not use a personal token. Renovate runs it with its own token, and needs mise
+  2026.7.12 or newer ([`renovate.json5`](../renovate.json5) says what else an adopter turns on).
+- **The check.** The `pins` job (and `make pins-refresh` without `--check`) fails when `mise.toml` names a version
+  `mise.lock` does not hold, or an entry lacks a sha256 for either platform; that part is offline. It also compares
+  each `github:` tool's locked sha256 with the vendor's own checksum file where one exists. After a pull request that
+  changes a tool's lock entry, the first `make tools` reinstalls that tool.
+
 ### Development container
 
 `.devcontainer/devcontainer.json` is an optional container with everything above: its base image (the OS of the kind
 job's runner, [`reusable-kind.yml`](../.github/workflows/reusable-kind.yml)) and its one feature are pinned by digest,
-and on creation it runs `make tools`, so Python, Node, Helm, kind and the security tools come from `tools/pins.tsv`,
-checksum-verified, and `.tools/bin` is on `PATH`. Nothing in it restates a version, and Renovate updates its digests.
+and on creation it runs `make tools`, so Python, Node, Helm, kind and the security tools come from `mise.toml`, `mise.lock` and `tools/pins.tsv`
+([how](#the-developer-toolchain)), checksum-verified, and `.tools/bin` is on `PATH`. Nothing in it restates a version, and Renovate updates its digests.
 `.tools` and `.venv` are volumes of the container, not the workspace's: the installer links absolute paths, so a host
-toolchain and the container's would break each other. The container is linux/amd64 only, as `scripts/tools.sh` has no
-Linux arm64 pins: on Apple Silicon run `make tools` natively on macOS, which it supports.
+toolchain and the container's would break each other. The container is linux/amd64 only: the toolchain is locked for
+linux x64 and macOS arm64 already, so on Apple Silicon run `make tools` natively on macOS.
 
 Two pieces are not pinned: the Docker-in-Docker feature installs the current Docker engine and CLI when the container
 is built, and apt installs `make` and `python3` from the signed Ubuntu archive, only to bootstrap the installer. Both
@@ -162,7 +192,7 @@ Secret, with per-environment values selected from `charts/your-service-name/valu
 
 ### 1. Install uv
 
-The backend is locked with [uv](https://docs.astral.sh/uv/). The pinned version is in `tools/pins.tsv`;
+The backend is locked with [uv](https://docs.astral.sh/uv/). The pinned version is in `mise.toml`;
 `scripts/tools.sh install uv` installs it (checksum-verified) into `.tools/bin`.
 
 ```bash

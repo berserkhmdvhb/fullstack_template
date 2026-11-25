@@ -20,7 +20,7 @@ make test-unit            # backend unit only
 make test-integration / test-e2e / test-contract / test-live
 make shellcheck           # lint every tracked *.sh + *.bats
 make docs-links           # every file link and #anchor in the docs, offline (pinned lychee)
-make pins-refresh         # after bumping a pin: write the vendor checksums and regenerate the hashed locks
+make pins-refresh         # after bumping a pin: lock mise.toml's tools (mise lock), write the other checksums, regenerate the hashed locks
 cd frontend && npm run lint && npm run typecheck && npm run test   # frontend gates
 ```
 

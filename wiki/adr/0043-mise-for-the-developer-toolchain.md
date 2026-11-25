@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. The bootstrap, the settings and the mapping below are in place; the tools move from `tools/pins.tsv` to `mise.toml` and `mise.lock` one step at a time.
+Accepted. The tools in the mapping below are in `mise.toml` and `mise.lock`; `tools/pins.tsv` keeps the rows that stay.
 
 ## Date
 
@@ -20,7 +20,7 @@ What mise does not do is resolve application dependencies. The backend's package
 
 mise owns the developer toolchain: the command-line tools, the Node runtime and uv, and the shell's PATH for local work. uv and npm keep the application's packages. Helm values and the GitHub environments keep the cluster and deploy configuration. `make` stays the front door and `pre-commit` the git-hook runner.
 
-**The bootstrap.** The first row of `tools/pins.tsv` is mise itself. `scripts/tools.sh` installs it first, through the verified path every other row uses: the download is checked against the row's sha256 before it is extracted, the archive goes through `scripts/safe_extract.py`, and a changed byte installs nothing. The sha256 is the one in the release's `SHASUMS256.txt` (the GitHub release-asset digest of the same file agrees). The release also ships `SHASUMS256.txt.minisig` (minisign) and `SHASUMS256.asc` (OpenPGP). Neither is checked: both need a minisign or gpg binary, and the toolchain has neither until it has installed something. Adding a verifier and a committed key is a separate change; the sha256 in the row is reviewed in the diff and `make pins-refresh --check` fetches the vendor's file again. The row also covers macOS (`darwin-arm64`); the other rows stay linux-only until their tools move.
+**The bootstrap.** The first row of `tools/pins.tsv` is mise itself. `scripts/tools.sh` installs it first, through the verified path every other row uses: the download is checked against the row's sha256 before it is extracted, the archive goes through `scripts/safe_extract.py`, and a changed byte installs nothing. The sha256 is the one in the release's `SHASUMS256.txt` (the GitHub release-asset digest of the same file agrees). The release also ships `SHASUMS256.txt.minisig` (minisign) and `SHASUMS256.asc` (OpenPGP). Neither is checked: both need a minisign or gpg binary, and the toolchain has neither until it has installed something. Adding a verifier and a committed key is a separate change; the sha256 in the row is reviewed in the diff and `make pins-refresh --check` fetches the vendor's file again. The row also covers macOS (`darwin-arm64`); the tools in `mise.lock` are locked for both platforms.
 
 **Repo-local and hermetic.** `.tools/bin/mise` runs only through `scripts/tools.sh`, which sets, whatever the caller exported:
 
@@ -32,7 +32,7 @@ mise owns the developer toolchain: the command-line tools, the Node runtime and 
 
 `scripts/tools.sh mise <args>` runs the pinned mise from the repository root with this environment. A test puts a hostile global `config.toml`, a `mise.toml` and a `miserc.toml` in a fake home directory and shows that none is loaded and that nothing is written outside the repository.
 
-**The settings.** `mise.toml` holds settings only, no tools yet, no tasks and no hooks. Each name was checked against the settings reference of the pinned release and against `mise settings ls`:
+**The settings.** `mise.toml` holds the settings and the tools, no tasks and no hooks; its `[env]` is one entry, `.tools/bin` on `PATH` for people who run `mise activate` with their own mise (`.env` stays read by the app, not loaded twice). Each name was checked against the settings reference of the pinned release and against `mise settings ls`:
 
 - `lockfile = true` and `locked = true`: mise.lock is read and kept, and installs are locked to it (a locked install makes no GitHub API call and refuses any download whose checksum differs from the lock; both were tried against a rate-limited, token-less address and against a changed lock byte). `mise lock` still writes new entries in this mode, with a warning per tool that has no entry yet.
 - `lockfile_platforms = ["linux-x64", "macos-arm64"]`: CI and the devcontainer, and macOS on Apple silicon.
@@ -80,6 +80,14 @@ That is 32 rows: 22 move (17 `aqua`, 4 `github`, 1 `core`), 10 stay. Of the 22, 
 - The lock records the newest release at the time it is written. The 7-day rule is applied when a version is written to `mise.toml`, and `mise lock` locks that version only.
 - A locked install can make no GitHub API call, but `mise lock` can: about fifty calls for the whole set against sixty an hour for an unauthenticated address. Lock all platforms in one run, and wait for the limit to reset if it is hit; never borrow a token.
 - `helm3` and `helm4` (and the two kubectls) each expose one executable name (`helm`, `kubectl`); `.tools/bin/helm3`, `helm4` and `kubectl-floor` stay links made by `scripts/tools.sh`.
+
+## Updates and the drift check
+
+Renovate's `mise` manager reads `mise.toml` and, with lock file maintenance, runs `mise lock` (in safe mode, `MISE_SAFE=1`, which needs mise 2026.7.12 or newer) so a version bump and its lock entry arrive in one pull request. Two lines the manager cannot read (Helm's and kubectl's aqua recipes are `http` packages, and `helm3`, `helm4` and `kubectl-floor` are aliases) have regex managers in `renovate.json5`; the `pins.tsv` regex managers cover only the rows left there. The 7-day `minimumReleaseAge`, the groupings (uv with the backend image, Node with its version files, Kyverno with its chart, Helm 3 on 3.x) and the kubectl and `k8s-openapi` minor holds carry over, each with a test.
+
+The `pins` check fails, offline, when `mise.toml` names a version `mise.lock` does not hold or an entry lacks a sha256 for either platform. It also compares every `github:` tool's locked sha256 with the vendor's own checksum file where one exists (the network path, as the old check did for every row), so the lock `mise lock` wrote is cross-checked, not trusted. `scripts/pins_refresh.py` names the vendor file for each `github:` tool and fails on a `github:` tool it has no entry for.
+
+The tree check and the extraction of mise's own archive run on whatever `python3` is there: from 3.12 on with tarfile's `data` filter, below it (macOS ships 3.9) with the same rules written out in `scripts/safe_extract.py`, so the first `make tools` on a stock Mac needs no Python installed first.
 
 ## The Python runtime
 

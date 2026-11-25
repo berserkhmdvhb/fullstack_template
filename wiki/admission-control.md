@@ -84,7 +84,7 @@ the image, and `ImageValidatingPolicy` is the Kyverno type that reads bundles in
 `make kind-admission-test` ([`tests/k8s/test_admission.py`](../tests/k8s/test_admission.py), after
 `make kind-up`; the kind job runs it on its newest leg, see
 [Local cluster (kind)](./infrastructure.md#local-cluster-kind)) installs the Kyverno release pinned in
-`tools/pins.tsv` (`kyverno-chart`, admission controller only, images by digest:
+`tools/pins.tsv` (`kyverno-chart`, a data row, admission controller only, images by digest:
 [`kyverno-values.yaml`](../deploy/policies/test/kyverno-values.yaml)) and applies the policy's kind
 variant, [`kyverno-verify-images-kind.yaml`](../deploy/policies/test/kyverno-verify-images-kind.yaml).
 A test keeps the variant equal to the policy except for the attestor (an ephemeral cosign key, no
@@ -115,13 +115,13 @@ Sigstore services. What covers them instead is narrower:
 
 | Tool | Version | Source |
 |---|---|---|
-| cosign (signs and verifies in CI) | 3.1.4 | `tools/pins.tsv` |
-| Kyverno CLI (runs the offline tests) | 1.20.0 | `tools/pins.tsv` |
+| cosign (signs and verifies in CI) | 3.1.4 | `mise.toml` |
+| Kyverno CLI (runs the offline tests) | 1.20.0 | `mise.toml` |
 | Kyverno in the cluster | 1.20.x | run the same minor as the CLI |
 
 cosign 3 writes signatures and attestations in the Sigstore bundle format, so the signing and the
 verifying side must be tested together. This pair is tested with cosign 3.1.4 and Kyverno 1.20.x;
-other versions are untested here. When you bump cosign or Kyverno in `tools/pins.tsv`, bump the
+other versions are untested here. When you bump cosign or Kyverno in `mise.toml` (and the chart row in `tools/pins.tsv`), bump the
 numbers above in the same change; a test fails if they differ.
 
 ## GKE Binary Authorization

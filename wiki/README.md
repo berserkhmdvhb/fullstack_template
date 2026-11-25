@@ -84,7 +84,8 @@ flowchart TB
 │
 ├── scripts/                    # Local ops tools, the toolchain installer (tools.sh) and pin refresh
 ├── scripts/ci/                 # Scripts the workflows call (deploy-env, deploy-verify, shell-lint, check-secrets)
-├── tools/pins.tsv              # The pinned, checksum-verified dev toolchain
+├── mise.toml, mise.lock        # The dev toolchain: versions, and a sha256 per platform for each
+├── tools/pins.tsv              # What mise does not install: mise itself, Python and its tools, two data files
 ├── deploy/policies/            # Example Kyverno admission policies, with their tests
 │
 ├── charts/your-service-name/   # Helm chart (the deploy mechanism; values.<env>.yaml per environment)

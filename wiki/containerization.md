@@ -75,7 +75,7 @@ RUN debian-fixes /base-root /out
 FROM debian:13-slim@sha256:<digest> AS py-builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON=/usr/bin/python3.13 \
     UV_PYTHON_DOWNLOADS=never UV_PYTHON_PREFERENCE=only-system
-COPY --from=ghcr.io/astral-sh/uv:<version>@sha256:<digest> /uv /bin/uv   # same version as tools/pins.tsv
+COPY --from=ghcr.io/astral-sh/uv:<version>@sha256:<digest> /uv /bin/uv   # same version as mise.toml
 RUN apt-get update -y && apt-get install -y --no-install-recommends python3.13 tini
 # ... the tini dpkg record, and passwd/group with the app user (10001) added to the base's entries
 WORKDIR /app
