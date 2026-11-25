@@ -64,7 +64,7 @@ tools() {
 
 @test "a hostile config in the home directory changes nothing (the real mise)" {
   if [ ! -x "$ROOT/.tools/bin/mise" ]; then
-    [ -z "${CI:-}" ] || fail "CI must install the pinned mise first: scripts/tools.sh install mise"
+    [ -z "${CI:-}" ] || { echo "CI must install the pinned mise first: scripts/tools.sh install mise" >&2; return 1; }
     skip "needs the installed mise (scripts/tools.sh install mise)"
   fi
   mkdir -p "$TOOLS/bin"
