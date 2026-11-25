@@ -435,13 +435,16 @@ def test_a_dry_run_installs_zizmor_through_mise(tmp_path: Path) -> None:
 def test_the_pinned_uv_is_the_one_used_and_keeps_its_cache_and_pythons_in_the_repository(
     tmp_path: Path,
 ) -> None:
-    """A stub uv in .tools/bin records what it is called with; a different uv first on PATH is never
-    called, and uv's cache and its Python directory are inside .tools."""
+    """A stub uv in .tools/bin records what it is called with; a different uv first on PATH is
+    never called, and uv's cache and its Python directory are inside .tools. The Makefile's uv
+    settings for the project venv (a Python request, managed-only, downloads off) do not reach
+    it: it installs the pinned Python itself, and `uv python install` needs downloads allowed."""
     tools = tmp_path / ".tools"
     (tools / "bin").mkdir(parents=True)
     log = tmp_path / "uv.log"
     stub = (
-        f'#!/bin/sh\necho "$0 $UV_CACHE_DIR $UV_PYTHON_INSTALL_DIR" >> {log}\necho /fake/python\n'
+        '#!/bin/sh\necho "$0 $UV_CACHE_DIR $UV_PYTHON_INSTALL_DIR [$UV_PYTHON] [$UV_PYTHON_PREFERENCE]'
+        f' $UV_PYTHON_DOWNLOADS" >> {log}\necho /fake/python\n'
     )
     (tools / "bin/uv").write_text(stub)
     (tools / "bin/uv").chmod(0o755)
@@ -459,6 +462,9 @@ def test_the_pinned_uv_is_the_one_used_and_keeps_its_cache_and_pythons_in_the_re
         "PINS": str(pins),
         "TOOLS_DIR": str(tools),
         "REQS": str(reqs),
+        "UV_PYTHON": "3.13",
+        "UV_PYTHON_PREFERENCE": "only-managed",
+        "UV_PYTHON_DOWNLOADS": "never",
         "PATH": f"{other}{os.pathsep}{os.environ['PATH']}",
     }
     r = run(["install", "yamllint"], env)
@@ -467,7 +473,7 @@ def test_the_pinned_uv_is_the_one_used_and_keeps_its_cache_and_pythons_in_the_re
     assert calls
     assert "WRONG" not in calls
     for call in calls:
-        assert call == f"{tools}/bin/uv {tools}/uv/cache {tools}/uv/python", call
+        assert call == f"{tools}/bin/uv {tools}/uv/cache {tools}/uv/python [] [] manual", call
 
 
 def test_a_dry_run_names_exactly_the_requested_mise_tools(tmp_path: Path) -> None:

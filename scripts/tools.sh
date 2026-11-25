@@ -43,6 +43,10 @@ ABOVE_ROOT="$(dirname "$ROOT")"
 export MISE_CEILING_PATHS="$ABOVE_ROOT" MISE_OVERRIDE_CONFIG_FILENAMES=mise.toml
 export MISE_TRUSTED_CONFIG_PATHS="$ROOT" MISE_GITHUB_GH_CLI_TOKENS=false
 export UV_CACHE_DIR="$TOOLS_DIR/uv/cache" UV_PYTHON_INSTALL_DIR="$TOOLS_DIR/uv/python"
+# The Makefile sets uv up for the project venv (a Python request, managed-only, downloads off): not for the installer, which
+# installs the pinned Python by an explicit `uv python install` and builds each tool venv on it by path.
+export UV_PYTHON_DOWNLOADS=manual
+unset UV_PYTHON UV_PYTHON_PREFERENCE
 unset GITHUB_TOKEN GITHUB_API_TOKEN GH_TOKEN MISE_GITHUB_TOKEN MISE_GITHUB_ENTERPRISE_TOKEN
 
 die() { echo "tools: $*" >&2; exit 1; }
