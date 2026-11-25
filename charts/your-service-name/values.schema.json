@@ -267,8 +267,8 @@
           "additionalProperties": false,
           "required": ["root"],
           "properties": {
-            "root": { "description": "The host that serves every route (the whole app, one origin).", "type": "string", "minLength": 1 },
-            "api":  { "description": "Optional backend-only host (the backend routes); empty renders nothing.", "type": "string" }
+            "root": { "description": "The host that serves every route (the whole app, one origin).", "type": "string", "minLength": 1, "pattern": "^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)*[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.?$" },
+            "api":  { "description": "Optional backend-only host (the backend routes); empty renders nothing.", "type": "string", "pattern": "^$|^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)*[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.?$" }
           }
         },
         "routes": {

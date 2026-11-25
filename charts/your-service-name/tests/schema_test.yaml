@@ -45,6 +45,43 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "missing property 'root'"
+  - it: rejects a root host that is a star
+    set: {edge: {hosts: {root: "*"}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "'/edge/hosts/root': .* does not match pattern"
+  - it: rejects a root host that is a blank
+    set: {edge: {hosts: {root: " "}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "'/edge/hosts/root': .* does not match pattern"
+  - it: rejects a root host that is a space inside
+    set: {edge: {hosts: {root: "a b"}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "'/edge/hosts/root': .* does not match pattern"
+  - it: rejects a root host that is a leading hyphen
+    set: {edge: {hosts: {root: "-x.example.org"}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "'/edge/hosts/root': .* does not match pattern"
+  - it: rejects an api host that is a star
+    set: {edge: {hosts: {api: "*"}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "'/edge/hosts/api': .* does not match pattern"
+  - it: accepts a root host with a trailing dot
+    set: {edge: {hosts: {root: "example.org."}}}
+    asserts:
+      - notFailedTemplate: {}
+  - it: accepts a root host with upper case
+    set: {edge: {hosts: {root: "Example.ORG"}}}
+    asserts:
+      - notFailedTemplate: {}
+  - it: accepts a root host with a single label
+    set: {edge: {hosts: {root: "localhost"}}}
+    asserts:
+      - notFailedTemplate: {}
   - it: accepts an empty api host (no api host)
     set: {edge: {hosts: {api: ""}}}
     asserts:
