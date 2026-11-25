@@ -1,10 +1,17 @@
 // Renovate owns every version update in this repository (Dependabot is limited to security updates:
 // see .github/dependabot.yml). This file is inert until the Renovate GitHub App is installed on the repository.
 //
-// A Renovate pull request that bumps tools/pins.tsv or infra/security/config.yaml turns the `pins` check red
-// on purpose: a maintainer runs `make pins-refresh` (checksums and hashed locks) and pushes. No bot writes
-// checksums. The expected flow is in wiki/security.md. Keep this file to comments and plain JSON
-// (quoted keys, no trailing commas): a test reads it with the standard library.
+// The developer toolchain is in mise.toml and mise.lock: Renovate's mise manager moves a version in mise.toml and runs
+// `mise lock` for the lock, so the two change in one pull request and the `pins` check stays green. What it needs, for
+// an adopter: Renovate with mise 2026.7.12 or newer (it runs `mise lock` in safe mode, MISE_SAFE=1; an older mise, or
+// none, makes it skip mise.lock, and then the `pins` check is red until a maintainer runs `make pins-refresh`), and its
+// own GitHub token (`mise lock` makes about 50 API calls). The setting `"allowedUnsafeExecutions": ["mise"]` of a
+// self-hosted Renovate lifts the safe mode; it is not needed and not advised. wiki/getting-started.md has the rest.
+//
+// A pull request that bumps tools/pins.tsv (mise itself, Python, the uv tools, two data rows) or
+// infra/security/config.yaml turns the `pins` check red on purpose: a maintainer runs `make pins-refresh`
+// (checksums and hashed locks) and pushes. No bot writes those checksums. The expected flow is in wiki/security.md.
+// Keep this file to comments and plain JSON (quoted keys, no trailing commas): a test reads it with the standard library.
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended", "helpers:pinGitHubActionDigests", "docker:pinDigests"],
@@ -28,37 +35,50 @@
 
   "customManagers": [
     {
-      // tools/pins.tsv, rows whose url is a GitHub release asset or tag archive. Renovate replaces every occurrence of
-      // the version inside the matched text, so the version column and the url move together. The match stops before
-      // the sha256 column, which is not touched (make pins-refresh fills it in). (?m) because `^` must match at each line.
-      // A tag is `v<version>` or `<version>`, or `lychee-v<version>` (lychee's other tags, `lychee-lib-v…`, are skipped).
+      // The tools that Renovate's mise manager cannot read in mise.toml: Helm's aqua recipe is an `http` package, and
+      // helm3 and helm4 are aliases of one backend (each has its own version, so its own line). Renovate replaces the
+      // version inside the matched text; mise lock then re-locks the entry. (?m) because `^` must match at each line.
       "customType": "regex",
-      "description": "tools/pins.tsv: GitHub-hosted tools",
-      "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
-      "matchStrings": [
-        "(?m)^(?<depName>[a-z0-9-]+)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://github\\.com/(?<packageName>[^/\\t]+/[^/\\t]+)/(?:releases/download|archive/refs/tags)/[^\\t]+)\\t"
-      ],
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^(?:lychee-)?v?(?<version>[0-9].*)$"
-    },
-    {
-      "customType": "regex",
-      "description": "tools/pins.tsv: helm 3 and 4 (get.helm.sh)",
-      "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
-      "matchStrings": [
-        "(?m)^(?<depName>helm[34])\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://get\\.helm\\.sh/[^\\t]+)\\t"
-      ],
+      "description": "mise.toml: helm 3 and 4 (github.com/helm/helm)",
+      "managerFilePatterns": ["/^mise\\.toml$/"],
+      "matchStrings": ["(?m)^(?<depName>helm[34]) = \"(?<currentValue>[0-9][^\"]*)\""],
       "datasourceTemplate": "github-releases",
       "packageNameTemplate": "helm/helm",
       "extractVersionTemplate": "^v(?<version>.+)$"
     },
     {
+      // kubectl (an `http` package in aqua too) and the floor alias: both versions are Kubernetes tags.
       "customType": "regex",
-      // kubectl (dl.k8s.io), and the Kubernetes OpenAPI spec at a release tag (k8s-openapi, the kubeconform schemas).
-      "description": "tools/pins.tsv: kubectl (dl.k8s.io) and the Kubernetes OpenAPI spec",
+      "description": "mise.toml: kubectl and the floor kubectl (github.com/kubernetes/kubernetes)",
+      "managerFilePatterns": ["/^mise\\.toml$/"],
+      "matchStrings": [
+        "(?m)^\"aqua:kubernetes/kubernetes/(?<depName>kubectl)\" = \"(?<currentValue>[0-9][^\"]*)\"",
+        "(?m)^(?<depName>kubectl-floor) = \"(?<currentValue>[0-9][^\"]*)\""
+      ],
+      "datasourceTemplate": "github-tags",
+      "packageNameTemplate": "kubernetes/kubernetes",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      // tools/pins.tsv, the mise row (a GitHub release asset; one row per platform, both move together). Renovate
+      // replaces every occurrence of the version inside the matched text, so the version column and the url move
+      // together. The match stops before the sha256 column, which is not touched (make pins-refresh fills it in).
+      // (?m) because `^` must match at each line. Only mise: every other tool is in mise.toml.
+      "customType": "regex",
+      "description": "tools/pins.tsv: mise itself (GitHub release)",
       "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
       "matchStrings": [
-        "(?m)^(?<depName>kubectl(?:-floor)?)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://dl\\.k8s\\.io/[^\\t]+)\\t",
+        "(?m)^(?<depName>mise)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://github\\.com/(?<packageName>jdx/mise)/releases/download/[^\\t]+)\\t"
+      ],
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>[0-9].*)$"
+    },
+    {
+      "customType": "regex",
+      // The Kubernetes OpenAPI spec at a release tag (k8s-openapi, the kubeconform schemas); the kubectl pins are in mise.toml.
+      "description": "tools/pins.tsv: the Kubernetes OpenAPI spec",
+      "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
+      "matchStrings": [
         "(?m)^(?<depName>k8s-openapi)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://raw\\.githubusercontent\\.com/kubernetes/kubernetes/[^\\t]+)\\t"
       ],
       "datasourceTemplate": "github-tags",
@@ -76,16 +96,6 @@
       "datasourceTemplate": "helm",
       "packageNameTemplate": "kyverno",
       "registryUrlTemplate": "https://kyverno.github.io/kyverno"
-    },
-    {
-      "customType": "regex",
-      "description": "tools/pins.tsv: Node.js (nodejs.org)",
-      "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
-      "matchStrings": [
-        "(?m)^(?<depName>node)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://nodejs\\.org/[^\\t]+)\\t"
-      ],
-      "datasourceTemplate": "node-version",
-      "packageNameTemplate": "node"
     },
     {
       // Python tools (url uv:<package>): only the version column changes; make pins-refresh regenerates the hashed lock.
@@ -184,8 +194,13 @@
     }
   ],
 
+  // mise.toml: the built-in mise manager reads the tool versions (aqua:, github: and core: entries) and, with the
+  // lock file maintenance below, keeps mise.lock in step with a version bump. Only mise.toml is a config file here.
+  "mise": { "enabled": true, "managerFilePatterns": ["/^mise\\.toml$/"] },
+
   // uv.lock is maintained by Renovate's pep621 manager (part of config:recommended) with `uv lock`, which reads
-  // [tool.uv] exclude-newer = "7 days" from pyproject.toml, so a refreshed lock also keeps the 7-day rule.
+  // [tool.uv] exclude-newer = "7 days" from pyproject.toml, so a refreshed lock also keeps the 7-day rule. mise.lock is
+  // maintained by the mise manager (`mise lock`); every version in mise.toml is exact, so it re-locks what is pinned.
   "lockFileMaintenance": {
     "enabled": true,
     "semanticCommitType": "fix",
@@ -220,9 +235,10 @@
     {
       // Lock file maintenance has no release timestamp, and minimumReleaseAge defaults to
       // minimumReleaseAgeBehaviour "timestamp-required" under internalChecksFilter "strict", so without this rule
-      // no branch would ever be created. The 7 days are enforced inside uv.lock by [tool.uv] exclude-newer.
-      "description": "uv.lock maintenance: no release timestamp to wait for (uv's exclude-newer holds the 7 days)",
-      "matchManagers": ["pep621"],
+      // no branch would ever be created. The 7 days are enforced inside uv.lock by [tool.uv] exclude-newer; mise.lock only
+      // locks the exact versions of mise.toml, which Renovate wrote after the 7 days.
+      "description": "uv.lock and mise.lock maintenance: no release timestamp to wait for (the 7 days are held where each is written)",
+      "matchManagers": ["pep621", "mise"],
       "matchUpdateTypes": ["lockFileMaintenance"],
       "minimumReleaseAge": null,
       // Without a release timestamp the default timestamp-required behaviour holds the update; uv's exclude-newer still enforces the 7 days in the lock.
@@ -240,7 +256,7 @@
     },
     {
       // The uv pin in mise.toml (locked in mise.lock) and the uv image tag in Dockerfile.backend must stay equal (a test checks it),
-      // so one pull request moves both. The image digest is refreshed by Renovate; the mise.lock checksums by make pins-refresh.
+      // so one pull request moves both. Renovate refreshes the image digest and runs `mise lock` for the checksums.
       "description": "uv: the mise.toml entry and the backend image tag move together",
       "matchPackageNames": ["astral-sh/uv", "ghcr.io/astral-sh/uv"],
       "groupName": "uv"
@@ -249,7 +265,7 @@
       // The Kyverno CLI (the offline policy tests), the chart the kind admission test installs and that chart's
       // two images are one release (wiki/admission-control.md, Version pair): one pull request moves the CLI and
       // chart pins (the CLI in mise.toml and mise.lock, the chart row in tools/pins.tsv) and the image tags and digests in deploy/policies/test/kyverno-values.yaml.
-      // The checksums still come from make pins-refresh (mise.lock for the CLI, tools/pins.tsv for the chart).
+      // The chart row's checksum still comes from make pins-refresh (the CLI's from `mise lock`).
       "description": "Kyverno: the CLI pin, the chart pin and the chart's images move together",
       "matchPackageNames": ["kyverno/kyverno", "kyverno", "ghcr.io/kyverno/kyverno", "ghcr.io/kyverno/kyvernopre"],
       "groupName": "kyverno"
@@ -300,6 +316,11 @@
       "groupName": "playwright"
     },
     {
+      "description": "mise.toml: the lock moves with the version, or the pins check says so",
+      "matchFileNames": ["mise.toml"],
+      "prBodyNotes": ["`mise.lock` should change in this pull request too (Renovate runs `mise lock`). If it did not, the `pins` check is red: run `make pins-refresh` and push."]
+    },
+    {
       "description": "Tell the reviewer why pin drift is red",
       "matchFileNames": ["tools/pins.tsv", "infra/security/config.yaml", "charts/your-service-name/ci/crds/sources.tsv"],
       "prBodyNotes": ["The `pins` check is red until `make pins-refresh` has written the vendor checksums and the hashed locks. Run it and push."]
@@ -309,18 +330,18 @@
       "description": "helm3 stays on 3.x",
       "matchDepNames": ["helm3"],
       "matchManagers": ["custom.regex"],
-      "matchFileNames": ["tools/pins.tsv"],
+      "matchFileNames": ["mise.toml"],
       "allowedVersions": "<4"
     },
     {
-      // The frontend's engines field is >=26 <27: a new Node major is a deliberate change (move the pins row, engines,
+      // The frontend's engines field is >=26 <27: a new Node major is a deliberate change (move the mise.toml entry, engines,
       // the version files and the Dockerfile images together). The cap covers every manager that tracks Node
-      // (the pins row, .nvmrc, .node-version and the node image in the Dockerfiles), and one group keeps a Node
+      // (mise.toml, .nvmrc, .node-version and the node image in the Dockerfiles), and one group keeps a Node
       // update in a single pull request. The distroless runtime image carries its major in its name
       // (nodejs26-debian13), so Renovate only refreshes its digest.
       "description": "node stays on 26.x in every file that names it",
       "matchPackageNames": ["node"],
-      "matchManagers": ["custom.regex", "nvm", "nodenv", "dockerfile"],
+      "matchManagers": ["mise", "nvm", "nodenv", "dockerfile"],
       "allowedVersions": "/^26\\./",
       "groupName": "node"
     },
@@ -336,7 +357,7 @@
       "description": "kubectl follows the cluster, not the latest release",
       "matchDepNames": ["kubectl", "kubectl-floor"],
       "matchManagers": ["custom.regex"],
-      "matchFileNames": ["tools/pins.tsv"],
+      "matchFileNames": ["mise.toml"],
       "matchUpdateTypes": ["minor", "major"],
       "enabled": false
     },
@@ -349,6 +370,23 @@
       "matchFileNames": ["tools/pins.tsv"],
       "matchUpdateTypes": ["minor", "major"],
       "enabled": false
+    },
+    {
+      // The regex managers above own these four lines; the mise manager must not also propose them.
+      "description": "The mise manager leaves helm and kubectl to the regex managers",
+      "matchManagers": ["mise"],
+      "matchFileNames": ["mise.toml"],
+      "matchDepNames": ["helm3", "helm4", "kubectl-floor", "aqua:kubernetes/kubernetes/kubectl"],
+      "enabled": false
+    },
+    {
+      // lychee's aqua recipe reads its tags as `lychee-v<version>` (its library crate has `lychee-lib-v…` tags, which
+      // are not versions of the CLI).
+      "description": "lychee: tags are lychee-v<version>",
+      "matchManagers": ["mise"],
+      "matchFileNames": ["mise.toml"],
+      "matchDepNames": ["aqua:lycheeverse/lychee"],
+      "extractVersion": "^lychee-v(?<version>[0-9].*)$"
     },
     {
       // Last, so it overrides the per-dependency-type types that config:recommended's presets set.

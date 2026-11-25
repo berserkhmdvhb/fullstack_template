@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 import urllib.error
 from datetime import UTC, datetime
 from pathlib import Path
@@ -47,6 +48,7 @@ def _load() -> ModuleType:
 
 pr = _load()
 PRODUCTION_SOURCES = dict(pr.SOURCES)
+VENDOR_CROSS_CHECK = pr.mise_vendor_problems
 # The rows that moved to mise leave their checksum sources unused. The kinds stay for a row that has
 # to come back to tools/pins.tsv (a tool mise cannot verify as well): one sample row per kind (kind
 # stands in as the generic row of most tests; gitleaks has the {dir} and {ver} placeholders).
@@ -64,6 +66,12 @@ SAMPLE_SOURCES = {
 def _sample_sources(monkeypatch: pytest.MonkeyPatch) -> None:
     for name, source in SAMPLE_SOURCES.items():
         monkeypatch.setitem(pr.SOURCES, name, source)
+
+
+@pytest.fixture(autouse=True)
+def _no_mise_cross_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The comparison with the vendors' files (network) has its own tests, below."""
+    monkeypatch.setattr(pr, "mise_vendor_problems", lambda _config, _lock: [])
 
 
 def rows() -> list[list[str]]:
@@ -1121,3 +1129,110 @@ def test_refresh_fails_when_mise_lock_fails(
     _env(monkeypatch, tmp_path, _scratch(tmp_path, "a" * 64))
     monkeypatch.setattr(pr, "mise_lock", lambda _platforms: False)
     assert pr.main([]) == 1
+
+
+# --- the github: tools' lock checksums against the vendors' own files ---
+
+
+def _vendor_files(monkeypatch: pytest.MonkeyPatch, lock: str, *, lie: str = "") -> list[str]:
+    """Stub the fetch layer with the vendors' checksum files as the lock's own values give them."""
+    files: dict[str, str] = {}
+    for key, template in pr.MISE_VENDOR_SUMS.items():
+        for platform in ("linux-x64", "macos-arm64"):
+            entry = tomllib.loads(lock)["tools"][key][0][f"platforms.{platform}"]
+            directory, asset = entry["url"].rsplit("/", 1)
+            sha = entry["checksum"].removeprefix("sha256:")
+            if template:
+                source = template.format(dir=directory)
+                files[source] = (
+                    files.get(source, "") + f"{'f' * 64 if key == lie else sha}  {asset}\n"
+                )
+    return _stub(monkeypatch, {k: v.encode() for k, v in files.items()})
+
+
+def test_every_github_tool_has_a_vendor_source_entry_and_the_real_lock_matches_the_vendors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github = {k for k in tomllib.loads(MISE_TOML.read_text())["tools"] if k.startswith("github:")}
+    assert github == set(pr.MISE_VENDOR_SUMS)
+    lock = MISE_LOCK.read_text()
+    seen = _vendor_files(monkeypatch, lock)
+    assert VENDOR_CROSS_CHECK(MISE_TOML.read_text(), lock) == []
+    assert seen  # a vendor file was read; squawk publishes none, so it is not fetched
+    assert not any("squawk" in url for url in seen)
+
+
+def test_a_lock_checksum_the_vendor_does_not_publish_is_a_problem(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lock = MISE_LOCK.read_text()
+    _vendor_files(monkeypatch, lock, lie="github:oasdiff/oasdiff")
+    found = VENDOR_CROSS_CHECK(MISE_TOML.read_text(), lock)
+    assert len(found) == 2  # noqa: PLR2004 - both platforms
+    assert all(
+        line.startswith("github:oasdiff/oasdiff: ") and "vendor ffff" in line for line in found
+    )
+
+
+def test_a_github_tool_without_a_recorded_vendor_source_is_a_problem() -> None:
+    config = MISE_TOML.read_text() + '"github:example/tool" = "1.0.0"\n'
+    assert VENDOR_CROSS_CHECK(config, MISE_LOCK.read_text()) == [
+        "github:example/tool: no vendor checksum source in MISE_VENDOR_SUMS"
+    ]
+
+
+def test_a_lock_url_outside_the_tools_own_repository_is_refused_before_any_fetch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lock = MISE_LOCK.read_text().replace(
+        "github.com/oasdiff/oasdiff/releases", "github.com/evil/oasdiff/releases"
+    )
+    seen = _vendor_files(monkeypatch, MISE_LOCK.read_text())
+    found = VENDOR_CROSS_CHECK(MISE_TOML.read_text(), lock)
+    assert len(found) == 2  # noqa: PLR2004
+    assert not any("evil" in url for url in seen)
+
+
+def test_check_fails_when_the_lock_differs_from_the_vendor_and_when_the_vendor_is_unreachable(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.setattr(pr, "mise_vendor_problems", VENDOR_CROSS_CHECK)
+    _env(monkeypatch, tmp_path, _scratch(tmp_path, "a" * 64))
+    _vendor_files(monkeypatch, MISE_LOCK.read_text(), lie="github:prometheus/prometheus")
+    assert pr.run_mise(check=True) is True
+    assert "DRIFT mise.lock: github:prometheus/prometheus: linux-x64 lock has" in (
+        capsys.readouterr().out
+    )
+    _stub(monkeypatch, {})
+    assert pr.run_mise(check=True) is True
+    assert "ERROR mise.lock: 404" in capsys.readouterr().out
+    _vendor_files(monkeypatch, MISE_LOCK.read_text())
+    assert pr.run_mise(check=True) is False
+
+
+def _bump_kind(config: str, lock: str) -> tuple[str, str]:
+    """A Renovate pull request on kind: the version in mise.toml and, by `mise lock`, the lock."""
+    config = config.replace(
+        '"aqua:kubernetes-sigs/kind" = "0.33.0"', '"aqua:kubernetes-sigs/kind" = "0.34.0"'
+    )
+    lock = lock.replace('version = "0.33.0"', 'version = "0.34.0"').replace(
+        'specifiers = ["0.33.0"]', 'specifiers = ["0.34.0"]'
+    )
+    return config, lock
+
+
+def test_a_bump_with_its_lock_is_in_step_and_the_same_bump_without_it_is_not(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config, lock = _bump_kind(MISE_TOML.read_text(), MISE_LOCK.read_text())
+    assert pr.mise_problems(config, lock) == []
+    assert pr.mise_problems(config, MISE_LOCK.read_text()) != []
+    monkeypatch.setattr(pr, "MISE_TOML", tmp_path / "mise.toml")
+    monkeypatch.setattr(pr, "MISE_LOCK", tmp_path / "mise.lock")
+    seen = _stub(monkeypatch, {})
+    _mise_files(tmp_path, config, lock)
+    assert pr.run_mise(check=True) is False
+    _mise_files(tmp_path, config, MISE_LOCK.read_text())
+    assert pr.run_mise(check=True) is True
+    assert "DRIFT mise.lock: aqua:kubernetes-sigs/kind" in capsys.readouterr().out
+    assert seen == []  # the drift check itself reads two local files and fetches nothing

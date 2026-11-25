@@ -680,6 +680,49 @@ def mise_problems(config: str, lock: str) -> list[str]:
     return found
 
 
+# github: tool in mise.lock -> the vendor's checksum file beside the asset ({dir} is its directory),
+# or "" where the vendor publishes none (the lock then holds GitHub's release-asset digest alone).
+# `mise lock` writes the lock, so each entry is compared with the vendor, not just trusted.
+MISE_VENDOR_SUMS = {
+    "github:helm-unittest/helm-unittest": "{dir}/helm-unittest-checksum.sha",
+    "github:oasdiff/oasdiff": "{dir}/checksums.txt",
+    "github:prometheus/prometheus": "{dir}/sha256sums.txt",
+    "github:sbdchd/squawk": "",
+}
+
+
+def mise_vendor_problems(config: str, lock: str) -> list[str]:
+    """Where a github: tool's locked checksum is not the vendor's published one (network). A
+    github: tool with no entry in MISE_VENDOR_SUMS is a problem too: say where its checksum is."""
+    cfg = tomllib.loads(config)
+    locked = tomllib.loads(lock).get("tools", {})
+    found: list[str] = []
+    files: dict[str, str] = {}
+    for key in cfg.get("tools", {}):
+        if not key.startswith("github:"):
+            continue
+        template = MISE_VENDOR_SUMS.get(key)
+        if template is None:
+            found.append(f"{key}: no vendor checksum source in MISE_VENDOR_SUMS")
+            continue
+        for platform in cfg["settings"]["lockfile_platforms"]:
+            entry = (locked.get(key) or [{}])[0].get(f"platforms.{platform}", {})
+            url, sha = entry.get("url", ""), entry.get("checksum", "").removeprefix("sha256:")
+            prefix = f"https://github.com/{key.removeprefix('github:')}/releases/download/"
+            if not template or not sha:
+                continue  # no vendor file; a missing checksum is mise_problems' finding
+            if not url.startswith(prefix) or url_problem(url):
+                found.append(f"{key}: {platform} url is not a plain url under {prefix}")
+                continue
+            directory, asset = url.rsplit("/", 1)
+            source = template.format(dir=directory)
+            files.setdefault(source, fetch(source).decode())
+            vendor = sha_from_sumfile(files[source], asset)
+            if vendor != sha:
+                found.append(f"{key}: {platform} lock has {sha}, vendor {vendor}")
+    return found
+
+
 def mise_lock(platforms: list[str]) -> bool:
     """Run the pinned mise's `mise lock` for these platforms (tools.sh drops every token)."""
     cmd = [str(ROOT / "scripts/tools.sh"), "mise", "lock", "--platform", ",".join(platforms)]
@@ -690,21 +733,26 @@ def run_mise(*, check: bool) -> bool:
     """Check mise.lock against mise.toml; refreshing runs `mise lock` first. True on a problem."""
     config = MISE_TOML.read_text()
     found = mise_problems(config, MISE_LOCK.read_text())
-    if not found:
-        out("ok mise.lock")
-        return False
-    if check:
+    if found and check:
         for line in found:
             out(f"DRIFT mise.lock: {line}")
         return True
-    platforms = tomllib.loads(config)["settings"]["lockfile_platforms"]
-    out(f"UPDATED mise.lock: {len(found)} difference(s), running mise lock")
-    if not mise_lock(platforms):
-        out("ERROR mise.lock: mise lock failed")
+    if found:
+        platforms = tomllib.loads(config)["settings"]["lockfile_platforms"]
+        out(f"UPDATED mise.lock: {len(found)} difference(s), running mise lock")
+        if not mise_lock(platforms):
+            out("ERROR mise.lock: mise lock failed")
+            return True
+        found = mise_problems(config, MISE_LOCK.read_text())
+    try:  # in step with the config: now the vendors' own checksum files
+        found += mise_vendor_problems(config, MISE_LOCK.read_text())
+    except (PinError, ValueError) as exc:
+        out(f"ERROR mise.lock: {exc}")
         return True
-    found = mise_problems(config, MISE_LOCK.read_text())
     for line in found:
         out(f"DRIFT mise.lock: {line}")
+    if not found:
+        out("ok mise.lock")
     return bool(found)
 
 

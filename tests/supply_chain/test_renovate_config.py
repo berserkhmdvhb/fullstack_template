@@ -6,6 +6,7 @@ import json
 import re
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ import pytest
 import yaml
 
 from tests.supply_chain._pins import pin
+from tests.supply_chain.test_mise_config import MOVED
 from tests.supply_chain.test_release_versions import SCM_PACKAGES
 
 pytestmark = pytest.mark.tree_wide
@@ -21,7 +23,12 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 PINS = (ROOT / "tools" / "pins.tsv").read_text(encoding="utf-8")
 CONFIG = (ROOT / "infra" / "security" / "config.yaml").read_text(encoding="utf-8")
 DEPENDABOT = ROOT / ".github" / "dependabot.yml"
-MAX_PINS_MANAGERS = 6
+MAX_PINS_MANAGERS = 4  # mise, the k8s-openapi spec, the Kyverno chart, the PyPI tools
+MISE = (ROOT / "mise.toml").read_text(encoding="utf-8")
+# Read by the regex managers below, not by Renovate's mise manager: the aqua recipes for Helm and
+# kubectl are `http` packages (the manager cannot read them), and helm3, helm4 and kubectl-floor are
+# aliases of one backend, which have no registry entry of their own.
+MISE_BY_REGEX = {"helm3", "helm4", "kubectl", "kubectl-floor"}
 GIT: str = shutil.which("git") or "/usr/bin/git"
 
 
@@ -84,15 +91,23 @@ def test_every_pin_row_is_seen_by_exactly_one_manager_and_the_url_follows_the_ve
 
 
 def test_the_github_release_tags_extract_to_the_pinned_versions() -> None:
-    """Every GitHub-hosted pin's tag form gives its version; lychee's library tags give none."""
-    (manager,) = [m for m in _managers("pins") if m["datasourceTemplate"] == "github-releases"][:1]
+    """The one GitHub-hosted row left (mise) is tagged v<version>; lychee's tags: see mise.toml."""
+    (manager,) = [m for m in _managers("pins") if m["datasourceTemplate"] == "github-releases"]
     extract = _compile(manager["extractVersionTemplate"])
-    for tag, version in (("v1.7.12", "1.7.12"), ("0.13.8", "0.13.8"), ("lychee-v0.24.2", "0.24.2")):
-        found = extract.fullmatch(tag)
-        assert found, tag
-        assert found.group("version") == version
-    for tag in ("lychee-lib-v0.24.2", "nightly"):
-        assert not extract.fullmatch(tag), tag
+    found = extract.fullmatch("v2026.11.9")
+    assert found
+    assert found.group("version") == "2026.11.9"
+    rule = next(
+        r
+        for r in renovate()["packageRules"]
+        if r.get("matchDepNames") == ["aqua:lycheeverse/lychee"]
+    )
+    lychee = _compile(rule["extractVersion"])
+    found = lychee.fullmatch("lychee-v0.24.2")
+    assert found
+    assert found.group("version") == pin("lychee")
+    for tag in ("lychee-lib-v0.24.2", "nightly", "v0.24.2"):
+        assert not lychee.fullmatch(tag), tag
 
 
 def test_every_security_tool_version_is_annotated() -> None:
@@ -126,17 +141,23 @@ def test_dependabot_does_security_updates_only() -> None:
         assert update["open-pull-requests-limit"] == 0
 
 
-def test_every_name_based_rule_is_scoped_to_the_pin_file() -> None:
+def test_every_name_based_rule_is_scoped_to_the_file_that_names_it() -> None:
     """`python`, `node` and friends also name base images and npm packages: scope the rules."""
+    scopes = {
+        ("custom.regex", "tools/pins.tsv"),
+        ("custom.regex", "mise.toml"),
+        ("mise", "mise.toml"),
+    }
     for rule in renovate()["packageRules"]:
         if "matchDepNames" in rule:
-            assert rule.get("matchManagers") == ["custom.regex"], rule["description"]
-            assert rule.get("matchFileNames") == ["tools/pins.tsv"], rule["description"]
+            (manager,) = rule["matchManagers"]
+            (file,) = rule["matchFileNames"]
+            assert (manager, file) in scopes, rule["description"]
 
 
 def test_the_node_cap_covers_every_manager_that_tracks_node_and_follows_the_pin() -> None:
     rule = next(r for r in renovate()["packageRules"] if r.get("matchPackageNames") == ["node"])
-    assert {"custom.regex", "nvm", "nodenv", "dockerfile"} <= set(rule["matchManagers"])
+    assert {"mise", "nvm", "nodenv", "dockerfile"} <= set(rule["matchManagers"])
     assert rule["groupName"] == "node"
     major = pin("node").split(".")[0]
     cap = re.fullmatch(r"/(.+)/", rule["allowedVersions"])
@@ -208,7 +229,7 @@ def test_uv_lock_maintenance_is_not_blocked_by_the_release_age_check() -> None:
     # timestamp-required behaviour would create no branch. uv's exclude-newer holds the 7 days.
     rules = renovate()["packageRules"]
     rule = next(r for r in rules if r.get("matchUpdateTypes") == ["lockFileMaintenance"])
-    assert rule["matchManagers"] == ["pep621"]
+    assert rule["matchManagers"] == ["pep621", "mise"]
     assert "minimumReleaseAge" in rule
     assert rule["minimumReleaseAge"] is None
     # An update with no release timestamp is held by the default timestamp-required behaviour.
@@ -281,9 +302,18 @@ def test_every_crd_source_row_is_seen_once_and_its_url_follows_the_version() -> 
 
 def test_the_drift_note_covers_the_crd_sources() -> None:
     rule = next(
-        r for r in renovate()["packageRules"] if "matchFileNames" in r and "prBodyNotes" in r
+        r
+        for r in renovate()["packageRules"]
+        if "tools/pins.tsv" in r.get("matchFileNames", ()) and "prBodyNotes" in r
     )
     assert "charts/your-service-name/ci/crds/sources.tsv" in rule["matchFileNames"]
+    mise = next(
+        r
+        for r in renovate()["packageRules"]
+        if r.get("matchFileNames") == ["mise.toml"] and "prBodyNotes" in r
+    )
+    assert "make pins-refresh" in mise["prBodyNotes"][0]
+    assert "mise.lock" in mise["prBodyNotes"][0]
 
 
 ADMISSION_IMAGE_FILES = ("deploy/policies/test/kyverno-values.yaml",)
@@ -404,3 +434,107 @@ def test_scorecard_action_never_proposes_the_unpullable_v2_6_0() -> None:
         assert excluded.search(version), version
     for version in ("v2.6.1", "v2.7.0", "v2.5.0"):
         assert not excluded.search(version), version
+
+
+# --- the toolchain: mise.toml (and mise.lock) read by Renovate's mise manager ---
+
+
+def test_the_mise_manager_reads_mise_toml_and_the_lock_is_maintained_with_it() -> None:
+    cfg = renovate()
+    assert cfg["mise"]["enabled"] is True
+    assert cfg["mise"]["managerFilePatterns"] == ["/^mise\\.toml$/"]
+    assert re.search(cfg["mise"]["managerFilePatterns"][0].strip("/"), "mise.toml")
+    assert not re.search(cfg["mise"]["managerFilePatterns"][0].strip("/"), "docs/mise.toml")
+    # The root lockFileMaintenance covers every manager with a lock file, mise.lock among them.
+    assert cfg["lockFileMaintenance"]["enabled"] is True
+    assert (ROOT / "mise.lock").is_file()
+    assert cfg["minimumReleaseAge"] == "7 days"
+
+
+def test_nothing_in_pins_tsv_is_matched_for_a_tool_that_moved_to_mise() -> None:
+    """A moved tool's row (any url a vendor uses) is matched by no pins.tsv manager."""
+    urls = (
+        "https://github.com/o/{n}/releases/download/v1.0.0/{n}-linux-amd64.tar.gz",
+        "https://github.com/o/{n}/archive/refs/tags/v1.0.0.tar.gz",
+        "https://get.helm.sh/helm-v1.0.0-linux-amd64.tar.gz",
+        "https://dl.k8s.io/release/v1.0.0/bin/linux/amd64/kubectl",
+        "https://nodejs.org/dist/v1.0.0/node-v1.0.0-linux-x64.tar.xz",
+    )
+    managers = _managers("pins")
+    for name in sorted(MOVED):
+        for url in urls:
+            row = f"{name}\t1.0.0\tlinux-amd64\t{url.format(n=name)}\t{'a' * 64}\n"
+            for manager in managers:
+                for match_string in manager["matchStrings"]:
+                    assert not _compile(match_string).search(row), (name, url)
+
+
+def test_the_regex_managers_read_exactly_the_mise_entries_the_mise_manager_cannot() -> None:
+    managers = {m["packageNameTemplate"]: m for m in _managers("mise")}
+    assert set(managers) == {"helm/helm", "kubernetes/kubernetes"}
+    # Helm tags v<version> in its releases; Kubernetes is read by its tags.
+    assert managers["helm/helm"]["datasourceTemplate"] == "github-releases"
+    assert managers["kubernetes/kubernetes"]["datasourceTemplate"] == "github-tags"
+    found = {}
+    for manager in managers.values():
+        assert manager["managerFilePatterns"] == ["/^mise\\.toml$/"]
+        assert manager["extractVersionTemplate"] == "^v(?<version>.+)$"
+        for ms in manager["matchStrings"]:
+            for m in _compile(ms).finditer(MISE):
+                found[m.group("depName")] = m.group("currentValue")
+                assert not re.search(r"[0-9a-f]{64}", m.group(0))
+                assert m.group("currentValue") in m.group(0)
+                assert "99.9.9" in m.group(0).replace(m.group("currentValue"), "99.9.9")
+    assert set(found) == MISE_BY_REGEX
+    assert found == {name: pin(name) for name in MISE_BY_REGEX}
+
+
+def test_the_mise_manager_leaves_helm_and_kubectl_to_the_regex_managers() -> None:
+    rule = next(
+        r
+        for r in renovate()["packageRules"]
+        if r.get("matchManagers") == ["mise"] and r.get("enabled") is False
+    )
+    assert rule["matchFileNames"] == ["mise.toml"]
+    assert set(rule["matchDepNames"]) == {
+        "helm3",
+        "helm4",
+        "kubectl-floor",
+        "aqua:kubernetes/kubernetes/kubectl",
+    }
+    config_tools = tomllib.loads(MISE)["tools"]
+    assert "aqua:kubernetes/kubernetes/kubectl" in config_tools
+    for depname in rule["matchDepNames"]:
+        assert depname in config_tools or depname in tomllib.loads(MISE)["tool_alias"]
+
+
+def test_every_other_mise_tool_is_a_name_the_mise_manager_resolves() -> None:
+    """The manager reads `aqua:<owner>/<repo>` (a github_release package), `github:` and `core:`."""
+    skipped = {"aqua:kubernetes/kubernetes/kubectl", *MISE_BY_REGEX}
+    for key in tomllib.loads(MISE)["tools"]:
+        if key not in skipped:
+            assert re.fullmatch(r"(aqua|github|core):[\w.-]+(/[\w.-]+)?", key), key
+
+
+def test_the_pins_that_must_stay_equal_are_grouped_with_the_mise_entries() -> None:
+    rules = {r.get("groupName"): r for r in renovate()["packageRules"] if r.get("groupName")}
+    # uv: the mise.toml entry and the image tag in Dockerfile.backend (a test keeps them equal).
+    assert "astral-sh/uv" in rules["uv"]["matchPackageNames"]
+    # Kyverno: the CLI in mise.toml with the chart row in pins.tsv and the chart's images.
+    assert "kyverno/kyverno" in rules["kyverno"]["matchPackageNames"]
+    # Node: mise.toml with the version files and the Dockerfile images.
+    assert "mise" in rules["node"]["matchManagers"]
+    assert "custom.regex" not in rules["node"]["matchManagers"], "no node row is left in pins.tsv"
+    # Helm 3 stays on 3.x, in mise.toml now.
+    helm3 = next(r for r in renovate()["packageRules"] if r.get("matchDepNames") == ["helm3"])
+    assert helm3["allowedVersions"] == "<4"
+    assert helm3["matchFileNames"] == ["mise.toml"]
+    # kubectl and its floor follow the cluster: no minor or major bump proposed.
+    kubectl = next(
+        r
+        for r in renovate()["packageRules"]
+        if "kubectl-floor" in r.get("matchDepNames", ()) and r.get("matchUpdateTypes")
+    )
+    assert kubectl["enabled"] is False
+    assert kubectl["matchFileNames"] == ["mise.toml"]
+    assert {"minor", "major"} == set(kubectl["matchUpdateTypes"])

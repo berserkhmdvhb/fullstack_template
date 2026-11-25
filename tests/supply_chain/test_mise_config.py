@@ -1,6 +1,7 @@
 """mise.toml and mise.lock: the developer toolchain. Only the aqua, github and core backends are
-on, nothing runs code (no tasks, no hooks, no env templates), the lockfile is on, installs are
-locked to the two platforms we support, and every tool the mapping moves has a checksum for each."""
+on, nothing runs code (no tasks, no hooks, no env files or templates), the lockfile is on, installs
+are locked to the two platforms we support, and every tool the mapping moves has a checksum
+for each."""
 
 from __future__ import annotations
 
@@ -48,10 +49,21 @@ def test_the_tools_and_aliases_name_only_allowed_backends() -> None:
 
 
 @pytest.mark.parametrize(
-    "key", ["tasks", "task_config", "hooks", "env", "plugins", "vars", "monorepo"]
+    "key", ["tasks", "task_config", "hooks", "plugins", "vars", "monorepo", "env_file", "dotenv"]
 )
 def test_nothing_that_runs_code_is_configured(key: str) -> None:
     assert key not in CONFIG
+
+
+def test_env_is_one_relative_path_entry_and_nothing_else() -> None:
+    """`.tools/bin` on PATH for people who run `mise activate`. No secret, no file loaded (the app
+    reads .env itself; loading it here would read it twice), no template or command that runs."""
+    env = CONFIG["env"]
+    assert env == {"_": {"path": [".tools/bin"]}}
+    text = (ROOT / "mise.toml").read_text()
+    section = text.split("\n[env]\n", 1)[1].split("\n[", 1)[0]
+    for word in ("file", "source", "dotenv", "{{", "exec", "secret", "token", "KEY", "PASSWORD"):
+        assert word not in "".join(ln for ln in section.splitlines() if not ln.startswith("#"))
 
 
 def test_the_lockfile_is_on_and_installs_are_locked() -> None:

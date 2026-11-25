@@ -1,7 +1,8 @@
 # The developer toolchain: scripts/tools.sh runs the pinned mise (tools/pins.tsv) with these settings and the
 # repo-local environment it sets, installs the tools below --locked from mise.lock (a sha256 per platform, and
 # the vendor's signature or attestation where its recipe has one) and links them into .tools/bin.
-# Python and its tools, the data rows and mise itself stay in tools/pins.tsv. Only the aqua, github and core backends are on; there are no tasks and no hooks.
+# Python and its tools, the data rows and mise itself stay in tools/pins.tsv. Only the aqua, github and core backends
+# are on; there are no tasks, no hooks and no env files.
 [settings]
 # mise.lock is read and kept; installs run --locked from it.
 lockfile = true
@@ -22,6 +23,11 @@ disable_backends = [
   "asdf", "cargo", "conda", "dotnet", "forgejo", "gem", "gitlab", "go", "http", "npm",
   "packslip", "pipx", "pypi", "s3", "spinel", "spm", "ubi", "vfox",
 ]
+
+# For people who run `mise activate` with their own mise: the tools linked by `make tools` are on PATH in this
+# directory. A path only: nothing is read from a file or a template, and the app reads .env itself.
+[env]
+_.path = [".tools/bin"]
 
 # Two majors of Helm and two kubectls: one name each, one version each (tools.sh links helm3, helm4 and kubectl-floor).
 [tool_alias]
