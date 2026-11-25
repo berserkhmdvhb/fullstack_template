@@ -9,14 +9,15 @@
 # Most tools are installed by mise: `mise install --locked` from mise.toml and mise.lock (a sha256 per platform,
 # and the vendor's signature or attestation where its recipe has one), then checked as a tree (scripts/safe_extract.py
 # --check) and linked into .tools/bin. A mismatch or a failed check links nothing and exits non-zero. The rows left in
-# tools/pins.tsv (mise itself, Python, the uv tools, two data files) download to a temp file, are checked against the
-# sha256 in that file, and only then extracted. Python tools install from hash-pinned requirements
+# tools/pins.tsv (mise itself, the uv tools, two data files) download to a temp file, are checked against the
+# sha256 in that file, and only then extracted. The Python interpreter is a mise tool (core:python, checksum in
+# mise.lock) and the one every venv is built on; the uv tools install from hash-pinned requirements
 # (tools/requirements/<name>.txt) into their own venv.
 # mise (the first pin) is repo-local and hermetic: its data, cache, state and config live under $TOOLS_DIR/mise, the
 # user's global and system config and every parent directory's config are out of reach, and no GitHub token or usage
 # report is used. The project settings are in mise.toml.
 # Sibling of infra/security/tools-install.sh (security scanners); this one is for developer tools.
-# uv keeps its cache and its Pythons under $TOOLS_DIR/uv, so nothing is written outside the repository.
+# uv keeps its cache under $TOOLS_DIR/uv and never downloads an interpreter, so nothing is written outside the repository.
 # Env overrides (used by the tests): PINS, TOOLS_DIR, TOOLS_PROTO (curl --proto, default =https).
 set -Eeuo pipefail
 
@@ -26,7 +27,7 @@ REQS="${REQS:-$ROOT/tools/requirements}"
 TOOLS_DIR="${TOOLS_DIR:-$ROOT/.tools}"
 DRY_RUN=false # only --dry-run sets it
 # The tools mise installs, in install order (uv before the Python tools that use it).
-MISE_TOOLS="node uv helm3 helm4 kubectl kubectl-floor kind kubeconform promtool ct helm-unittest actionlint hadolint
+MISE_TOOLS="node python uv zizmor helm3 helm4 kubectl kubectl-floor kind kubeconform promtool ct helm-unittest actionlint hadolint
   gitleaks squawk oasdiff cosign kyverno yq bats shellcheck lychee"
 TMP="" PART=""
 
@@ -42,7 +43,8 @@ export MISE_GLOBAL_CONFIG_FILE="$TOOLS_DIR/mise/no-global.toml" MISE_SYSTEM_CONF
 ABOVE_ROOT="$(dirname "$ROOT")"
 export MISE_CEILING_PATHS="$ABOVE_ROOT" MISE_OVERRIDE_CONFIG_FILENAMES=mise.toml
 export MISE_TRUSTED_CONFIG_PATHS="$ROOT" MISE_GITHUB_GH_CLI_TOKENS=false
-export UV_CACHE_DIR="$TOOLS_DIR/uv/cache" UV_PYTHON_INSTALL_DIR="$TOOLS_DIR/uv/python"
+export UV_CACHE_DIR="$TOOLS_DIR/uv/cache" UV_PYTHON_INSTALL_DIR="$TOOLS_DIR/uv/python" UV_PYTHON_DOWNLOADS=never
+unset UV_PYTHON
 unset GITHUB_TOKEN GITHUB_API_TOKEN GH_TOKEN MISE_GITHUB_TOKEN MISE_GITHUB_ENTERPRISE_TOKEN
 
 die() { echo "tools: $*" >&2; exit 1; }
@@ -75,7 +77,9 @@ exes_for() {
 mise_spec() {
   case "$1" in
     node) echo "core:node node npm npx" ;;
+    python) echo "core:python python python3" ;;
     uv) echo "aqua:astral-sh/uv uv uvx" ;;
+    zizmor) echo "aqua:zizmorcore/zizmor zizmor" ;;
     helm3) echo "helm3 helm:helm3" ;;
     helm4) echo "helm4 helm:helm4" ;;
     kubectl) echo "aqua:kubernetes/kubernetes/kubectl kubectl" ;;
@@ -207,12 +211,21 @@ verify() { # file sha256
   [[ "$got" == "$2" ]] || die "checksum mismatch for $NAME $VER: expected $2, got $got; refusing to install"
 }
 
+# The interpreter mise installed (core:python, checksum-verified from mise.lock), by its install directory, so it is
+# found before .tools/bin is linked. Prints nothing and fails when it is not installed.
+mise_python() {
+  local d
+  d="$(mise_run where core:python 2>/dev/null)" || return 1
+  [[ -n "$d" && -x "$d/bin/python3" ]] || return 1
+  echo "$d/bin/python3"
+}
+
 # Interpreter for extracting an archive (tarfile's "data" filter, which needs Python 3.12): a system python3 >= 3.12, else
-# the uv-managed one (installed before any archive is extracted), else a message that says how to get it.
+# the mise one (installed before any archive is extracted), else a message that says how to get it.
 safe_python() {
   if python3 -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null; then
     command -v python3
-  elif uv python find --managed-python "$(pin_version python)" 2>/dev/null; then
+  elif mise_python; then
     :
   else
     die "$NAME: extracting an archive needs python 3.12 or newer (the system python3 is older); run: scripts/tools.sh install python"
@@ -249,28 +262,20 @@ link_exes() { # dir of the unpacked artifact
 # The pinned uv, once installed, is the one every uv: row uses.
 use_pinned_uv() { [[ -x "$TOOLS_DIR/bin/uv" ]] && PATH="$TOOLS_DIR/bin:$PATH"; return 0; }
 
-pin_version() { # name -> version of that pin (platform "any")
-  awk -F'\t' -v n="$1" '!/^#/ && $1==n && $3=="any" {print $2; exit}' "$PINS"
-}
-
 install_uv() { # pkg
   local pkg="$1" req venv py exe pybin
   req="$REQS/$NAME.txt"
   [[ -f "$req" ]] || die "$NAME: missing hash-pinned requirements $req; refusing to install"
   grep -qiE "^${pkg//./\\.}==${VER//./\\.}([[:space:]\\]|\$)" "$req" || die "$NAME: $req does not pin $pkg==$VER; refusing to install"
   grep -q -- '--hash=sha256:' "$req" || die "$NAME: $req has no hashes; refusing to install"
-  py="$(pin_version python)"
+  py="$(mise_version core:python)"
   venv="$TOOLS_DIR/uv-tools/$NAME"
-  echo "==> $NAME $VER (uv, --require-hashes, python ${py:-default})"
-  # The uv-managed interpreter by path, never a system python that happens to match 3.13.
+  echo "==> $NAME $VER (uv, --require-hashes, python $py from mise)"
+  # The mise-installed interpreter by path (uv never downloads one, UV_PYTHON_DOWNLOADS=never), never a system python.
   if [[ "$DRY_RUN" == "true" ]]; then
-    pybin="<uv-managed python ${py:-3.13}>"
+    pybin="<mise python $py>"
   else
-    pybin="$(uv python find --managed-python "${py:-3.13}" 2>/dev/null || true)"
-    if [[ -z "$pybin" ]]; then
-      UV_PYTHON_BIN_DIR="$TOOLS_DIR/bin" uv python install "${py:-3.13}"
-      pybin="$(uv python find --managed-python "${py:-3.13}")" || die "$NAME: no uv-managed python ${py:-3.13}"
-    fi
+    pybin="$(mise_python)" || die "$NAME: the pinned python is not installed; run: scripts/tools.sh install python"
   fi
   run rm -rf "$venv"
   run uv venv --quiet --python "$pybin" "$venv"
@@ -284,8 +289,6 @@ install_uv() { # pkg
 install_pin() { # uses NAME VER URL SHA
   local dest file
   case "$URL" in
-    uv:python)
-      run env UV_PYTHON_BIN_DIR="$TOOLS_DIR/bin" uv python install "$VER"; return ;;
     uv:*) install_uv "${URL#uv:}"; return ;;
   esac
   dest="$TOOLS_DIR/opt/$NAME-$VER"
@@ -337,10 +340,10 @@ cmd_install() {
   local wanted=" $* " found=" " line helm_default n pass NAME VER PLAT URL SHA tools=()
   [[ -r "$PINS" ]] || die "cannot read $PINS"
   use_pinned_uv
-  # A named Python tool needs the pinned uv: install it first when it is not there yet.
+  # A named Python tool needs the pinned uv and the mise Python: install them first when uv is not there yet.
   if [[ $# -gt 0 && ! -x "$TOOLS_DIR/bin/uv" ]] \
     && awk -F'\t' -v w="$wanted" '!/^#/ && index(w, " " $1 " ") && $4 ~ /^uv:/ {f=1} END {exit !f}' "$PINS"; then
-    wanted+="uv "
+    wanted+="uv python "
   fi
   for n in $MISE_TOOLS; do
     [[ $# -eq 0 || "$wanted" == *" $n "* ]] && tools+=("$n")
@@ -348,10 +351,11 @@ cmd_install() {
   # Installing a mise tool installs mise first, from its row.
   [[ ${#tools[@]} -eq 0 ]] || wanted+="mise "
   found+="${tools[*]} "
-  # The mise row (a bare executable: nothing to extract), then the mise tools (uv among them), then Python, then the other
-  # rows: an archive is extracted only with Python 3.12, which a stock macOS gets from uv here, and the uv tools need uv.
-  for pass in mise python rest; do
-    if [[ "$pass" == python && ${#tools[@]} -gt 0 ]]; then
+  # The mise row (a bare executable: nothing to extract), then the mise tools (Python and uv among them), then the other
+  # rows: an archive is extracted only with Python 3.12, which a stock macOS gets from mise here, and the uv tools need
+  # uv and the mise Python.
+  for pass in mise rest; do
+    if [[ "$pass" == rest && ${#tools[@]} -gt 0 ]]; then
       install_mise_tools "${tools[@]}"
       use_pinned_uv
     fi
@@ -359,7 +363,7 @@ cmd_install() {
       [[ -z "$line" || "$line" == \#* ]] && continue
       split_row "$line"
       [[ "$PLAT" == any || "$PLAT" == "$PLATFORM" ]] || continue
-      case "$NAME" in mise) [[ "$pass" == mise ]] ;; python) [[ "$pass" == python ]] ;; *) [[ "$pass" == rest ]] ;; esac || continue
+      case "$NAME" in mise) [[ "$pass" == mise ]] ;; *) [[ "$pass" == rest ]] ;; esac || continue
       [[ $# -eq 0 || "$wanted" == *" $NAME "* ]] || continue
       found+="$NAME "
       [[ "$URL" == uv:* || "$SHA" =~ ^[0-9a-f]{64}$ ]] || die "$NAME: pin has no sha256"

@@ -87,12 +87,12 @@ def test_the_download_checks_stay_on() -> None:
         assert SETTINGS["aqua"][name] is True, name
 
 
-# The 22 rows the mapping moves; the rest of tools/pins.tsv stays (mise itself, Python, the six uv
-# tools, the two data rows).
+# The 24 rows the mapping moves; the rest of tools/pins.tsv stays (mise itself, the four uv Python
+# tools and pre-commit, the two data rows).
 MOVED = {
     "node", "uv", "helm3", "helm4", "kubectl", "kubectl-floor", "kind", "kubeconform", "promtool",
     "ct", "helm-unittest", "actionlint", "hadolint", "gitleaks", "squawk", "oasdiff", "cosign",
-    "kyverno", "yq", "bats", "shellcheck", "lychee",
+    "kyverno", "yq", "bats", "shellcheck", "lychee", "python", "zizmor",
 }  # fmt: skip
 LOCK = tomllib.loads((ROOT / "mise.lock").read_text())
 
@@ -132,3 +132,23 @@ def test_the_helm_unittest_binary_keeps_the_name_its_plugin_yaml_runs() -> None:
     table = CONFIG["tools"]["github:helm-unittest/helm-unittest"]["platforms"]
     assert table["linux-x64"]["rename_exe"] == "untt-linux-amd64"
     assert table["macos-arm64"]["rename_exe"] == "untt-macos-arm64"
+
+
+def test_python_is_one_exact_patch_and_zizmor_a_verified_aqua_tool() -> None:
+    assert re.fullmatch(r"3\.\d+\.\d+", CONFIG["tools"]["core:python"])
+    assert "aqua:zizmorcore/zizmor" in CONFIG["tools"]
+    for key in ("python", "aqua:zizmorcore/zizmor"):
+        for platform in ("linux-x64", "macos-arm64"):
+            locked = LOCK["tools"][key][0][f"platforms.{platform}"]
+            assert locked["provenance"] == "github-attestations", (key, platform)
+
+
+def test_the_python_minor_in_mise_toml_is_the_one_the_image_and_the_project_use() -> None:
+    """The old `python` row is gone: mise.toml is the one place the interpreter is pinned."""
+    minor = CONFIG["tools"]["core:python"].rsplit(".", 1)[0]
+    image = (ROOT / "Dockerfile.backend").read_text()
+    assert f"UV_PYTHON=/usr/bin/python{minor}" in image
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    assert int(project["requires-python"].removeprefix(">=3.")) <= int(minor.split(".")[1])
+    action = (ROOT / ".github/actions/setup-backend/action.yml").read_text()
+    assert f'default: "{minor}"' in action

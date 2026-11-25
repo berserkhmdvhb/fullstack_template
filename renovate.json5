@@ -11,7 +11,7 @@
 // own GitHub token (`mise lock` makes about 50 API calls). The setting `"allowedUnsafeExecutions": ["mise"]` of a
 // self-hosted Renovate lifts the safe mode; it is not needed and not advised. wiki/getting-started.md has the rest.
 //
-// A pull request that bumps tools/pins.tsv (mise itself, Python, the uv tools, two data rows) or
+// A pull request that bumps tools/pins.tsv (mise itself, the uv tools, two data rows) or
 // infra/security/config.yaml turns the `pins` check red on purpose: a maintainer runs `make pins-refresh`
 // (checksums and hashed locks) and pushes. No bot writes those checksums. The expected flow is in wiki/security.md.
 // Keep this file to comments and plain JSON (quoted keys, no trailing commas): a test reads it with the standard library.
@@ -103,7 +103,6 @@
     },
     {
       // Python tools (url uv:<package>): only the version column changes; make pins-refresh regenerates the hashed lock.
-      // The `python` row is not a package: it is disabled below and bumped by hand.
       "customType": "regex",
       "description": "tools/pins.tsv: Python tools from PyPI",
       "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
@@ -359,11 +358,13 @@
       "groupName": "node"
     },
     {
-      "description": "The python row names an interpreter, not a PyPI package (the backend base image is a Dockerfile, not this row)",
-      "matchDepNames": ["python"],
-      "matchManagers": ["custom.regex"],
-      "matchFileNames": ["tools/pins.tsv"],
-      "enabled": false
+      // The interpreter is pinned in mise.toml (core:python). Its minor is also the backend image's (python3.13 in
+      // Dockerfile.backend), the compile target of the hashed locks and the setup-python default: a new minor is a
+      // deliberate change that moves them together, so only patches of this minor are proposed.
+      "description": "python stays on 3.13.x in mise.toml",
+      "matchPackageNames": ["python"],
+      "matchManagers": ["mise"],
+      "allowedVersions": "/^3\\.13\\./"
     },
     {
       // Version-skew policy: kubectl stays within one minor of the cluster; change the pin when the cluster moves.

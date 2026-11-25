@@ -121,6 +121,7 @@ fixture_project() {
     skip "needs the installed mise (scripts/tools.sh install mise)"
   fi
   SRV="$BATS_TEST_TMPDIR/srv"
+  REAL_PYTHON3="$(command -v python3)"
   mkdir -p "$SRV"
   printf '#!/bin/sh\necho fake kind\n' > "$SRV/kind-linux-amd64"
   cp "$SRV/kind-linux-amd64" "$SRV/kind-darwin-arm64"
@@ -145,7 +146,33 @@ write_lock() { # sha256 of the kind artifact the lock records
     printf 'backend = "aqua:kubernetes-sigs/kind"\nspecifiers = ["0.33.0"]\n\n'
     printf '[%s."platforms.linux-x64"]\nchecksum = "sha256:%s"\nurl = "http://127.0.0.1:%s/kind-linux-amd64"\n\n' "$key" "$1" "$PORT"
     printf '[%s."platforms.macos-arm64"]\nchecksum = "sha256:%s"\nurl = "http://127.0.0.1:%s/kind-darwin-arm64"\n' "$key" "$1" "$PORT"
+    if [ -n "${PY_SHA:-}" ]; then
+      printf '\n[[tools.python]]\nversion = "3.13.18"\nbackend = "core:python"\nspecifiers = ["3.13.18"]\n\n'
+      printf '[tools.python."platforms.linux-x64"]\nchecksum = "sha256:%s"\nurl = "http://127.0.0.1:%s/python-linux-x64.tar.gz"\n\n' "$PY_SHA" "$PORT"
+      printf '[tools.python."platforms.macos-arm64"]\nchecksum = "sha256:%s"\nurl = "http://127.0.0.1:%s/python-linux-x64.tar.gz"\n' "$PY_SHA" "$PORT"
+    fi
   } > "$PROJ/mise.lock"
+}
+
+# The fixture project also pins Python, served as a tarball whose python3 runs the real one and logs each
+# safe_extract.py call it gets (a stand-in for the build mise downloads: same layout, python/bin/python3).
+fixture_python() {
+  mkdir -p "$BATS_TEST_TMPDIR/pyroot/python/bin" "$BATS_TEST_TMPDIR/pyroot/python/lib/python3.13"
+  printf '# system configuration generated and used by the sysconfig module\nbuild_time_vars = {}\n' \
+    > "$BATS_TEST_TMPDIR/pyroot/python/lib/python3.13/_sysconfigdata__linux_x86_64-linux-gnu.py"
+  cat > "$BATS_TEST_TMPDIR/pyroot/python/bin/python3" <<PY
+#!/bin/sh
+case "\$*" in *safe_extract.py*) echo "\$*" >> "$BATS_TEST_TMPDIR/mise-python.log" ;; esac
+exec "$REAL_PYTHON3" "\$@"
+PY
+  chmod +x "$BATS_TEST_TMPDIR/pyroot/python/bin/python3"
+  ln -s python3 "$BATS_TEST_TMPDIR/pyroot/python/bin/python"
+  tar -czf "$SRV/python-linux-x64.tar.gz" -C "$BATS_TEST_TMPDIR/pyroot" python
+  PY_SHA="$(sha256sum "$SRV/python-linux-x64.tar.gz" | cut -d' ' -f1)"
+  # The real build has a GitHub attestation, which mise checks at install; a local stand-in has none.
+  sed -i 's/^\[settings\]$/[settings]\npython.github_attestations = false/' "$PROJ/mise.toml"
+  printf '"core:python" = "3.13.18"\n' >> "$PROJ/mise.toml"
+  write_lock "$ART_SHA"
 }
 
 @test "a locked install of a mise tool downloads it, checks the lock's checksum and links it" {
@@ -318,6 +345,51 @@ PY
   [ "$status" -ne 0 ]
   [[ "$output" == *"reinstalling"* ]]
   [ ! -e "$TOOLS/$INSTALL_DIR" ]
+}
+
+@test "a stock python3 3.9: Python comes from mise (checksum from the lock), is linked, and the tree check runs on the 3.9" {
+  fixture_project
+  fixture_python
+  old_python3 3.9
+  tools env PATH="$BATS_TEST_TMPDIR/fakebin:$PATH" bash "$PROJ/scripts/tools.sh" install python kind
+  [ "$status" -eq 0 ]
+  [ "$("$TOOLS/bin/kind")" = "fake kind" ]
+  [ -L "$TOOLS/bin/python3" ] && [ -L "$TOOLS/bin/python" ]
+  [ "$("$TOOLS/bin/python3" -c 'print(7)')" = 7 ]
+  [ ! -e "$BATS_TEST_TMPDIR/mise-python.log" ]
+  grep -q -- '--check' "$BATS_TEST_TMPDIR/python3.log"
+}
+
+# A PATH with every tool of /usr/bin and /bin but no python3 (what a machine without one looks like).
+no_python3_path() {
+  local d="$BATS_TEST_TMPDIR/nopy" f
+  mkdir -p "$d"
+  for f in /usr/bin/* /bin/*; do
+    case "${f##*/}" in python*|pydoc*|idle*|pip*) ;; *) ln -sf "$f" "$d/" ;; esac
+  done
+  NOPY="$d"
+}
+
+@test "no python3 at all: the tree check runs on the mise Python installed in the same run, which is linked after it" {
+  fixture_project
+  fixture_python
+  no_python3_path
+  run -127 env PATH="$NOPY" python3 --version
+  tools env PATH="$NOPY" bash "$PROJ/scripts/tools.sh" install python kind
+  [ "$status" -eq 0 ]
+  [ "$("$TOOLS/bin/kind")" = "fake kind" ]
+  [ "$("$TOOLS/bin/python3" -c 'print(8)')" = 8 ]
+  grep -q -- '--check' "$BATS_TEST_TMPDIR/mise-python.log"
+}
+
+@test "no python3 and Python not installed: refused before anything is linked, with the way out" {
+  fixture_project
+  fixture_python
+  no_python3_path
+  tools env PATH="$NOPY" bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"install python"* ]]
+  [ ! -e "$TOOLS/bin/kind" ]
 }
 
 @test "a python3 older than 3.9 and no uv: refused before anything is linked" {

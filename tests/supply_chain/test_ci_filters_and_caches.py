@@ -27,7 +27,8 @@ def _installed(job: dict[str, Any]) -> set[str]:
 def test_no_job_installs_a_uv_tool_without_provisioning_uv() -> None:
     # tools.sh installs a `uv:` pin with the uv binary, which GitHub runners do not ship.
     uv_tools = _uv_tools()
-    assert {"yamllint", "yamale", "zizmor"} <= uv_tools
+    assert {"yamllint", "yamale"} <= uv_tools
+    assert "zizmor" not in uv_tools  # a mise tool: no uv needed
     for path in all_files():
         for key, job in _jobs(load(path)).items():
             bad = _installed(job) & uv_tools

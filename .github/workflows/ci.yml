@@ -249,9 +249,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install actionlint
+      - name: Install actionlint and zizmor
         run: |
-          scripts/tools.sh install actionlint
+          scripts/tools.sh install actionlint zizmor
           echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
       # PyYAML for the lint comes from a hashed venv; its bin goes on PATH for this one command only (never GITHUB_PATH).
       - name: Install PyYAML for the hardening lint
@@ -262,16 +262,12 @@ jobs:
         run: PATH="$RUNNER_TEMP/pyyaml/bin:$PATH" infra/security/check-ci-hardening.sh
       - name: actionlint
         run: actionlint
-      - name: Install zizmor
-        run: |
-          python -m venv "$RUNNER_TEMP/zizmor"
-          "$RUNNER_TEMP/zizmor/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/zizmor.txt
       # The read-only token turns on zizmor's online audits (impostor commits, known-vulnerable actions).
       - name: zizmor
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          "$RUNNER_TEMP/zizmor/bin/zizmor" .github/
+          zizmor .github/
 
   # Blocking, always runs, and checks the template only: a copy of this tree adopted by infra/adapt/adopt.sh
   # (scripts/ci/adopted-copy.sh) passes its own suites, so an adopter's first CI run is green. In an adopted

@@ -232,12 +232,12 @@ def test_ci_has_a_blocking_always_on_workflows_job() -> None:
     steps = job["steps"]
     assert steps[0]["with"]["persist-credentials"] is False
     runs = "\n".join(s.get("run", "") for s in steps)
+    assert "tools/requirements/zizmor.txt" not in runs
     for needle in (
         "infra/security/check-ci-hardening.sh",
-        "scripts/tools.sh install actionlint",
-        "--require-hashes",
-        "tools/requirements/zizmor.txt",
-        'zizmor/bin/zizmor" .github/',
+        "scripts/tools.sh install actionlint zizmor",
+        "--require-hashes",  # PyYAML for the lint
+        "\nzizmor .github/",
     ):
         assert needle in runs, needle
 
@@ -259,7 +259,7 @@ def test_zizmor_runs_online_with_a_read_only_token() -> None:
 
     job = workflow("ci.yml")["jobs"]["workflows"]
     assert job["permissions"] == {"contents": "read"}
-    step = next(s for s in job["steps"] if 'zizmor/bin/zizmor" ' in s.get("run", ""))
+    step = next(s for s in job["steps"] if s.get("run", "").strip() == "zizmor .github/")
     assert step["env"] == {"GH_TOKEN": "${{ github.token }}"}
     assert "--offline" not in step["run"]
     assert "--no-online-audits" not in step["run"]

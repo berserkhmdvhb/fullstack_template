@@ -94,9 +94,7 @@ def test_row_shape(row: list[str]) -> None:
     assert SHA.fullmatch(sha), f"{name}: sha256 is not 64 hex"
 
 
-@pytest.mark.parametrize(
-    "row", [r for r in rows() if r[3].startswith("uv:") and r[0] != "python"], ids=lambda r: r[0]
-)
+@pytest.mark.parametrize("row", [r for r in rows() if r[3].startswith("uv:")], ids=lambda r: r[0])
 def test_uv_rows_have_a_lock_pinning_the_version(row: list[str]) -> None:
     name, version, _plat, url, _sha = row
     lock = REQS / f"{name}.txt"
@@ -218,8 +216,8 @@ def test_a_data_file_at_a_tag_is_hashed_on_download(monkeypatch: pytest.MonkeyPa
 def test_uv_row_checks_the_version_against_its_lock(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    lock = f"zizmor==1.0.0 \\\n    --hash=sha256:{'1' * 64} \\\n    --hash=sha256:{'2' * 64}\n"
-    (tmp_path / "zizmor.txt").write_text(lock)
+    lock = f"yamllint==1.0.0 \\\n    --hash=sha256:{'1' * 64} \\\n    --hash=sha256:{'2' * 64}\n"
+    (tmp_path / "yamllint.txt").write_text(lock)
     monkeypatch.setenv("REQS", str(tmp_path))
     body = (
         '{"urls": [{"digests": {"sha256": "'
@@ -228,12 +226,12 @@ def test_uv_row_checks_the_version_against_its_lock(
         + "2" * 64
         + '"}}]}'
     ).encode()
-    _stub(monkeypatch, {"https://pypi.org/pypi/zizmor/1.0.0/json": body})
-    pin = _pin("zizmor", "1.0.0", "uv:zizmor", "-")
+    _stub(monkeypatch, {"https://pypi.org/pypi/yamllint/1.0.0/json": body})
+    pin = _pin("yamllint", "1.0.0", "uv:yamllint", "-")
     assert (
         pr.problem(pin) is None
     )  # the row only has to agree with its lock; PyPI is checked per lock
-    assert "version" in (pr.problem(_pin("zizmor", "1.0.1", "uv:zizmor", "-")) or "")
+    assert "version" in (pr.problem(_pin("yamllint", "1.0.1", "uv:yamllint", "-")) or "")
 
 
 # --- --check and update over a scratch pins file ---
@@ -356,7 +354,7 @@ def test_the_drift_job_is_blocking_and_filtered_on_pull_requests() -> None:
         "tools/pins.tsv",
         "mise.toml",
         "mise.lock",
-        "tools/requirements/zizmor.txt",
+        "tools/requirements/yamllint.txt",
         "infra/security/config.yaml",
         "scripts/pins-refresh.sh",
         "scripts/pins_refresh.py",
@@ -424,7 +422,7 @@ def test_config_sources_pin_the_repo_the_annotation_names() -> None:
         ("helm4", "https://evil.example/helm-v4.3.2-linux-amd64.tar.gz"),
         ("squawk", "https://github.com/evil/squawk/releases/download/v2.0.0/squawk-linux-x64"),
         ("k8s-openapi", "https://github.com/evil/kubernetes/v1.0.0/swagger.json"),
-        ("zizmor", "uv:zizmor-lookalike"),
+        ("yamllint", "uv:yamllint-lookalike"),
     ],
 )
 def test_a_look_alike_vendor_is_refused_before_any_fetch(
@@ -545,44 +543,45 @@ def _lock_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, files: dict[str, 
 def test_every_lock_entry_is_checked_against_pypi_hashes_and_age(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    lock = _lock("zizmor", "1.0.0", ["1" * 64]) + _lock("colorama", "0.4.6", ["2" * 64, "3" * 64])
-    _lock_dir(monkeypatch, tmp_path, {"zizmor.txt": lock})
+    lock = _lock("yamllint", "1.0.0", ["1" * 64]) + _lock("colorama", "0.4.6", ["2" * 64, "3" * 64])
+    _lock_dir(monkeypatch, tmp_path, {"yamllint.txt": lock})
     pypi = "https://pypi.org/pypi/{}/{}/json"
     _stub(
         monkeypatch,
         {
-            pypi.format("zizmor", "1.0.0"): _pypi([("1" * 64, OLD)]),
+            pypi.format("yamllint", "1.0.0"): _pypi([("1" * 64, OLD)]),
             pypi.format("colorama", "0.4.6"): _pypi(
                 [("2" * 64, OLD), ("3" * 64, OLD), ("4" * 64, OLD)]
             ),
         },
     )
-    assert pr.lock_problems(tmp_path / "reqs" / "zizmor.txt") == []
+    assert pr.lock_problems(tmp_path / "reqs" / "yamllint.txt") == []
     _stub(
         monkeypatch,
         {
-            pypi.format("zizmor", "1.0.0"): _pypi([("9" * 64, OLD)]),
+            pypi.format("yamllint", "1.0.0"): _pypi([("9" * 64, OLD)]),
             pypi.format("colorama", "0.4.6"): _pypi([("2" * 64, OLD), ("3" * 64, OLD)]),
         },
     )
     assert any(
-        "zizmor" in p and "hash" in p for p in pr.lock_problems(tmp_path / "reqs" / "zizmor.txt")
+        "yamllint" in p and "hash" in p
+        for p in pr.lock_problems(tmp_path / "reqs" / "yamllint.txt")
     )
 
 
 def test_a_transitive_package_younger_than_seven_days_is_named(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    lock = _lock("zizmor", "1.0.0", ["1" * 64]) + _lock("pyyaml", "6.0.4", ["2" * 64])
-    _lock_dir(monkeypatch, tmp_path, {"zizmor.txt": lock})
+    lock = _lock("yamllint", "1.0.0", ["1" * 64]) + _lock("pyyaml", "6.0.4", ["2" * 64])
+    _lock_dir(monkeypatch, tmp_path, {"yamllint.txt": lock})
     _stub(
         monkeypatch,
         {
-            "https://pypi.org/pypi/zizmor/1.0.0/json": _pypi([("1" * 64, OLD)]),
+            "https://pypi.org/pypi/yamllint/1.0.0/json": _pypi([("1" * 64, OLD)]),
             "https://pypi.org/pypi/pyyaml/6.0.4/json": _pypi([("2" * 64, YOUNG)]),
         },
     )
-    problems = pr.lock_problems(tmp_path / "reqs" / "zizmor.txt")
+    problems = pr.lock_problems(tmp_path / "reqs" / "yamllint.txt")
     assert len(problems) == 1
     assert "pyyaml 6.0.4" in problems[0]
     assert "7 days" in problems[0]
@@ -607,11 +606,15 @@ def test_the_check_runs_the_lock_check_and_fails_closed(
 
 def test_the_regeneration_command_is_the_documented_one_with_a_cutoff() -> None:
     header = " ".join(ln.lstrip("# ") for ln in PINS.read_text().splitlines() if ln.startswith("#"))
-    documented = (
-        "uv pip compile --generate-hashes --no-header --python-version 3.13"
-        " --python-platform x86_64-unknown-linux-gnu"
+    tail = " --python-platform x86_64-unknown-linux-gnu"
+    assert (
+        f"uv pip compile --generate-hashes --no-header --python-version <mise.toml>{tail}" in header
     )
-    assert documented in header
+    # The Python the locks are compiled for is the minor of the interpreter mise.toml pins.
+    minor = ".".join(
+        tomllib.loads((ROOT / "mise.toml").read_text())["tools"]["core:python"].split(".")[:2]
+    )
+    documented = f"uv pip compile --generate-hashes --no-header --python-version {minor}{tail}"
     cmd = pr.compile_command(Path("lock.txt"), Path("c.txt"), NOW)
     assert cmd[0] == pr.UV
     assert " ".join(["uv", *(c for c in cmd[1:] if c != "--quiet")]).startswith(documented)
@@ -631,15 +634,15 @@ def test_regeneration_constrains_pyyaml_and_writes_only_where_told(
     def fake_run(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
         constraint = Path(cmd[cmd.index("-c") + 1]).read_text()
         calls.append((cmd, str(kw["input"]), constraint))
-        (Path(str(kw["cwd"])) / cmd[cmd.index("-o") + 1]).write_text("zizmor==1.2.3\n")
+        (Path(str(kw["cwd"])) / cmd[cmd.index("-o") + 1]).write_text("yamllint==1.2.3\n")
         return subprocess.CompletedProcess(cmd, 0)
 
     monkeypatch.setattr(pr.subprocess, "run", fake_run)
-    pr.regenerate_lock(pr.Pin("zizmor", "1.2.3", "any", "uv:zizmor", "-"))
+    pr.regenerate_lock(pr.Pin("yamllint", "1.2.3", "any", "uv:yamllint", "-"))
     (cmd, stdin, constraint) = calls[0]
-    assert stdin == "zizmor==1.2.3\n"
+    assert stdin == "yamllint==1.2.3\n"
     assert constraint.strip() == "pyyaml==6.0.3"
-    assert cmd[cmd.index("-o") + 1] == "zizmor.txt"
+    assert cmd[cmd.index("-o") + 1] == "yamllint.txt"
 
 
 # --- --base selection ---
@@ -683,10 +686,10 @@ def test_base_selects_a_lock_only_change(
         tmp_path,
         {"lock": "old\n"},
     )
-    _lock_dir(monkeypatch, tmp_path, {"zizmor.txt": _lock("zizmor", "1.0.0", ["1" * 64])})
-    _stub(monkeypatch, {"https://pypi.org/pypi/zizmor/1.0.0/json": _pypi([("1" * 64, OLD)])})
+    _lock_dir(monkeypatch, tmp_path, {"yamllint.txt": _lock("yamllint", "1.0.0", ["1" * 64])})
+    _stub(monkeypatch, {"https://pypi.org/pypi/yamllint/1.0.0/json": _pypi([("1" * 64, OLD)])})
     assert pr.main(["--check", "--base", "x"]) == 0
-    assert "ok lock zizmor" in capsys.readouterr().out
+    assert "ok lock yamllint" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -795,8 +798,8 @@ def test_the_constraint_source_is_removed_from_the_via_lines() -> None:
 def test_only_the_files_a_lock_records_are_age_checked(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    _lock_dir(monkeypatch, tmp_path, {"zizmor.txt": _lock("pyyaml", "6.0.4", ["2" * 64])})
-    path = tmp_path / "reqs" / "zizmor.txt"
+    _lock_dir(monkeypatch, tmp_path, {"yamllint.txt": _lock("pyyaml", "6.0.4", ["2" * 64])})
+    path = tmp_path / "reqs" / "yamllint.txt"
     url = "https://pypi.org/pypi/pyyaml/6.0.4/json"
     _stub(monkeypatch, {url: _pypi([("2" * 64, OLD), ("5" * 64, YOUNG)])})
     assert pr.lock_problems(path) == []  # the recent file is not one the lock installs
@@ -808,7 +811,7 @@ def test_only_the_files_a_lock_records_are_age_checked(
 
 # --- round 2: unparsed lock lines, URL normalisation, host paths ---
 
-GOOD_LOCK = _lock("zizmor", "1.0.0", ["1" * 64, "2" * 64])
+GOOD_LOCK = _lock("yamllint", "1.0.0", ["1" * 64, "2" * 64])
 
 
 def test_a_well_formed_lock_has_no_syntax_problems_and_the_real_locks_too() -> None:
@@ -852,13 +855,13 @@ def test_the_check_fails_a_lock_with_an_index_option(
     (tmp_path / "pins.tsv").write_text("# none\n")
     _env(monkeypatch, tmp_path, tmp_path / "pins.tsv")
     lock = "--extra-index-url https://evil.example/simple\n" + GOOD_LOCK
-    _lock_dir(monkeypatch, tmp_path, {"zizmor.txt": lock})
+    _lock_dir(monkeypatch, tmp_path, {"yamllint.txt": lock})
     _stub(
         monkeypatch,
-        {"https://pypi.org/pypi/zizmor/1.0.0/json": _pypi([("1" * 64, OLD), ("2" * 64, OLD)])},
+        {"https://pypi.org/pypi/yamllint/1.0.0/json": _pypi([("1" * 64, OLD), ("2" * 64, OLD)])},
     )
     assert pr.main(["--check"]) == 1
-    assert "DRIFT lock zizmor" in capsys.readouterr().out
+    assert "DRIFT lock yamllint" in capsys.readouterr().out
 
 
 GOOD = "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64"
@@ -921,14 +924,14 @@ def test_the_command_uses_repo_relative_paths(
 
     def fake_run(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
         seen["cmd"], seen["cwd"] = cmd, kw.get("cwd")
-        (Path(str(kw["cwd"])) / cmd[cmd.index("-o") + 1]).write_text("zizmor==1.2.3\n")
+        (Path(str(kw["cwd"])) / cmd[cmd.index("-o") + 1]).write_text("yamllint==1.2.3\n")
         return subprocess.CompletedProcess(cmd, 0)
 
     monkeypatch.setattr(pr.subprocess, "run", fake_run)
-    pr.regenerate_lock(pr.Pin("zizmor", "1.2.3", "any", "uv:zizmor", "-"))
+    pr.regenerate_lock(pr.Pin("yamllint", "1.2.3", "any", "uv:yamllint", "-"))
     cmd = seen["cmd"]
     assert isinstance(cmd, list)
-    assert cmd[cmd.index("-o") + 1] == "zizmor.txt"
+    assert cmd[cmd.index("-o") + 1] == "yamllint.txt"
     assert seen["cwd"] == tmp_path / "reqs"
 
 
