@@ -1,5 +1,5 @@
 # your-service-name — adaptable service template (see wiki/getting-started.md)
-.PHONY: all help install develop lock lock-check \
+.PHONY: all help install develop python-pinned lock lock-check \
     export-requirements check-requirements-sync \
     ruff-format ruff-format-check ruff-lint ruff-lint-fix ruff-imports-fix mypy-check \
     openapi-gen openapi-drift-check env-docs env-docs-check \
@@ -33,6 +33,14 @@
 PYTHON := $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else command -v python3 || command -v python; fi)
 # uv: the pinned binary from mise.toml (scripts/tools.sh install uv) when present, else the one on PATH.
 UV := $(or $(wildcard .tools/bin/uv),uv)
+# The project's .venv is built on the interpreter of the `python` row of tools/pins.tsv, installed by `make tools` under
+# .tools/uv/python: the one the tool venvs, CI (setup-python) and the backend image use. Never the system Python and never
+# a download, so a missing interpreter stops with "run make tools" (python-pinned below).
+PINNED_PYTHON := $(shell awk -F'\t' '$$1 == "python" {print $$2; exit}' tools/pins.tsv)
+export UV_PYTHON := $(PINNED_PYTHON)
+export UV_PYTHON_PREFERENCE := only-managed
+export UV_PYTHON_DOWNLOADS := never
+export UV_PYTHON_INSTALL_DIR := $(CURDIR)/.tools/uv/python
 SERVICE := your_service_name
 # The project venv's tools (ruff, mypy, uvicorn) first, so make finds them without activating it.
 export PATH := $(CURDIR)/.venv/bin:$(PATH)
@@ -174,10 +182,14 @@ help::
 	@echo "  security-report-origin MODE=tsv   Raw rows for the triage/SLA loop"
 	@echo "  security-scan-search PATTERN=<re>  Grep a pattern across the JSON outputs"
 
-install:
+python-pinned:
+	@$(UV) python find --managed-python $(PINNED_PYTHON) >/dev/null 2>&1 || { \
+	  echo "Python $(PINNED_PYTHON) (tools/pins.tsv) is not installed under .tools/uv/python; run: make tools" >&2; exit 1; }
+
+install: python-pinned
 	$(UV) sync --locked --no-dev
 
-develop:
+develop: python-pinned
 	$(UV) sync --locked
 
 lock:
@@ -339,7 +351,7 @@ dev-tools-outdated:
 	done; exit $$rc
 
 # Re-lock only the dev tools (newest release at least 7 days old), then install the result.
-dev-tools-upgrade:
+dev-tools-upgrade: python-pinned
 	$(UV) lock $(foreach p,$(DEV_TOOLS),--upgrade-package $(p))
 	$(UV) sync --locked
 

@@ -33,7 +33,7 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/pyyaml"
           "$RUNNER_TEMP/pyyaml/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pyyaml.txt
       # ct calls yamllint (with the tracked config the pre-commit hook also uses) and yamale (Chart.yaml schema).
-      # GitHub runners ship neither and no uv, so each gets a venv from its hashed lock, as zizmor does in ci.yml.
+      # GitHub runners ship neither and no uv, so each gets a venv from its hashed lock, as PyYAML does in ci.yml.
       - name: Install chart-testing, yamllint and yamale
         run: |
           scripts/tools.sh install ct
