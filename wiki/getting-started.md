@@ -53,13 +53,15 @@ Complete guide to setting up, configuring, and running the service template loca
 `make tools` (or `scripts/tools.sh install [name ...]`) installs the pinned tools into `.tools/bin`, on linux x64 and
 macOS arm64. It needs `bash`, `curl`, `tar`, a `python3` (3.9 is enough: macOS's own works) and a `sha256sum` or a `shasum`
 (macOS has the latter), and nothing else: no mise, no uv, no Python of 3.12 or later. mise's own download is a bare
-executable, so nothing is extracted until uv has installed the pinned Python. It writes only inside the repository, never in your home directory.
+executable, so nothing is extracted until the pinned Python (a mise tool, checksum-verified; the tree check uses your `python3`
+when it is 3.9 or newer, else that Python) is installed. uv builds the project's `.venv` and every tool venv on that one
+interpreter and never downloads another. It writes only inside the repository, never in your home directory.
 
 - **Where the versions are.** [`mise.toml`](../mise.toml) lists the tools and their versions.
   [`mise.lock`](../mise.lock) holds, for each, the exact download url and its sha256 for both platforms, and a signature or attestation where the vendor publishes one. Installs run `mise install --locked`, so a
   changed byte in a download or in the lock refuses the install and links nothing; every installed tree is then
   checked for links out of it and setuid files. [`tools/pins.tsv`](../tools/pins.tsv) keeps what mise does not
-  install: mise itself (the bootstrap, checksum-verified), Python and the six uv tools (hash-pinned requirements), and
+  install: mise itself (the bootstrap, checksum-verified), five Python tools (hash-pinned requirements), and
   two data rows. [ADR-0043](./adr/0043-mise-for-the-developer-toolchain.md) says why.
 - **Run mise through `scripts/tools.sh mise ...`**, for example `scripts/tools.sh mise ls` or
   `scripts/tools.sh mise doctor`. It runs the pinned mise with this repository's directories under `.tools/`, ignores
