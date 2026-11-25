@@ -201,7 +201,7 @@
         "dbPassword":     { "type": "string" },
         "statsPass":      { "type": "string" },
         "externalSecret": {
-          "description": "External Secrets Operator ExternalSecret that syncs the app Secret from the platform's secret store. One of three exclusive secret sources.",
+          "description": "External Secrets Operator ExternalSecret that syncs the app Secret (and, with the in-cluster PostgreSQL, the database's password) from the environment's secret store. One of three exclusive secret sources. Switching the store changes secretStoreRef, remoteKeyTemplate and remoteProperty only.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -210,13 +210,18 @@
             "secretStoreRef": {
               "type": "object",
               "additionalProperties": false,
+              "required": ["name", "kind"],
               "properties": {
                 "name": { "type": "string", "minLength": 1 },
-                "kind": { "type": "string", "enum": ["ClusterSecretStore", "SecretStore"] }
+                "kind": { "type": "string", "enum": ["SecretStore", "ClusterSecretStore"] }
               }
             },
-            "remoteKeys": { "description": "Secret key -> remote key in the store.", "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } }
-          }
+            "remoteKeyTemplate": { "description": "The remote name of each key; {key} is replaced by its name in keys (Secret Manager <service>-<env>-{key}, OpenBao KV <service>/<env>/{key}).", "type": "string", "pattern": "^[^{}]*\\{key\\}[^{}]*$" },
+            "remoteProperty":    { "description": "The property of each remote secret to read; empty reads the whole value.", "type": "string" },
+            "keys": { "description": "Secret key -> its name in remoteKeyTemplate.", "type": "object", "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }, "additionalProperties": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$" } }
+          },
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+          "then": { "required": ["secretStoreRef", "refreshInterval", "remoteKeyTemplate", "keys"], "properties": { "keys": { "minProperties": 1 } } }
         }
       }
     },

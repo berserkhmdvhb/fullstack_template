@@ -57,7 +57,8 @@ rules:
     resources: [podmonitorings, rules]
     verbs: {{ toJson $helm }}
   # secrets.externalSecret.enabled: the ExternalSecret that syncs the app Secret (External Secrets
-  # Operator; the operator itself and its store are the platform's).
+  # Operator; the operator itself and its stores are the platform's: never secretstores or
+  # clustersecretstores, so the deployer cannot choose what a store may read).
   - apiGroups: [external-secrets.io]
     resources: [externalsecrets]
     verbs: {{ toJson $helm }}
@@ -91,6 +92,11 @@ rules:
     verbs: {{ toJson $helm }}
   - apiGroups: [networking.k8s.io]
     resources: [networkpolicies]
+    verbs: {{ toJson $helm }}
+  # secrets.externalSecret.enabled: the ExternalSecret that syncs the database's password (its store
+  # is the platform's, as in the app namespace).
+  - apiGroups: [external-secrets.io]
+    resources: [externalsecrets]
     verbs: {{ toJson $helm }}
   # helm --wait reads the StatefulSet's Pods.
   - apiGroups: [""]

@@ -82,6 +82,11 @@ SOURCES: dict[str, tuple[str, str, str]] = {
     "mise": ("sumfile", "{dir}/SHASUMS256.txt", "https://github.com/jdx/mise/releases/download/"),
     "k8s-openapi": ("archive", "", "https://raw.githubusercontent.com/kubernetes/kubernetes/"),
     "kyverno-chart": ("archive", "", "https://kyverno.github.io/kyverno/"),
+    "external-secrets-chart": (
+        "archive",
+        "",
+        "https://github.com/external-secrets/external-secrets/releases/download/helm-chart-",
+    ),
     "python": ("none", "", "uv:python"),
     "schemathesis": ("uv", "", "uv:schemathesis"),
     "yamale": ("uv", "", "uv:yamale"),

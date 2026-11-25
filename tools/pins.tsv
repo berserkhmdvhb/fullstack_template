@@ -45,8 +45,14 @@ mise	2026.11.9	darwin-arm64	https://github.com/jdx/mise/releases/download/v2026.
 # kyverno-chart is data, not a tool: the Helm chart of the Kyverno release matching the CLI in mise.toml, which
 # tests/k8s/test_admission.py installs on kind (chart 3.10 is Kyverno 1.20; move the two together). Its sha256 is the
 # digest the chart repository's index.yaml lists, confirmed against the downloaded bytes; hashed on download.
+# external-secrets-chart is data, not a tool: the External Secrets Operator's Helm chart, which the GKE guide installs
+# (wiki/gke-cluster-setup.md, External Secrets) and tests/k8s/test_external_secrets.py installs on kind, with
+# deploy/external-secrets/external-secrets-values.yaml. Its version is the CRD source's (the chart's ci/crds/sources.tsv,
+# external-secrets; move the two together). Its sha256 is the digest the chart repository's index.yaml
+# (charts.external-secrets.io) lists, confirmed against the downloaded bytes; hashed on download.
 k8s-openapi	1.34.13	any	https://raw.githubusercontent.com/kubernetes/kubernetes/v1.34.13/api/openapi-spec/swagger.json	d3b0cdc2fda15c753206d25ab459dc7c12df64e2fd652b6809687471ea751c37
 kyverno-chart	3.10.0	any	https://kyverno.github.io/kyverno/kyverno-3.10.0.tgz	55961392dc0821eb367323f0e9585c061dd4407ef7ada921bd56ea1642c2a301
+external-secrets-chart	2.15.0	any	https://github.com/external-secrets/external-secrets/releases/download/helm-chart-2.15.0/external-secrets-2.15.0.tgz	ed94d41cc67e392ea45e370345eb491b0fdc21387f1aaaefcf8e2e6c85089e1d
 python	3.13	any	uv:python	-
 schemathesis	4.33.4	any	uv:schemathesis	-
 yamale	6.1.0	any	uv:yamale	-

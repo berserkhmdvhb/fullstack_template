@@ -310,11 +310,23 @@ imagePullSecrets:
 {{- end -}}
 
 {{/*
+   An ExternalSecret's remoteRef (key, and property when set) for one key name: (list
+   secrets.externalSecret <name>). Emits lines at column 0 (use `| nindent`).
+*/}}
+{{- define "chart.remoteRef" -}}
+{{- $es := index . 0 -}}
+key: {{ $es.remoteKeyTemplate | replace "{key}" (index . 1) | quote }}
+{{- with $es.remoteProperty }}
+property: {{ . | quote }}
+{{- end }}
+{{- end -}}
+
+{{/*
    Name of the app DB secret the backend + migration consume (DB_USER / DB_PASSWORD
-   / STATS_PASS). In dev/local the chart creates it (chart.fullname-secret) from the
-   values; in production set secrets.existingSecret to the externally-managed secret
-   (sealed-secrets / ESO / SOPS) that holds the same keys, and the chart stops
-   creating its own — so the reference is always satisfied.
+   / STATS_PASS): chart.fullname-secret, which the chart creates from the values (local)
+   or the ExternalSecret syncs (dev, qa, production), else secrets.existingSecret, a
+   Secret managed outside the chart with the same keys (previews) — so the reference
+   is always satisfied.
 */}}
 {{- define "chart.secretName" -}}
 {{- if .Values.secrets.existingSecret -}}
@@ -369,13 +381,16 @@ imagePullSecrets:
 
 {{/*
    Name and key of the Secret holding the in-cluster Postgres password (postgresql.existingSecret,
-   else the chart's db-credentials). Emits two lines at column 0 (use `| nindent`). One place for
+   else the one the database's ExternalSecret syncs, else the chart's db-credentials). Emits two lines at column 0 (use `| nindent`). One place for
    the StatefulSet and both backup CronJobs.
 */}}
 {{- define "chart.pgPasswordRef" -}}
 {{- if .Values.postgresql.existingSecret -}}
 name: {{ .Values.postgresql.existingSecret }}
 key: {{ .Values.postgresql.existingSecretKey }}
+{{- else if .Values.secrets.externalSecret.enabled -}}
+name: {{ include "chart.fullname" . }}-db-password
+key: password
 {{- else -}}
 name: {{ include "chart.fullname" . }}-db-credentials
 key: password

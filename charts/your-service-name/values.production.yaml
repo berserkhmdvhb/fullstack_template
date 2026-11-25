@@ -1,5 +1,5 @@
-# Production. Managed DB (internal Postgres disabled), secrets via sealed-secrets /
-# ESO / SOPS (the value defaults below are left empty on purpose).
+# Production. Managed DB (internal Postgres disabled), the app Secret from the External Secrets
+# Operator (secrets below).
 environment: production
 
 global:
@@ -80,15 +80,14 @@ externalDatabase:
 #   tls:
 #     caSecret: {name: your-db-ca, key: server-ca.pem}   # REQUIRED for a managed database
 
+# The app Secret from the External Secrets Operator: a SecretStore of this name in the
+# environment's namespace, which reads only this environment's secrets (wiki/gke-cluster-setup.md,
+# External Secrets). The store name is a placeholder the deploy refuses (guards.rejectPlaceholders):
+# set the store you created. Moving to another store (OpenBao, Infisical: wiki/security.md) changes
+# these values only.
 secrets:
-  # Externally-managed Opaque secret holding DB_USER / DB_PASSWORD / STATS_PASS,
-  # created out-of-band via sealed-secrets / ESO / SOPS. The chart does NOT create
-  # its own secret when this is set; the backend + migration reference this name.
-  # Create it in the production namespace with exactly those three keys, e.g.:
-  #   kubectl create secret generic your-service-name-secret \
-  #     --from-literal=DB_USER=app --from-literal=DB_PASSWORD=<...> \
-  #     --from-literal=STATS_PASS=<...> -n your-service-name-production
-  existingSecret: your-service-name-secret
-  dbUser: ""
-  dbPassword: ""
-  statsPass: ""
+  externalSecret:
+    enabled: true
+    secretStoreRef: {name: your-secret-store, kind: SecretStore}
+    remoteKeyTemplate: "your-service-name-production-{key}"   # Secret Manager: <service>-<env>-<key>
+    remoteProperty: ""

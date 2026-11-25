@@ -164,10 +164,10 @@
 {{- end }}
 {{- /* Chart Secret mode with the in-cluster database and no password renders a Secret key that does not exist. */}}
 {{- if and .Values.postgresql.enabled (not .Values.secrets.existingSecret) (not .Values.secrets.externalSecret.enabled) (not .Values.secrets.dbPassword) (not .Values.postgresql.existingSecret) }}
-{{- $found = append $found "secrets.dbPassword is empty with the in-cluster PostgreSQL and the chart Secret, so the database would have no password (supply it out-of-band, values.secret.yaml, or take the app Secret from secrets.existingSecret or the ExternalSecret and name the database's password Secret in postgresql.existingSecret)" }}
+{{- $found = append $found "secrets.dbPassword is empty with the in-cluster PostgreSQL and the chart Secret, so the database would have no password (supply it out-of-band, values.secret.yaml, take the app Secret from the ExternalSecret, which syncs the database's too, or take it from secrets.existingSecret and name the database's password Secret in postgresql.existingSecret)" }}
 {{- end }}
 {{- if and .Values.secrets.externalSecret.enabled (eq .Values.secrets.externalSecret.secretStoreRef.name "your-secret-store") }}
-{{- $found = append $found "secrets.externalSecret.secretStoreRef.name is the placeholder \"your-secret-store\" (set your cluster's secret store)" }}
+{{- $found = append $found "secrets.externalSecret.secretStoreRef.name is the placeholder \"your-secret-store\" (set the environment's store, wiki/gke-cluster-setup.md, External Secrets)" }}
 {{- end }}
 {{- if and .Values.cloudSqlProxy.enabled (eq .Values.cloudSqlProxy.instanceConnectionName "your-project:your-region:your-instance") }}
 {{- $found = append $found "cloudSqlProxy.instanceConnectionName is the placeholder \"your-project:your-region:your-instance\" (set project:region:instance)" }}
@@ -227,10 +227,15 @@
 {{- end }}
 {{- /*
   The in-cluster Postgres takes its password from secrets.dbPassword, which is empty when the app
-  Secret comes from secrets.existingSecret or the ExternalSecret: it then needs its own Secret.
+  Secret comes from secrets.existingSecret: it then needs its own Secret. With the ExternalSecret the
+  chart syncs it (templates/externalsecret.yaml).
 */ -}}
-{{- if and .Values.postgresql.enabled (or .Values.secrets.existingSecret .Values.secrets.externalSecret.enabled) (not .Values.postgresql.existingSecret) }}
-{{- fail (printf "%s: postgresql.existingSecret is required when postgresql.enabled is true and the app Secret comes from secrets.existingSecret or the ExternalSecret: secrets.dbPassword is empty then, so the in-cluster database has no password. Name a Secret in the database namespace holding it (key postgresql.existingSecretKey), or use a managed database (postgresql.enabled=false)." (include "chart.fullname" .)) }}
+{{- if and .Values.postgresql.enabled .Values.secrets.existingSecret (not .Values.postgresql.existingSecret) }}
+{{- fail (printf "%s: postgresql.existingSecret is required when postgresql.enabled is true and the app Secret comes from secrets.existingSecret: secrets.dbPassword is empty then, so the in-cluster database has no password. Name a Secret in the database namespace holding it (key postgresql.existingSecretKey), take the app Secret from the ExternalSecret (which syncs the database's too), or use a managed database (postgresql.enabled=false)." (include "chart.fullname" .)) }}
+{{- end }}
+{{- /* With the ExternalSecret, the database's own ExternalSecret reads the DB_PASSWORD remote key. */ -}}
+{{- if and .Values.secrets.externalSecret.enabled .Values.postgresql.enabled (not .Values.postgresql.existingSecret) (not (get .Values.secrets.externalSecret.keys "DB_PASSWORD")) }}
+{{- fail (printf "%s: secrets.externalSecret.keys has no DB_PASSWORD, which the in-cluster PostgreSQL's ExternalSecret syncs (the app and the database share it). Add it, or name the database's password Secret in postgresql.existingSecret." (include "chart.fullname" .)) }}
 {{- end }}
 {{- /*
   The Cloud SQL Auth Proxy replaces the database host with loopback and encrypts to Cloud SQL

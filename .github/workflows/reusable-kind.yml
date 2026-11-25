@@ -48,12 +48,13 @@ jobs:
           fetch-depth: 0
       - name: Fetch the base commit
         run: git fetch --no-tags --depth=1 origin "${BASE_SHA}"
-      # kind, ct, Helm, yq, Node, both kubectl pins, cosign and the Kyverno chart (the admission test),
+      # kind, ct, Helm, yq, Node, both kubectl pins, cosign, the Kyverno chart (the admission test) and the
+      # External Secrets Operator chart (the External Secrets test),
       # checksum-verified; the Gateway API CRDs by their pinned sha256 (crd-sources). Node derives the release's deployment id and runs Playwright. ct shells out to yamllint and yamale, and the image matrix helper imports
       # PyYAML: each gets a venv from its hashed lock.
       - name: Install the pinned tools
         run: |
-          scripts/tools.sh install helm4 kubectl kubectl-floor kind ct yq node crd-sources cosign kyverno-chart
+          scripts/tools.sh install helm4 kubectl kubectl-floor kind ct yq node crd-sources cosign kyverno-chart external-secrets-chart
           echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
           for tool in yamllint yamale pyyaml; do
             python3 -m venv "$RUNNER_TEMP/${tool}"
@@ -174,6 +175,15 @@ jobs:
         if: matrix.leg == 'newest'
         timeout-minutes: 10
         run: make kind-tracing-redis-test
+      # The app Secret from the External Secrets Operator (tests/k8s/test_external_secrets.py;
+      # wiki/security.md, OpenBao): the pinned operator chart and OpenBao in dev mode (both by digest),
+      # a store per namespace with Kubernetes auth, a release of its own with only the store values
+      # switched to OpenBao; all removed by the test, nothing leaves the runner. Newest leg only (about
+      # two minutes): the sync is the operator's, which the Kubernetes version barely changes.
+      - name: External Secrets (pinned operator, OpenBao store; the app Secret synced, another namespace refused)
+        if: matrix.leg == 'newest'
+        timeout-minutes: 15
+        run: make kind-external-secrets-test
       # Advisory, last: findings and tool errors warn and never fail the job (continue-on-error and a
       # verdict that exits 0), and its spider uses up the per-client rate limit for a minute, so no
       # blocking step runs after it. infra/security/local/scan-dast.sh with dast.yml's pinned image; the

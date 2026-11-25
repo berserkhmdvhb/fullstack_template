@@ -71,6 +71,7 @@ tests:
   - it: with the guard, an extra init container on the placeholder digest is refused
     set:
       guards: {rejectPlaceholders: true}
+      secrets: {externalSecret: {secretStoreRef: {name: secret-manager}}}
       backend: {extraInitContainers: [{name: own-sidecar, image: "busybox@sha256:0000000000000000000000000000000000000000000000000000000000000000"}]}
       images:
         backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
@@ -254,6 +255,7 @@ tests:
   - it: with the guard, the placeholder digests are refused, each named
     set:
       guards: {rejectPlaceholders: true}
+      secrets: {externalSecret: {secretStoreRef: {name: secret-manager}}}
       edge:
         hosts: {root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
@@ -264,6 +266,7 @@ tests:
   - it: with the guard, a placeholder digest on an image that renders is refused (the WAF on)
     set:
       guards: {rejectPlaceholders: true}
+      secrets: {externalSecret: {secretStoreRef: {name: secret-manager}}}
       waf: {enabled: true}
       images:
         backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
@@ -278,6 +281,7 @@ tests:
   - it: with the guard, a placeholder third-party digest is refused too
     set:
       guards: {rejectPlaceholders: true}
+      secrets: {externalSecret: {secretStoreRef: {name: secret-manager}}}
       images:
         backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
@@ -292,6 +296,7 @@ tests:
   - it: with the guard and real digests, the placeholder OIDC issuer and audience are refused, each named
     set:
       guards: {rejectPlaceholders: true}
+      secrets: {externalSecret: {secretStoreRef: {name: secret-manager}}}
       config: {OIDC_ISSUER: "https://idp.Your-Domain.Example"}
       images:
         backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
@@ -306,6 +311,7 @@ tests:
   - it: with the guard and real-format stand-ins for every placeholder, production renders
     set:
       guards: {rejectPlaceholders: true}
+      secrets: {externalSecret: {secretStoreRef: {name: secret-manager}}}
       images:
         backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
@@ -351,6 +357,7 @@ tests:
   - it: with the guard, a placeholder issuer in upper case is still refused
     set:
       guards: {rejectPlaceholders: true}
+      secrets: {externalSecret: {secretStoreRef: {name: secret-manager}}}
       images:
         backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
@@ -366,6 +373,7 @@ tests:
   - it: with the guard, the committed issuer is refused with a real audience
     set:
       guards: {rejectPlaceholders: true}
+      secrets: {externalSecret: {secretStoreRef: {name: secret-manager}}}
       images:
         backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
@@ -380,6 +388,7 @@ tests:
   - it: with the guard, the committed audience is refused with a real issuer
     set:
       guards: {rejectPlaceholders: true}
+      secrets: {externalSecret: {secretStoreRef: {name: secret-manager}}}
       images:
         backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
@@ -404,6 +413,7 @@ tests:
   - it: with the guard and the rules on, the placeholder runbook URL, in any case, is refused
     set:
       guards: {rejectPlaceholders: true}
+      secrets: {externalSecret: {secretStoreRef: {name: secret-manager}}}
       monitoring: {prometheusRule: true, runbookUrl: &placeholder_runbook "https://github.com/Your-Org/Your-Repo/blob/main/wiki/operations-runbook.md"}
       images: &real_digests
         backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
@@ -421,6 +431,7 @@ tests:
   - it: with the guard, the placeholder runbook URL is refused for the gmp flavour (its ClusterRules carry it)
     set:
       guards: {rejectPlaceholders: true}
+      secrets: {externalSecret: {secretStoreRef: {name: secret-manager}}}
       monitoring: {flavour: gmp, runbookUrl: *placeholder_runbook}
       images: *real_digests
       config: *real_oidc
@@ -432,6 +443,7 @@ tests:
   - it: with the guard and the rules off, the placeholder runbook URL is not a refusal
     set:
       guards: {rejectPlaceholders: true}
+      secrets: {externalSecret: {secretStoreRef: {name: secret-manager}}}
       monitoring: {runbookUrl: *placeholder_runbook}
       images: *real_digests
       config: *real_oidc
@@ -442,6 +454,7 @@ tests:
   - it: with the guard, the rules on and a real runbook URL, production renders
     set:
       guards: {rejectPlaceholders: true}
+      secrets: {externalSecret: {secretStoreRef: {name: secret-manager}}}
       monitoring: {prometheusRule: true, runbookUrl: "https://git.svc.test/ops/runbook.md"}
       images: *real_digests
       config: *real_oidc

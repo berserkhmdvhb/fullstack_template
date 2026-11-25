@@ -33,7 +33,8 @@ REQUIRED = {
     "yamllint",
     "pip-audit",
 }
-LEFT = REQUIRED | {"k8s-openapi", "kyverno-chart"}  # what stays in pins.tsv
+# What stays in pins.tsv.
+LEFT = REQUIRED | {"k8s-openapi", "kyverno-chart", "external-secrets-chart"}
 
 
 def rows() -> list[list[str]]:

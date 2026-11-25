@@ -44,3 +44,15 @@ edge:
 
 postgresql:
   enabled: true
+
+# The app Secret, and with the in-cluster PostgreSQL the database's password, from the External
+# Secrets Operator: a SecretStore of this name in each of the environment's namespaces, which reads
+# only this environment's secrets (wiki/gke-cluster-setup.md, External Secrets). The store name is a
+# placeholder the deploy refuses (guards.rejectPlaceholders): set the store you created. Moving to
+# another store (OpenBao, Infisical: wiki/security.md) changes these values only.
+secrets:
+  externalSecret:
+    enabled: true
+    secretStoreRef: {name: your-secret-store, kind: SecretStore}
+    remoteKeyTemplate: "your-service-name-dev-{key}"   # Secret Manager: <service>-<env>-<key>
+    remoteProperty: ""

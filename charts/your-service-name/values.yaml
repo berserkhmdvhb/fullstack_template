@@ -261,32 +261,33 @@ config:
   AUTH_PROXY_CIDRS: ""
 
 # ---- Secret (app) -> DB_USER / DB_PASSWORD / STATS_PASS -------------------
-# Dev/local defaults only. Production leaves these empty and supplies them via
-# sealed-secrets / External Secrets Operator / SOPS (see templates/secret.yaml).
+# dev, qa and production take it from the External Secrets Operator (externalSecret below, on in
+# their values.<env>.yaml); local and kind take the chart's own Secret; previews take the Secret the
+# preview bootstrap creates (secrets.existingSecret). wiki/security.md, Secret sources.
 #
-# NO PASSWORDS ARE COMMITTED BELOW. DB_PASSWORD / STATS_PASS (and, for the
-# internal DB, the matching Postgres password) are supplied out-of-band:
-#   * local/manual: copy charts/your-service-name/values.secret.yaml.example to
-#     values.secret.yaml (gitignored) and pass it with an extra -f; or
-#   * CI: inject them as masked/protected variables into a generated values file.
+# NO PASSWORDS ARE COMMITTED BELOW. For the chart's own Secret, DB_PASSWORD / STATS_PASS (and, for
+# the internal DB, the matching Postgres password) are supplied out-of-band: copy
+# charts/your-service-name/values.secret.yaml.example to values.secret.yaml (gitignored) and pass it
+# with an extra -f.
 #
 # secrets.existingSecret: name of an EXTERNALLY-managed Opaque secret holding the
 # same keys (DB_USER / DB_PASSWORD / STATS_PASS). When set, the chart does NOT
-# create its own secret and the backend/migration reference this one instead —
-# so production can deploy without committing credentials. Empty => the chart
-# creates chart.fullname-secret from the values here (dev/local only).
+# create its own secret and the backend/migration reference this one instead.
+# Empty => the chart creates chart.fullname-secret (from the values here, or
+# through the ExternalSecret).
 #
-# SINGLE SOURCE OF TRUTH: the internal Postgres password is sourced from
-# secrets.dbPassword too (templates/db-secret.yaml), so the app and the database
-# always share ONE value to keep in sync — not two.
+# SINGLE SOURCE OF TRUTH: the internal Postgres password is the app's DB_PASSWORD: from
+# secrets.dbPassword (templates/db-secret.yaml), or with the ExternalSecret from the same remote key
+# (a second ExternalSecret in the database namespace), so the app and the database share ONE value.
 #
 # EXACTLY ONE source holds the app Secret; two at once fail the render:
-#   1. the chart's own Secret, from dbPassword / statsPass here (dev/local);
-#   2. existingSecret, a Secret you manage (sealed-secrets, SOPS, a hand-made one);
+#   1. the chart's own Secret, from dbPassword / statsPass here (local and kind);
+#   2. existingSecret, a Secret you manage (previews; Sealed Secrets, SOPS, a hand-made one);
 #   3. externalSecret.enabled, an External Secrets Operator ExternalSecret that syncs the keys
-#      from the platform's secret store (for example GCP Secret Manager, wiki/security.md). The
-#      store itself (a ClusterSecretStore and its Workload Identity) is the platform's: the chart
-#      ships none.
+#      from the environment's secret store (Google Secret Manager by default; OpenBao or Infisical
+#      instead, wiki/security.md). The store (a SecretStore in each of the environment's
+#      namespaces, with its identity) is the platform's: the chart ships none
+#      (wiki/gke-cluster-setup.md, External Secrets).
 secrets:
   existingSecret: ""
   dbUser: app            # username (not secret) — safe to keep
@@ -295,16 +296,24 @@ secrets:
   externalSecret:
     enabled: false
     refreshInterval: 1h
+    # The store, in the release's namespace (and, with the in-cluster PostgreSQL, a store of the
+    # same name in the database namespace). A placeholder: guards.rejectPlaceholders refuses it.
     secretStoreRef:
-      # A placeholder: guards.rejectPlaceholders refuses it.
-      name: your-secret-store      # the platform's store
-      kind: ClusterSecretStore     # or SecretStore
-    # Secret key -> remote key in the store. The names are placeholders: set yours. Add a key
-    # (for example RATE_LIMIT_STORAGE) to sync it too.
-    remoteKeys:
-      DB_USER: your-service-name-db-user
-      DB_PASSWORD: your-service-name-db-password
-      STATS_PASS: your-service-name-stats-pass
+      name: your-secret-store
+      kind: SecretStore            # one per namespace (least privilege), or ClusterSecretStore
+    # The remote name of each key: {key} is replaced by the key's name in `keys`. Secret Manager:
+    # <service>-<env>-{key}; OpenBao's KV engine: <service>/<env>/{key} with remoteProperty "value".
+    # Switching the store is a change of these three values only.
+    remoteKeyTemplate: "your-service-name-{key}"
+    # The property of each remote secret to read ("" reads the whole value, as Secret Manager
+    # holds it).
+    remoteProperty: ""
+    # Secret key -> its name in remoteKeyTemplate. Add a key (for example RATE_LIMIT_STORAGE:
+    # rate-limit-storage) to sync it too. DB_PASSWORD also feeds the in-cluster PostgreSQL.
+    keys:
+      DB_USER: db-user
+      DB_PASSWORD: db-password
+      STATS_PASS: stats-pass
 
 # Cloud SQL Auth Proxy as a native sidecar (an init container with restartPolicy: Always,
 # Kubernetes 1.29+) in the backend Deployment and the migration Job, which completes when the
@@ -562,10 +571,11 @@ postgresql:
     tag: 16-alpine
     digest: "sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d"
   # The Secret (in the database namespace) holding the server's password, and its key. Required
-  # when the app Secret comes from secrets.existingSecret or the ExternalSecret, because
-  # secrets.dbPassword is empty then; when set it feeds the StatefulSet and the backup jobs in
-  # every mode, and the chart then renders no password of its own. Empty: secrets.dbPassword
-  # feeds them (dev and local).
+  # when the app Secret comes from secrets.existingSecret, because secrets.dbPassword is empty
+  # then; when set it feeds the StatefulSet and the backup jobs in every mode, and the chart then
+  # renders no password of its own. Empty: with the ExternalSecret, a second ExternalSecret syncs
+  # the app's DB_PASSWORD remote key into the database namespace (dev and qa); else
+  # secrets.dbPassword feeds them (local).
   existingSecret: ""
   existingSecretKey: password
   # clientImage is the slim psql/pg_dump client used by the migration's

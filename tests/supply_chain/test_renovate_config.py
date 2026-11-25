@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 PINS = (ROOT / "tools" / "pins.tsv").read_text(encoding="utf-8")
 CONFIG = (ROOT / "infra" / "security" / "config.yaml").read_text(encoding="utf-8")
 DEPENDABOT = ROOT / ".github" / "dependabot.yml"
-MAX_PINS_MANAGERS = 4  # mise, the k8s-openapi spec, the Kyverno chart, the PyPI tools
+MAX_PINS_MANAGERS = 5  # mise, the k8s-openapi spec, the Kyverno and External Secrets charts, PyPI
 MISE = (ROOT / "mise.toml").read_text(encoding="utf-8")
 # Read by the regex managers below, not by Renovate's mise manager: the aqua recipes for Helm and
 # kubectl are `http` packages (the manager cannot read them), and helm3, helm4 and kubectl-floor are
@@ -322,7 +322,14 @@ def test_the_drift_note_covers_the_crd_sources() -> None:
 
 ADMISSION_IMAGE_FILES = ("deploy/policies/test/kyverno-values.yaml",)
 # tests/k8s/_kube.py holds the throwaway registry the admission and deploy tests share.
-KIND_IMAGE_FILES = (*ADMISSION_IMAGE_FILES, "tests/k8s/_kube.py", "tests/k8s/test_tracing_redis.py")
+# The External Secrets test's OpenBao, and the operator's images the guide and that test install.
+KIND_IMAGE_FILES = (
+    *ADMISSION_IMAGE_FILES,
+    "tests/k8s/_kube.py",
+    "tests/k8s/test_tracing_redis.py",
+    "tests/k8s/test_external_secrets.py",
+    "deploy/external-secrets/external-secrets-values.yaml",
+)
 
 
 def _file_managers(rel: str) -> list[dict[str, Any]]:

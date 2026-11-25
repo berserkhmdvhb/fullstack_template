@@ -102,6 +102,18 @@
       "registryUrlTemplate": "https://kyverno.github.io/kyverno"
     },
     {
+      // The External Secrets Operator's Helm chart (data, like the Kyverno chart): the GKE guide and the kind test install it.
+      "customType": "regex",
+      "description": "tools/pins.tsv: the External Secrets Operator Helm chart (charts.external-secrets.io)",
+      "managerFilePatterns": ["/^tools/pins\\.tsv$/"],
+      "matchStrings": [
+        "(?m)^(?<depName>external-secrets-chart)\\t(?<currentValue>[0-9][^\\t]*)\\t(?<platform>[^\\t]+)\\t(?<url>https://github\\.com/external-secrets/external-secrets/releases/download/helm-chart-[^\\t]+)\\t"
+      ],
+      "datasourceTemplate": "helm",
+      "packageNameTemplate": "external-secrets",
+      "registryUrlTemplate": "https://charts.external-secrets.io"
+    },
+    {
       // Python tools (url uv:<package>): only the version column changes; make pins-refresh regenerates the hashed lock.
       // The `python` row is not a package: it is disabled below and bumped by hand.
       "customType": "regex",
@@ -171,13 +183,17 @@
     {
       // The kind tests' throwaway images, each under a `# renovate: image=<name>` line: the Kyverno images in
       // deploy/policies/test/kyverno-values.yaml (the chart takes `tag: <tag>@<digest>`), the registry in
-      // tests/k8s/_kube.py, and the collector and Redis in tests/k8s/test_tracing_redis.py (`<NAME>_TAG = `).
+      // tests/k8s/_kube.py, the collector and Redis in tests/k8s/test_tracing_redis.py and OpenBao in
+      // tests/k8s/test_external_secrets.py (`<NAME>_TAG = `), and the operator's images in
+      // deploy/external-secrets/external-secrets-values.yaml.
       "customType": "regex",
       "description": "Annotated image tags and digests of the kind tests",
       "managerFilePatterns": [
         "/^deploy/policies/test/kyverno-values\\.yaml$/",
         "/^tests/k8s/_kube\\.py$/",
-        "/^tests/k8s/test_tracing_redis\\.py$/"
+        "/^tests/k8s/test_tracing_redis\\.py$/",
+        "/^tests/k8s/test_external_secrets\\.py$/",
+        "/^deploy/external-secrets/external-secrets-values\\.yaml$/"
       ],
       "matchStrings": [
         "# renovate: image=(?<depName>[^\\s]+)[^\\n]*\\n\\s*(?:tag: |[A-Z]+_TAG = )\"(?<currentValue>[^@\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
@@ -273,6 +289,14 @@
       "description": "Kyverno: the CLI pin, the chart pin and the chart's images move together",
       "matchPackageNames": ["kyverno/kyverno", "kyverno", "ghcr.io/kyverno/kyverno", "ghcr.io/kyverno/kyvernopre"],
       "groupName": "kyverno"
+    },
+    {
+      // The External Secrets Operator is one release: its chart (tools/pins.tsv), its image (deploy/external-secrets/
+      // external-secrets-values.yaml) and the CRDs kubeconform validates against (charts/your-service-name/ci/crds/sources.tsv)
+      // move in one pull request. The chart row's checksum and the CRD schemas still come from make pins-refresh and make crd-schemas.
+      "description": "External Secrets: the chart pin, its image and the CRD source move together",
+      "matchPackageNames": ["external-secrets", "external-secrets/external-secrets", "ghcr.io/external-secrets/external-secrets"],
+      "groupName": "external-secrets"
     },
     {
       // scorecard.yml stays on v2.5.0: v2.6.0's image cannot be pulled (ossf/scorecard-action#1752). Any later release is proposed.

@@ -68,7 +68,7 @@ run() {
 exes_for() {
   case "$1" in
     mise) echo "mise:mise" ;; # the release asset is the bare executable
-    k8s-openapi|kyverno-chart) echo "" ;; # data (kubeconform.sh and the kind admission test read them)
+    k8s-openapi|kyverno-chart|external-secrets-chart) echo "" ;; # data (kubeconform.sh and the kind tests read them)
     *) echo "$1:$1" ;;
   esac
 }

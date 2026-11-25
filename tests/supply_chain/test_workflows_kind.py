@@ -420,3 +420,19 @@ def test_the_preview_test_runs_on_the_newest_leg_after_the_deploy_script_test() 
     deploy_script = next(n for n in names if n.startswith("Deploy script"))
     assert names.index(SHUTDOWN) < names.index(deploy_script) < names.index(name) < names.index(ZAP)
     assert "tests/k8s/test_previews.py" in _recipe("kind-preview-test")
+
+
+def test_the_external_secrets_test_runs_on_the_newest_leg_after_the_shutdown_check() -> None:
+    """Blocking, after the steps that check the main release, before ZAP; its own make target and
+    timeout, no env, action or secret; the pinned operator chart installed with the tools."""
+    names = _names()
+    name = next(n for n in names if n.startswith("External Secrets"))
+    step = _step(name)
+    assert step["run"] == "make kind-external-secrets-test"
+    assert step["if"] == "matrix.leg == 'newest'"
+    assert "continue-on-error" not in step
+    assert set(step) <= {"name", "if", "timeout-minutes", "run"}, step
+    assert "timeout-minutes" in step
+    assert names.index(SHUTDOWN) < names.index(name) < names.index(ZAP)
+    assert "tests/k8s/test_external_secrets.py" in _recipe("kind-external-secrets-test")
+    assert "external-secrets-chart" in _step("Install the pinned tools")["run"]

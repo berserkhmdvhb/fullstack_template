@@ -6,7 +6,8 @@
 # column also renders the cluster-scoped ClusterRules); then each environment with every optional
 # object on (the WAF, the GKE Gateway policies, the ExternalSecret, the Namespaces, the RBAC, the
 # external database stub, the Grafana dashboards), with the Cloud SQL Auth Proxy, and the bootstrap
-# (scripts/k8s-bootstrap.sh <env>, and once with its GMP ClusterRules).
+# (scripts/k8s-bootstrap.sh <env>, and once with its GMP ClusterRules); then the External Secrets
+# stores the docs apply (deploy/external-secrets/secretstore-*.yaml).
 #
 # kubeconform -strict reads local schemas only, never the network: the Kubernetes kinds from
 # .tools/k8s-schemas (generated once from the pinned OpenAPI spec, tools/pins.tsv row k8s-openapi,
@@ -83,8 +84,9 @@ canary "CRD" $'apiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetada
 canary "missing schema" $'apiVersion: example.test/v1\nkind: Widget\nmetadata: {name: w}'
 
 monitors=(--set monitoring.serviceMonitor=true --set monitoring.prometheusRule=true)
-# The secret sources are exclusive: the ExternalSecret replaces production's existingSecret, and the
-# in-cluster database then takes its password from its own Secret.
+# The secret sources are exclusive: the ExternalSecret replaces the preview's existingSecret, and the
+# in-cluster database takes its password from a named Secret here (the environments' own renders
+# above sync it through a second ExternalSecret instead).
 features=(
   --set waf.enabled=true --set edge.gateway.gke.enabled=true --set rbac.create=true
   --set namespaces.create=true --set externalDatabase.manageSecret=true
@@ -124,6 +126,9 @@ printf 'monitoring: {flavour: gmp, runbookUrl: "git.svc.test/ops/runbook.md"}\n'
   > "$WORK/chart-gmp.yaml"
 check "production bootstrap with the gmp ClusterRules" "$ROOT/scripts/k8s-bootstrap.sh" production \
   --values "$WORK/bootstrap-gmp.yaml" --chart-values "$WORK/chart-gmp.yaml"
+for f in "$ROOT"/deploy/external-secrets/secretstore-*.yaml; do
+  check "store ${f#"$ROOT"/}" cat "$f"
+done
 
 if (( ${#failed[@]} )); then
   die "${#failed[@]} of $renders renders failed: ${failed[*]}"

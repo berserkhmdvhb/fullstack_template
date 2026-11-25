@@ -16,7 +16,7 @@
     k8s-apply k8s-delete k8s-build k8s-status k8s-pods k8s-services k8s-port-forward \
     k8s-wait k8s-logs k8s-port-forward-all deploy rebuild-and-roll smoke-test \
     kind-up kind-deploy kind-down kind-shutdown-test kind-migration-test kind-deploy-env-test kind-preview-test kind-admission-test \
-    kind-tracing-redis-test kind-csp-report-test kind-live kind-smoke kind-e2e kind-zap \
+    kind-tracing-redis-test kind-external-secrets-test kind-csp-report-test kind-live kind-smoke kind-e2e kind-zap \
     secrets db-backup certs \
     security-local security-build security-tools \
     security-sbom security-vuln security-license security-malware security-iac security-k8s security-dast security-vex security-audit \
@@ -160,6 +160,7 @@ help::
 	@echo "  kind-preview-test        Pull request previews on fst: two deployed, one redeployed, both cleaned up, the deployer fenced"
 	@echo "  kind-admission-test      The image admission policy on fst: signed and attested admitted, the rest denied"
 	@echo "  kind-tracing-redis-test  Spans to a collector and the rate limit in Redis, through the NetworkPolicy, on fst"
+	@echo "  kind-external-secrets-test  The app Secret synced by the pinned External Secrets Operator from OpenBao on fst"
 	@echo "  kind-csp-report-test     A browser CSP violation on the release reaches the backend's log (Playwright)"
 	@echo "  kind-live                The live suites against the release on fst (port-forwards as the deployer)"
 	@echo "  kind-smoke               The smoke test against the release's public forward on fst"
@@ -678,6 +679,11 @@ kind-admission-test:
 # collector and Redis (wiki/backend-architecture.md, Tracing; wiki/security.md, Backend Rate Limiting).
 kind-tracing-redis-test:
 	$(PYTHON) -m pytest tests/k8s/test_tracing_redis.py -o addopts="" -v -s
+
+# After kind-deploy: tests/k8s/test_external_secrets.py, the pinned External Secrets Operator and an OpenBao
+# store on fst, with a release of its own whose app Secret it syncs (wiki/security.md, OpenBao).
+kind-external-secrets-test:
+	$(PYTHON) -m pytest tests/k8s/test_external_secrets.py -o addopts="" -v -s -x
 
 # After kind-deploy and the frontend's Playwright install: tests/k8s/test_csp_report.py (it runs
 # frontend/e2e/csp-report.spec.ts through scripts/ci/kind-forward.sh; wiki/security.md, CSP Violation Reports).
