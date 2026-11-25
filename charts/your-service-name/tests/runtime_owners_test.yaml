@@ -1,0 +1,46 @@
+suite: the chart never sets a field another controller owns at runtime (the deploy forces its own fields)
+# The deploy takes ownership of every field it sets (helm --force-conflicts), so a field a controller
+# writes at runtime must never be rendered, or each deploy would fight that controller.
+release:
+  name: svc
+  namespace: app
+templates:
+  - backend-deployment.yaml
+  - frontend-deployment.yaml
+  - hpa.yaml
+  - configmap.yaml
+  - db-secret.yaml
+  - externalsecret.yaml
+  - secret.yaml
+tests:
+  - it: with the HPA on, the backend Deployment sets no replicas (the HPA owns them)
+    template: backend-deployment.yaml
+    set: {hpa: {backend: {enabled: true}}}
+    asserts:
+      - notExists: {path: spec.replicas}
+  - it: with the HPA on, the frontend Deployment sets no replicas
+    template: frontend-deployment.yaml
+    set: {hpa: {frontend: {enabled: true}}}
+    asserts:
+      - notExists: {path: spec.replicas}
+  - it: with the HPA off, the chart owns the backend's replicas
+    template: backend-deployment.yaml
+    set: {hpa: {backend: {enabled: false}}, replicas: {backend: 3}}
+    asserts:
+      - equal: {path: spec.replicas, value: 3}
+  - it: with the HPA off, the chart owns the frontend's replicas
+    template: frontend-deployment.yaml
+    set: {hpa: {frontend: {enabled: false}}, replicas: {frontend: 3}}
+    asserts:
+      - equal: {path: spec.replicas, value: 3}
+  - it: with External Secrets, the chart renders no Secret the operator writes (it owns their data)
+    values: [../values.dev.yaml]
+    release: {name: your-service-name, namespace: your-service-name-dev}
+    asserts:
+      - hasDocuments: {count: 0}
+        template: secret.yaml
+      - equal: {path: spec.target.name, value: your-service-name-db-password}
+        template: externalsecret.yaml
+        documentIndex: 1
+      - equal: {path: metadata.name, value: your-service-name-db-credentials}
+        template: db-secret.yaml

@@ -208,7 +208,7 @@ cmd_apply() {
   # use the same command. The chart makes a new migration Job per release revision,
   # so there is no migration Job to delete-recreate. Extra -f files (from --values)
   # override values.<env>.yaml; --set KEY=VALUE (repeatable) overrides individual values.
-  local -a helm=(upgrade --install "${HELM_RELEASE}" "${LIB_CHART_DIR}" -f "${VALUES_FILE}" --history-max "${HELM_HISTORY_MAX}")
+  local -a helm=(upgrade --install "${HELM_RELEASE}" "${LIB_CHART_DIR}" -f "${VALUES_FILE}" --history-max "${HELM_HISTORY_MAX}" --force-conflicts)
   local vf s
   for vf in "${EXTRA_VALUES[@]}"; do helm+=(-f "${vf}"); done
   for s in "${SET_ARGS[@]}"; do helm+=(--set "${s}"); done

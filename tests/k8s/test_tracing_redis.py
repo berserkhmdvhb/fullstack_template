@@ -256,7 +256,16 @@ class Release:
         ``egress``."""
         values = self.work / "egress.yaml"
         values.write_text(yaml.safe_dump(_egress(*egress)))
-        cmd = [*self.helm, "upgrade", "--install", RELEASE, str(CHART), "-n", NAMESPACE]
+        cmd = [
+            *self.helm,
+            "upgrade",
+            "--install",
+            RELEASE,
+            str(CHART),
+            "-n",
+            NAMESPACE,
+            "--force-conflicts",
+        ]
         cmd += ["-f", str(CHART / "values.local.yaml"), "-f", str(values), *self.image_args]
         cmd += ["--set", "observability.tracing.enabled=true"]
         cmd += ["--set-string", f"observability.tracing.endpoint=http://{COLLECTOR}:4318"]

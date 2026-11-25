@@ -219,7 +219,16 @@ class Cluster:
     def deploy(self, *extra: str, timeout: str = "9m") -> tuple[int, str]:
         """helm upgrade --install as kind-deploy.sh's deploy(); on a failure, the deploy path's
         report of the newest migration Job (as kind-deploy.sh and deploy-env.sh print it)."""
-        cmd = [*self.helm, "upgrade", "--install", RELEASE, str(CHART), "-n", NAMESPACE]
+        cmd = [
+            *self.helm,
+            "upgrade",
+            "--install",
+            RELEASE,
+            str(CHART),
+            "-n",
+            NAMESPACE,
+            "--force-conflicts",
+        ]
         cmd += ["-f", str(CHART / "values.local.yaml"), "-f", str(SECRETS), *self.image_args]
         cmd += ["--history-max", "5", "--wait", "--wait-for-jobs", "--timeout", timeout]
         cmd += [*COMMON, *extra]
@@ -562,7 +571,7 @@ def test_a_rollback_after_the_ttl_recreates_the_job_which_finds_the_database_ahe
 
 
 def _rollback(cluster: Cluster, revision: int) -> tuple[int, str]:
-    cmd = [*cluster.helm, "rollback", RELEASE, str(revision), "-n", NAMESPACE]
+    cmd = [*cluster.helm, "rollback", RELEASE, str(revision), "-n", NAMESPACE, "--force-conflicts"]
     cmd += ["--wait", "--wait-for-jobs", "--timeout", "9m", "--history-max", "5"]
     done = subprocess.run(cmd, capture_output=True, text=True, env=_env(), check=False)
     return done.returncode, done.stdout + done.stderr

@@ -279,7 +279,16 @@ class Setup:
         """helm upgrade --install as the deployer: values.local.yaml and the store values only."""
         store_values = self.work / "store.yaml"
         store_values.write_text(yaml.safe_dump(STORE_VALUES))
-        cmd = [*self.helm, "upgrade", "--install", RELEASE, str(CHART), "-n", NAMESPACE]
+        cmd = [
+            *self.helm,
+            "upgrade",
+            "--install",
+            RELEASE,
+            str(CHART),
+            "-n",
+            NAMESPACE,
+            "--force-conflicts",
+        ]
         cmd += ["-f", str(CHART / "values.local.yaml"), "-f", str(store_values)]
         cmd += [*self.image_args(), "--history-max", "5"]
         cmd += ["--wait", "--wait-for-jobs", "--timeout", "9m"]

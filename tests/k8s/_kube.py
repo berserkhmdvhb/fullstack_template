@@ -90,10 +90,23 @@ def upgraded(*flags: str) -> Iterator[None]:
     chart = str(ROOT / "charts" / "your-service-name")
     wait = ["--wait", "--wait-for-jobs", "--timeout", "9m"]
     try:
-        _run([*helm, "upgrade", RELEASE, chart, "-n", NAMESPACE, "--reuse-values", *flags, *wait])
+        _run(
+            [
+                *helm,
+                "upgrade",
+                RELEASE,
+                chart,
+                "-n",
+                NAMESPACE,
+                "--reuse-values",
+                "--force-conflicts",
+                *flags,
+                *wait,
+            ]
+        )
         yield
     finally:
-        _run([*helm, "rollback", RELEASE, revision, "-n", NAMESPACE, *wait])
+        _run([*helm, "rollback", RELEASE, revision, "-n", NAMESPACE, "--force-conflicts", *wait])
 
 
 class Kube:

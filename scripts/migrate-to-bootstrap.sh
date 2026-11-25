@@ -124,7 +124,7 @@ grep -qxF -- "$context" <<<"$(kubectl config get-contexts -o name 2>/dev/null ||
   die "context $context is not in the kubeconfig" 2
 server="$(kc config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
 where="context $context ($server)"
-upgrade=(helm upgrade "$release" "$CHART" -n "$namespace" "${values[@]}" --history-max "$HELM_HISTORY_MAX" --wait --timeout "$timeout" --kube-context "$context")
+upgrade=(helm upgrade "$release" "$CHART" -n "$namespace" "${values[@]}" --history-max "$HELM_HISTORY_MAX" --force-conflicts --wait --timeout "$timeout" --kube-context "$context")
 boot=("$ROOT/scripts/k8s-bootstrap.sh" "$ENV_NAME" --release "$release" --namespace "$namespace" "${boot_extra[@]}")
 
 deployed() { # the release's status must be deployed; prints its revision
@@ -137,7 +137,7 @@ deployed() { # the release's status must be deployed; prints its revision
   status="$(jq -r '.info.status' <<<"$out")" rev="$(jq -r '.version' <<<"$out")"
   if [[ "$status" != deployed ]]; then
     last="$(hc history "$release" -n "$namespace" -o json | jq -r '[.[] | select(.status == "deployed" or .status == "superseded")] | last | .revision // empty')"
-    local fix="roll it back to its last good revision first (helm rollback $release $last -n $namespace --kube-context $context; helm history lists them), then run this again"
+    local fix="roll it back to its last good revision first (helm rollback $release $last -n $namespace --force-conflicts --kube-context $context; helm history lists them), then run this again"
     [[ -n "$last" ]] || fix="it has never been deployed, so there is no revision to roll back to: fix the cause and upgrade it with the chart it was installed with until it is deployed, then run this again (an uninstall would delete its namespaces)"
     case "$status" in
       pending-*) die "release $release in $namespace is $status: an operation is in progress or was interrupted. Wait for it; if none is running, $fix" ;;
