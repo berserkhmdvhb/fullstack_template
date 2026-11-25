@@ -210,12 +210,7 @@ def test_the_chart_reads_production_from_the_backends_env_names() -> None:
 # The placeholder hosts and issuer in mixed case (the guard ignores case): infra/adapt/adopt.sh
 # stamps the adopter's domain over the lower-case form, so these stay placeholders once adopted.
 PLACEHOLDER_HOSTS = (
-    *(
-        "--set",
-        "edge.hosts.api=api.Your-Domain.Example",
-        "--set",
-        "edge.hosts.app=app.Your-Domain.Example",
-    ),
+    *("--set", "edge.hosts.api=api.Your-Domain.Example"),
     *("--set", "edge.hosts.root=Your-Domain.Example"),
     *("--set", "config.OIDC_ISSUER=https://idp.Your-Domain.Example"),
 )
@@ -275,5 +270,5 @@ def test_one_guard_refusal_lists_one_placeholder_per_line_and_the_count_matches(
     tail = result.stderr[header.end() :]
     block = tail[: tail.index("\nSet them in values.<env>.yaml.")]
     items = [ln for ln in block.splitlines() if ln.startswith("  - ")]
-    assert len(items) == int(header[1]) == 8, block  # noqa: PLR2004 (the committed placeholders)
+    assert len(items) == int(header[1]) == 7, block  # noqa: PLR2004 (the committed placeholders)
     assert all(ln.startswith("  - ") for ln in block.splitlines()[1:]), block

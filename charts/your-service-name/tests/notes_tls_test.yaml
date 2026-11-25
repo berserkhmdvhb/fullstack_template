@@ -7,17 +7,27 @@ templates:
 tests:
   - it: gateway - TLS lives on the Gateway listener, so no scheme is claimed
     asserts:
-      - notMatchRegexRaw: {pattern: 'https?://api\.your-domain\.example'}
-      - matchRegexRaw: {pattern: 'API  : api\.your-domain\.example'}
+      - notMatchRegexRaw: {pattern: 'https?://your-service-name\.your-domain\.example'}
+      - matchRegexRaw: {pattern: 'APP  : your-service-name\.your-domain\.example'}
       - matchRegexRaw: {pattern: 'Gateway listener'}
+  - it: no API line unless the api host is set
+    asserts:
+      - notMatchRegexRaw: {pattern: 'API  :'}
+  - it: the API line follows the api host
+    set: {edge: {hosts: {api: svc-api.example.org}}}
+    asserts:
+      - matchRegexRaw: {pattern: 'API  : svc-api\.example\.org'}
+      - matchRegexRaw: {pattern: 'APP  : your-service-name\.your-domain\.example'}
   - it: ingress without a TLS secret prints http
     set: {edge: {mode: ingress, namespaceSelector: {kubernetes.io/metadata.name: edge-controller}}}
     asserts:
-      - matchRegexRaw: {pattern: 'API  : http://api\.your-domain\.example'}
+      - matchRegexRaw: {pattern: 'APP  : http://your-service-name\.your-domain\.example'}
+      - notMatchRegexRaw: {pattern: 'API  :'}
   - it: ingress with a TLS secret prints https
-    set: {edge: {mode: ingress, namespaceSelector: {kubernetes.io/metadata.name: edge-controller}, ingress: {tlsSecretName: tls}}}
+    set: {edge: {mode: ingress, namespaceSelector: {kubernetes.io/metadata.name: edge-controller}, ingress: {tlsSecretName: tls}, hosts: {api: svc-api.example.org}}}
     asserts:
-      - matchRegexRaw: {pattern: 'API  : https://api\.your-domain\.example'}
+      - matchRegexRaw: {pattern: 'APP  : https://your-service-name\.your-domain\.example'}
+      - matchRegexRaw: {pattern: 'API  : https://svc-api\.example\.org'}
   - it: tunnel - Cloudflare serves https at the edge, the in-cluster hop is http
     set: {edge: {mode: tunnel}}
     asserts:

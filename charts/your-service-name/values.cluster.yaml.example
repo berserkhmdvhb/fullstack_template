@@ -57,9 +57,7 @@ global:
 edge:
   mode: gateway                  # gateway (Gateway API HTTPRoute) | ingress | tunnel
   hosts:
-    api:  api.your-domain.example          # adopt.sh stamps your-domain.example -> your base domain
-    app:  app.your-domain.example
-    root: your-service-name.your-domain.example
+    root: your-service-name.your-domain.example   # adopt.sh stamps your-domain.example -> your base domain
   gateway:
     parentRefs:
       - {name: <GATEWAY-NAME>, namespace: <GATEWAY-NAMESPACE>}   # the Gateway on YOUR cluster

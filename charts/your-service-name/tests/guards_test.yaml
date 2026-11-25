@@ -15,7 +15,7 @@ tests:
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        hosts: {root: svc.test}
     asserts:
       - failedTemplate:
           errorPattern: 'edge\.gateway\.parentRefs names the placeholder Gateway "your-gateway"'
@@ -27,17 +27,17 @@ tests:
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.svc.test, app: app.Your-Domain.Example, root: svc.test}
+        hosts: {root: app.Your-Domain.Example}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
-          errorPattern: 'edge\.hosts\.app is "app\.Your-Domain\.Example", which still holds the placeholder domain your-domain[.]example'
+          errorPattern: 'edge\.hosts\.root is "app\.Your-Domain\.Example", which still holds the placeholder domain your-domain[.]example'
 
   - it: on - real values render
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        hosts: {root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - notFailedTemplate: {}
@@ -47,7 +47,7 @@ tests:
       guards: {rejectPlaceholders: true}
       edge:
         mode: tunnel
-        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        hosts: {root: svc.test}
     asserts:
       - notFailedTemplate: {}
 
@@ -55,7 +55,7 @@ tests:
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.notyour-domain.example.com, app: app.svc.test, root: Your-Domain.Example.svc.test}
+        hosts: {api: api.notyour-domain.example.com, root: Your-Domain.Example.svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - notFailedTemplate: {}
@@ -64,7 +64,7 @@ tests:
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.svc.test, app: app.svc.test, root: Your-Domain.Example}
+        hosts: {root: Your-Domain.Example}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
@@ -76,7 +76,7 @@ tests:
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.Your-Domain.Example., app: app.notyour-domain.example.com, root: svc.test}
+        hosts: {api: api.Your-Domain.Example., root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
@@ -86,7 +86,7 @@ tests:
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.notyour-domain.example.com., app: app.svc.test., root: svc.test}
+        hosts: {api: api.notyour-domain.example.com., root: svc.test.}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - notFailedTemplate: {}

@@ -7,10 +7,10 @@ templates:
   - ingress.yaml
   - services.yaml
 tests:
-  - it: renders one HTTPRoute per host role and no Ingress
+  - it: renders one HTTPRoute, on the root host, and no Ingress
     asserts:
       - hasDocuments:
-          count: 3
+          count: 1
         template: httproute.yaml
       - hasDocuments:
           count: 0
@@ -22,62 +22,24 @@ tests:
           of: gateway.networking.k8s.io/v1
         template: httproute.yaml
 
-  - it: the api host serves the backend routes only
+  - it: the root host serves every route, in list order, and no other host renders
     template: httproute.yaml
     documentIndex: 0
     asserts:
       - equal:
           path: metadata.name
-          value: svc-your-service-name-api
+          value: svc-your-service-name-root
       - equal:
           path: metadata.namespace
           value: app
       - equal:
           path: spec.hostnames
-          value: [api.your-domain.example]
+          value: [your-service-name.your-domain.example]
       - equal:
           path: spec.parentRefs
           value:
             - name: your-gateway
               namespace: gateway-system
-      - equal:
-          path: spec.rules
-          value:
-            - matches: [{path: {type: PathPrefix, value: /api}}]
-              backendRefs: [{name: svc-your-service-name-backend, port: 8000}]
-            - matches: [{path: {type: PathPrefix, value: /docs}}]
-              backendRefs: [{name: svc-your-service-name-backend, port: 8000}]
-            - matches: [{path: {type: Exact, value: /openapi.json}}]
-              backendRefs: [{name: svc-your-service-name-backend, port: 8000}]
-      - matchSnapshot: {}
-
-  - it: the app host serves the frontend routes only
-    template: httproute.yaml
-    documentIndex: 1
-    asserts:
-      - equal:
-          path: metadata.name
-          value: svc-your-service-name-app
-      - equal:
-          path: spec.hostnames
-          value: [app.your-domain.example]
-      - equal:
-          path: spec.rules
-          value:
-            - matches: [{path: {type: PathPrefix, value: /}}]
-              backendRefs: [{name: svc-your-service-name-frontend, port: 3000}]
-      - matchSnapshot: {}
-
-  - it: the root host serves every route, in list order
-    template: httproute.yaml
-    documentIndex: 2
-    asserts:
-      - equal:
-          path: metadata.name
-          value: svc-your-service-name-root
-      - equal:
-          path: spec.hostnames
-          value: [your-service-name.your-domain.example]
       - lengthEqual:
           path: spec.rules
           count: 4
@@ -88,15 +50,48 @@ tests:
             backendRefs: [{name: svc-your-service-name-frontend, port: 3000}]
       - matchSnapshot: {}
 
+  - it: an api host adds an HTTPRoute with the backend routes only
+    set:
+      edge:
+        hosts: {api: svc-api.example.org}
+    template: httproute.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.name
+          value: svc-your-service-name-root
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: svc-your-service-name-api
+        documentIndex: 1
+      - equal:
+          path: spec.hostnames
+          value: [svc-api.example.org]
+        documentIndex: 1
+      - equal:
+          path: spec.rules
+          value:
+            - matches: [{path: {type: PathPrefix, value: /api}}]
+              backendRefs: [{name: svc-your-service-name-backend, port: 8000}]
+            - matches: [{path: {type: PathPrefix, value: /docs}}]
+              backendRefs: [{name: svc-your-service-name-backend, port: 8000}]
+            - matches: [{path: {type: Exact, value: /openapi.json}}]
+              backendRefs: [{name: svc-your-service-name-backend, port: 8000}]
+        documentIndex: 1
+      - matchSnapshot: {}
+        documentIndex: 1
+
   - it: timeouts render only when set
     template: httproute.yaml
-    documentIndex: 2
+    documentIndex: 0
     asserts:
       - notExists:
           path: spec.rules[0].timeouts
   - it: timeouts land on every rule when set
     template: httproute.yaml
-    documentIndex: 2
+    documentIndex: 0
     set:
       edge:
         gateway:
@@ -126,6 +121,7 @@ tests:
   - it: a custom route shows up on the root and api hosts (a backend route)
     set:
       edge:
+        hosts: {api: svc-api.example.org}
         routes:
           - {path: /api, match: PathPrefix, service: backend}
           - {path: /healthz, match: Exact, service: backend}
@@ -144,10 +140,10 @@ tests:
             matches: [{path: {type: Exact, value: /healthz}}]
             backendRefs: [{name: svc-your-service-name-backend, port: 8000}]
         template: httproute.yaml
-        documentIndex: 2
+        documentIndex: 1
       - lengthEqual:
           path: spec.rules
-          count: 1
+          count: 2
         template: httproute.yaml
         documentIndex: 1
 
@@ -177,10 +173,10 @@ tests:
         template: httproute.yaml
         documentIndex: 0
       - equal:
-          path: spec.rules[0].backendRefs[0].port
+          path: spec.rules[3].backendRefs[0].port
           value: 4000
         template: httproute.yaml
-        documentIndex: 1
+        documentIndex: 0
       - equal:
           path: spec.ports[0].port
           value: 9000
@@ -192,9 +188,10 @@ tests:
         template: services.yaml
         documentIndex: 1
 
-  - it: a backend-only list renders no app HTTPRoute
+  - it: a backend-only list renders on the root host and no frontend route anywhere
     set:
       edge:
+        hosts: {api: svc-api.example.org}
         routes:
           - {path: /api, match: PathPrefix, service: backend}
     asserts:
@@ -203,27 +200,28 @@ tests:
         template: httproute.yaml
       - equal:
           path: spec.hostnames
-          value: [api.your-domain.example]
+          value: [your-service-name.your-domain.example]
         template: httproute.yaml
         documentIndex: 0
       - equal:
           path: spec.hostnames
-          value: [your-service-name.your-domain.example]
+          value: [svc-api.example.org]
         template: httproute.yaml
         documentIndex: 1
 
-  - it: a frontend-only list renders no api HTTPRoute
+  - it: a frontend-only list renders no api HTTPRoute even when the api host is set
     set:
       edge:
+        hosts: {api: svc-api.example.org}
         routes:
           - {path: /, match: PathPrefix, service: frontend}
     asserts:
       - hasDocuments:
-          count: 2
+          count: 1
         template: httproute.yaml
       - equal:
           path: spec.hostnames
-          value: [app.your-domain.example]
+          value: [your-service-name.your-domain.example]
         template: httproute.yaml
         documentIndex: 0
 

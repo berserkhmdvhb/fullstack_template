@@ -67,9 +67,8 @@ def test_allowed_hosts_are_the_edge_hosts_and_the_backend_service_names(env: str
     hosts = {**base, **_values(env).get("edge", {}).get("hosts", {})}
     extra = _values(env).get("backend", {}).get("extraAllowedHosts", "")
     assert rendered == [
-        hosts["api"],
-        hosts["app"],
         hosts["root"],
+        *([hosts["api"]] if hosts.get("api") else []),
         BACKEND_SERVICE,
         f"{BACKEND_SERVICE}.{NAMESPACE}",
         f"{BACKEND_SERVICE}.{NAMESPACE}.svc",
@@ -125,11 +124,8 @@ def test_extra_allowed_hosts_value_is_appended_after_the_service_names() -> None
     config = rendered_config("production", "--set", "backend.extraAllowedHosts=x.example.com")
     hosts = config["ALLOWED_HOSTS"].split(",")
     assert hosts[-1] == "x.example.com"
-    assert hosts[:3] == [
-        "api.your-domain.example",
-        "app.your-domain.example",
-        "your-service-name.your-domain.example",
-    ]
+    assert hosts[0] == "your-service-name.your-domain.example"
+    assert "" not in hosts
 
 
 @pytest.mark.parametrize("env", ENVS)

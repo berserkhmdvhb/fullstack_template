@@ -22,8 +22,8 @@
 # (a colon list), instead of values.<env>.yaml; the namespace is <SERVICE_NAME>-kind.
 # Pull request previews (.github/workflows/preview.yml): DEPLOY_ENV=preview with PREVIEW_PR=<N> deploys
 # the release <SERVICE_NAME>-pr-<N> into the one preview namespace <SERVICE_NAME>-preview, with
-# values.preview.yaml and per-release hosts: <release>.<PREVIEW_DOMAIN>, <release>-api.<..> and
-# <release>-app.<..>, or the never-resolving domain `invalid` when PREVIEW_DOMAIN is unset. With
+# values.preview.yaml and the release's one host, <release>.<PREVIEW_DOMAIN>
+# (or under the never-resolving domain `invalid` when PREVIEW_DOMAIN is unset). With
 # PREVIEW_DOMAIN the smoke test also runs through the public URL https://<release>.<PREVIEW_DOMAIN>,
 # with the Cloudflare Access service token (CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET, both required
 # then) as headers from a file, never on a command line; the URL goes to GITHUB_OUTPUT as `url`.
@@ -69,7 +69,7 @@ if [[ -n "$PREVIEW_PR" ]]; then
   [[ "$domain" =~ ^([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)*[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]] ||
     fail "PREVIEW_DOMAIN must be a lower-case DNS name"
   jq -n --arg r "$RELEASE" --arg d "$domain" \
-    '{edge: {hosts: {root: "\($r).\($d)", api: "\($r)-api.\($d)", app: "\($r)-app.\($d)"}}}' > "$WORK_DIR/preview-hosts.json"
+    '{edge: {hosts: {root: "\($r).\($d)"}}}' > "$WORK_DIR/preview-hosts.json"
   env_values+=(-f "$WORK_DIR/preview-hosts.json")
   if [[ -n "${PREVIEW_DOMAIN:-}" ]]; then
     [[ -n "${CF_ACCESS_CLIENT_ID:-}" && -n "${CF_ACCESS_CLIENT_SECRET:-}" ]] ||

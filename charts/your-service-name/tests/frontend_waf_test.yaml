@@ -77,4 +77,20 @@ tests:
     asserts:
       - equal:
           path: data.ALLOWED_HOSTS
-          value: api.your-domain.example,app.your-domain.example,your-service-name.your-domain.example,svc-your-service-name-backend,svc-your-service-name-backend.app,svc-your-service-name-backend.app.svc,svc-your-service-name-backend.app.svc.cluster.local,svc-your-service-name-waf
+          value: your-service-name.your-domain.example,svc-your-service-name-backend,svc-your-service-name-backend.app,svc-your-service-name-backend.app.svc,svc-your-service-name-backend.app.svc.cluster.local,svc-your-service-name-waf
+  - it: ALLOWED_HOSTS adds the api host when it is set, and never an empty entry
+    template: configmap.yaml
+    set: {edge: {hosts: {api: svc-api.example.org}}}
+    asserts:
+      - equal:
+          path: data.ALLOWED_HOSTS
+          value: your-service-name.your-domain.example,svc-api.example.org,svc-your-service-name-backend,svc-your-service-name-backend.app,svc-your-service-name-backend.app.svc,svc-your-service-name-backend.app.svc.cluster.local
+      - notMatchRegex:
+          path: data.ALLOWED_HOSTS
+          pattern: ',,|^,|,$'
+  - it: ALLOWED_HOSTS without an api host has no empty entry
+    template: configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data.ALLOWED_HOSTS
+          pattern: ',,|^,|,$'

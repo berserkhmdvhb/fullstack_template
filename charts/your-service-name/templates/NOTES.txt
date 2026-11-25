@@ -24,13 +24,17 @@ Cloudflare terminates TLS for the public hostnames; the hop from cloudflared to 
 
 Edge mode "gateway" hosts (https when the Gateway listener holds a certificate; the chart does not
 manage it):
-  API  : {{ .Values.edge.hosts.api }}
-  APP  : {{ .Values.edge.hosts.app }}
+  APP  : {{ .Values.edge.hosts.root }}
+{{- with .Values.edge.hosts.api }}
+  API  : {{ . }}
+{{- end }}
 {{- else }}
 
 Edge mode "ingress" hosts:
-  API  : http{{ if .Values.edge.ingress.tlsSecretName }}s{{ end }}://{{ .Values.edge.hosts.api }}
-  APP  : http{{ if .Values.edge.ingress.tlsSecretName }}s{{ end }}://{{ .Values.edge.hosts.app }}
+  APP  : http{{ if .Values.edge.ingress.tlsSecretName }}s{{ end }}://{{ .Values.edge.hosts.root }}
+{{- with .Values.edge.hosts.api }}
+  API  : http{{ if $.Values.edge.ingress.tlsSecretName }}s{{ end }}://{{ . }}
+{{- end }}
 {{- end }}
 
 Port-forward the backend API locally:

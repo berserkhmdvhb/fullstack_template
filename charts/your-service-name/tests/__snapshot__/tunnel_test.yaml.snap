@@ -1,4 +1,4 @@
-NOTES prints the tunnel route table from the routes list:
+NOTES prints the tunnel route table on the root host only:
   1: |
     |
       Your release "svc" (chart your-service-name 0.1.0)
@@ -15,14 +15,38 @@ NOTES prints the tunnel route table from the routes list:
       Edge mode "tunnel": no Ingress or HTTPRoute is rendered. Point the tunnel at these routes
       (hostname + path -> in-cluster URL; see the edge docs in wiki/infrastructure.md).
       Cloudflare terminates TLS for the public hostnames; the hop from cloudflared to the Service is http:
-        api.your-domain.example/api                              PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
-        api.your-domain.example/docs                             PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
-        api.your-domain.example/openapi.json                     Exact      -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
-        app.your-domain.example/                                 PathPrefix -> http://svc-your-service-name-frontend.app.svc.cluster.local:3000
         your-service-name.your-domain.example/api                PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
         your-service-name.your-domain.example/docs               PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
         your-service-name.your-domain.example/openapi.json       Exact      -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
         your-service-name.your-domain.example/                   PathPrefix -> http://svc-your-service-name-frontend.app.svc.cluster.local:3000
+
+      Port-forward the backend API locally:
+        kubectl -n app port-forward svc/svc-your-service-name-backend 8000:8000
+        curl http://127.0.0.1:8000/api/v1/healthz
+an api host adds the backend routes on it, and no frontend route:
+  1: |
+    |
+      Your release "svc" (chart your-service-name 0.1.0)
+      has been installed into namespace "app".
+
+        environment : dev
+        db namespace: app-db
+        database    : in-cluster PostgreSQL (svc-your-service-name-postgresql.app-db.svc.cluster.local)
+
+      Verify the rollout:
+        kubectl -n app get pods -l app.kubernetes.io/instance=svc
+        kubectl -n app get job svc-your-service-name-migrate-r0   # this revision's migration Job
+
+      Edge mode "tunnel": no Ingress or HTTPRoute is rendered. Point the tunnel at these routes
+      (hostname + path -> in-cluster URL; see the edge docs in wiki/infrastructure.md).
+      Cloudflare terminates TLS for the public hostnames; the hop from cloudflared to the Service is http:
+        your-service-name.your-domain.example/api                PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
+        your-service-name.your-domain.example/docs               PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
+        your-service-name.your-domain.example/openapi.json       Exact      -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
+        your-service-name.your-domain.example/                   PathPrefix -> http://svc-your-service-name-frontend.app.svc.cluster.local:3000
+        svc-api.example.org/api                                  PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
+        svc-api.example.org/docs                                 PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
+        svc-api.example.org/openapi.json                         Exact      -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
 
       Port-forward the backend API locally:
         kubectl -n app port-forward svc/svc-your-service-name-backend 8000:8000

@@ -201,9 +201,8 @@ def test_two_previews_deploy_into_the_one_namespace_and_each_serves_on_its_own_s
             assert any(e.get("endpoints") for e in endpoints.get("items", [])), (pr, name)
         routes = previews.app.get("httproutes", "-l", f"{INSTANCE}={release(pr)}")["items"]
         hosts = sorted(h for r in routes for h in r["spec"]["hostnames"])
-        assert hosts == sorted(f"{release(pr)}{s}.invalid" for s in ("", "-api", "-app")), (
-            hosts
-        )  # its own hostnames; PREVIEW_DOMAIN is unset
+        # its own hostname; PREVIEW_DOMAIN is unset
+        assert hosts == [f"{release(pr)}.invalid"], hosts
     # Both share the bootstrap's ServiceAccount, which neither release owns.
     sa = previews.app.get("serviceaccount", "your-service-name")
     assert "meta.helm.sh/release-name" not in sa["metadata"].get("annotations", {})

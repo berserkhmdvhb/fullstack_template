@@ -346,8 +346,8 @@ cloudSqlProxy:
 
 # ---- Edge -----------------------------------------------------------------
 # How traffic reaches the two Services. ONE routes list drives every mode, so a path is
-# written once: the root host serves every route, the api host the `backend` routes, the
-# app host the `frontend` routes.
+# written once: the root host serves every route (the whole app on one origin); the optional api
+# host serves the `backend` routes only.
 #   gateway : Gateway API HTTPRoutes (the default) attached to a Gateway you run.
 #   ingress : a controller-agnostic networking.k8s.io/v1 Ingress (no class or annotations by
 #             default).
@@ -357,10 +357,14 @@ cloudSqlProxy:
 # Service.
 edge:
   mode: gateway
+  # One hostname per environment, `<service>[-<env>].<domain>`, always ONE label under the zone
+  # (the free Universal SSL certificate covers `*.<domain>`, never a second level). The service
+  # name in the host lets many services share one domain. A flagship service may take the apex.
+  # Set `api` (`<service>-api[-<env>].<domain>`) only for a backend-only host for clients that
+  # are not a browser and need their own rules (rate limit, Access policy); empty renders nothing.
   hosts:
-    api: api.your-domain.example
-    app: app.your-domain.example
     root: your-service-name.your-domain.example
+    api: ""
   routes:
     - {path: /api, match: PathPrefix, service: backend}
     - {path: /docs, match: PathPrefix, service: backend}

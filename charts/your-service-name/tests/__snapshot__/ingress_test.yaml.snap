@@ -1,4 +1,4 @@
-derives the three host rules from the routes list:
+an api host adds a rule with the backend routes only:
   1: |
     apiVersion: networking.k8s.io/v1
     kind: Ingress
@@ -14,7 +14,7 @@ derives the three host rules from the routes list:
       namespace: app
     spec:
       rules:
-        - host: api.your-domain.example
+        - host: your-service-name.your-domain.example
           http:
             paths:
               - backend:
@@ -38,9 +38,6 @@ derives the three host rules from the routes list:
                       number: 8000
                 path: /openapi.json
                 pathType: Exact
-        - host: app.your-domain.example
-          http:
-            paths:
               - backend:
                   service:
                     name: svc-your-service-name-frontend
@@ -48,6 +45,46 @@ derives the three host rules from the routes list:
                       number: 3000
                 path: /
                 pathType: Prefix
+        - host: svc-api.example.org
+          http:
+            paths:
+              - backend:
+                  service:
+                    name: svc-your-service-name-backend
+                    port:
+                      number: 8000
+                path: /api
+                pathType: Prefix
+              - backend:
+                  service:
+                    name: svc-your-service-name-backend
+                    port:
+                      number: 8000
+                path: /docs
+                pathType: Prefix
+              - backend:
+                  service:
+                    name: svc-your-service-name-backend
+                    port:
+                      number: 8000
+                path: /openapi.json
+                pathType: Exact
+derives the one host rule from the routes list:
+  1: |
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      labels:
+        app.kubernetes.io/instance: svc
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: your-service-name
+        app.kubernetes.io/version: 1.0.0
+        environment: dev
+        helm.sh/chart: your-service-name-0.1.0
+      name: svc-your-service-name
+      namespace: app
+    spec:
+      rules:
         - host: your-service-name.your-domain.example
           http:
             paths:

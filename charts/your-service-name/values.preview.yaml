@@ -38,8 +38,8 @@ config:
   ENV: development
   NEXT_PUBLIC_API_URL: "/api/v1"
 
-# The hosts are set per release by scripts/ci/deploy-env.sh (<release>.<PREVIEW_DOMAIN>, and -api and
-# -app under the same domain), so the releases' routes never share a hostname.
+# The hosts are set per release by scripts/ci/deploy-env.sh (<release>.<PREVIEW_DOMAIN>, one host per
+# preview), so the releases' routes never share a hostname.
 
 # The database password: no value here. The bootstrap creates these two Secrets once, with one random
 # password that every preview of the namespace shares (scripts/k8s-bootstrap.sh preview --create-secrets

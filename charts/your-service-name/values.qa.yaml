@@ -21,9 +21,7 @@ config:
 
 edge:
   hosts:
-    api: qa-api.your-domain.example
-    app: qa-app.your-domain.example
-    root: qa.your-domain.example
+    root: your-service-name-qa.your-domain.example
   ingress:
     tlsSecretName: your-service-name-qa-tls
 

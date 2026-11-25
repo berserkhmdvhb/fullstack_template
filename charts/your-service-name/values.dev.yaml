@@ -38,9 +38,7 @@ config:
 
 edge:
   hosts:
-    api: dev-api.your-domain.example
-    app: dev-app.your-domain.example
-    root: dev.your-domain.example
+    root: your-service-name-dev.your-domain.example
   ingress:
     tlsSecretName: your-service-name-dev-tls
 

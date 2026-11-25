@@ -375,7 +375,7 @@ STUB
   [ "$status" -eq 0 ]
   grep "^helm upgrade --install svc-pr-42 charts/x" "$LOG" |
     grep -qF -- "-f charts/x/values.preview.yaml -f $WORK_DIR/preview-hosts.json -f $WORK_DIR/image-values.json --set guards.rejectPlaceholders=true --namespace svc-preview"
-  [ "$(jq -c .edge.hosts "$WORK_DIR/preview-hosts.json")" = '{"root":"svc-pr-42.invalid","api":"svc-pr-42-api.invalid","app":"svc-pr-42-app.invalid"}' ]
+  [ "$(jq -c .edge.hosts "$WORK_DIR/preview-hosts.json")" = '{"root":"svc-pr-42.invalid"}' ]
   grep -q "^helm template svc-pr-42 charts/x" "$LOG"
   grep -q "^helm history svc-pr-42 -n svc-preview" "$LOG"
   grep -q "^verify .*RELEASE=svc-pr-42 NAMESPACE=svc-preview ARGS=--name svc-chart$" "$LOG"
@@ -398,7 +398,7 @@ STUB
     CF_ACCESS_CLIENT_ID=id-123.access CF_ACCESS_CLIENT_SECRET=s3cr3t-value run bash "$SCRIPT"
   [ "$status" -eq 0 ]
   [ "$(jq -r .edge.hosts.root "$WORK_DIR/preview-hosts.json")" = svc-pr-7.preview.example.org ]
-  [ "$(jq -r .edge.hosts.api "$WORK_DIR/preview-hosts.json")" = svc-pr-7-api.preview.example.org ]
+  [ "$(jq -c .edge.hosts "$WORK_DIR/preview-hosts.json")" = '{"root":"svc-pr-7.preview.example.org"}' ]
   grep -qx "url=https://svc-pr-7.preview.example.org" "$GITHUB_OUTPUT"
   grep -q "^smoke --base-url https://svc-pr-7.preview.example.org --header-file $WORK_DIR/access-headers\.[^ ]* --path /api/v1 --format junit --out $WORK_DIR/smoke-preview-public.xml$" "$LOG"
   grep -qx "header-file mode 600" "$LOG"

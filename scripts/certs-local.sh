@@ -93,7 +93,7 @@ read_ingress_tls() {                    # sets SECRET_NAME, CERT_NAME, DNS_NAMES
   local vf; vf="$(lib_helm_values_file "${ENV_NAME}")"
   SECRET_NAME="$(yq eval '.edge.ingress.tlsSecretName // ""' "${vf}" 2>/dev/null)"
   [ -n "${SECRET_NAME}" ] || die "no edge.ingress.tlsSecretName in ${vf}"
-  # hosts is a map (api/app/root); take its values as the DNS names.
+  # hosts is a map (root, and api when set); take its non-empty values as the DNS names.
   mapfile -t DNS_NAMES < <(yq eval '.edge.hosts | to_entries | .[].value' "${vf}" 2>/dev/null \
     | grep -vE '^-$|^null$|^$')
   [ "${#DNS_NAMES[@]}" -gt 0 ] || die "no edge.hosts in ${vf}"

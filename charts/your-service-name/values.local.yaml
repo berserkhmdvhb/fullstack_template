@@ -39,8 +39,6 @@ config:
 
 edge:
   hosts:
-    api: local-api.your-service.test
-    app: local-app.your-service.test
     root: local.your-service.test
   ingress:
     tlsSecretName: your-service-name-local-tls

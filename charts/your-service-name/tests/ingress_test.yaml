@@ -34,7 +34,7 @@ tests:
       - notExists:
           path: spec.tls
 
-  - it: derives the three host rules from the routes list
+  - it: derives the one host rule from the routes list
     template: ingress.yaml
     asserts:
       - equal:
@@ -43,16 +43,6 @@ tests:
       - equal:
           path: spec.rules
           value:
-            - host: api.your-domain.example
-              http:
-                paths:
-                  - {path: /api, pathType: Prefix, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
-                  - {path: /docs, pathType: Prefix, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
-                  - {path: /openapi.json, pathType: Exact, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
-            - host: app.your-domain.example
-              http:
-                paths:
-                  - {path: /, pathType: Prefix, backend: {service: {name: svc-your-service-name-frontend, port: {number: 3000}}}}
             - host: your-service-name.your-domain.example
               http:
                 paths:
@@ -60,6 +50,26 @@ tests:
                   - {path: /docs, pathType: Prefix, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
                   - {path: /openapi.json, pathType: Exact, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
                   - {path: /, pathType: Prefix, backend: {service: {name: svc-your-service-name-frontend, port: {number: 3000}}}}
+      - matchSnapshot: {}
+
+  - it: an api host adds a rule with the backend routes only
+    template: ingress.yaml
+    set:
+      edge:
+        hosts: {api: svc-api.example.org}
+    asserts:
+      - lengthEqual:
+          path: spec.rules
+          count: 2
+      - equal:
+          path: spec.rules[1]
+          value:
+            host: svc-api.example.org
+            http:
+              paths:
+                - {path: /api, pathType: Prefix, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
+                - {path: /docs, pathType: Prefix, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
+                - {path: /openapi.json, pathType: Exact, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
       - matchSnapshot: {}
 
   - it: className, annotations and TLS render when set
@@ -80,13 +90,27 @@ tests:
       - equal:
           path: spec.tls
           value:
-            - hosts: [api.your-domain.example, app.your-domain.example, your-service-name.your-domain.example]
+            - hosts: [your-service-name.your-domain.example]
               secretName: my-tls
 
-  - it: a custom route shows up on the api and root hosts
+  - it: the TLS hosts add the api host when it is set
     template: ingress.yaml
     set:
       edge:
+        hosts: {api: svc-api.example.org}
+        ingress: {tlsSecretName: my-tls}
+    asserts:
+      - equal:
+          path: spec.tls
+          value:
+            - hosts: [your-service-name.your-domain.example, svc-api.example.org]
+              secretName: my-tls
+
+  - it: a custom route shows up on the root and api hosts
+    template: ingress.yaml
+    set:
+      edge:
+        hosts: {api: svc-api.example.org}
         routes:
           - {path: /api, match: PathPrefix, service: backend}
           - {path: /healthz, match: Exact, service: backend}
@@ -96,7 +120,7 @@ tests:
           path: spec.rules[0].http.paths
           content: {path: /healthz, pathType: Exact, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
       - contains:
-          path: spec.rules[2].http.paths
+          path: spec.rules[1].http.paths
           content: {path: /healthz, pathType: Exact, backend: {service: {name: svc-your-service-name-backend, port: {number: 8000}}}}
 
   - it: the WAF switch moves the backend routes to the WAF Service and its port
@@ -109,13 +133,14 @@ tests:
           path: spec.rules[0].http.paths[0].backend.service
           value: {name: svc-your-service-name-waf, port: {number: 8080}}
       - equal:
-          path: spec.rules[1].http.paths[0].backend.service
+          path: spec.rules[0].http.paths[3].backend.service
           value: {name: svc-your-service-name-frontend, port: {number: 3000}}
 
-  - it: a backend-only list renders no app rule and no null paths
+  - it: a backend-only list renders the root rule and no null paths
     template: ingress.yaml
     set:
       edge:
+        hosts: {api: svc-api.example.org}
         routes:
           - {path: /api, match: PathPrefix, service: backend}
     asserts:
@@ -124,24 +149,25 @@ tests:
           count: 2
       - equal:
           path: spec.rules[0].host
-          value: api.your-domain.example
+          value: your-service-name.your-domain.example
       - equal:
           path: spec.rules[1].host
-          value: your-service-name.your-domain.example
+          value: svc-api.example.org
 
-  - it: a frontend-only list renders no api rule
+  - it: a frontend-only list renders no api rule even when the api host is set
     template: ingress.yaml
     set:
       edge:
+        hosts: {api: svc-api.example.org}
         routes:
           - {path: /, match: PathPrefix, service: frontend}
     asserts:
       - lengthEqual:
           path: spec.rules
-          count: 2
+          count: 1
       - equal:
           path: spec.rules[0].host
-          value: app.your-domain.example
+          value: your-service-name.your-domain.example
 
   - it: an empty routes list renders no Ingress
     template: ingress.yaml

@@ -29,10 +29,22 @@ tests:
     set: {edge: {hosts: {admin: admin.your-domain.example}}}
     asserts:
       - failedTemplate: {}
-  - it: rejects an empty host
-    set: {edge: {hosts: {api: ""}}}
+  - it: rejects the retired app host
+    set: {edge: {hosts: {app: svc-app.example.org}}}
     asserts:
       - failedTemplate: {}
+  - it: rejects an empty root host
+    set: {edge: {hosts: {root: ""}}}
+    asserts:
+      - failedTemplate: {}
+  - it: rejects a missing root host
+    set: {edge: {hosts: {root: null}}}
+    asserts:
+      - failedTemplate: {}
+  - it: accepts an empty api host (no api host)
+    set: {edge: {hosts: {api: ""}}}
+    asserts:
+      - notFailedTemplate: {}
   - it: rejects a path with whitespace
     set:
       edge:

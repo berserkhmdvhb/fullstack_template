@@ -19,15 +19,31 @@ tests:
           count: 0
         template: ingress.yaml
 
-  - it: NOTES prints the tunnel route table from the routes list
+  - it: NOTES prints the tunnel route table on the root host only
     template: NOTES.txt
     asserts:
       - matchRegexRaw:
-          pattern: 'api.your-domain.example/api\s+PathPrefix\s+-> http://svc-your-service-name-backend.app.svc.cluster.local:8000'
+          pattern: 'your-service-name.your-domain.example/api\s+PathPrefix\s+-> http://svc-your-service-name-backend.app.svc.cluster.local:8000'
       - matchRegexRaw:
-          pattern: 'app.your-domain.example/\s+PathPrefix\s+-> http://svc-your-service-name-frontend.app.svc.cluster.local:3000'
+          pattern: 'your-service-name.your-domain.example/\s+PathPrefix\s+-> http://svc-your-service-name-frontend.app.svc.cluster.local:3000'
       - matchRegexRaw:
           pattern: 'your-service-name.your-domain.example/openapi.json\s+Exact\s+-> http://svc-your-service-name-backend.app.svc.cluster.local:8000'
+      - notMatchRegexRaw:
+          pattern: 'svc-api\.example\.org'
+      - matchSnapshotRaw: {}
+
+  - it: an api host adds the backend routes on it, and no frontend route
+    template: NOTES.txt
+    set:
+      edge:
+        hosts: {api: svc-api.example.org}
+    asserts:
+      - matchRegexRaw:
+          pattern: 'svc-api.example.org/api\s+PathPrefix\s+-> http://svc-your-service-name-backend.app.svc.cluster.local:8000'
+      - matchRegexRaw:
+          pattern: 'svc-api.example.org/openapi.json\s+Exact'
+      - notMatchRegexRaw:
+          pattern: 'svc-api.example.org/\s+PathPrefix\s+-> http://svc-your-service-name-frontend'
       - matchSnapshotRaw: {}
 
   - it: a custom route shows up in the route table, and the WAF switch moves it
@@ -36,9 +52,10 @@ tests:
       waf:
         enabled: true
       edge:
+        hosts: {api: svc-api.example.org}
         routes:
           - {path: /healthz, match: Exact, service: backend}
           - {path: /, match: PathPrefix, service: frontend}
     asserts:
       - matchRegexRaw:
-          pattern: 'api.your-domain.example/healthz\s+Exact\s+-> http://svc-your-service-name-waf.app.svc.cluster.local:8080'
+          pattern: 'svc-api.example.org/healthz\s+Exact\s+-> http://svc-your-service-name-waf.app.svc.cluster.local:8080'

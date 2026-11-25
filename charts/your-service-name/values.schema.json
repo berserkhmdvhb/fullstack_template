@@ -265,14 +265,14 @@
         "hosts": {
           "type": "object",
           "additionalProperties": false,
+          "required": ["root"],
           "properties": {
-            "api":  { "type": "string", "minLength": 1 },
-            "app":  { "type": "string", "minLength": 1 },
-            "root": { "type": "string", "minLength": 1 }
+            "root": { "description": "The host that serves every route (the whole app, one origin).", "type": "string", "minLength": 1 },
+            "api":  { "description": "Optional backend-only host (the backend routes); empty renders nothing.", "type": "string" }
           }
         },
         "routes": {
-          "description": "The one routes list. The root host serves every route, the api host the backend routes, the app host the frontend routes.",
+          "description": "The one routes list. The root host serves every route; the optional api host serves the backend routes only.",
           "type": "array",
           "items": {
             "type": "object",

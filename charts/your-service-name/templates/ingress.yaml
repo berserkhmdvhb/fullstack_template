@@ -16,12 +16,13 @@ spec:
   {{- end }}
   {{- if .Values.edge.ingress.tlsSecretName }}
   tls:
-    # All three host rules share one cert, so the issuer must cover all three names.
+    # Every host rule shares one cert, so the issuer must cover each host.
     # An empty tlsSecretName renders no TLS block (plain HTTP).
     - hosts:
-        - {{ .Values.edge.hosts.api | quote }}
-        - {{ .Values.edge.hosts.app | quote }}
         - {{ .Values.edge.hosts.root | quote }}
+        {{- with .Values.edge.hosts.api }}
+        - {{ . | quote }}
+        {{- end }}
       secretName: {{ .Values.edge.ingress.tlsSecretName }}
   {{- end }}
   rules:

@@ -264,16 +264,18 @@ limits:
       port: 53
 {{- end -}}
 
-{{/* The host roles, in render order, as a JSON array (read it back with fromJsonArray). */}}
+{{/* The host roles, in render order, as a JSON array (read it back with fromJsonArray): root, plus api when it is set. */}}
 {{- define "chart.edgeRoles" -}}
-{{- toJson (list "api" "app" "root") -}}
+{{- $roles := list "root" -}}
+{{- if .Values.edge.hosts.api -}}{{- $roles = append $roles "api" -}}{{- end -}}
+{{- toJson $roles -}}
 {{- end -}}
 
 {{/*
-   The one routes list (edge.routes), resolved for a host role: root serves every route, api the
-   `backend` routes, app the `frontend` routes. Emits a JSON array of {path, match, name, port}
+   The one routes list (edge.routes), resolved for a host role: root serves every route, api (when
+   set) the `backend` routes. Emits a JSON array of {path, match, name, port}
    (read it back with fromJsonArray). `backend` is the WAF-aware Service and its port; `frontend`
-   is the UI Service. Called with (dict "ctx" . "role" "api|app|root"); httproute.yaml, ingress.yaml
+   is the UI Service. Called with (dict "ctx" . "role" "root|api"); httproute.yaml, ingress.yaml
    and NOTES.txt all render from this, so a path is never written twice.
 */}}
 {{- define "chart.edgeRoutes" -}}
@@ -281,7 +283,7 @@ limits:
 {{- $ctx := .ctx -}}
 {{- $out := list -}}
 {{- range $ctx.Values.edge.routes -}}
-{{- if or (eq $role "root") (and (eq $role "api") (eq .service "backend")) (and (eq $role "app") (eq .service "frontend")) -}}
+{{- if or (eq $role "root") (and (eq $role "api") (eq .service "backend")) -}}
 {{- $name := printf "%s-frontend" (include "chart.fullname" $ctx) -}}
 {{- $port := include "chart.frontendPort" $ctx -}}
 {{- if eq .service "backend" -}}
@@ -463,14 +465,15 @@ key: password
 {{- end -}}
 
 {{/*
-   The Host values the backend answers (its ALLOWED_HOSTS): the edge hosts, plus the backend
+   The Host values the backend answers (its ALLOWED_HOSTS): the edge hosts (root, and api when set), plus the backend
    Service's in-cluster names, because the frontend's server-side calls reach the backend by
    Service name. Ports are not listed: the backend strips the port before it matches.
 */}}
 {{- define "chart.allowedHosts" -}}
 {{- $svc := printf "%s-backend" (include "chart.fullname" .) -}}
 {{- $ns := .Release.Namespace -}}
-{{- $hosts := list .Values.edge.hosts.api .Values.edge.hosts.app .Values.edge.hosts.root -}}
+{{- $hosts := list .Values.edge.hosts.root -}}
+{{- if .Values.edge.hosts.api -}}{{- $hosts = append $hosts .Values.edge.hosts.api -}}{{- end -}}
 {{- $hosts = concat $hosts (list $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns)) -}}
 {{- /* With the WAF on the frontend calls it by the short name in BACKEND_URL, and Envoy passes that
        Host on unchanged (waf-proxy.yaml sets no host rewrite), so only that form is added. */ -}}

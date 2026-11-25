@@ -36,18 +36,7 @@ def _deploy_values(tmp_path: Path) -> list[str]:
     """The files deploy-env.sh layers over values.preview.yaml: the release's hosts (under the
     domain `invalid` when PREVIEW_DOMAIN is unset) and the images by digest (the WAF has none)."""
     hosts = tmp_path / "preview-hosts.json"
-    hosts.write_text(
-        json.dumps(
-            {
-                "edge": {
-                    "hosts": {
-                        s: f"{RELEASE}{x}.invalid"
-                        for s, x in (("root", ""), ("api", "-api"), ("app", "-app"))
-                    }
-                }
-            }
-        )
-    )
+    hosts.write_text(json.dumps({"edge": {"hosts": {"root": f"{RELEASE}.invalid"}}}))
     images = tmp_path / "image-values.json"
     images.write_text(
         json.dumps(

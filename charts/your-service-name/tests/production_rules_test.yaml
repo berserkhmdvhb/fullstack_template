@@ -77,7 +77,7 @@ tests:
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
       config: {OIDC_ISSUER: "https://idp.svc.test", OIDC_AUDIENCE: "api://svc"}
       edge:
-        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        hosts: {root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
@@ -255,7 +255,7 @@ tests:
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        hosts: {root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
@@ -269,7 +269,7 @@ tests:
         backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
       edge:
-        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        hosts: {root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
@@ -283,7 +283,7 @@ tests:
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
       postgresql: {clientImage: {digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}}
       edge:
-        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        hosts: {root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
@@ -297,7 +297,7 @@ tests:
         backend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
       edge:
-        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        hosts: {root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
@@ -311,7 +311,7 @@ tests:
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
       config: {OIDC_ISSUER: "https://idp.svc.test", OIDC_AUDIENCE: "api://svc"}
       edge:
-        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        hosts: {root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - notFailedTemplate: {}
@@ -329,7 +329,7 @@ tests:
       guards: {rejectPlaceholders: true}
       externalDatabase: {enabled: false}
       config: {DB_SSLMODE: disable, OIDC_ISSUER: "https://idp.Your-Domain.Example"}
-      edge: {hosts: {api: api.Your-Domain.Example, app: app.Your-Domain.Example, root: Your-Domain.Example}}
+      edge: {hosts: {api: api.Your-Domain.Example, root: Your-Domain.Example}}
       cloudSqlProxy: {enabled: true, egressCIDRs: [199.36.153.8/30]}
       secrets: {existingSecret: "", externalSecret: {enabled: true}}
     asserts:
@@ -341,8 +341,6 @@ tests:
           errorPattern: 'cloudSqlProxy\.instanceConnectionName is the placeholder "your-project:your-region:your-instance"'
       - failedTemplate:
           errorPattern: 'edge\.hosts\.api is "api\.Your-Domain\.Example"'
-      - failedTemplate:
-          errorPattern: 'edge\.hosts\.app is "app\.Your-Domain\.Example"'
       - failedTemplate:
           errorPattern: 'edge\.hosts\.root is "Your-Domain\.Example"'
       - failedTemplate:
@@ -358,7 +356,7 @@ tests:
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
       config: {OIDC_ISSUER: "https://IDP.Your-Domain.Example", OIDC_AUDIENCE: "api://svc"}
       edge:
-        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        hosts: {root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
@@ -373,7 +371,7 @@ tests:
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
       config: {OIDC_AUDIENCE: "api://svc"}
       edge:
-        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        hosts: {root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
@@ -387,7 +385,7 @@ tests:
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
       config: {OIDC_ISSUER: "https://idp.svc.test"}
       edge:
-        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        hosts: {root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
@@ -412,7 +410,7 @@ tests:
         frontend: {digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"}
       config: &real_oidc {OIDC_ISSUER: "https://idp.svc.test", OIDC_AUDIENCE: "api://svc"}
       edge: &real_edge
-        hosts: {api: api.svc.test, app: app.svc.test, root: svc.test}
+        hosts: {root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:

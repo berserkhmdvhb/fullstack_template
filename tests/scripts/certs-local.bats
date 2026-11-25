@@ -54,3 +54,18 @@ STUB
   run ! grep -q '^kubectl get clusterissuer' "$LOG"
   [ "$(grep -c '^kubectl apply -f -' "$LOG")" -eq 1 ]   # the Certificate only
 }
+
+@test "an empty host in the values is skipped, not written as a certificate name" {
+  T="$BATS_TEST_TMPDIR/repo"
+  mkdir -p "$T/charts/your-service-name"
+  cp -r "$(dirname "$SCRIPT")" "$T/scripts"
+  cat > "$T/charts/your-service-name/values.dev.yaml" <<'YAML'
+edge:
+  hosts: {root: svc.example.test, api: ""}
+  ingress: {tlsSecretName: svc-tls}
+YAML
+  run "$T/scripts/certs-local.sh" --env dev --no-ca --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"hosts: svc.example.test (+ 127.0.0.1)"* ]]
+  [[ "$output" != *"- "$'\n'* ]]
+}
