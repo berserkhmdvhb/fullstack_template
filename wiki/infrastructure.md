@@ -675,7 +675,7 @@ policies for the backend Service (the WAF Service when the WAF is on) and the fr
 
 Cloud CDN is not rendered: no GKE Gateway policy field for it was confirmed. The CDN is the one in
 front (Cloudflare or another); check GKE Gateway CDN support against current GKE docs before adding
-it. Cluster-side steps: [GKE cluster setup](./gke-cluster-setup.md#94-serve-the-chart-through-gke-gateway).
+it. Cluster-side steps: [GKE cluster setup](./gke-cluster-setup.md#94-choose-the-edge-mode).
 
 ### TLS per mode
 

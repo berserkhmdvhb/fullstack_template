@@ -9,7 +9,7 @@ Each section starts with a tag (**Do now**, **Planned change**, or **Managed as 
 | Time | 60 to 90 minutes, about 15 of it waiting for Google Cloud |
 | Cost | about $40 to $120 a month while the cluster runs (see [Costs](#14-costs-pausing-and-teardown)) |
 | You need | a Google Cloud project with billing, a GitHub account and a Linux or macOS terminal |
-| Matches | the GitHub Actions workflows in `.github/workflows/`. Written 2026-11-20. Cloud CLIs change, so each step checks your own tools before it relies on them. |
+| Matches | the GitHub Actions workflows in `.github/workflows/`. Written 2026-11-20; checked against Google's docs on 2026-11-25. Cloud CLIs change, so each step checks your own tools before it relies on them. |
 
 ## Contents
 
@@ -94,6 +94,7 @@ If you installed the CLI some months ago, update it with `gcloud components upda
 | Cluster name | `apps-dev` | It hosts the template's dev environment, and later your other services. |
 | GitHub repository | `<you>/fullstack-template` | Created in [step 11](#11-the-github-repository). |
 | Repository visibility | **public** (recommended) | See [11.1](#111-public-or-private). It changes which GitHub security features you get for free. |
+| One cluster for every environment | yes: `dev`, `qa` and `production` are namespaces of `apps-dev` | The cheapest setup: one zonal cluster, whose management fee the free tier covers. The trade-offs: one blast radius; a zonal control plane is briefly unavailable while it upgrades (workloads keep running); a zone outage stops all three environments. For a production cluster of its own, repeat 6 to 9 for it and set `GKE_CLUSTER` and `GKE_LOCATION` on the `production` environment ([13.1](#131-variables-and-secrets)); a second cluster pays the management fee, about $73 a month. |
 | Spot nodes | off | Spot costs about 60 to 70 % less, but Google can reclaim a node at any time. That's fine for dev, but not for production. |
 
 ## 3. Set your variables once
@@ -294,8 +295,8 @@ gcloud container clusters create "$CLUSTER" \
   --num-nodes=2 --enable-autoscaling --min-nodes=1 --max-nodes=3 \
   --shielded-secure-boot --shielded-integrity-monitoring \
   --logging=SYSTEM,WORKLOAD --monitoring=SYSTEM --enable-managed-prometheus \
-  --maintenance-window-start=2026-11-21T02:00:00Z \
-  --maintenance-window-end=2026-11-21T06:00:00Z \
+  --maintenance-window-start=2026-11-21T00:00:00Z \
+  --maintenance-window-end=2026-11-21T08:00:00Z \
   --maintenance-window-recurrence='FREQ=WEEKLY;BYDAY=SA,SU' \
   --labels=env=dev,app=platform
   # For dev on spot nodes, add:  --spot
@@ -313,9 +314,9 @@ What the flags are for:
 | `--gateway-api=standard` | Gateway API resources (`Gateway`, `HTTPRoute`), backed by Google's load balancers. |
 | `--service-account` | The nodes run as the minimal account from step 7. |
 | `--shielded-*` | Secure boot and integrity monitoring on the nodes. |
-| `--maintenance-window-*` | Upgrades happen only on weekend nights (UTC). Choose your own hours. |
+| `--maintenance-window-*` | Upgrades happen only from 00:00 to 08:00 UTC on Saturday and Sunday. GKE needs at least 48 hours of maintenance time in any 32 days, counted in blocks of 4 hours or more, and two 8-hour days a week give at least 64. Choose your own hours, but keep that total. |
 
-Both flags, `--enable-dns-access` and `--no-enable-ip-access`, are described in GKE's [network isolation how-to](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/latest/network-isolation). The public IP endpoint stays on for now: closing it with `--no-enable-ip-access` waits for the later platform rollout, and you never put a CIDR allowlist on it for CI.
+Both flags, `--enable-dns-access` and `--no-enable-ip-access`, are described in GKE's [network isolation how-to](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/latest/network-isolation). The public IP endpoint stays on for now: closing it with `--enable-private-endpoint` is a step of the platform rollout ([17.2](#172-close-the-public-ip-endpoint-at-the-platform-rollout)), and you never put a CIDR allowlist on it for CI.
 
 If the command asks for `--master-ipv4-cidr`, your gcloud or GKE version still uses the older private-cluster model. Add `--master-ipv4-cidr=172.16.0.32/28` and run it again.
 
@@ -345,7 +346,8 @@ Expected:
 
 ```bash
 source ~/gke-setup.env              # sets KUBECONFIG to the separate file
-gcloud container clusters get-credentials "$CLUSTER" --location="$ZONE"
+# the DNS-based endpoint, as CI uses; it keeps working once the public IP endpoint is closed (17.2)
+gcloud container clusters get-credentials "$CLUSTER" --location="$ZONE" --dns-endpoint
 ```
 
 ### 9.1 Nodes and versions
@@ -396,9 +398,16 @@ kubectl delete namespace np-test
 - **Probe B** times out and prints a non-zero `exit=`.
 - **If the `web` Pod is stuck in `ImagePullBackOff`,** Cloud NAT isn't working. See [Troubleshooting](#16-troubleshooting).
 
-### 9.4 Serve the chart through GKE Gateway
+### 9.4 Choose the edge mode
 
-The chart's default edge mode is `gateway`: it renders `HTTPRoute`s and expects a Gateway you run.
+Decide how traffic reaches the chart. The two modes:
+
+- **`tunnel`, this platform's choice.** Cloudflare Tunnel ([Cloudflare §8](./cloudflare-setup.md#8-cloudflare-tunnel-into-gke)): no load balancer and no public origin. Set `edge.mode: tunnel` in `charts/your-service-name/values.dev.yaml`, `values.qa.yaml` and `values.production.yaml`, with your hostnames (`edge.hosts`; [Infrastructure, Edge](./infrastructure.md#edge)). The chart's default is `gateway`, and a deploy that still names the placeholder Gateway is refused. Nothing else to do on GKE now: skip the rest of 9.4. (Pull request previews still use a Gateway, an internal one: [12.5](#125-optional-pull-request-previews).)
+- **`gateway`.** A public GKE Gateway: an external load balancer (about $18 to $20 a month, see [14](#14-costs-pausing-and-teardown)), a listener certificate you manage, and Cloudflare in front as a proxied DNS record ([Cloudflare §1](./cloudflare-setup.md#1-what-you-will-build)). Do the steps below at the platform rollout, after the bootstrap ([13.2](#132-the-namespaces-and-the-deployer-rbac-come-from-the-bootstrap)) has created the namespaces; the chart isn't deployed before then.
+
+The `gateway` steps:
+
+The chart's `gateway` mode renders `HTTPRoute`s and expects a Gateway you run.
 
 1. **The Gateway.** Create one with the GatewayClass `gke-l7-global-external-managed` (9.2), in its own
    namespace, with the listener certificate you manage (the chart renders no TLS in this mode). The
@@ -611,11 +620,23 @@ The end-to-end proof, a real token from GitHub, comes only after the first push 
 
 Each GitHub environment gets its own service account. A job of environment `dev` can then never act as the production deployer, because the subject Google sees contains the environment name.
 
-`roles/container.clusterViewer` includes the permission `container.clusters.connect`, which the DNS-based endpoint needs (and which `get-gke-credentials` with `use_dns_based_endpoint` requires at minimum). Confirm it first, before you grant the role (the command prints the permission):
+The DNS-based endpoint needs the permission `container.clusters.connect` (and `get-gke-credentials` with `use_dns_based_endpoint` requires it at minimum). `roles/container.clusterViewer` has included it, but Google's docs now also name `roles/container.developer` and `roles/container.viewer` as holders, and this guide forbids both. So check the role first, and fall back to a custom role if Google changed it:
 
 ```bash
-gcloud iam roles describe roles/container.clusterViewer --format='value(includedPermissions)' | tr ';' '\n' | grep container.clusters.connect
+if gcloud iam roles describe roles/container.clusterViewer --format='value(includedPermissions)' \
+     | tr ';' '\n' | grep -qx container.clusters.connect; then
+  export DEPLOYER_CLUSTER_ROLE="roles/container.clusterViewer"
+else
+  # Google changed the role: make one with exactly the two permissions a deployer needs to connect.
+  gcloud iam roles create gkeDnsConnect --project="$PROJECT_ID" --title="GKE DNS endpoint connect" \
+    --permissions=container.clusters.get,container.clusters.connect --stage=GA
+  export DEPLOYER_CLUSTER_ROLE="projects/$PROJECT_ID/roles/gkeDnsConnect"
+fi
+echo "export DEPLOYER_CLUSTER_ROLE=\"$DEPLOYER_CLUSTER_ROLE\"" >> ~/gke-setup.env
+echo "$DEPLOYER_CLUSTER_ROLE"
 ```
+
+**Check:** the last line prints `roles/container.clusterViewer` or `projects/<PROJECT_ID>/roles/gkeDnsConnect`.
 
 Then create the accounts and grant:
 
@@ -631,7 +652,7 @@ for env in dev qa production; do
 
   # Reach the cluster's DNS-based endpoint. This is not the right to deploy:
   gcloud projects add-iam-policy-binding "$PROJECT_ID" --condition=None \
-    --member="serviceAccount:$sa@$PROJECT_ID.iam.gserviceaccount.com" --role="roles/container.clusterViewer"
+    --member="serviceAccount:$sa@$PROJECT_ID.iam.gserviceaccount.com" --role="$DEPLOYER_CLUSTER_ROLE"
 done
 ```
 
@@ -685,6 +706,133 @@ gcloud container clusters update "$CLUSTER" --location="$ZONE" --enable-dns-acce
 
 Then create the three new deployers (12.3) and update the environment variables (13.1).
 
+### 12.5 Optional: pull request previews
+
+> **Only if you turn previews on** ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews)); they're off by default.
+
+Previews need, on Google Cloud, a deployer, a second provider, and an internal Gateway that the Tunnel reaches privately. One wildcard tunnel route carries every preview hostname, and the Gateway routes each one to its preview by host name.
+
+1. **The deployer,** as in 12.3 with `env=preview`:
+
+   ```bash
+   env=preview
+   sa="gh-deployer-$env"
+   gcloud iam service-accounts create "$sa" --display-name="GitHub Actions deployer ($env)"
+   gcloud iam service-accounts add-iam-policy-binding "$sa@$PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/iam.workloadIdentityUser" \
+     --member="principal://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/subject/repo:$GH_REPO:environment:$env"
+   gcloud projects add-iam-policy-binding "$PROJECT_ID" --condition=None \
+     --member="serviceAccount:$sa@$PROJECT_ID.iam.gserviceaccount.com" --role="$DEPLOYER_CLUSTER_ROLE"
+   ```
+
+   **Check:** as in 12.3, `kubectl auth can-i create deployments --namespace default --as="gh-deployer-preview@$PROJECT_ID.iam.gserviceaccount.com"` prints `no`.
+
+2. **The provider** `github-oidc-preview`, in the same pool, with the issuer and attribute mapping of 12.2:
+
+   ```bash
+   PREVIEW_CONDITION="assertion.repository_owner_id=='$GH_OWNER_ID' && assertion.repository_id=='$GH_REPO_ID' && assertion.environment=='preview' && assertion.job_workflow_ref.matches('^$GH_REPO/\\\\.github/workflows/preview\\\\.yml@refs/(pull/[0-9]+/merge|heads/main)\$')"
+
+   gcloud iam workload-identity-pools providers create-oidc github-oidc-preview \
+     --location=global --workload-identity-pool=github \
+     --display-name="GitHub OIDC (previews)" \
+     --issuer-uri="https://token.actions.githubusercontent.com" \
+     --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner_id=assertion.repository_owner_id,attribute.repository_id=assertion.repository_id,attribute.job_workflow_ref=assertion.job_workflow_ref,attribute.ref=assertion.ref" \
+     --attribute-condition="$PREVIEW_CONDITION"
+   ```
+
+   The condition expands to exactly the one [CI/CD, Pull request previews](./ci-cd.md#pull-request-previews) states, with your owner and repository IDs.
+
+   **Check:** the same stored-condition comparison as 12.2, against `$PREVIEW_CONDITION`:
+
+   ```bash
+   actual="$(gcloud iam workload-identity-pools providers describe github-oidc-preview \
+     --location=global --workload-identity-pool=github --format='value(attributeCondition)')"
+   [[ "$actual" == "$PREVIEW_CONDITION" ]] && echo "condition matches" || echo "DIFFERENT: compare by eye with the CI/CD page"
+   # → condition matches
+   ```
+
+   Then set these variables on the `preview` GitHub environment (print them, as 13.1 does):
+
+   ```bash
+   printf '%s\n' \
+     "GCP_WIF_PROVIDER=projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-oidc-preview" \
+     "GCP_DEPLOYER_SA=gh-deployer-preview@$PROJECT_ID.iam.gserviceaccount.com"
+   ```
+
+3. **The proxy-only subnet** the internal load balancer needs (one per region and network):
+
+   ```bash
+   gcloud compute networks subnets create apps-proxy-only --purpose=REGIONAL_MANAGED_PROXY --role=ACTIVE \
+     --network="$NETWORK" --region="$REGION" --range=10.129.0.0/23
+   ```
+
+   GKE creates the firewall rules for its Gateways itself (on a Shared VPC you write them by hand).
+
+   **Check:** `gcloud compute networks subnets describe apps-proxy-only --region="$REGION" --format='value(purpose,role)'` prints `REGIONAL_MANAGED_PROXY  ACTIVE`.
+
+4. **The internal Gateway,** after the preview bootstrap ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews), step 1) so the namespaces exist. Create the namespace `gateway-system` first if it doesn't exist.
+
+   ```yaml
+   apiVersion: gateway.networking.k8s.io/v1
+   kind: Gateway
+   metadata:
+     name: preview-internal
+     namespace: gateway-system
+   spec:
+     gatewayClassName: gke-l7-rilb
+     listeners:
+       - name: http
+         protocol: HTTP
+         port: 80
+         allowedRoutes:
+           namespaces:
+             from: Selector
+             selector:
+               matchLabels: {tier: preview-app}
+   ```
+
+   The selector is `tier: preview-app`, not `app-ns`: the preview namespaces carry that label (the bootstrap's `appTier` for previews). HTTP is right here: Cloudflare terminates TLS, and the hop from the connector to the Gateway stays inside the VPC, as the Tunnel's hop to a Service does. Then:
+
+   ```bash
+   kubectl -n gateway-system wait --for=condition=Programmed gateway/preview-internal --timeout=600s
+   export PREVIEW_GW_IP="$(kubectl -n gateway-system get gateway preview-internal -o jsonpath='{.status.addresses[0].value}')"
+   echo "export PREVIEW_GW_IP=\"$PREVIEW_GW_IP\"" >> ~/gke-setup.env
+   echo "$PREVIEW_GW_IP"   # → a private address; Cloudflare §9.2 routes to it
+   ```
+
+   The address lasts as long as the Gateway; if you recreate the Gateway, update the route in [Cloudflare §9.2](./cloudflare-setup.md#92-optional-the-previews-hostnames-access-application-and-service-token). Then set these in the chart's `charts/your-service-name/values.preview.yaml`:
+
+   ```yaml
+   edge:
+     gateway:
+       parentRefs:
+         - {name: preview-internal, namespace: gateway-system}
+       gke:
+         enabled: true
+     extraPeers:
+       - {ipBlock: {cidr: 10.129.0.0/23}}
+   ```
+
+   `gke.enabled` renders the HealthCheckPolicy (GKE doesn't read readiness probes) and admits Google's health-check ranges. `extraPeers` admits the load balancer's proxies, which come from the proxy-only subnet. Finally, allow the connector's egress to the Gateway (the connector's NetworkPolicy of [Cloudflare §8.3](./cloudflare-setup.md#83-run-the-connector-in-the-cluster) allows no private address by default):
+
+   ```bash
+   kubectl apply -f - <<EOF
+   apiVersion: networking.k8s.io/v1
+   kind: NetworkPolicy
+   metadata:
+     name: cloudflared-to-preview-gateway
+     namespace: cloudflared
+   spec:
+     podSelector: {}
+     policyTypes: [Egress]
+     egress:
+       - to: [{ipBlock: {cidr: ${PREVIEW_GW_IP}/32}}]
+         ports: [{protocol: TCP, port: 80}]
+   EOF
+   ```
+
+   **Check:** `kubectl -n gateway-system get gateway preview-internal` shows `PROGRAMMED` `True` and an address from your subnet's range; `kubectl -n cloudflared get networkpolicy` lists `cloudflared-to-preview-gateway`.
+
 ## 13. The end-to-end check from GitHub
 
 > **After the first push:** `scripts/github-settings.sh --vars-file <file>` can set the variables of 13.1 (it never sets a secret), or set them by hand; then the `check` run of 13.3. **Do by hand:** the pull secret of 13.4.
@@ -716,7 +864,7 @@ Also set `SERVICE_NAME` (repository variable) to your service's name. It decides
 
 ### 13.2 The namespaces and the deployer RBAC come from the bootstrap
 
-**Don't create the namespaces by hand.** The chart creates none (`namespaces.create: false`) and the deploy doesn't pass `--create-namespace`. The bootstrap creates them with the restricted Pod Security labels, a quota and a LimitRange, plus the deployer RBAC of 12.3. Set each environment's deployer in `infra/k8s/bootstrap/values.<env>.yaml` (`deployer.name: gh-deployer-<env>@<PROJECT_ID>.iam.gserviceaccount.com`, kind `User`), then, as a cluster admin:
+**Don't create the namespaces by hand.** The chart creates none (`namespaces.create: false`) and the deploy doesn't pass `--create-namespace`. The bootstrap creates them with the restricted Pod Security labels, a quota and a LimitRange, plus the deployer RBAC of 12.3. Set each environment's deployer in `infra/k8s/bootstrap/values.<env>.yaml` (`deployer.name: gh-deployer-<env>@<PROJECT_ID>.iam.gserviceaccount.com`; the bootstrap binds that name as a Kubernetes `User`, the default `deployer.kind`), then, as a cluster admin:
 
 ```bash
 SERVICE_NAME="your-service-name"   # the SERVICE_NAME repository variable (13.1)
@@ -789,13 +937,24 @@ These are list prices from 2026 and change over time. The [GKE pricing](https://
 | Cloud NAT | about $1 a month, plus about $0.045 per GB processed |
 | Artifact Registry | cents, for a few GB of images |
 | Load balancer, only if you choose the Gateway option over the Cloudflare Tunnel | about $18 to $20 |
+| Internal load balancer, only for previews ([12.5](#125-optional-pull-request-previews)) | billed like the external one; see the [Cloud Load Balancing pricing](https://cloud.google.com/vpc/network-pricing) page |
 
 ### Pause and resume
 
 ```bash
-gcloud container clusters resize "$CLUSTER" --location="$ZONE" --num-nodes=0 --quiet   # pause the nodes
-gcloud container clusters resize "$CLUSTER" --location="$ZONE" --num-nodes=2 --quiet   # resume
+# Pause: turn the autoscaler off first, or it adds a node back for the system Pods.
+gcloud container node-pools update default-pool --cluster="$CLUSTER" --location="$ZONE" --no-enable-autoscaling
+gcloud container clusters resize "$CLUSTER" --location="$ZONE" --node-pool=default-pool --num-nodes=0 --quiet
+
+# Resume: two nodes, then the autoscaler back on with the limits of 8.2.
+gcloud container clusters resize "$CLUSTER" --location="$ZONE" --node-pool=default-pool --num-nodes=2 --quiet
+gcloud container node-pools update default-pool --cluster="$CLUSTER" --location="$ZONE" \
+  --enable-autoscaling --min-nodes=1 --max-nodes=3
 ```
+
+**Check:** a few minutes after the pause, `kubectl get nodes` prints `No resources found`; after the resume, 2 nodes are `Ready`.
+
+While paused, the Tunnel's connector is down too, so visitors get Cloudflare error 1033.
 
 While paused you pay only for disks that still exist, and for the load balancer if one is in use.
 
@@ -803,17 +962,22 @@ While paused you pay only for disks that still exist, and for the load balancer 
 
 Teardown deletes everything this guide created. Run it in this order:
 
+If you made a Gateway (9.4 or 12.5), delete it first, so GKE removes its load balancer: `kubectl delete gateway --all -n gateway-system`.
+
 ```bash
 gcloud container clusters delete "$CLUSTER" --location="$ZONE" --quiet
 gcloud artifacts repositories delete "$AR_REPO" --location="$REGION" --quiet
 gcloud compute routers nats delete apps-nat --router=apps-router --region="$REGION" --quiet
 gcloud compute routers delete apps-router --region="$REGION" --quiet
 gcloud compute networks subnets delete "$SUBNET" --region="$REGION" --quiet
+gcloud compute networks subnets delete apps-proxy-only --region="$REGION" --quiet   # if 12.5 made it
 gcloud compute networks delete "$NETWORK" --quiet
 gcloud iam workload-identity-pools delete github --location=global --quiet   # kept for 30 days: the name stays reserved until it is purged
 for env in dev qa production; do gcloud iam service-accounts delete "gh-deployer-$env@$PROJECT_ID.iam.gserviceaccount.com" --quiet; done
 gcloud iam service-accounts delete "$NODE_SA" --quiet
 ```
+
+In the service-account loop, add `preview` to the list if 12.5 made it. If 12.3 created the custom role: `gcloud iam roles delete gkeDnsConnect --project="$PROJECT_ID" --quiet`.
 
 Remove the project-level role bindings too, or simply delete the whole project.
 
@@ -856,21 +1020,39 @@ When rows 1 to 12 pass (leaving out optional row 9 if you skipped section 10), y
 | Actions: `Permission 'iam.serviceAccounts.getAccessToken' denied` | the `workloadIdentityUser` binding is missing, or names a different repository or environment | recheck step 12.3; the subject (`repo:<owner>/<repo>:environment:<env>`) must match exactly |
 | Actions: `Unable to get ACTIONS_ID_TOKEN_REQUEST_URL` | the workflow lacks `id-token: write` | the workflows already declare it; if you changed one, restore `id-token: write` on that job |
 | Actions: "must be pinned to a full-length commit SHA" | the repo setting from 11.2 is doing its job | use the SHA form, as every workflow here does |
+| `Maintenance policy would go longer than 32d without 48h maintenance availability` | the maintenance window is too short | widen it, as in [8.2](#82-create-it) |
 | `kubectl` hangs or times out | wrong kubeconfig, or the cluster is resized to 0 | `source ~/gke-setup.env`, then check `kubectl config current-context` and the node count |
 
 ## 17. What comes next
 
 > **Planned changes.** The first item is already in the repository; the rest is not implemented yet.
 
+### 17.1 Before production: what is done and what is still open
+
+| Area | Status | Where |
+|---|---|---|
+| private nodes, Dataplane V2, Workload Identity, Shielded nodes, the release channel, keyless CI, per-namespace deploy rights | done in this guide | 6 to 13 |
+| closing the public IP endpoint | a step of the platform rollout | [17.2](#172-close-the-public-ip-endpoint-at-the-platform-rollout) |
+| signed images only, on this cluster | **open**: the example policies are tested on kind ([Admission control](./admission-control.md)); installing Kyverno here (its chart version is pinned in `tools/pins.tsv`), first in Audit and then Enforce, or Binary Authorization, is not written up yet | — |
+| backups | **open**: the chart's in-cluster PostgreSQL backup runs ([Disaster Recovery](./disaster-recovery.md)); Backup for GKE and an off-site copy ([Cloudflare §12](./cloudflare-setup.md#12-optional-a-private-r2-bucket-for-off-site-backups)) aren't set up by this guide | — |
+| the production database | **open**: Cloud SQL for PostgreSQL, private, with IAM authentication | [Database](./database.md) |
+| alerts and uptime checks | **partly**: the chart's alert rules with `monitoring.flavour: gmp` ([Alerts](./operations-runbook.md#alerts)); where they notify you, and uptime checks, aren't set up by this guide | — |
+| audit and flow logs | **open**: VPC flow logs, and Data Access audit logs for the GKE API | the infrastructure-as-code repository |
+| one shared zonal cluster | a choice | [2.3](#23-decisions-to-make-now) |
+
+### 17.2 Close the public IP endpoint (at the platform rollout)
+
+```bash
+gcloud container clusters update "$CLUSTER" --location="$ZONE" --enable-private-endpoint
+```
+
+This turns off the external IP endpoint and keeps the internal one, which the nodes use. CI and your laptop (9) already use the DNS-based endpoint, so nothing else changes. `--no-enable-ip-access` is stricter: it also turns off the internal IP endpoint; read Google's [network isolation how-to](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/latest/network-isolation) before you use it. Never allowlist CI addresses instead.
+
+**Check:** `gcloud container clusters describe "$CLUSTER" --location="$ZONE" --format='yaml(controlPlaneEndpointsConfig.ipEndpointsConfig)'` shows `enablePublicEndpoint: false`; `kubectl get nodes` still works; a `deploy-ops` `check` ([13.3](#133-the-first-check-deploy-ops-check)) is still green.
+
+### 17.3 The rest
+
 - **Settings script and release App (in the repository):** [`scripts/github-settings.sh`](../scripts/github-settings.sh) replaces the hand steps of 11.2 and adds the `release` environment and the release GitHub App's tag ruleset ([GitHub repository settings](./github-repository-settings.md)).
-
-These come with the GitHub pipeline work, not in this guide:
-
 - **Domain, TLS and public traffic:** through Cloudflare. See [Cloudflare Setup](./cloudflare-setup.md): a Tunnel by default, so the cluster has no public load balancer. The alternative is a `Gateway` with a Google-managed certificate.
-- **Signed images only:** keyless cosign signing and build provenance are in CI already, and example Kyverno policies are tested offline and on kind ([Admission control](./admission-control.md)); enforcing them on this cluster (Kyverno, or Binary Authorization on GKE) comes later.
-- **Database:** Cloud SQL for PostgreSQL for production, reached privately and with IAM authentication.
-- **Closing the public endpoint:** the DNS-based endpoint is already on (8.2). Later, turn the public IP endpoint off. Never allowlist CI addresses on it.
-- **The edge mode:** the template's default `edge.mode` is `gateway`. A platform that uses Cloudflare Tunnel sets `edge.mode: tunnel` in its own environment values ([Infrastructure, Edge](./infrastructure.md#edge)).
+- **The edge mode:** the template's default `edge.mode` is `gateway`. A platform that uses Cloudflare Tunnel sets `edge.mode: tunnel` in its own environment values (9.4; [Infrastructure, Edge](./infrastructure.md#edge)).
 - **Infrastructure as code:** everything in this guide expressed in OpenTofu or Terraform, with state in a locked GCS bucket, so the cluster can be rebuilt from Git.
-- **Backups and recovery:** Backup for GKE, and Cloud SQL point-in-time recovery, set up as code. The procedures: [Disaster Recovery](./disaster-recovery.md).
-- **Other services:** each packaged as a Helm chart and deployed to this same cluster.

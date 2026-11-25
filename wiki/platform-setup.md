@@ -32,13 +32,14 @@ The platform runs on three providers. This page says what each one is for, the o
 | Step | What | Where | Takes |
 |---|---|---|---|
 | 0 | Two-factor sign-in on all three accounts, and a budget alert on Google Cloud | GKE §4, Cloudflare §4, GitHub settings | 15 min |
-| 1 | The cluster and its keyless access, through to the laptop-side proof of the provider (the `check` run comes after the first push, step 5) | [GKE §1 to §13](./gke-cluster-setup.md) | 60 to 90 min |
+| 1 | The cluster and its keyless access, through to the laptop-side proof of the provider (the `check` run comes after the first push, step 5; 9.4 is a decision: on the Tunnel, skip its Gateway) | [GKE §1 to §13](./gke-cluster-setup.md) | 60 to 90 min |
 | 2 | The domain and the edge, through to the deploy-token check | [Cloudflare §1 to §11](./cloudflare-setup.md) | 45 to 75 min |
 | 3 | Optional, for a site repository only: off-site backups | [Cloudflare §12](./cloudflare-setup.md#12-optional-a-private-r2-bucket-for-off-site-backups) | 15 min |
 | 4 | Set the values of the table below in GitHub. Variables, and the secrets only where the table says so. | GitHub settings | 5 min |
 | 5 | After the first push: a green `deploy-ops` `check` per environment | [GKE §13.3](./gke-cluster-setup.md#133-the-first-check-deploy-ops-check) | 10 min |
 | 6 | After the first push and the settings script: the documentation site on GitHub Pages, and optionally its custom domain | [GitHub Pages §2 to §5](./github-pages-setup.md) | 10 min, plus the certificate |
 | 7 | Optional: the AI reviewer | [PR-Agent §2 to §8](./pr-agent-setup.md) | 15 min |
+| 8 | After the first push, optional: pull request previews | [GKE §12.5](./gke-cluster-setup.md#125-optional-pull-request-previews), [Cloudflare §9.2](./cloudflare-setup.md#92-optional-the-previews-hostnames-access-application-and-service-token), [CI/CD](./ci-cd.md#pull-request-previews) | 30 min |
 
 Step 2 needs step 1, because the Tunnel runs inside the cluster. Steps 1 and 2 each end with a checklist. Don't start the next step until every check in the previous one passes.
 
@@ -67,7 +68,7 @@ This is the single list. Every `vars.*` and `secrets.*` that a template workflow
 | `PREVIEWS_ENABLED` | variable | repository | optional: `true` turns on the pull request previews ([CI/CD](./ci-cd.md#pull-request-previews)); unset (the default) skips every preview job | you |
 | `PREVIEW_TTL_DAYS` | variable | repository | optional: the daily sweep removes a preview last deployed this many days ago (default `7`) | you |
 | `PREVIEW_DOMAIN` | variable | environment `preview` | optional: the zone of the previews' hostnames (`<SERVICE_NAME>-pr-<N>.<PREVIEW_DOMAIN>`); unset, previews get no public URL | you |
-| `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | **secret** | environment `preview`, with `PREVIEW_DOMAIN` | the Cloudflare Access service token the smoke test sends through the preview's URL | [Cloudflare §9](./cloudflare-setup.md#9-keep-previews-private-with-cloudflare-access) |
+| `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | **secret** | environment `preview`, with `PREVIEW_DOMAIN` | the Cloudflare Access service token the smoke test sends through the preview's URL | [Cloudflare §9.2](./cloudflare-setup.md#92-optional-the-previews-hostnames-access-application-and-service-token) |
 | `PR_AGENT_ENABLED` | variable | repository | optional: `true` turns on the advisory AI reviewer, PR-Agent ([CI/CD](./ci-cd.md#ai-pull-request-review)); unset (the default) skips it | [PR-Agent §4](./pr-agent-setup.md#4-turn-it-on) |
 | `ANTHROPIC_KEY` | **secret** | environment `ai-review` (you create it), only with `PR_AGENT_ENABLED` | the model provider's API key PR-Agent reviews with; give it a spend limit | [PR-Agent §2 and §3](./pr-agent-setup.md#3-the-ai-review-environment-and-its-secret) |
 | `RELEASE_APP_ID` | variable | repository | the release GitHub App's ID: [`release-please.yml`](../.github/workflows/release-please.yml) mints its token with it, and the `release-tags` ruleset names it as the one actor that may create a `v*` tag. Unset skips release-please, with a notice | [The release GitHub App](./github-repository-settings.md#the-release-github-app) |

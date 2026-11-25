@@ -17,7 +17,7 @@ Every step ends with a **Check**. Don't move on until it passes.
 | Time | 45 to 75 minutes. DNSSEC can take up to a day to go active, but nothing else waits on it. |
 | Cost | the domain, about $10 to $20 a year depending on the TLD, sold at cost. Everything else here is on Cloudflare's free tiers. |
 | You need | a Cloudflare account, the GKE cluster from the previous guide, and `curl`, `dig` and `openssl` |
-| Written | 2026-11-20. Dashboard menus move around, so if a path has changed, search the dashboard for the setting's name. |
+| Written | 2026-11-20; checked against Cloudflare's docs on 2026-11-25. Dashboard menus move around, so if a path has changed, search the dashboard for the setting's name. |
 
 ## Contents
 
@@ -84,6 +84,8 @@ The chart supports both (`edge.mode: gateway`, the default, or `edge.mode: tunne
 | Tool | Install | Check |
 |---|---|---|
 | curl, openssl | your package manager | `curl --version; openssl version` |
+| jq, for sections 5 and 12 | your package manager | `jq --version` |
+| Docker with buildx, for the digest lookup of 8.2 | <https://docs.docker.com/engine/install/> | `docker buildx version` |
 | dig | `sudo apt install dnsutils` (Debian/Ubuntu), `bind-utils` (Fedora) | `dig -v` |
 | kubectl, with the GKE kubeconfig | from the GKE guide | `source ~/gke-setup.env && kubectl get nodes` |
 | Node.js 26+, only for section 10 | <https://nodejs.org> or your version manager | `node --version` |
@@ -163,8 +165,9 @@ If you already own the domain elsewhere, add it to Cloudflare as a site, change 
 source ~/cloudflare-setup.env
 dig +short NS "$DOMAIN"
 # → two names ending in .ns.cloudflare.com
-curl -s "https://rdap.org/domain/$DOMAIN" | python3 -c 'import json,sys; d=json.load(sys.stdin); print([e.get("vcardArray",[None,[]])[1][1][3] for e in d.get("entities",[]) if "registrar" in e.get("roles",[])])'
-# → ['Cloudflare, Inc.']   (registry RDAP layouts vary, so the console's registration page is the fallback)
+curl -fsSL "https://rdap.org/domain/$DOMAIN" \
+  | jq -r '.entities[]? | select(.roles | index("registrar")) | .vcardArray[1][] | select(.[0] == "fn") | .[3]'
+# → Cloudflare, Inc.   (empty: the registry's RDAP layout differs; the dashboard's Domain Registration page is the fallback)
 ```
 
 ## 6. Zone baseline: TLS, DNSSEC and anti-spoofing
@@ -177,7 +180,7 @@ Make all of these settings in the zone.
 
 | Setting | Where | Value | Why |
 |---|---|---|---|
-| Encryption mode | SSL/TLS → Overview | **Full (strict)** | Cloudflare always validates the origin's certificate, so there's no silent downgrade. Tunnel origins satisfy this automatically. |
+| Encryption mode | SSL/TLS → Overview → Configure → **Custom SSL/TLS** | **Full (strict)** | Cloudflare always validates the origin's certificate, so there's no silent downgrade. Tunnel origins satisfy this automatically. New zones start in **Automatic SSL/TLS**, where Cloudflare picks the mode. Custom pins it, so nothing changes it behind your back and the infrastructure code can state it. |
 | Always Use HTTPS | SSL/TLS → Edge Certificates | **On** | Plain HTTP is redirected. |
 | Minimum TLS version | SSL/TLS → Edge Certificates | **TLS 1.2** | Drops the broken protocol versions. |
 | TLS 1.3 | SSL/TLS → Edge Certificates | **On** | Faster and safer. |
@@ -263,12 +266,12 @@ Keep `CF_API_TOKEN` set for section 10, where the token is proved against the de
 
 > **Managed as code.** You can do this by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild. This covers 8.1 (the tunnel), 8.4 (routes and CNAMEs); a tunnel made in the dashboard has to be imported.
 
-> **Not in the template.** Section 8.3's connector (the `cloudflared` namespace, Secret and Deployment) is not shipped by this repository; you apply it by hand as shown. The chart's NetworkPolicy, in `edge.mode: tunnel`, admits the namespace `edge.namespaceSelector` selects (empty means `kubernetes.io/metadata.name: cloudflared`), so the namespace must match. 8.2 and 8.5 are **Do now**.
+> **Not in the template.** Section 8.3's connector (the `cloudflared` namespace, Secret, Deployment and NetworkPolicy) is not shipped by this repository; you apply it by hand as shown. The chart's NetworkPolicy, in `edge.mode: tunnel`, admits the namespace `edge.namespaceSelector` selects (empty means `kubernetes.io/metadata.name: cloudflared`), so the namespace must match. 8.2, 8.5 and 8.6 are **Do now**.
 
 ### 8.1 Create the tunnel
 
 1. Open **Zero Trust**. The first time, pick a **team name** and the **Free** plan. It may ask for a payment method even on the free plan; you won't be charged.
-2. Go to **Networks → Tunnels → Create a tunnel → Cloudflared**, and name it `apps-dev`.
+2. Go to **Zero Trust → Networks → Connectors → Cloudflare Tunnels → Create a tunnel → Cloudflared** (the main dashboard also lists tunnels under **Networking → Tunnels**), and name it `apps-dev`.
 3. On the install screen, copy the **token**: the long string after `--token` in any of the install commands. Don't run those commands; the cluster runs the connector instead.
 
 ### 8.2 Pin the connector image
@@ -385,16 +388,69 @@ kubectl get svc -A --field-selector spec.type=LoadBalancer
 
 In the dashboard, the tunnel `apps-dev` shows **Healthy**. Warnings about ICMP or UDP buffer sizes in the logs are harmless.
 
+Now close the connector's network. Nothing may connect to it, and it may reach only DNS, the Cloudflare edge and the app namespaces:
+
+```bash
+kubectl apply -f - <<'EOF'
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+      ports:
+        - {protocol: UDP, port: 7844}
+        - {protocol: TCP, port: 7844}
+        - {protocol: TCP, port: 443}
+    - to:
+        - namespaceSelector:
+            matchExpressions:
+              - {key: tier, operator: In, values: [app-ns, preview-app]}
+EOF
+```
+
+- Port 7844 is the tunnel: QUIC over UDP, or HTTP/2 over TCP.
+- Port 443 is for cloudflared's optional features.
+- The last rule is the app namespaces. The bootstrap labels them `tier: app-ns`, and previews `tier: preview-app`. Label any other namespace the tunnel serves `tier=app-ns`, or add it here.
+
+**Check:**
+
+```bash
+kubectl -n cloudflared rollout restart deployment/cloudflared
+kubectl -n cloudflared rollout status deployment/cloudflared --timeout=180s
+kubectl -n cloudflared logs deployment/cloudflared --since=3m | grep -c 'Registered tunnel connection'
+# → 1 or more: the connector still reaches Cloudflare
+POD_IP="$(kubectl -n cloudflared get pod -l app=cloudflared -o jsonpath='{.items[0].status.podIP}')"
+kubectl -n default run np-probe --rm -i --restart=Never --image=busybox:1.37 -- \
+  wget -qO- -T 5 "http://$POD_IP:2000/ready"; echo "exit=$?"
+# → a timeout and a non-zero exit=: nothing in the cluster can reach the connector
+```
+
 ### 8.4 Route a test hostname through the tunnel
 
 ```bash
 kubectl create namespace edge-test
+kubectl label namespace edge-test tier=app-ns
 kubectl -n edge-test create deployment hello --image=nginxinc/nginx-unprivileged:stable-alpine --port=8080
 kubectl -n edge-test expose deployment hello --port=8080
 kubectl -n edge-test rollout status deployment/hello --timeout=180s
 ```
 
-In **Zero Trust → Networks → Tunnels → apps-dev → Public Hostname → Add**, add the route below. Newer dashboards call this a *published application route*.
+In **Zero Trust → Networks → Connectors → Cloudflare Tunnels → `apps-dev` → Edit → Published application routes → Add a published application route** (older dashboards: **Public Hostname → Add**), add the route below.
 
 | Field | Value |
 |---|---|
@@ -425,27 +481,52 @@ curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "http://$H"
 curl -sS -I "https://$H" | grep -iE '^(HTTP/|server:)'
 # → HTTP/2 200   and   server: cloudflare
 
-curl -sS -o /dev/null --tlsv1.1 --tls-max 1.1 "https://$H" && echo "TLS 1.1 ACCEPTED (wrong)" || echo "TLS 1.1 refused (right)"
-# → TLS 1.1 refused (right)
+curl -sS -o /dev/null -w '%{http_code}\n' --tlsv1.2 --tls-max 1.2 "https://$H"
+# → 200   (TLS 1.2 is accepted)
+
+# TLS 1.1 must be refused by Cloudflare, not by your own client. Modern OpenSSL won't
+# offer TLS 1.1 at its default security level, so lower it for this one test:
+out="$(echo | openssl s_client -connect "$H:443" -servername "$H" -tls1_1 -cipher 'DEFAULT:@SECLEVEL=0' 2>&1)"
+case "$out" in
+  *"alert protocol version"*|*"alert handshake failure"*) echo "TLS 1.1 refused by Cloudflare (right)" ;;
+  *"New, TLSv1.1, Cipher is"*) echo "TLS 1.1 ACCEPTED (wrong)" ;;
+  *) echo "inconclusive: your OpenSSL couldn't offer TLS 1.1; check the setting in the dashboard"; printf '%s\n' "$out" | tail -n 3 ;;
+esac
+# → TLS 1.1 refused by Cloudflare (right)
 
 echo | openssl s_client -connect "$H:443" -servername "$H" 2>/dev/null | openssl x509 -noout -issuer -enddate
 # → an issuer such as Google Trust Services or Let's Encrypt, and a future end date
 ```
 
-**Check:** all five outputs match the comments. Keep `hello` running for section 9.
+**Check:** all six outputs match the comments. Keep `hello` running for section 9.
+
+### 8.6 Keep the connector current
+
+> **Do now.**
+
+Cloudflare supports each cloudflared release for one year from its release date, so check <https://github.com/cloudflare/cloudflared/releases> monthly. To upgrade, rerun 8.2 with the new version, then:
+
+```bash
+kubectl -n cloudflared set image deployment/cloudflared cloudflared="$CLOUDFLARED_IMAGE"
+kubectl -n cloudflared rollout status deployment/cloudflared --timeout=180s
+```
+
+The two replicas and the disruption budget keep the tunnel up while it rolls. Keep 8.3's manifests, with the pinned image, as files in your platform's repository rather than only in shell history, so the version in use is recorded. The platform's infrastructure-as-code repository is meant to own them later.
+
+**Check:** `kubectl -n cloudflared get deployment cloudflared -o jsonpath='{.spec.template.spec.containers[0].image}'` prints the new image, and the tunnel shows **Healthy** in the dashboard.
 
 ## 9. Keep previews private with Cloudflare Access
 
 > **Managed as code.** You can do this by hand, or leave it to your infrastructure-as-code repository. If you do it by hand, bringing it under code later needs an import (`tofu import`) or a rebuild. Access apps and policies can be kept in code.
 
-> **Note both values.** The backend's `AUTH_MODE=cloudflare-access` needs your Zero Trust team domain and the application's AUD tag (`CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`: [Environment Variables](./environment-variables.md), [Security](./security.md#authentication--authorization)).
+> **Note both values.** The backend's `AUTH_MODE=cloudflare-access` needs your Zero Trust team domain and the application's AUD tag (`CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`: [Environment Variables](./environment-variables.md), [Security](./security.md#authentication--authorization)). The team domain is `<team>.cloudflareaccess.com`, with the team name you picked in 8.1. The AUD tag is on the application: newer dashboards show it on its **Additional settings** tab, older ones on its **Overview** tab.
 
 Cloudflare Access puts a login in front of a hostname. It's free for up to 50 users. Use it for every hostname that isn't public yet.
 
-1. Go to **Zero Trust → Access → Applications → Add an application → Self-hosted**.
+1. Go to **Zero Trust → Access controls → Applications → Add an application → Self-hosted** (some dashboards say **Self-hosted and private**, then **Add public hostname**).
 2. Name it `hello (test)`, with application domain `hello.<domain>`.
 3. Add a policy named `owner` with action **Allow**, and an include rule of **Emails → your address**.
-4. **Login method:** One-time PIN, which is on by default, or add GitHub as a login method under **Settings → Authentication**.
+4. **Login method:** a new Zero Trust organisation starts with the **Cloudflare identity provider**, so you sign in with your Cloudflare account, and one-time PIN is no longer added for you. To use One-time PIN or GitHub instead, add it under **Zero Trust → Integrations → Identity providers**.
 5. Save.
 
 **Check:**
@@ -455,7 +536,7 @@ curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "https://hello.$DOMAIN
 # → 302 https://<team>.cloudflareaccess.com/...    (anonymous visitors are sent to the login)
 ```
 
-In a browser, open `https://hello.<domain>`, log in with the one-time PIN sent to your email, and you see the nginx page. That's the whole flow working.
+In a browser, open `https://hello.<domain>`, log in with the method you set up, and you see the nginx page. That's the whole flow working.
 
 Now create the real one: an Access application for `preview.<domain>`, with the same `owner` policy. Then remove the test:
 1. delete the `hello (test)` Access application;
@@ -465,6 +546,30 @@ Now create the real one: an Access application for `preview.<domain>`, with the 
 ```bash
 kubectl delete namespace edge-test
 dig +short "hello.$DOMAIN"     # → nothing, once the record is gone
+```
+
+### 9.2 Optional: the previews' hostnames, Access application and service token
+
+> **Only if you turn previews on** with public hostnames ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews)), after [GKE 12.5](./gke-cluster-setup.md#125-optional-pull-request-previews).
+
+Use a zone of its own for previews (a second domain, with the section 6 baseline): its wildcard Access application then covers previews only. On your main zone, the wildcard would also cover every hostname that has no Access application of its own, `www` included. `PREVIEW_DOMAIN` is that zone. Each preview is one label under it, which the free Universal SSL certificate covers (2.2).
+
+1. **The service token.** Go to **Zero Trust → Access controls → Service credentials → Service Tokens → Create Service Token**, named `preview-smoke`, with a duration of one year and a renewal reminder (section 7's rule 2). Copy the **Client ID** and **Client Secret**; the secret is shown once. In GitHub, add them as the secrets `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` of the `preview` environment.
+2. **The Access application,** before the route, so no preview is ever public. **Add an application → Self-hosted**, named `previews`, with public hostname subdomain `*` and domain `<PREVIEW_DOMAIN>`. Add two policies: `owner` (**Allow**, your email, as in 9) and `preview-smoke` (action **Service Auth**, include **Service Token → `preview-smoke`**). Service Auth matters: with **Allow**, Access sends the smoke test to a login page.
+3. **The route.** In the tunnel `apps-dev`'s **Published application routes**, add subdomain `*`, domain `<PREVIEW_DOMAIN>`, service **HTTP**, URL `<PREVIEW_GW_IP>:80` (GKE 12.5). Keep it last in the list: routes match in order. If the dashboard doesn't create the DNS record, add a proxied `CNAME` `*` → `<TUNNEL_ID>.cfargotunnel.com` (the tunnel ID is on the tunnel's page).
+
+**Check,** once a preview is deployed:
+
+```bash
+P="<service>-pr-<N>.$PREVIEW_DOMAIN"
+curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "https://$P"
+# → 302 https://<team>.cloudflareaccess.com/...   (anonymous visitors go to the login)
+read -rs CF_ACCESS_CLIENT_ID && read -rs CF_ACCESS_CLIENT_SECRET
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  -H @<(printf 'CF-Access-Client-Id: %s\nCF-Access-Client-Secret: %s\n' "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET") \
+  "https://$P"
+# → 200   (the service token passes; the secret never reaches a command line)
+unset CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET
 ```
 
 ## 10. Static hosting for your site: prove the deploy token
@@ -557,10 +662,18 @@ EP="https://$CF_ACCOUNT_ID.r2.cloudflarestorage.com"
 echo "backup check $(date -u +%FT%TZ)" > /tmp/r2-check.txt
 aws s3 cp /tmp/r2-check.txt "s3://platform-backups/pg/r2-check.txt" --endpoint-url "$EP"
 aws s3 ls "s3://platform-backups/pg/" --endpoint-url "$EP"           # → r2-check.txt is listed
-curl -s -o /dev/null -w '%{http_code}\n' "$EP/platform-backups/pg/r2-check.txt"
-# → 400, 401 or 403: an unsigned request is refused. A 200 here means the bucket is public, so fix it.
 aws s3 rm "s3://platform-backups/pg/r2-check.txt" --endpoint-url "$EP"
 rm /tmp/r2-check.txt; unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+```
+
+**Check that it is private.** R2's S3 endpoint refuses every unsigned request, public bucket or not, so an unsigned `curl` proves nothing. Public access goes only through the bucket's r2.dev URL or a custom domain. In the dashboard, **R2 → `platform-backups` → Settings** must show the **Public Development URL** disabled and no **Custom Domains**. Optionally, check it by API, with an account API token that has only **Workers R2 Storage: Read** and a short TTL:
+
+```bash
+read -rs CF_API_TOKEN && export CF_API_TOKEN
+B="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/r2/buckets/platform-backups"
+curl -fsS "$B/domains/managed" -H "Authorization: Bearer $CF_API_TOKEN" | jq -r '.result.enabled'           # → false
+curl -fsS "$B/domains/custom"  -H "Authorization: Bearer $CF_API_TOKEN" | jq -r '.result.domains | length'  # → 0
+unset CF_API_TOKEN
 ```
 
 Store the two keys as `production` environment secrets in whichever repository runs the backup job (optional, and not used by any template workflow). The pipeline work wires that up.
@@ -573,16 +686,16 @@ Store the two keys as `production` environment secrets in whichever repository r
 |---|---|---|---|
 | 1 | Two-factor sign-in, and you're the only member | 4 | yes |
 | 2 | Cloudflare nameservers | 5 | `*.ns.cloudflare.com` |
-| 3 | Full (strict), TLS 1.2 minimum, Always Use HTTPS | 6.1 and 8.5 | 301 redirect, TLS 1.1 refused |
+| 3 | Full (strict), TLS 1.2 minimum, Always Use HTTPS | 6.1 and 8.5 | 301 redirect, TLS 1.2 accepted, TLS 1.1 refused by Cloudflare |
 | 4 | DNSSEC active | 6.2 | DS present, `ad` flag |
 | 5 | CAA, SPF and DMARC published | 6.3 | the three `dig` results |
 | 6 | Deploy token active, with an expiry date | 7.2 | `active <date>` |
 | 7 | Tunnel healthy from 2 Pods, no LoadBalancer Services | 8.3 | Registered connections, no resources found |
-| 8 | Edge serves the test hostname correctly | 8.5 | all five checks |
+| 8 | Edge serves the test hostname correctly | 8.5 | all six checks |
 | 9 | Access blocks anonymous visitors | 9 | 302 to `cloudflareaccess.com` |
 | 10 | Token can really deploy | 10 | `<p>ok</p>`, then deleted |
 | 11 | HSTS at stage 1 | 11 | `max-age=86400` |
-| 12 | R2 is private and works, if you set it up | 12 | upload ok, unsigned GET refused |
+| 12 | R2 is private and works, if you set it up | 12 | upload works; r2.dev off and no custom domain |
 
 Then hand over these values. None of them is a secret:
 - the domain;
@@ -625,7 +738,9 @@ These are list prices from 2026; check Cloudflare's pricing pages.
 | Too many redirects | the origin redirects to HTTPS while the tunnel speaks HTTP | point the route at the Service's HTTP port, and leave redirects to Cloudflare |
 | Wrangler `compatibility_date` error | the date is in the future in UTC | use yesterday's UTC date, as in section 10 |
 | Wrangler `403` / `Authentication error` | the token is missing a permission or the right zone | compare with 7.1; check the zone is selected under **Zone Resources** |
-| R2 unsigned GET returns **200** | the bucket has public access or a custom domain | **R2 → bucket → Settings:** disable public access and remove any custom domain |
+| The r2.dev URL or a custom domain is on (section 12's privacy check) | the bucket has public access | **R2 → bucket → Settings:** disable the Public Development URL and remove any custom domain |
+| A preview's smoke test lands on a login page | the service token's policy is **Allow**, not **Service Auth** | change the `preview-smoke` policy's action to **Service Auth** (9.2) |
+| A preview returns 502 | the internal Gateway's address changed, or the connector's egress policy to it is missing | rerun [GKE 12.5](./gke-cluster-setup.md#125-optional-pull-request-previews)'s last step and update the route (9.2) |
 
 ## 16. What comes next
 
