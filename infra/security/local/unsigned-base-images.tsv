@@ -1,0 +1,6 @@
+# Base images with no signature to verify: repository (no tag, no digest), a tab, the reason.
+# verify-base-images.sh skips these by name. Every other non-distroless base fails until it is listed here.
+# Checked with `cosign tree` on the pinned digests: no signature and no attestation in the registry.
+debian	Docker Official Image: no cosign signature or attestation is published (cosign tree finds none)
+node	Docker Official Image: no cosign signature or attestation is published (cosign tree finds none)
+envoyproxy/envoy	the project publishes no cosign signature for its images (cosign tree finds none)

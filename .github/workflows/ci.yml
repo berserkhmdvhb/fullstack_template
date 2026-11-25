@@ -454,6 +454,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # A read of the vendors' public signatures (registry, Rekor): no secret, no login, no id-token.
+      - name: Install the pinned cosign
+        run: |
+          scripts/tools.sh install cosign
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      - name: Verify the base images' signatures
+        run: bash infra/security/local/verify-base-images.sh
       # The same build arguments as the release build: the matrix's own, plus the label values. The one local
       # build path, scripts/ci/build-image.sh, is also make image-checks' and the kind job's.
       - name: Build the image locally

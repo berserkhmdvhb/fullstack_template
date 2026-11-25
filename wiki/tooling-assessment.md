@@ -306,10 +306,10 @@ versions, Dependabot for GitHub's security alerts) is already in place.
 recommend verifying any distroless image you use before building your image". It gives the identity
 `keyless@distroless.iam.gserviceaccount.com` and the issuer `https://accounts.google.com`. The template never checks
 it: no file names that identity. `cosign tree` (2026-11-25) shows a signature and an attestation for both pinned
-distroless digests. It shows none for the pinned Envoy and `debian:13-slim` digests, so those two cannot be checked
-this way.
+distroless digests. It shows none for the pinned Envoy, `debian:13-slim` and `node` digests, so those three cannot be
+checked this way.
 
-**Verdict: keep the bases; adopt now** a `cosign verify` of the two distroless digests with that identity and issuer,
+**Verdict: keep the bases; adopt now** (done: [Base image signatures](./containerization.md#base-image-signatures); `node` has none either) a `cosign verify` of the two distroless digests with that identity and issuer,
 before the build. It reads the refs from the Dockerfiles, uses the pinned cosign, and needs no secret and no write
 token. A changed digest that Google did not sign then fails before anything is built on it.
 
@@ -332,7 +332,7 @@ out of mise. Noted only; not assessed.
 | Task runner | make | keep | Preinstalled, plain, and a switch would touch every file that names a target, for no security gain |
 | Git hooks | pre-commit, local system hooks | keep; prek: maintainers' decision | Local hooks leave prek little to improve; prek is pre-1.0 |
 | Dependency updates | Renovate; Dependabot for security only | keep | The only updater that covers mise, the pin files and the values digests |
-| Base images | distroless and Debian by digest, Renovate, `debian-fixes` | keep; adopt now: verify the distroless signatures | The vendor signs them and asks users to verify; the template does not |
+| Base images | distroless and Debian by digest, Renovate, `debian-fixes` | keep; verify the distroless signatures (done) | The vendor signs them and asks users to verify; the template does not |
 | Scanners' installer | `infra/security/tools-install.sh` | frozen; noted | Out of scope |
 
 **Adopt now** (each a scoped change that leaves how an adopter installs, builds and deploys as it is):

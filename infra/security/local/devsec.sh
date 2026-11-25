@@ -19,7 +19,7 @@
 #  so the sign/attest subcommands are intentionally absent.)
 #
 # Public subcommands:
-#   help bootstrap build tools sbom vuln osv malware-heuristic license vex
+#   help bootstrap build tools sbom vuln osv malware-heuristic base-images license vex
 #   sbomqs sbom-utility audit ci-hardening all clean
 # Hidden (local-debug) subcommand:
 #   _selftest_env   derive and print the GITHUB_* env (answers "what env did the
@@ -476,6 +476,7 @@ CI_HARDEN_SH="${CI_HARDEN_SH:-$_SEC_DIR/check-ci-hardening.sh}"
 # tests so the commands are unit-tested without running a scanner.
 OSV_SCAN_SH="${OSV_SCAN_SH:-$_SEC_DIR/local/scan-osv.sh}"
 MALWARE_HEURISTIC_SH="${MALWARE_HEURISTIC_SH:-$_SEC_DIR/local/scan-malware-heuristic.sh}"
+BASE_IMAGES_SH="${BASE_IMAGES_SH:-$_SEC_DIR/local/verify-base-images.sh}"
 
 # IaC misconfiguration scanner (Checkov). Absolute, overridable — the same test
 # seam as the scanner vars: point at a stub recorder in tests so the command is
@@ -770,6 +771,13 @@ cmd_osv() {
   local rc=0
   _invoke_ci bash "$OSV_SCAN_SH" "$SEC_OUTPUT_DIR" "$REPO_ROOT" || rc=$?
   return "$rc"
+}
+
+# cmd_base_images — verify the distroless bases' signatures (the PR `images` job and the release build run
+# the same script). A read; needs the network (registry, Rekor, TUF) and cosign on PATH.
+cmd_base_images() {
+  lib_banner "base-images" "Base image signatures (cosign, distroless keyless identity)"
+  (cd "$REPO_ROOT" && bash "$BASE_IMAGES_SH")
 }
 
 # cmd_malware_heuristic — local stand-in for the CI malware-heuristic job: invoke
@@ -1212,6 +1220,7 @@ Subcommands:
   vuln           Scan for vulnerabilities
   osv            Scan for known-CVE SCA + malicious (OSV-Scanner)
   malware-heuristic  Scan direct deps for typosquats (GuardDog)
+  base-images    Verify the distroless bases' signatures (cosign)
   iac            Scan IaC for misconfiguration (Checkov)
   k8s            Scan K8s workloads for posture (Kubescape)
   dast           Dynamic application scan (OWASP ZAP baseline)
@@ -1253,6 +1262,7 @@ main() {
     vuln)           cmd_vuln         || exit $? ;;
     osv)            cmd_osv          || exit $? ;;
     malware-heuristic) cmd_malware_heuristic || exit $? ;;
+    base-images)    cmd_base_images  || exit $? ;;
     iac)            cmd_iac          || exit $? ;;
     k8s)            cmd_k8s          || exit $? ;;
     dast)           cmd_dast         || exit $? ;;

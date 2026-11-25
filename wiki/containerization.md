@@ -207,6 +207,21 @@ the [Debian fixes](#debian-fixes-the-base-has-not-shipped-yet) over it, then onl
 
 ---
 
+## Base image signatures
+
+`infra/security/local/verify-base-images.sh` (also `devsec.sh base-images`) reads every `FROM <image>@sha256:<digest>` of the root Dockerfiles, the one list of digests, and runs it before the build in the pull-request `images` job and in the release `build` job. It is a read of public data (the registry, Rekor, the TUF root): `contents: read`, no secret, no `id-token`.
+
+| Base | Checked | Evidence |
+|------|---------|----------|
+| `gcr.io/distroless/*` (python3, nodejs26) | `cosign verify` with identity `keyless@distroless.iam.gserviceaccount.com`, issuer `https://accounts.google.com` | The distroless README: every image is signed keyless and the identity is that account; `cosign tree` lists a signature and an attestation |
+| `debian:13-slim` | no | A Docker Official Image; `cosign tree` finds no signature or attestation |
+| `node:*-trixie-slim` | no | A Docker Official Image; `cosign tree` finds no signature or attestation |
+| `envoyproxy/envoy` | no | `cosign tree` finds no signature or attestation |
+
+The unsigned bases are listed with their reason in [`unsigned-base-images.tsv`](../infra/security/local/unsigned-base-images.tsv); they stay protected by the digest pin and the scans only. The check fails on a missing signature, another identity, a `FROM` without a digest or one it cannot parse (an `ARG` in the reference), and on a base that is neither distroless nor listed, so a new distroless base is covered at once and any other base must be classified. `COPY --from=<image>` references (the uv image) are not `FROM` lines and are not checked.
+
+---
+
 ## Debian fixes the base has not shipped yet
 
 The three runtime bases are distroless images built from Debian packages, and their publishers rebuild them
@@ -317,6 +332,7 @@ The image list is `.github/container-images.yml` (the single source), rendered i
 Each failure prints an `::error::` line (an unhealthy container also prints its last health-log entries and log lines); the container is always removed by its exact name.
 
 - **Pull request:** the `images` job in [`ci.yml`](../.github/workflows/ci.yml) builds each image locally with the release build's arguments and runs the script with `--strict`. It has no registry login, push, secret or cache.
+- **Base-image signatures:** both jobs also run `infra/security/local/verify-base-images.sh` before the build (see [Base image signatures](#base-image-signatures)).
 - **Release:** the `image-checks` job in [`reusable-build.yml`](../.github/workflows/reusable-build.yml) pulls each pushed image by its digest and runs the script with `--strict`; `sign-attest` needs it, so an image that fails is never signed. A multi-platform build must run it once per platform.
 - **Locally:** `make image-checks` builds the images with throwaway tags (label values set locally, so `--strict` holds), runs the script and removes them; `make image-checks IDS="backend frontend"` limits it. It needs docker, jq and the project venv (PyYAML); it builds with the manifest's own build arguments, as CI does.
 

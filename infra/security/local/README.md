@@ -28,6 +28,8 @@ infra/security/local/
 ├── report.sh                   read-only views over the scan JSON (runs no scanner)
 ├── scan-osv.sh                 single source for the CI `osv` leg (OSV-Scanner)
 ├── scan-malware-heuristic.sh   single source for the CI `guarddog` leg (GuardDog)
+├── verify-base-images.sh       single source for the base-image signature check (`images` job, release build)
+├── unsigned-base-images.tsv    the bases with no vendor signature, with the reason
 ├── scan-iac.sh                 single source for the CI `checkov` leg (Checkov, IaC policy)
 ├── scan-k8s.sh                 single source for the CI `kubescape` leg (Kubescape, workload posture)
 ├── scan-dast.sh                single source for the CI `dast` job (OWASP ZAP baseline)
@@ -113,6 +115,7 @@ Values loaded from `.env.local` are **never sourced** (parsed, not executed).
 | `vuln`       | Scan for vulnerabilities (grype, gated at `config.yaml` `policy.fail_level`) |
 | `osv`        | Source-level SCA + malicious (OSV-Scanner) — *report-only* |
 | `malware-heuristic` | Proactive typosquat scan (GuardDog, direct deps) — *report-only* |
+| `base-images` | Verify the distroless bases' signatures (cosign; not part of `all`) — a gate in the `images` job |
 | `iac`        | IaC misconfiguration scan (Checkov) — *report-only* |
 | `k8s`        | K8s workload/posture scan (Kubescape, NSA+MITRE) — *report-only* |
 | `dast`       | Dynamic app scan (OWASP ZAP baseline) — *report-only* |
