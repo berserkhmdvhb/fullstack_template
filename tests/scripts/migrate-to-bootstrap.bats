@@ -202,7 +202,7 @@ STUB
 @test "a failed release is refused, with the rollback to its last deployed revision" {
   STUB_STATUS=failed run bash "$SCRIPT" dev --context kind-x "${V[@]}" --yes
   [ "$status" -eq 1 ]
-  [[ "$output" == *"failed"*"helm rollback your-service-name 2 -n your-service-name-dev --force-conflicts --kube-context kind-x"* ]]
+  [[ "$output" == *"failed"*"helm rollback your-service-name 2 -n your-service-name-dev --server-side=true --force-conflicts --kube-context kind-x"* ]]
   run ! grep -q "^helm upgrade" "$LOG"
   run ! grep -q "get manifest" "$LOG"
 }

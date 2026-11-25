@@ -91,7 +91,7 @@ STUB
   [ "$status" -eq 0 ]
   grep -q "helm upgrade --install svc charts/x" "$LOG"
   grep "helm upgrade --install svc charts/x" "$LOG" | grep -q -- "--set guards.rejectPlaceholders=true"
-  grep -q -- "--rollback-on-failure --force-conflicts --wait --wait-for-jobs --timeout 5m" "$LOG"
+  grep -q -- "--rollback-on-failure --server-side=true --force-conflicts --wait --wait-for-jobs --timeout 5m" "$LOG"
   grep -q -- "-n svc-dev" "$LOG"
   grep -q "^verify COMPONENTS=backend frontend" "$LOG"
   grep -q "^smoke --base-url http://127.0.0.1:8000 --host svc-backend --path /api/v1" "$LOG"
@@ -106,7 +106,7 @@ STUB
 @test "a verify failure rolls back to the recorded deployed revision" {
   STUB_VERIFY_RC=1 run bash "$SCRIPT"
   [ "$status" -eq 1 ]
-  grep -q "helm rollback svc 2 -n svc-dev --force-conflicts --wait --timeout 5m" "$LOG"
+  grep -q "helm rollback svc 2 -n svc-dev --server-side=true --force-conflicts --wait --timeout 5m" "$LOG"
   run grep -q "^smoke" "$LOG"
   [ "$status" -ne 0 ]
 }
@@ -389,7 +389,7 @@ STUB
 @test "preview: a failed check rolls the pull request's release back, in the preview namespace" {
   DEPLOY_ENV=preview PREVIEW_PR=42 STUB_VERIFY_RC=1 run bash "$SCRIPT"
   [ "$status" -eq 1 ]
-  grep -q "helm rollback svc-pr-42 2 -n svc-preview --force-conflicts --wait --timeout 5m" "$LOG"
+  grep -q "helm rollback svc-pr-42 2 -n svc-preview --server-side=true --force-conflicts --wait --timeout 5m" "$LOG"
 }
 
 @test "preview with PREVIEW_DOMAIN: the public hosts, the URL output, and the smoke through Access from a private header file" {
@@ -508,5 +508,5 @@ STUB
   [ "$status" -eq 1 ]
   [ "$(grep -cE "^helm (upgrade|rollback)" "$LOG")" -eq 2 ]
   run grep -E "^helm (upgrade|rollback)" "$LOG"
-  for line in "${lines[@]}"; do [[ "$line" == *" --force-conflicts "* ]]; done
+  for line in "${lines[@]}"; do [[ "$line" == *" --server-side=true --force-conflicts "* ]]; done
 }

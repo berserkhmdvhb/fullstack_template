@@ -287,6 +287,7 @@ class Setup:
             str(CHART),
             "-n",
             NAMESPACE,
+            "--server-side=true",
             "--force-conflicts",
         ]
         cmd += ["-f", str(CHART / "values.local.yaml"), "-f", str(store_values)]

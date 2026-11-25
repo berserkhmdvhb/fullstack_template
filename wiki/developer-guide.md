@@ -201,7 +201,7 @@ kind load docker-image your-service-name-frontend:local --name your-service-name
 
 # Or the raw calls: the admin bootstrap (the namespaces; wiki/infrastructure.md), then Helm:
 scripts/k8s-bootstrap.sh local | kubectl apply -f -
-helm upgrade --install your-service-name charts/your-service-name \
+helm upgrade --install your-service-name charts/your-service-name --server-side=true --force-conflicts \
   -f charts/your-service-name/values.local.yaml -n your-service-name-local
 ```
 

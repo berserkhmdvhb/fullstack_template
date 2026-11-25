@@ -457,7 +457,7 @@ After building and pushing the images, deploy with the Helm chart. Namespaces ar
 
 # Or the raw calls: the admin bootstrap once (the namespaces; wiki/infrastructure.md), then Helm:
 scripts/k8s-bootstrap.sh <environment> | kubectl apply -f -
-helm upgrade --install your-service-name charts/your-service-name \
+helm upgrade --install your-service-name charts/your-service-name --server-side=true --force-conflicts \
   -f charts/your-service-name/values.<environment>.yaml \
   -n your-service-name-<environment>
 ```
@@ -478,7 +478,7 @@ To deploy a new image version, set the tag in the env's values file (or via `--s
 
 ```bash
 # Via Helm --set (image tag + registry), then roll out:
-helm upgrade --install your-service-name charts/your-service-name \
+helm upgrade --install your-service-name charts/your-service-name --server-side=true --force-conflicts \
   -f charts/your-service-name/values.<environment>.yaml \
   --set images.backend.tag=<new-tag> --set images.backend.registry=<registry> \
   -n your-service-name-<environment>
@@ -491,5 +491,5 @@ A failed verify or smoke step rolls back to the recorded revision by itself. By 
 
 ```bash
 helm history your-service-name -n your-service-name-<environment>
-helm rollback your-service-name <N> -n your-service-name-<environment> --force-conflicts --wait
+helm rollback your-service-name <N> -n your-service-name-<environment> --wait --server-side=true --force-conflicts
 ```

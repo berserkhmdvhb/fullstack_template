@@ -85,6 +85,7 @@ def test_the_one_path_that_may_wait_as_long_rolls_back_on_failure() -> None:
     """deploy-env.sh's upgrade waits HELM_TIMEOUT with --rollback-on-failure (see the module)."""
     script = (ROOT / "scripts/ci/deploy-env.sh").read_text()
     flags = (
-        '--rollback-on-failure --force-conflicts --wait --wait-for-jobs --timeout "$HELM_TIMEOUT"'
+        "--rollback-on-failure --server-side=true --force-conflicts --wait --wait-for-jobs "
+        '--timeout "$HELM_TIMEOUT"'
     )
     assert flags in script

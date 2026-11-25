@@ -192,7 +192,7 @@ deploy() { # chart dir, extra helm args...
   local rc=0
   mapfile -t args < <(kind_args "$chart" "$NS")
   helm_as upgrade --install "$RELEASE" "$chart" -n "$NS" -f "$chart/values.local.yaml" -f "$values" \
-    "${args[@]}" --history-max 5 --force-conflicts --wait --wait-for-jobs --timeout 9m "$@" \
+    "${args[@]}" --history-max 5 --server-side=true --force-conflicts --wait --wait-for-jobs --timeout 9m "$@" \
     2>&1 | tee "$WORK/helm.log" || rc=$?
   ! grep -qi forbidden "$WORK/helm.log" || die "the deployer was refused: $(grep -i forbidden "$WORK/helm.log")"
   if (( rc != 0 )); then
@@ -271,7 +271,7 @@ if [[ -n "$base" ]]; then
     mapfile -t base_args < <(kind_args "$base_chart" "$NS")
     helm --kube-context "$CONTEXT" upgrade --install "$RELEASE" "$base_chart" -n "$NS" --create-namespace \
       -f "$base_chart/values.local.yaml" -f "$values" "${base_args[@]}" "${base_extra[@]}" \
-      --force-conflicts --wait --wait-for-jobs --timeout 9m
+      --server-side=true --force-conflicts --wait --wait-for-jobs --timeout 9m
   else
     step "install the chart of the base commit $base, as the deployer"
     bootstrap "$NS"

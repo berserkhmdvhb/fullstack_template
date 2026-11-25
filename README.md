@@ -133,7 +133,7 @@ step by step, in [Local Deployment (minikube)](wiki/local-development-minikube.m
 # Once per environment, as a cluster admin: the namespaces, quota and deployer RBAC (wiki/infrastructure.md)
 scripts/k8s-bootstrap.sh production | kubectl apply -f -
 # Production refuses an image without a digest (the release's image-digests.env has them)
-helm upgrade --install your-service-name ./charts/your-service-name \
+helm upgrade --install your-service-name ./charts/your-service-name --server-side=true --force-conflicts \
   -f ./charts/your-service-name/values.production.yaml \
   --namespace your-service-name-production --wait --wait-for-jobs \
   --set images.backend.digest=sha256:<backend digest> --set images.frontend.digest=sha256:<frontend digest>

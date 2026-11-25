@@ -111,7 +111,7 @@ It is **off by default** — enable it and confirm it protects without breaking 
 traffic:
 
 ```bash
-helm upgrade your-service-name ./charts/your-service-name -n your-service-name-qa \
+helm upgrade your-service-name ./charts/your-service-name -n your-service-name-qa --server-side=true --force-conflicts \
   -f charts/your-service-name/values.qa.yaml --set waf.enabled=true
 helm status your-service-name -n your-service-name-qa        # wait for the WAF pod to be READY
 ```

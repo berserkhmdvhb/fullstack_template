@@ -4,8 +4,9 @@
 # 1. image values from the manifest plus the release digests (every digest must be sha256:<64 hex>); a
 #    render first tells which images run, and only an image the release does not render may lack one
 # 2. record the last `deployed` Helm revision (none on a first install)
-# 3. helm upgrade --install --rollback-on-failure --force-conflicts --wait --wait-for-jobs (the deploy takes
-#    ownership of every field it sets, so a hand edit never blocks it; Helm rolls a failed upgrade back
+# 3. helm upgrade --install --rollback-on-failure --server-side=true --force-conflicts --wait
+#    --wait-for-jobs (the deploy takes ownership of every field it sets, server-side, so a hand edit
+#    never blocks it; Helm rolls a failed upgrade back
 #    itself; --wait-for-jobs makes a failed migration Job fail the release; a failed deploy prints the
 #    migration Job's status and logs first; a first install first deletes a leftover Failed migration Job)
 # 4. deploy-verify.sh (for each image the release renders a component for), then scripts/smoke-test.sh
@@ -145,7 +146,7 @@ for id in ${DEPLOY_IMAGES//,/ }; do
 done
 
 # 1c. DEPLOY_RENDER_ONLY=<file>: the release's render, with exactly the upgrade's values and flags, into
-# the file, then stop before any cluster call (the live-drift check, scripts/ci/drift-env.sh).
+# the file, then stop before any cluster call (the live-drift check, scripts/ci/drift-render.sh).
 if [[ -n "${DEPLOY_RENDER_ONLY:-}" ]]; then
   helm template "$RELEASE" "$CHART_DIR" "${release_values[@]}" --namespace "$NAMESPACE" > "$DEPLOY_RENDER_ONLY" ||
     fail "cannot render ${RELEASE} for ${DEPLOY_ENV}"
@@ -169,7 +170,7 @@ fi
 helm_rc=0
 helm upgrade --install "$RELEASE" "$CHART_DIR" "${release_values[@]}" \
   --namespace "$NAMESPACE" \
-  --rollback-on-failure --force-conflicts --wait --wait-for-jobs --timeout "$HELM_TIMEOUT" \
+  --rollback-on-failure --server-side=true --force-conflicts --wait --wait-for-jobs --timeout "$HELM_TIMEOUT" \
   --history-max "$HELM_HISTORY_MAX" || helm_rc=$?
 if (( helm_rc != 0 )); then
   echo "::group::migration Job of ${RELEASE} in ${DEPLOY_ENV} (the deploy failed)"
@@ -220,7 +221,7 @@ if ! checks; then
   if [[ -z "$recorded" ]]; then
     fail "verify or smoke failed in ${DEPLOY_ENV}, and there is no earlier deployed revision to roll back to"
   fi
-  helm rollback "$RELEASE" "$recorded" -n "$NAMESPACE" --force-conflicts --wait --timeout "$HELM_TIMEOUT" \
+  helm rollback "$RELEASE" "$recorded" -n "$NAMESPACE" --server-side=true --force-conflicts --wait --timeout "$HELM_TIMEOUT" \
     --history-max "$HELM_HISTORY_MAX"
   echo "- Rolled $RELEASE back to revision $recorded in ${DEPLOY_ENV} after a failed verify or smoke" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
   fail "verify or smoke failed; rolled ${RELEASE} back to revision ${recorded} in ${DEPLOY_ENV}"

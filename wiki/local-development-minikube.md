@@ -237,7 +237,7 @@ the app Secret and the `…-db-credentials` Secret from `values.local.yaml` + yo
 
 ```bash
 scripts/k8s-bootstrap.sh local | kubectl apply -f -   # the namespaces (wiki/infrastructure.md)
-helm upgrade --install your-service-name charts/your-service-name \
+helm upgrade --install your-service-name charts/your-service-name --server-side=true --force-conflicts \
   -f charts/your-service-name/values.local.yaml \
   -f charts/your-service-name/values.secret.yaml \
   -n your-service-name-local
@@ -638,7 +638,7 @@ The WAF is **off by default** (`waf.enabled: false`) — enabling it is a
 ```bash
 docker build -t your-service-name-waf:local -f Dockerfile.waf .
 kind load docker-image --name your-service-name your-service-name-waf:local   # kind only
-helm upgrade your-service-name charts/your-service-name \
+helm upgrade your-service-name charts/your-service-name --server-side=true --force-conflicts \
   -f charts/your-service-name/values.local.yaml \
   -f charts/your-service-name/values.secret.yaml \
   -n your-service-name-local --set waf.enabled=true

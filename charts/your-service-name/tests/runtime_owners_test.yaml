@@ -1,5 +1,5 @@
 suite: the chart never sets a field another controller owns at runtime (the deploy forces its own fields)
-# The deploy takes ownership of every field it sets (helm --force-conflicts), so a field a controller
+# The deploy takes ownership of every field it sets (helm --server-side=true --force-conflicts), so a field a controller
 # writes at runtime must never be rendered, or each deploy would fight that controller.
 release:
   name: svc

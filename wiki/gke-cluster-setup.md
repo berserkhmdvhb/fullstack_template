@@ -1066,7 +1066,7 @@ The chart version and its checksum are pinned in `tools/pins.tsv` (`external-sec
 ```bash
 scripts/tools.sh install helm4 external-secrets-chart
 ESO_VERSION="$(awk -F'\t' '$1 == "external-secrets-chart" {print $2}' tools/pins.tsv)"
-.tools/bin/helm upgrade --install external-secrets ".tools/opt/external-secrets-chart-$ESO_VERSION/external-secrets" \
+.tools/bin/helm upgrade --install external-secrets ".tools/opt/external-secrets-chart-$ESO_VERSION/external-secrets" --server-side=true --force-conflicts \
   --namespace external-secrets --create-namespace \
   -f deploy/external-secrets/external-secrets-values.yaml --wait --timeout 5m
 ```

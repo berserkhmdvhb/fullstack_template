@@ -453,7 +453,7 @@ kind load docker-image your-service-name-frontend:local --name your-service-name
 
 # Or the raw calls: the admin bootstrap (the namespaces; wiki/infrastructure.md), then Helm
 scripts/k8s-bootstrap.sh local | kubectl apply -f -
-helm upgrade --install your-service-name charts/your-service-name \
+helm upgrade --install your-service-name charts/your-service-name --server-side=true --force-conflicts \
   -f charts/your-service-name/values.local.yaml \
   -n your-service-name-local
 ```
@@ -518,7 +518,7 @@ then name the store in each `values.<env>.yaml`. The other sources are in [Secur
 scripts/k8s-bootstrap.sh production | kubectl apply -f -
 # Deploy with Helm by digest. values.production.yaml holds placeholder digests, which the guard refuses;
 # with waf.enabled, also pass --set images.waf.digest=sha256:<waf digest>.
-helm upgrade --install your-service-name charts/your-service-name \
+helm upgrade --install your-service-name charts/your-service-name --server-side=true --force-conflicts \
   -f charts/your-service-name/values.production.yaml \
   --namespace your-service-name-production --wait --wait-for-jobs \
   --set guards.rejectPlaceholders=true \

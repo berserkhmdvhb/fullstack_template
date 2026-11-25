@@ -19,6 +19,8 @@ the identity cannot read a Secret or change anything.
 
 from __future__ import annotations
 
+import base64
+import gzip
 import json
 import os
 import shutil
@@ -32,7 +34,7 @@ import pytest
 import yaml
 
 from tests.k8s import _kube
-from tests.k8s._kube import KUBECONFIG, ROOT, Kube, Pushed, _run, _tool, deploy_env
+from tests.k8s._kube import CHART, KUBECONFIG, ROOT, Kube, Pushed, _run, _tool, deploy_env
 
 RELEASE = (
     "your-service-name-drift"  # contains the chart's name, so the fullname is the release name
@@ -220,6 +222,7 @@ def test_a_rollback_after_hand_edits_succeeds_and_restores_git(drift: Drift) -> 
             previous,
             "-n",
             NAMESPACE,
+            "--server-side=true",
             "--force-conflicts",
             "--wait",
             "--timeout",
@@ -250,3 +253,47 @@ def test_the_drift_identity_cannot_read_a_secret_or_change_anything(
     assert done.returncode != 0, done.stdout[:200]
     assert "forbidden" in done.stderr.lower(), done.stderr
     assert drift.as_drift("auth", "can-i", "get", "configmaps").stdout.strip() == "yes"
+
+
+def _apply_method(drift: Drift, revision: int) -> str:
+    """The apply method Helm recorded for a revision (read as cluster admin, never printed)."""
+    name = f"sh.helm.release.v1.{RELEASE}.v{revision}"
+    data = drift.app("get", "secret", name, "-o", "jsonpath={.data.release}")
+    record = json.loads(gzip.decompress(base64.b64decode(base64.b64decode(data))))
+    return str(record.get("apply_method", ""))
+
+
+def test_a_client_side_release_is_upgraded_server_side_and_rolled_back(drift: Drift) -> None:
+    """A release last applied client-side (as Helm 3, or Helm 4's --server-side=false, made it):
+    the deploy's upgrade and the ops rollback pass --server-side=true with --force-conflicts, which
+    a client-side apply would refuse. Both succeed; the upgrade records server-side apply."""
+    helm = _kube.helm_as_deployer()
+    values = drift.work / "client-side-values.json"
+    values.write_text(_run([*helm, "get", "values", RELEASE, "-n", NAMESPACE, "-o", "json"]))
+    _run([*helm, "uninstall", RELEASE, "-n", NAMESPACE, "--wait"])
+    selector = f"app.kubernetes.io/instance={RELEASE},app.kubernetes.io/component=migration"
+    drift.app("delete", "jobs", "-l", selector, "--ignore-not-found", "--wait")  # kept by policy
+    install = [*helm, "install", RELEASE, str(CHART), "-n", NAMESPACE, "-f", str(values)]
+    _run([*install, "--server-side=false", "--wait", "--wait-for-jobs", "--timeout", "9m"])
+    assert _apply_method(drift, 1) == "csa"
+    drift.deploy()
+    assert _apply_method(drift, 2) == "ssa"
+    revision = "1"
+    _run(
+        [
+            *helm,
+            "rollback",
+            RELEASE,
+            revision,
+            "-n",
+            NAMESPACE,
+            "--server-side=true",
+            "--force-conflicts",
+            "--wait",
+            "--timeout",
+            "5m",
+            "--history-max",
+            "5",
+        ]
+    )
+    assert drift.check() == set()

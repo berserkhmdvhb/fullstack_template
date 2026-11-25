@@ -227,6 +227,7 @@ class Cluster:
             str(CHART),
             "-n",
             NAMESPACE,
+            "--server-side=true",
             "--force-conflicts",
         ]
         cmd += ["-f", str(CHART / "values.local.yaml"), "-f", str(SECRETS), *self.image_args]
@@ -571,7 +572,16 @@ def test_a_rollback_after_the_ttl_recreates_the_job_which_finds_the_database_ahe
 
 
 def _rollback(cluster: Cluster, revision: int) -> tuple[int, str]:
-    cmd = [*cluster.helm, "rollback", RELEASE, str(revision), "-n", NAMESPACE, "--force-conflicts"]
+    cmd = [
+        *cluster.helm,
+        "rollback",
+        RELEASE,
+        str(revision),
+        "-n",
+        NAMESPACE,
+        "--server-side=true",
+        "--force-conflicts",
+    ]
     cmd += ["--wait", "--wait-for-jobs", "--timeout", "9m", "--history-max", "5"]
     done = subprocess.run(cmd, capture_output=True, text=True, env=_env(), check=False)
     return done.returncode, done.stdout + done.stderr

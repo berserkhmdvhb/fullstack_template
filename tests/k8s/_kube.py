@@ -99,6 +99,7 @@ def upgraded(*flags: str) -> Iterator[None]:
                 "-n",
                 NAMESPACE,
                 "--reuse-values",
+                "--server-side=true",
                 "--force-conflicts",
                 *flags,
                 *wait,
@@ -106,7 +107,19 @@ def upgraded(*flags: str) -> Iterator[None]:
         )
         yield
     finally:
-        _run([*helm, "rollback", RELEASE, revision, "-n", NAMESPACE, "--force-conflicts", *wait])
+        _run(
+            [
+                *helm,
+                "rollback",
+                RELEASE,
+                revision,
+                "-n",
+                NAMESPACE,
+                "--server-side=true",
+                "--force-conflicts",
+                *wait,
+            ]
+        )
 
 
 class Kube:

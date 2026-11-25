@@ -87,9 +87,9 @@ Use the [`deploy-ops`](../.github/workflows/deploy-ops.yml) workflow (Actions ta
 # Check the release history
 helm history your-service-name -n your-service-name-<environment>
 
-# Roll back to a revision (omit the number for the previous one). --force-conflicts takes back the
+# Roll back to a revision (omit the number for the previous one). --server-side=true --force-conflicts take back the
 # fields a hand edit changed, as the workflow's rollback does; without it the rollback fails on them.
-helm rollback your-service-name <N> -n your-service-name-<environment> --force-conflicts --wait
+helm rollback your-service-name <N> -n your-service-name-<environment> --wait --server-side=true --force-conflicts
 
 # Verify rollback
 kubectl -n your-service-name-<environment> rollout status deployment/your-service-name-backend

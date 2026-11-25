@@ -285,7 +285,7 @@ kubectl -n your-service-name-<env> rollout status deployment/your-service-name-b
 kubectl -n your-service-name-<env> get events --sort-by='.lastTimestamp'
 
 # Roll back the release if stuck (Helm owns the Deployments: see the operations runbook's rollback)
-helm rollback your-service-name <N> -n your-service-name-<env> --wait
+helm rollback your-service-name <N> -n your-service-name-<env> --wait --server-side=true --force-conflicts
 ```
 
 ---
