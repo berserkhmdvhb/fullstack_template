@@ -24,7 +24,7 @@ PLATFORM = "linux-amd64"
 REQUIRED = {
     "helm3", "helm4", "kind", "kubeconform", "promtool", "ct", "helm-unittest", "actionlint",
     "hadolint", "gitleaks", "squawk", "oasdiff", "cosign", "kyverno", "yq", "bats", "node",
-    "zizmor", "schemathesis", "pre-commit", "python", "kubectl", "kubectl-floor", "uv",
+    "zizmor", "schemathesis", "pre-commit", "python", "kubectl", "kubectl-floor", "uv", "mise",
 }  # fmt: skip
 
 
@@ -237,7 +237,7 @@ def test_pins_cover_every_required_tool_with_a_checksum() -> None:
     by_name = {r[0]: r for r in rows()}
     assert set(by_name) >= REQUIRED
     for name, _ver, plat, url, sha in rows():
-        assert plat in (PLATFORM, "any"), name
+        assert plat in (PLATFORM, "any") or (name, plat) == ("mise", "darwin-arm64"), name
         if url.startswith("uv:"):
             assert sha == "-", name
             if url != "uv:python":
@@ -450,3 +450,54 @@ def test_uv_is_pinned_from_the_vendor_release_and_installed_before_every_uv_row(
 
 def test_tools_sh_prefers_the_pinned_uv() -> None:
     assert 'PATH="$TOOLS_DIR/bin:$PATH"' in SRC
+
+
+# --- mise: the first pin, installed through the same verified path as every other tool ---
+
+
+def mise_sandbox(tmp: Path, sha: str | None) -> tuple[dict[str, str], Path]:
+    """A mise pin whose artifact is a tarball laid out like the release's (mise/bin/mise)."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        data = b"#!/bin/sh\necho fake mise\n"
+        info = tarfile.TarInfo("mise/bin/mise")
+        info.size = len(data)
+        info.mode = 0o755
+        tf.addfile(info, io.BytesIO(data))
+    art = tmp / "mise-v9.9.9-linux-x64.tar.gz"
+    art.write_bytes(buf.getvalue())
+    sha = sha or hashlib.sha256(buf.getvalue()).hexdigest()
+    pins = tmp / "pins.tsv"
+    pins.write_text(f"mise\t9.9.9\t{PLATFORM}\tfile://{art}\t{sha}\n")
+    tools = tmp / ".tools"
+    env = {**os.environ, "PINS": str(pins), "TOOLS_DIR": str(tools), "TOOLS_PROTO": "=file"}
+    return env, tools
+
+
+def test_mise_is_the_first_row_with_a_linux_and_a_macos_asset() -> None:
+    mise = [r for r in rows() if r[0] == "mise"]
+    assert rows()[0][0] == "mise", "mise installs first"
+    assert {r[2] for r in mise} == {"linux-amd64", "darwin-arm64"}
+    assert len({r[1] for r in mise}) == 1
+    for r in mise:
+        assert r[3].startswith(f"https://github.com/jdx/mise/releases/download/v{r[1]}/"), r
+        assert r[3].endswith((".tar.gz", ".tar.xz")), "an archive, extracted by the safe path"
+        assert re.fullmatch(r"[0-9a-f]{64}", r[4]), r
+
+
+def test_a_changed_mise_checksum_is_refused_and_links_nothing(tmp_path: Path) -> None:
+    env, tools = mise_sandbox(tmp_path, "0" * 64)
+    r = run(["install", "mise"], env)
+    assert r.returncode != 0
+    assert "checksum mismatch for mise" in r.stderr
+    assert not (tools / "bin").exists()
+    assert not (tools / "opt").exists()
+
+
+def test_mise_installs_from_a_verified_archive_to_bin(tmp_path: Path) -> None:
+    env, tools = mise_sandbox(tmp_path, None)
+    r = run(["install", "mise"], env)
+    assert r.returncode == 0, r.stderr
+    assert (tools / "bin/mise").is_symlink()
+    out = subprocess.run([str(tools / "bin/mise")], capture_output=True, text=True, check=True)
+    assert out.stdout == "fake mise\n"

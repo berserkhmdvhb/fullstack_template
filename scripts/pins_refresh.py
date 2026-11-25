@@ -72,6 +72,7 @@ USAGE = "usage: pins-refresh.sh [--check] [--base REF] [name...]"
 #   uv         a Python tool: hashed lock in tools/requirements/, checked against PyPI
 #   none       uv downloads and verifies it itself
 SOURCES: dict[str, tuple[str, str, str]] = {
+    "mise": ("sumfile", "{dir}/SHASUMS256.txt", "https://github.com/jdx/mise/releases/download/"),
     "helm3": ("sumfile", "{url}.sha256sum", "https://get.helm.sh/"),
     "helm4": ("sumfile", "{url}.sha256sum", "https://get.helm.sh/"),
     "uv": ("hashfile", "{url}.sha256", "https://github.com/astral-sh/uv/releases/download/"),

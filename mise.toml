@@ -1,0 +1,23 @@
+# Settings for the developer toolchain; scripts/tools.sh runs the pinned mise with these and the
+# repo-local environment it sets. No tools are listed yet: tools/pins.tsv still installs them.
+# Only the aqua, github and core backends are on; there are no tasks and no hooks.
+[settings]
+# mise.lock is read and kept; installs run --locked from it.
+lockfile = true
+locked = true
+lockfile_platforms = ["linux-x64", "macos-arm64"]
+# Release data comes from the forge and the vendor, not from a mirror, and no usage report is sent.
+use_versions_host = false
+use_versions_host_track = false
+# Checks on what is downloaded stay on.
+github_attestations = true
+slsa = true
+aqua.cosign = true
+aqua.minisign = true
+aqua.slsa = true
+aqua.github_attestations = true
+# Every backend except aqua, github and core is off (a plugin or a package manager runs code).
+disable_backends = [
+  "asdf", "cargo", "conda", "dotnet", "forgejo", "gem", "gitlab", "go", "http", "npm",
+  "packslip", "pipx", "pypi", "s3", "spinel", "spm", "ubi", "vfox",
+]

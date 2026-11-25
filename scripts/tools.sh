@@ -4,10 +4,14 @@
 # Usage: scripts/tools.sh [--dry-run] install [name...]   install all pins, or just the named ones
 #                                                         (crd-sources: the pinned CRD sources)
 #        scripts/tools.sh list                            show the pins for this platform
+#        scripts/tools.sh mise [args...]                  run the pinned mise (below) from the repository root
 #
 # Every download goes to a temp file, is checked against the sha256 in tools/pins.tsv, and only
 # then extracted. A mismatch aborts before anything lands in .tools. Python tools install from
 # hash-pinned requirements (tools/requirements/<name>.txt) into their own venv.
+# mise (the first pin) is repo-local and hermetic: its data, cache, state and config live under $TOOLS_DIR/mise, the
+# user's global and system config and every parent directory's config are out of reach, and no GitHub token or usage
+# report is used. The project settings are in mise.toml.
 # Sibling of infra/security/tools-install.sh (security scanners); this one is for developer tools.
 # Env overrides (used by the tests): PINS, TOOLS_DIR, TOOLS_PROTO (curl --proto, default =https).
 set -Eeuo pipefail
@@ -21,6 +25,17 @@ DRY_RUN=false # only --dry-run sets it
 # tests/supply_chain/test_tools_pins.py reinstalls the real Node tarball from it, offline.
 KEEP_DOWNLOAD="node"
 TMP="" PART=""
+
+# The environment every mise run gets; it overrides whatever the caller has set.
+export MISE_DATA_DIR="$TOOLS_DIR/mise/data" MISE_CACHE_DIR="$TOOLS_DIR/mise/cache" MISE_STATE_DIR="$TOOLS_DIR/mise/state"
+export MISE_CONFIG_DIR="$TOOLS_DIR/mise/config" MISE_TMP_DIR="$TOOLS_DIR/mise/tmp" MISE_SYSTEM_DATA_DIR="$TOOLS_DIR/mise/system"
+export MISE_SYSTEM_CONFIG_DIR="$TOOLS_DIR/mise/system-config"
+# Global and system config are single files that are never created; mise.toml in the repository is the only config.
+export MISE_GLOBAL_CONFIG_FILE="$TOOLS_DIR/mise/no-global.toml" MISE_SYSTEM_CONFIG_FILE="$TOOLS_DIR/mise/no-system.toml"
+ABOVE_ROOT="$(dirname "$ROOT")"
+export MISE_CEILING_PATHS="$ABOVE_ROOT" MISE_OVERRIDE_CONFIG_FILENAMES=mise.toml
+export MISE_TRUSTED_CONFIG_PATHS="$ROOT" MISE_GITHUB_GH_CLI_TOKENS=false
+unset GITHUB_TOKEN GITHUB_API_TOKEN GH_TOKEN MISE_GITHUB_TOKEN MISE_GITHUB_ENTERPRISE_TOKEN
 
 die() { echo "tools: $*" >&2; exit 1; }
 cleanup() { rm -rf "${TMP:-}" "${PART:-}"; }
@@ -47,6 +62,7 @@ exes_for() {
     bats) echo "bats-core-$VER/bin/bats:bats" ;;
     shellcheck) echo "shellcheck-v$VER/shellcheck:shellcheck" ;;
     node) echo "node-v$VER-linux-x64/bin/node:node node-v$VER-linux-x64/bin/npm:npm node-v$VER-linux-x64/bin/npx:npx" ;;
+    mise) echo "mise/bin/mise:mise" ;;
     uv) echo "uv-x86_64-unknown-linux-gnu/uv:uv uv-x86_64-unknown-linux-gnu/uvx:uvx" ;;
     lychee) echo "lychee-x86_64-unknown-linux-gnu/lychee:lychee" ;;
     helm-unittest|k8s-openapi|kyverno-chart) echo "" ;; # a plugin dir, and data (kubeconform.sh and the kind admission test read them)
@@ -253,5 +269,6 @@ set -- "${args[@]:-}"
 case "${1:-}" in
   install) shift; cmd_install "$@" ;;
   list) cmd_list ;;
-  *) die "usage: tools.sh [--dry-run] install [name...] | list" ;;
+  mise) shift; cd "$ROOT"; exec "$TOOLS_DIR/bin/mise" "$@" ;;
+  *) die "usage: tools.sh [--dry-run] install [name...] | list | mise [args...]" ;;
 esac

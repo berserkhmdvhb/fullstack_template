@@ -8,7 +8,13 @@
 # the release `checksums`). squawk and shellcheck publish no checksum file: their sha256 is the GitHub
 # release-asset digest, confirmed against the downloaded bytes. bats is the GitHub tag archive (no
 # vendor checksum exists), hashed on download; a changed archive is refused.
-# The uv row comes first: scripts/tools.sh installs it to .tools/bin/uv, and every uv:<pkg> row below uses it.
+# mise: the tool manager that is taking over the dev toolchain. Its sha256 is the release's SHASUMS256.txt. The
+# release also ships SHASUMS256.txt.minisig (minisign) and SHASUMS256.asc (OpenPGP); neither is checked here, because
+# checking either needs a minisign or gpg binary that the toolchain does not have before it has installed mise.
+# The mise row is first and is installed first; .tools/bin/mise runs with the repo-local settings in mise.toml (see scripts/tools.sh).
+mise	2026.11.9	linux-amd64	https://github.com/jdx/mise/releases/download/v2026.11.9/mise-v2026.11.9-linux-x64.tar.gz	23ba592fcbc61f057e2b82c1eafd085832712ba0c759b714ca16cd06babca378
+mise	2026.11.9	darwin-arm64	https://github.com/jdx/mise/releases/download/v2026.11.9/mise-v2026.11.9-macos-arm64.tar.gz	e4509f159e0492e89065edcf52f2918e2751e3574620586058468ba0563aed59
+# The uv row comes first of the tools: scripts/tools.sh installs it to .tools/bin/uv, and every uv:<pkg> row below uses it.
 # The backend image copies uv from the official image at the same version (a test keeps the two equal).
 # Rows with url uv:<pkg> are Python tools. Each is installed into its own venv,
 # .tools/uv-tools/<name>, with `uv pip install --require-hashes -r tools/requirements/<name>.txt`

@@ -60,8 +60,8 @@ def test_release_age_grouping_and_majors() -> None:
 def test_every_pin_row_is_seen_by_exactly_one_manager_and_the_url_follows_the_version() -> None:
     managers = _managers("pins")
     assert 0 < len(managers) <= MAX_PINS_MANAGERS
-    for row in (ln for ln in PINS.splitlines() if ln and not ln.startswith("#")):
-        name, version, _plat, url, _sha = row.split("\t")
+    table = [ln.split("\t") for ln in PINS.splitlines() if ln and not ln.startswith("#")]
+    for name, version, plat, url, _sha in table:
         hits = [
             m
             for mgr in managers
@@ -69,9 +69,12 @@ def test_every_pin_row_is_seen_by_exactly_one_manager_and_the_url_follows_the_ve
             for m in _compile(ms).finditer(PINS)
             if m.group("depName") == name
         ]
-        assert len(hits) == 1, f"{name}: matched by {len(hits)} managers"
-        matched = hits[0].group(0)
-        assert hits[0].group("currentValue") == version
+        # One match per row: a tool with a row per platform (mise) is matched once for each.
+        rows_of_name = sum(1 for r in table if r[0] == name)
+        assert len(hits) == rows_of_name, f"{name}: matched {len(hits)} times, {rows_of_name} rows"
+        hit = next(h for h in hits if rows_of_name == 1 or f"\t{plat}\t" in h.group(0))
+        matched = hit.group(0)
+        assert hit.group("currentValue") == version
         assert url in matched or url.startswith("uv:"), f"{name}: the match stops short of the url"
         assert not re.search(r"[0-9a-f]{64}", matched), f"{name}: the sha256 must not be matched"
         bumped = matched.replace(version, "99.9.9")
