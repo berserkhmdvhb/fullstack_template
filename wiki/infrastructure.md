@@ -539,15 +539,11 @@ the `edge:` and `networkPolicy:` blocks of [`values.yaml`](../charts/your-servic
 
 ### Edge hostnames
 
-One hostname per environment: `edge.hosts.root` serves the whole app on one origin (the browser calls
-`/api` on the page's own host, so there is no CORS, the cookies are host-locked, `connect-src` is
-`'self'`, and there is one certificate, one tunnel route and one Access application per environment).
-The scheme is `<service>[-<env>].<domain>`, always one label under the zone: the free Universal SSL
-certificate covers `*.<domain>`, never a second level, and the service name in the host lets many
-services share one domain. Production is `<service>.<domain>`, the others `<service>-dev.<domain>`
-and `<service>-qa.<domain>`; a pull request preview is `<service>-pr-<N>.<preview-zone>`. A flagship
-service may take the apex (`edge.hosts.root: <domain>`): Cloudflare flattens the apex CNAME, so a
-tunnel route works there. See [ADR-0042](./adr/0042-one-hostname-per-environment.md).
+One hostname per environment: `edge.hosts.root` serves the whole app. The scheme is
+`<service>[-<env>].<domain>`, always one label under the zone. Production is `<service>.<domain>`, the
+others `<service>-dev.<domain>` and `<service>-qa.<domain>`; a pull request preview is
+`<service>-pr-<N>.<preview-zone>`. The reasons, and the apex option, are in
+[ADR-0042](./adr/0042-one-hostname-per-environment.md).
 
 Set `edge.hosts.api` (`<service>-api[-<env>].<domain>`) only for a backend-only host, when a client
 that is not a browser needs its own rules: a rate limit, an Access policy, a service token. It serves
@@ -696,7 +692,7 @@ it. Cluster-side steps: [GKE cluster setup](./gke-cluster-setup.md#94-choose-the
 | Mode | Where TLS terminates |
 |------|---------------------|
 | `gateway` | The Gateway listener's certificate, which you manage on the Gateway. The chart renders no TLS, and NOTES prints the hosts without a scheme. |
-| `ingress` | `edge.ingress.tlsSecretName` adds a `tls` block for the three hosts; the certificate comes from an issuer you add (for example a cert-manager annotation in `edge.ingress.annotations`). NOTES prints `https` only when it is set. |
+| `ingress` | `edge.ingress.tlsSecretName` adds a `tls` block for `edge.hosts.root` (and `edge.hosts.api` when set); the certificate comes from an issuer you add (for example a cert-manager annotation in `edge.ingress.annotations`). NOTES prints `https` only when it is set. |
 | `tunnel` | Cloudflare, at its edge. The hop from `cloudflared` to the Service is plain HTTP inside the cluster. |
 
 ### Where the former nginx practices live now

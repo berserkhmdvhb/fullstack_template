@@ -21,12 +21,13 @@ import { useTheme } from './theme-provider';
 // FastAPI serves its Swagger UI at the API *origin* root (`/docs`), NOT under
 // the `/api/v1` prefix the browser uses for data calls. Derive that origin from
 // the same `NEXT_PUBLIC_API_URL` the data client uses so the "API Docs" link
-// resolves correctly in every environment (local ingress host, port-forward,
-// or the production host). A bare relative `/docs` would resolve
-// against the frontend origin, hit the Next.js router, and 404.
+// resolves correctly wherever the API lives. A bare relative `/docs` resolves
+// against the frontend origin: it works only where the edge routes `/docs` to
+// the backend on that host (every committed environment: one host, relative
+// `/api/v1`); a port-forwarded frontend would hit the Next.js router and 404.
 //
-// API_BASE is absolute in every real deployment; the only relative case is the
-// `/api/v1` same-origin fallback, for which `${API_ORIGIN}/docs` becomes `/docs`.
+// With an absolute `NEXT_PUBLIC_API_URL` (a separate API host) the link points at
+// that origin; with the relative `/api/v1` it becomes `/docs` on the page's own host.
 const API_ORIGIN = API_BASE.startsWith('http') ? new URL(API_BASE).origin : '';
 
 const NAV_LINKS = [

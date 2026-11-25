@@ -539,8 +539,8 @@ curl -fsS https://your-service-name.your-domain.example/api/v1/health
 # Frontend via Ingress
 curl -fsS https://your-service-name.your-domain.example/
 
-# Healthz (always returns ok)
-curl -fsS https://your-service-name.your-domain.example/healthz
+# Healthz (always returns ok; the edge routes /api to the backend)
+curl -fsS https://your-service-name.your-domain.example/api/v1/healthz
 ```
 
 ### API Docs

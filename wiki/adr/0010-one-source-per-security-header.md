@@ -34,7 +34,7 @@ layer pins the final header set.
 - Good: tunnel mode leaves HSTS to Cloudflare, where its staged rollout is documented.
 - Bad: `app` sends nothing until the backend sees https, which needs the edge's Pod range in `TRUSTED_PROXY_CIDRS`
   and the WAF off; with the shipped values nothing sends HSTS until the operator chooses a source.
-- Bad: the app host gets HSTS from the backend only through a same-origin API call; an edge source covers every host
+- Bad: the root host gets HSTS from the backend only through a same-origin API call; an edge source covers every host
   directly.
 
 ## Alternatives considered

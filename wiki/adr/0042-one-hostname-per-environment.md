@@ -15,9 +15,9 @@ production, plus three per pull request preview. Each is a DNS record, a tunnel 
 environment is private, a Cloudflare Access application.
 
 The browser needs one. It calls `/api` on the page's own host, and the Next.js server forwards the frontend's
-own calls to the backend by Service name. The backend derives no CORS rule or `ALLOWED_HOSTS` from the hosts,
-and the chart's `ALLOWED_HOSTS` only has to list what the edge sends. The `root` host already served every
-route, so `app` duplicated it.
+own calls to the backend by Service name, so the browser needs nothing from the extra hosts. The backend's own
+defaults read no host to build CORS rules or `ALLOWED_HOSTS`; the chart sets `ALLOWED_HOSTS` from the edge hosts
+and the backend's Service names. The `root` host already served every route, so `app` duplicated it.
 
 The free Cloudflare Universal SSL certificate covers `<zone>` and `*.<zone>`, never a second level such as
 `*.dev.<zone>`, so every host must be one label under the zone. Many services may share one domain.
@@ -27,7 +27,7 @@ The free Cloudflare Universal SSL certificate covers `<zone>` and `*.<zone>`, ne
 `edge.hosts.root` serves the whole app: one origin, so no CORS, host-locked cookies, `connect-src 'self'`, and
 one certificate, one route and one Access application per environment. `edge.hosts.api` is optional: a
 backend-only host, serving the `backend` routes, for clients that are not a browser and need their own rules (a
-rate limit, an Access policy, a service token). Empty, nothing renders for it. there is no `app` host: the
+rate limit, an Access policy, a service token). Empty, nothing renders for it. There is no `app` host: the
 schema refuses it, and refuses a missing or empty `root`.
 
 The naming scheme is `<service>[-<env>].<domain>`, always one label under the zone: the service name in every

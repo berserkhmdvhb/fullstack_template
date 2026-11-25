@@ -405,7 +405,7 @@ edge:
   ingress:
     className: ""           # "" => no ingressClassName, so the cluster's default class applies
     annotations: {}         # controller-specific annotations; none by default
-    tlsSecretName: ""       # set to add a tls block (one secret for all three hosts)
+    tlsSecretName: ""       # set to add a tls block (one secret for root, plus api when set)
   tunnel: {}
   # Who sends Strict-Transport-Security, so it has one source: `app` (the backend, over https
   # only), `edge` (the edge sets it; the chart sets the backend's HSTS_ENABLED=false), or `auto`:
