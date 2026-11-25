@@ -64,9 +64,10 @@ executable, so nothing is extracted until uv has installed the pinned Python. It
   install: mise itself (the bootstrap, checksum-verified), Python and the four uv tools (hash-pinned requirements), and
   two data rows. [ADR-0043](./adr/0043-mise-for-the-developer-toolchain.md) says why.
 - **What writes to your home directory.** `make tools` writes nothing outside the repository. `make develop` (and
-  `make install`) writes uv's download cache, `~/.cache/uv`, and a bare `pnpm` writes its state, `~/.local/state/pnpm`.
-  Both are caches of their own tool, not configuration: nothing in them is read back unchecked (uv checks every
-  package against the hashes in `uv.lock`, pnpm against `pnpm-lock.yaml`), and deleting them only costs a download.
+  `make install`) writes uv's download cache, `~/.cache/uv`; a bare `pnpm` writes its state, `~/.local/state/pnpm`; and
+  `make test`, whose chart tests run helm, writes Helm's compiled-plugin cache, `~/.cache/helm`. Each is its own tool's
+  cache or state, not configuration: uv checks every package against the hashes in `uv.lock` and pnpm against
+  `pnpm-lock.yaml`, nothing is read back as a setting, and deleting them only costs a download or a rebuild.
 - **Run mise through `scripts/tools.sh mise ...`**, for example `scripts/tools.sh mise ls` or
   `scripts/tools.sh mise doctor`. It runs the pinned mise with this repository's directories under `.tools/`, ignores
   your own mise configuration and any `MISE_*` or GitHub token in your environment. The bare `.tools/bin/mise` would
