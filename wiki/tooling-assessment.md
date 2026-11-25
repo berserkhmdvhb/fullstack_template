@@ -12,7 +12,8 @@
 > the existing exemption flag), the distroless base images' signatures are never verified, and the secrets docs
 > contradict each other (with one dead install URL). Three swaps are the
 > maintainers' decision: pnpm for npm, External Secrets with Secret Manager as the production default, and prek for
-> pre-commit. The recommendation is to take the second and hold the other two.
+> the git hooks. The recommendation was to take the second and hold the other two; the maintainers chose prek too
+> ([ADR-0044](./adr/0044-prek-for-git-hooks.md)).
 
 ## 0. How each layer is judged
 
@@ -240,24 +241,26 @@ are plain shell calls into scripts that CI runs too. A switch would rewrite thos
 habits for no gain in security or reproducibility. A maintainer who wants nicer syntax should weigh it against that
 cost. It is not recommended.
 
-## 7. Git hooks: pre-commit
+## 7. Git hooks: prek
 
-**Today.** pre-commit (first released 2014; its pin is a row in [`tools/pins.tsv`](../tools/pins.tsv)), installed
-into its own venv from hash-pinned requirements. Every hook in
-[`.pre-commit-config.yaml`](../.pre-commit-config.yaml) is `repo: local` with `language: system`: each calls the tool CI uses, nothing is fetched, and nothing needs
-the network.
+**Today.** prek 0.5.11 (released 2026-11-16), a single binary that mise locks from [`mise.toml`](../mise.toml) with a
+sha256 per platform and a GitHub attestation ([ADR-0044](./adr/0044-prek-for-git-hooks.md)). It reads
+[`.pre-commit-config.yaml`](../.pre-commit-config.yaml), where every hook is `repo: local` with `language: system`:
+each calls the tool CI uses, nothing is fetched, and nothing needs the network. Before the switch the runner was
+pre-commit (first released 2014), installed into its own venv from hash-pinned requirements.
 
 **Alternatives.**
 
-- prek 0.5.11 (2026-11-16; first PyPI release 2025-08-08). Its README: "Fully compatible with the original pre-commit
-  configurations and hooks", "A single binary with no dependencies, does not require Python". The aqua registry has
-  a recipe, so mise could lock it.
+- pre-commit, the previous runner, first released 2014: the reference implementation, Python.
 - hk v2.14.0 (2026-11-23), configured in Pkl.
 - lefthook v2.2.3 (2026-11-24), YAML. Both would need a new config file.
 
-**Verdict: keep; a swap to prek is the maintainers' decision** (section 11). Because every hook is local and runs a
-system command, the gains prek is built for (speed and disk when pre-commit builds per-hook environments, no Python)
-barely apply here. prek is not yet 1.0.
+**Verdict: prek (the maintainers' decision, 2026-11-25).** Its README: "Fully compatible with the original pre-commit
+configurations and hooks", "A single binary with no dependencies, does not require Python". The aqua registry has a
+recipe with a checksum file and an attestation, so mise locks and verifies it like the other tools. The gains prek is
+built for (speed and disk when hooks build their own environments) barely apply to local system hooks; what decided it
+is one verified binary and no Python venv for the runner. prek is not yet 1.0: a bump is checked by running the hooks
+on a clean and a broken tree.
 
 ## 8. Dependency updates: Renovate (Dependabot for security only)
 
@@ -330,7 +333,7 @@ out of mise. Noted only; not assessed.
 | Secrets | three exclusive sources; production uses `existingSecret` | keep; adopt now: consistent docs and the moved Sealed Secrets URL; ESO as production default: maintainers' decision | The shape is right; the docs disagree and one install URL is dead |
 | Deploy settings | GitHub environments, variables, OIDC Workload Identity | keep | Per-environment rules and no stored cloud key |
 | Task runner | make | keep | Preinstalled, plain, and a switch would touch every file that names a target, for no security gain |
-| Git hooks | pre-commit, local system hooks | keep; prek: maintainers' decision | Local hooks leave prek little to improve; prek is pre-1.0 |
+| Git hooks | prek, local system hooks | prek (maintainers' decision, [ADR-0044](./adr/0044-prek-for-git-hooks.md)) | One locked, attested binary and no Python venv; prek is pre-1.0 |
 | Dependency updates | Renovate; Dependabot for security only | keep | The only updater that covers mise, the pin files and the values digests |
 | Base images | distroless and Debian by digest, Renovate, `debian-fixes` | keep; verify the distroless signatures (done) | The vendor signs them and asks users to verify; the template does not |
 | Scanners' installer | `infra/security/tools-install.sh` | frozen; noted | Out of scope |
@@ -374,13 +377,9 @@ out of mise. Noted only; not assessed.
      wiki pages).
 
    Revisit when a Node LTS bundles npm 12 (scripts blocked by default) or if npm stays without a trust-downgrade check.
-3. **prek instead of pre-commit.** Not recommended before prek 1.0. Cost:
-   - the `pre-commit` row and its requirements file move to a `mise.toml` entry;
-   - the `precommit` target, `scripts/ci/hook-run.sh` messages, and every tracked file that names pre-commit
-     (measured on the assessment date: 29, among them AGENTS.md, CONTRIBUTING.md, the quality-gates skill and the pin
-     tests).
-
-   `.pre-commit-config.yaml` stays as it is. The switch is cheap whenever it is wanted.
+3. **prek instead of the previous runner: done** ([ADR-0044](./adr/0044-prek-for-git-hooks.md)). The row and its requirements
+   moved to a `mise.toml` entry, the `precommit` target runs prek, and the docs say `prek install`;
+   `.pre-commit-config.yaml` stays as it is.
 
 ## 12. Sources
 

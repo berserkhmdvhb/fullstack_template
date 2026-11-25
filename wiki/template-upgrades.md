@@ -89,7 +89,7 @@ them, so a template change to one of those lines conflicts, and a new file arriv
 - **Check the placeholder package is gone:** `src/your_service_name/` must not exist after the rename. While it exists
   the next check takes the repository for the template and passes without checking anything, which is exactly what a
   skipped rename leaves.
-- **Check that nothing is left:** `pre-commit run placeholder-leftovers --all-files` runs
+- **Check that nothing is left:** `.tools/bin/prek run placeholder-leftovers --all-files` runs
   `scripts/ci/check-placeholder-leftovers.sh`, which fails while any file outside `infra/adapt/excludes.txt` still names
   the placeholder.
 

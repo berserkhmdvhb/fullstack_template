@@ -18,7 +18,7 @@ What mise does not do is resolve application dependencies. The backend's package
 
 ## Decision
 
-mise owns the developer toolchain: the command-line tools, the Node runtime and uv, and the shell's PATH for local work. uv and npm keep the application's packages. Helm values and the GitHub environments keep the cluster and deploy configuration. `make` stays the front door and `pre-commit` the git-hook runner.
+mise owns the developer toolchain: the command-line tools, the Node runtime and uv, and the shell's PATH for local work. uv and npm keep the application's packages. Helm values and the GitHub environments keep the cluster and deploy configuration. `make` stays the front door and `prek` is the git-hook runner ([ADR-0044](./0044-prek-for-git-hooks.md)).
 
 **The bootstrap.** The first row of `tools/pins.tsv` is mise itself. `scripts/tools.sh` installs it first, through the verified path every other row uses: the download is the release's bare executable, checked against the row's sha256 before it is linked, and a changed byte installs nothing. The sha256 is the one in the release's `SHASUMS256.txt` (the GitHub release-asset digest of the same file agrees). The release also ships `SHASUMS256.txt.minisig` (minisign) and `SHASUMS256.asc` (OpenPGP). Neither is checked: both need a minisign or gpg binary, and the toolchain has neither until it has installed something. Adding a verifier and a committed key is a separate change; the sha256 in the row is reviewed in the diff and `make pins-refresh --check` fetches the vendor's file again. The row also covers macOS (`darwin-arm64`); the tools in `mise.lock` are locked for both platforms.
 
@@ -70,12 +70,13 @@ Where a column says "alias", the tool name is a `[tool_alias]` of the same backe
 | `bats` | `aqua:bats-core/bats-core` | Checksum: the same GitHub tag archive as today, hashed when locked; no vendor checksum exists, as today. |
 | `shellcheck` | `aqua:koalaman/shellcheck` | Checksum (digest); no vendor file, as today. The asset is the `.tar.xz`. |
 | `lychee` | `aqua:lycheeverse/lychee` | Checksum (digest, equal to the `.sha256` beside the asset). |
+| `prek` | `aqua:j178/prek` | Checksum (equal to the `.sha256` beside each asset), GitHub attestation. |
 | `node` | `core:node` | Checksum from nodejs.org's `SHASUMS256.txt` (equal to the vendor's file); the asset is the `.tar.gz`. |
 | `python` | stays | See the Python runtime, below. |
-| `schemathesis`, `pre-commit`, `yamale`, `yamllint`, `pip-audit` | stay | Python tools in per-tool virtual environments from hash-pinned requirements; mise's `pipx` backend does not hash-pin transitive dependencies. |
+| `schemathesis`, `yamale`, `yamllint`, `pip-audit` | stay | Python tools in per-tool virtual environments from hash-pinned requirements; mise's `pipx` backend does not hash-pin transitive dependencies. |
 | `k8s-openapi`, `kyverno-chart` | stay | Data, not tools. |
 
-That is 32 rows: 23 move (18 `aqua`, 4 `github`, 1 `core`), 9 stay. Of the 23, five carry a GitHub attestation, three a cosign signature and fifteen a checksum only. No tool is verified less than today, so no tool stays for that reason.
+That is 32 rows: 24 move (19 `aqua`, 4 `github`, 1 `core`), 8 stay. Of the 24, six carry a GitHub attestation, three a cosign signature and fifteen a checksum only. No tool is verified less than today, so no tool stays for that reason.
 
 **Extra effects for the next steps.**
 
@@ -114,7 +115,7 @@ So `..` and absolute names are covered by mise, and an out-of-tree symlink and a
 - Good: a Renovate bump changes `mise.toml` and `mise.lock` together, and the checksum comes from `mise lock`, not by hand; macOS is a second platform in the same lock, not a second copy of every row.
 - Good: more tools than today are verified by more than a checksum: GitHub attestations and cosign signatures where a vendor publishes them.
 - Good: a locked install needs no GitHub API call, so no token and no rate limit in CI.
-- Bad: two places describe the toolchain: `mise.toml` and `mise.lock` for the tools mise installs, `tools/pins.tsv` for the rows it does not (mise itself, Python and five Python tools, two data files).
+- Bad: two places describe the toolchain: `mise.toml` and `mise.lock` for the tools mise installs, `tools/pins.tsv` for the rows it does not (mise itself, Python and four Python tools, two data files).
 - Bad: a 61 MB archive (about 180 MB unpacked) joins the download, and a mise settings or backend change is a new thing to review in each mise release.
 - Bad: the extraction guard is ours, not mise's, so it is one more check to keep; the next change adds it with a test that plants each bad archive.
 - Bad: the minisign and OpenPGP signatures over the mise release's checksum file are not checked yet.

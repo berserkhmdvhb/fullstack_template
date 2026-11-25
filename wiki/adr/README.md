@@ -59,6 +59,7 @@ The threat model, which several of these decisions serve, is in [Threat model](.
 | [0041](./0041-documentation-site.md) | A curated documentation site, built with Starlight and published to GitHub Pages | Accepted | `docs-site/`: curated pages, the walkthroughs loaded from their files, a strict build, Pages from `main`. |
 | [0042](./0042-one-hostname-per-environment.md) | One hostname per environment | Accepted | `edge.hosts.root` serves the whole app (`<service>[-<env>].<domain>`); `edge.hosts.api` is an optional backend-only host; there is no `app` host. |
 | [0043](./0043-mise-for-the-developer-toolchain.md) | mise for the developer toolchain | Accepted | mise owns the CLI tools, Node and uv from `mise.toml` and a committed `mise.lock`; `scripts/tools.sh` installs the pinned mise first, repo-local and hermetic; uv and npm keep the app's packages. |
+| [0044](./0044-prek-for-git-hooks.md) | prek for the git hooks | Accepted | prek, a single binary read from `mise.toml` and `mise.lock`, runs the hooks of `.pre-commit-config.yaml` (all local); the old runner's row and requirements are gone. prek is pre-1.0. |
 
 A status is **Accepted** (in force; a note may follow, such as "not yet implemented"), **Deferred** (considered and
 postponed, with the conditions to revisit) or **Superseded** (replaced; it names the ADR that replaced it).

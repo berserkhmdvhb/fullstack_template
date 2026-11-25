@@ -18,7 +18,7 @@ tool spreads that across three tools and several files.
 
 uv, at the version `mise.toml` pins (checksum-verified in `mise.lock`), is the one Python tool. `pyproject.toml` declares the
 dependencies and the dev group; `uv.lock` pins every package with hashes; CI and the image install exactly the lock
-(`uv sync --locked`, `uv sync --frozen`), and a stale lock fails (`make lock-check`, in CI and pre-commit).
+(`uv sync --locked`, `uv sync --frozen`), and a stale lock fails (`make lock-check`, in CI and the git hook).
 `[tool.uv] exclude-newer = "7 days"` keeps any release younger than seven days out of a resolve, the same rule
 Renovate follows ([ADR-0025](./0025-renovate-for-updates.md)). A hashed `requirements.txt` is exported on demand for
 tools that need one, and not tracked.

@@ -1,6 +1,6 @@
 ---
 name: quality-gates
-description: Run this service template's full code-quality gates before any commit, push, or pull request - backend ruff (format + lint), mypy type-check, and pytest unit/integration/e2e/live; frontend prettier, ESLint, TypeScript type-check (tsc), and Vitest. Trigger this skill whenever a change is made to the backend (src/, tests/) or frontend (frontend/) and it must be verified clean, or the user says "check / lint / test / format / type-check my code", "run the gates / quality checks / pre-commit checks", "make sure the tests pass", "does this pass ruff/mypy", or "before I commit / open a PR / push" - even when they name no specific tool or file. Do NOT trigger for writing new tests, debugging a crashing process, fixing a single lint error, answering ruff/mypy/config questions, viewing coverage, or setting up a venv / installing deps. Covers both backend and frontend; a green backend does not excuse a skipped frontend.
+description: Run this service template's full code-quality gates before any commit, push, or pull request - backend ruff (format + lint), mypy type-check, and pytest unit/integration/e2e/live; frontend prettier, ESLint, TypeScript type-check (tsc), and Vitest. Trigger this skill whenever a change is made to the backend (src/, tests/) or frontend (frontend/) and it must be verified clean, or the user says "check / lint / test / format / type-check my code", "run the gates / quality checks / commit checks", "make sure the tests pass", "does this pass ruff/mypy", or "before I commit / open a PR / push" - even when they name no specific tool or file. Do NOT trigger for writing new tests, debugging a crashing process, fixing a single lint error, answering ruff/mypy/config questions, viewing coverage, or setting up a venv / installing deps. Covers both backend and frontend; a green backend does not excuse a skipped frontend.
 compatibility: bash, make, ruff, mypy, pytest, npm, tsc, vitest; GitHub Actions (`.github/workflows/reusable-backend.yml`, `reusable-frontend.yml`, `reusable-live.yml`).
 ---
 
@@ -52,7 +52,7 @@ files) instead of `make check-all-dry`.
 
 Notes:
 - `make check-all-dry` bundles drift-check + format-check + lint + mypy + env-docs-check (read-only, safe for
-  pre-commit). `make check-all` is the same but rewrites files (formats, fixes lint, regenerates env-docs).
+  a git hook). `make check-all` is the same but rewrites files (formats, fixes lint, regenerates env-docs).
 - `mypy` runs with no path args because `pyproject.toml` sets `files = ["src", "tests"]` under
   `[tool.mypy]` (strict; `mypy_path = "src"`), so the config drives the scope — no path args needed.
 - `make test` (no suffix) runs **unit + integration + e2e** (hermetic: not live, not contract) — it is

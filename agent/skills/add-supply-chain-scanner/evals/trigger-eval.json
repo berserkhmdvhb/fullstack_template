@@ -18,5 +18,5 @@
   {"query": "add a generic CI job that runs our pytest suite on every PR", "should_trigger": false},
   {"query": "the osv-scanner security job started failing this morning, figure out why the pipeline broke", "should_trigger": false},
   {"query": "create a new service project from your-service-name and point it at our registry", "should_trigger": false},
-  {"query": "add gitleaks as a pre-commit hook so secrets are caught before i push", "should_trigger": false}
+  {"query": "add gitleaks as a git hook so secrets are caught before i push", "should_trigger": false}
 ]

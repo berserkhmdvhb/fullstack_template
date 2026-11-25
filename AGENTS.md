@@ -12,9 +12,9 @@ service built from it**, not just this checkout. See [`CONVENTIONS.md`](./CONVEN
 ## Commands (the ones you can't guess)
 
 ```bash
-make check-all-dry        # pre-commit gate: drift + ruff format --check + ruff check + mypy + env-docs (read-only)
+make check-all-dry        # commit gate: drift + ruff format --check + ruff check + mypy + env-docs (read-only)
 make check-all            # same, but rewrites files (formats, fixes lint, regenerates env-docs)
-make precommit            # every pre-commit hook on all files (install the git hook once: .tools/bin/pre-commit install)
+make precommit            # every git hook on all files, run by prek (install the git hook once: scripts/tools.sh install prek, then .tools/bin/prek install)
 make test                 # backend unit + integration + e2e (hermetic; excludes live)
 make test-unit            # backend unit only
 make test-integration / test-e2e / test-contract / test-live

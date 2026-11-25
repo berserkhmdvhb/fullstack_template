@@ -56,7 +56,7 @@ flowchart TB
 | `make ruff-lint` | Run linter (never rewrites files) |
 | `make ruff-lint-fix` | Auto-fix lint errors (`make check-all` runs it) |
 
-The scope is `RUFF_PATHS` in the [Makefile](../Makefile). CI, `make check-all-dry` and the pre-commit hooks never fix; only `make check-all` does.
+The scope is `RUFF_PATHS` in the [Makefile](../Makefile). CI, `make check-all-dry` and the git hooks never fix; only `make check-all` does.
 
 **Configuration**: `[tool.ruff]` and `[tool.ruff.lint]` in [`pyproject.toml`](../pyproject.toml) hold the line length,
 the target version, the selected rules, the ignore list and the per-file ignores.
@@ -194,7 +194,7 @@ the tests and the OpenAPI drift check. All of them are **blocking**, behind `CI 
 
 ### General
 
-1. **Pre-commit hooks** — Run formatters and linters before committing
+1. **Git hooks (prek)** — Run formatters and linters before committing
 2. **Small commits** — Each commit should pass all checks independently
 3. **Review CI** — Check pipeline results before merging
 4. **Validate the chart** — Run `helm lint` + `helm template` before committing chart/`values.*` changes

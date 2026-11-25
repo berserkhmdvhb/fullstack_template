@@ -59,7 +59,7 @@ executable, so nothing is extracted until uv has installed the pinned Python. It
   [`mise.lock`](../mise.lock) holds, for each, the exact download url and its sha256 for both platforms, and a signature or attestation where the vendor publishes one. Installs run `mise install --locked`, so a
   changed byte in a download or in the lock refuses the install and links nothing; every installed tree is then
   checked for links out of it and setuid files. [`tools/pins.tsv`](../tools/pins.tsv) keeps what mise does not
-  install: mise itself (the bootstrap, checksum-verified), Python and the five uv tools (hash-pinned requirements), and
+  install: mise itself (the bootstrap, checksum-verified), Python and the four uv tools (hash-pinned requirements), and
   two data rows. [ADR-0043](./adr/0043-mise-for-the-developer-toolchain.md) says why.
 - **Run mise through `scripts/tools.sh mise ...`**, for example `scripts/tools.sh mise ls` or
   `scripts/tools.sh mise doctor`. It runs the pinned mise with this repository's directories under `.tools/`, ignores
@@ -116,11 +116,11 @@ cd <YOUR_REPO_DIR>
 cp .env.example .env
 ```
 
-Install the pre-commit hook once (`make precommit` runs every hook on all files):
+Install the git hook once (`make precommit` runs every hook on all files):
 
 ```bash
-scripts/tools.sh install pre-commit
-.tools/bin/pre-commit install
+scripts/tools.sh install prek
+.tools/bin/prek install
 ```
 
 ---
@@ -226,7 +226,7 @@ the `pyproject.toml` change:
 | Task | Command |
 |---|---|
 | Re-resolve after editing `pyproject.toml` | `make lock` (`uv lock`) |
-| Fail if the lock is stale | `make lock-check` (`uv lock --check`; CI and pre-commit run it) |
+| Fail if the lock is stale | `make lock-check` (`uv lock --check`; CI and the git hook run it) |
 | Install exactly the lock | `make develop` (`uv sync --locked`) |
 | Upgrade one package | `uv lock --upgrade-package <name>` |
 | Upgrade the dev tools | `make dev-tools-upgrade` |

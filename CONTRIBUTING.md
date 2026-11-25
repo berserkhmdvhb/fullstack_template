@@ -83,7 +83,7 @@ cd frontend && npm ci --ignore-scripts && npm run dev # frontend at :3000 (no in
 # backend:  ./run_backend.sh  (migrates, then serves the API at :8000)
 ```
 
-The toolchain (what `make tools` installs, how it is updated and run): [`wiki/getting-started.md`](wiki/getting-started.md#the-developer-toolchain). Install the git hook once with `scripts/tools.sh install pre-commit` and then `.tools/bin/pre-commit install`; `make precommit` runs every hook on all files. The hooks call the same tools CI does (see `.pre-commit-config.yaml`) and name the install command for any that is missing.
+The toolchain (what `make tools` installs, how it is updated and run): [`wiki/getting-started.md`](wiki/getting-started.md#the-developer-toolchain). Install the git hook once with `scripts/tools.sh install prek` and then `.tools/bin/prek install` (it replaces a hook the old runner installed); `make precommit` runs every hook on all files with prek. The hooks call the same tools CI does (see `.pre-commit-config.yaml`) and name the install command for any that is missing.
 
 Python ≥ 3.12, the Node version in `frontend/.nvmrc`. Without a `DATABASE_URL` the backend falls back to SQLite, so it comes up
 green with zero infra.
@@ -178,7 +178,7 @@ Run these before every commit / PR. The exact commands (verified against this re
 
 | Gate | Command | CI job |
 |---|---|---|
-| Pre-commit (dry, read-only) | `make check-all-dry` | — (local only) |
+| Commit gate (dry, read-only) | `make check-all-dry` | — (local only) |
 | Git hooks (all files) | `make precommit` | `ci` / `hadolint`, `repo`, `workflows` run the same tools |
 | Format (ruff) | `make ruff-format-check` | `reusable-backend` / `lint` |
 | Lint (ruff) | `make ruff-lint` | `reusable-backend` / `lint` |
@@ -191,7 +191,7 @@ Run these before every commit / PR. The exact commands (verified against this re
 | Shell lint | `make shellcheck` | `ci` / `repo` |
 | Doc links (offline) | `make docs-links` | `ci` / `repo` |
 
-`make check-all-dry` is the pre-commit gate (read-only, with the env-docs check); `make check-all` is the same but
+`make check-all-dry` is the commit gate (read-only, with the env-docs check); `make check-all` is the same but
 rewrites files (formats, fixes lint, regenerates the env-docs block). `mypy` runs with no path args (config-driven). Full table + raw commands + marker
 model: [`wiki/code-quality.md`](wiki/code-quality.md).
 
