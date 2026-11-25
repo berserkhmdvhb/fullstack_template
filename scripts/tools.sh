@@ -36,6 +36,7 @@ for _v in $(compgen -e | grep '^MISE_' || true); do unset "$_v"; done
 export MISE_DATA_DIR="$TOOLS_DIR/mise/data" MISE_CACHE_DIR="$TOOLS_DIR/mise/cache" MISE_STATE_DIR="$TOOLS_DIR/mise/state"
 export MISE_CONFIG_DIR="$TOOLS_DIR/mise/config" MISE_TMP_DIR="$TOOLS_DIR/mise/tmp" MISE_SYSTEM_DATA_DIR="$TOOLS_DIR/mise/system"
 export MISE_SYSTEM_CONFIG_DIR="$TOOLS_DIR/mise/system-config"
+INSTALLS="$MISE_DATA_DIR/installs" DOWNLOADS="$MISE_DATA_DIR/downloads"
 # Global and system config are single files that are never created; mise.toml in the repository is the only config.
 export MISE_GLOBAL_CONFIG_FILE="$TOOLS_DIR/mise/no-global.toml" MISE_SYSTEM_CONFIG_FILE="$TOOLS_DIR/mise/no-system.toml"
 ABOVE_ROOT="$(dirname "$ROOT")"
@@ -113,9 +114,34 @@ mise_version() { # tool key -> its version in mise.toml [tools]
 
 mise_run() { (cd "$ROOT" && "$TOOLS_DIR/bin/mise" "$@"); }
 
+# mise.lock's tables for a tool (core:node is locked as node, any other name by its quoted key), then the
+# tool's lines in mise.toml: together they say what is installed and how, so a change in either must reinstall.
+lock_entry() { # tool key
+  local k="${1#core:}"
+  [[ "$k" == *:* ]] && k="\"$k\""
+  awk -v k="$k" '/^\[/ { on = (index($0, "[[tools." k "]]") == 1 || index($0, "[tools." k ".") == 1) } on' "$ROOT/mise.lock"
+}
+config_entry() { # tool key
+  awk -v k="$1" '/^\[/ { t = ($0 == "[tools]" || $0 == "[tool_alias]"); next }
+    t && !/^#/ && /=/ { key=$0; sub(/ *=.*/, "", key); gsub(/"/, "", key); if (key == k) print }' "$ROOT/mise.toml"
+}
+stamp_of() { { lock_entry "$1"; config_entry "$1"; } | sha256sum | cut -d' ' -f1; }
+
+# Unlink a mise tool and remove its install (and the download mise kept), inside mise's own directories only.
+unlink_and_remove() { # name key exes install-dir
+  local name="$1" exes="$3" dir="$4" pair slug
+  for pair in $exes; do rm -f "$TOOLS_DIR/bin/${pair##*:}"; done
+  [[ "$exes" != "-" ]] || rm -f "$TOOLS_DIR/helm-plugins/$name"
+  rm -f "$TOOLS_DIR/mise/stamps/$name"
+  slug="${dir#"$INSTALLS"/}"
+  "$(safe_python)" -I "$ROOT/scripts/safe_extract.py" --remove "$INSTALLS" "$dir" || die "$name: could not remove its install"
+  "$(safe_python)" -I "$ROOT/scripts/safe_extract.py" --remove "$DOWNLOADS" "$DOWNLOADS/$slug" || die "$name: could not remove its download"
+}
+
 # Install the named tools with the pinned mise, locked; check each installed tree; only then link anything.
+# A tool whose lock entry or mise.toml entry differs from the one it was installed with is removed first.
 install_mise_tools() { # names...
-  local name key exes pair exe link bp found keys=() dirs=()
+  local name key exes pair exe link bp found dir keys=() dirs=()
   for name in "$@"; do
     read -r key exes <<<"$(mise_spec "$name")"
     keys+=("$key")
@@ -127,26 +153,39 @@ install_mise_tools() { # names...
     return
   fi
   [[ -x "$TOOLS_DIR/bin/mise" ]] || die "mise is not installed; run: scripts/tools.sh install mise"
-  mise_run install --locked "${keys[@]}" || die "mise install failed; nothing was linked"
-  for key in "${keys[@]}"; do dirs+=("$(mise_run where "$key")"); done
   NAME=mise-tools
-  "$(safe_python)" -I "$ROOT/scripts/safe_extract.py" --check "${dirs[@]}" || die "an installed tool failed the tree check; nothing was linked"
-  mkdir -p "$TOOLS_DIR/bin"
+  for name in "$@"; do
+    read -r key exes <<<"$(mise_spec "$name")"
+    dir="$(mise_run where "$key" 2>/dev/null || true)"
+    [[ -n "$dir" && -d "$dir" ]] || continue
+    [[ "$(cat "$TOOLS_DIR/mise/stamps/$name" 2>/dev/null || true)" != "$(stamp_of "$key")" ]] || continue
+    echo "==> $name: its lock entry or mise.toml entry changed, reinstalling"
+    unlink_and_remove "$name" "$key" "$exes" "$dir"
+  done
+  mise_run install --locked "${keys[@]}" || die "mise install failed; nothing was linked"
+  for key in "${keys[@]}"; do
+    dir="$(mise_run where "$key")" || die "mise where $key failed; nothing was linked"
+    [[ -n "$dir" ]] || die "mise where $key printed no directory; nothing was linked"
+    dirs+=("$dir")
+  done
+  "$(safe_python)" -I "$ROOT/scripts/safe_extract.py" --check "$INSTALLS" "${dirs[@]}" || die "an installed tool failed the tree check; nothing was linked"
+  mkdir -p "$TOOLS_DIR/bin" "$TOOLS_DIR/mise/stamps"
   for name in "$@"; do
     read -r key exes <<<"$(mise_spec "$name")"
     if [[ "$exes" == "-" ]]; then
       mkdir -p "$TOOLS_DIR/helm-plugins"
       ln -sfn "$(mise_run where "$key")" "$TOOLS_DIR/helm-plugins/$name"
-      continue
-    fi
-    for pair in $exes; do
-      exe="${pair%%:*}"; link="${pair##*:}"; found=""
-      for bp in $(mise_run bin-paths "$key"); do
-        [[ -x "$bp/$exe" ]] && { found="$bp/$exe"; break; }
+    else
+      for pair in $exes; do
+        exe="${pair%%:*}"; link="${pair##*:}"; found=""
+        for bp in $(mise_run bin-paths "$key"); do
+          [[ -x "$bp/$exe" ]] && { found="$bp/$exe"; break; }
+        done
+        [[ -n "$found" ]] || die "$name: '$exe' not found in what mise installed"
+        ln -sfn "$found" "$TOOLS_DIR/bin/$link"
       done
-      [[ -n "$found" ]] || die "$name: '$exe' not found in what mise installed"
-      ln -sfn "$found" "$TOOLS_DIR/bin/$link"
-    done
+    fi
+    stamp_of "$key" > "$TOOLS_DIR/mise/stamps/$name"
   done
 }
 

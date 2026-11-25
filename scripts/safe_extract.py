@@ -5,8 +5,11 @@ Uses tarfile's "data" filter (PEP 706), which refuses absolute names, ".." escap
 hardlinks pointing outside dest, and device or special files, and strips setuid/setgid bits.
 After extraction it re-checks, as a second layer, that every symlink resolves inside dest and that
 no regular file shares an inode with a path outside dest.
-`safe_extract.py --check <tree>...` runs the same tree check (and refuses setuid and setgid files)
-over trees that something else extracted (the tools mise installed); a failing tree is removed.
+`safe_extract.py --check <installs> <tree>...` runs the same tree check (and refuses setuid and
+setgid files) over trees that something else extracted (the tools mise installed); a failing
+tree is removed. `--remove <installs> <tree>...` removes trees. Both touch only a <tool>/<version>
+directory strictly inside <installs> (an absolute path, never / or a directory holding $HOME) and
+refuse every other path before doing anything.
 Exits non-zero on any problem. Needs Python 3.12 or newer (tools.sh picks the interpreter).
 """
 
@@ -51,22 +54,77 @@ def check_tree(dest: Path) -> None:
             raise UnsafeTreeError(msg)
 
 
-def check_installed(trees: list[str]) -> int:
-    """Check each tree; remove the ones that fail. 1 if any failed."""
-    failed = 0
+MIN_DEPTH = 2  # <tool>/<version> below the installs directory
+
+
+class RefusedPathError(Exception):
+    """A path the bounded modes will not touch."""
+
+
+def bounded(installs: str, trees: list[str], *, must_exist: bool) -> list[Path]:
+    """The trees as real paths, each at least <tool>/<version> deep inside the installs directory.
+
+    Refuses an empty or relative path, a `..` component, a link, the filesystem root, $HOME or a
+    directory that holds it, and anything that is not strictly inside the installs directory, so a
+    wrong argument can never make the removal reach the working tree or the home directory."""
+    if not installs or not Path(installs).is_absolute():
+        msg = f"the installs directory {installs!r} is not an absolute path"
+        raise RefusedPathError(msg)
+    root = os.path.realpath(installs)
+    home = os.path.realpath(os.environ["HOME"]) if os.environ.get("HOME") else ""
+    if root == os.sep or (home and (home == root or home.startswith(root + os.sep))):
+        msg = f"the installs directory {installs!r} is the filesystem root or holds $HOME"
+        raise RefusedPathError(msg)
+    if not Path(root).is_dir():
+        msg = f"the installs directory {installs!r} does not exist"
+        raise RefusedPathError(msg)
+    real: list[Path] = []
     for tree in trees:
+        if (
+            not tree
+            or not Path(tree).is_absolute()
+            or ".." in Path(tree).parts
+            or Path(tree).is_symlink()
+        ):
+            msg = f"{tree!r} is not an absolute path to a directory, or is a link"
+            raise RefusedPathError(msg)
+        resolved = os.path.realpath(tree)
+        parts = Path(resolved).relative_to(root).parts if resolved.startswith(root + os.sep) else ()
+        if len(parts) < MIN_DEPTH:
+            msg = f"{tree!r} is not a tool tree inside {installs!r}"
+            raise RefusedPathError(msg)
+        if must_exist and not Path(resolved).is_dir():
+            msg = f"{tree!r} is not a directory"
+            raise RefusedPathError(msg)
+        real.append(Path(resolved))
+    return real
+
+
+def check_installed(installs: str, trees: list[str], *, remove_only: bool = False) -> int:
+    """Check each tree and remove the ones that fail (--remove: remove them all). 1 on a refusal
+    or a failed tree."""
+    try:
+        paths = bounded(installs, trees, must_exist=not remove_only)
+    except RefusedPathError as exc:
+        sys.stderr.write(f"safe_extract: refusing: {exc}\n")
+        return 1
+    failed = 0
+    for path in paths:
         try:
-            check_tree(Path(tree))
+            if not remove_only:
+                check_tree(path)
+            else:
+                shutil.rmtree(path, ignore_errors=True)
         except (OSError, UnsafeTreeError) as exc:
-            sys.stderr.write(f"safe_extract: refusing {tree}: {exc}; removing it\n")
-            shutil.rmtree(tree, ignore_errors=True)
+            sys.stderr.write(f"safe_extract: refusing {path}: {exc}; removing it\n")
+            shutil.rmtree(path, ignore_errors=True)
             failed = 1
     return failed
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) > 1 and argv[1] == "--check":
-        return check_installed(argv[2:])
+    if len(argv) > 2 and argv[1] in {"--check", "--remove"}:  # noqa: PLR2004
+        return check_installed(argv[2], argv[3:], remove_only=argv[1] == "--remove")
     if len(argv) != ARGC:
         sys.stderr.write("usage: safe_extract.py <archive> <dest>\n")
         return 2

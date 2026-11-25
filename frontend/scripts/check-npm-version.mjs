@@ -1,5 +1,5 @@
 // Fails when the npm that runs differs from the `packageManager` field of package.json, so CI and the image
-// builds run the npm the repository names (the one bundled with the pinned Node, see tools/pins.tsv).
+// builds run the npm the repository names (the one bundled with the pinned Node, see mise.toml).
 // Run from the frontend directory: node scripts/check-npm-version.mjs
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';

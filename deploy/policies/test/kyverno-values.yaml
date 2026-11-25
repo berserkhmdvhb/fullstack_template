@@ -2,7 +2,7 @@
 # the chart pinned in tools/pins.tsv (kyverno-chart). Test only: never a production install.
 # The images come from ghcr.io, the origin registry, because reg.kyverno.io is only a front for it.
 # Only the admission controller runs; the image tags are the pinned Kyverno CLI's version
-# (tools/pins.tsv, kyverno) and each is pinned by digest. Renovate reads each `# renovate: image=`
+# (mise.toml, kyverno) and each is pinned by digest. Renovate reads each `# renovate: image=`
 # line and moves the tag and digest below it, with the CLI and chart pins in one pull request;
 # tests/k8s/test_admission.py checks the running controller's version.
 admissionController:

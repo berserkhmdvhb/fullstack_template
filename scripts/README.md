@@ -11,7 +11,7 @@ same conventions so they compose into a predictable workflow.
 >
 > The CI helpers in `scripts/ci/` are documented with the jobs that run them
 > ([CI/CD](../wiki/ci-cd.md)); the toolchain scripts (`tools.sh`, `pins-refresh.sh`)
-> with the pins ([Getting started](../wiki/getting-started.md), `tools/pins.tsv`).
+> with the pins ([Getting started](../wiki/getting-started.md), `mise.toml`, `tools/pins.tsv`).
 
 ---
 

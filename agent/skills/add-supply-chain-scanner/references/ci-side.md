@@ -69,7 +69,7 @@ blocks through `CI OK`. List it in `wiki/ci-cd.md` as blocking. Set
 ## Runtime and images
 
 There is no scanner image map. The jobs run on `ubuntu-24.04` runners and install
-what they need: tools through `scripts/tools.sh` (`tools/pins.tsv`) or
+what they need: tools through `scripts/tools.sh` (`mise.toml`, `tools/pins.tsv`) or
 `infra/security/tools-install.sh` (`infra/security/config.yaml`), OS packages
 through `apt-get`. `.github/container-images.yml` is a different thing: the map of
 the application's own buildable images, read by `release.yml`.

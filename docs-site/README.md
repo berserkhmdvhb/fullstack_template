@@ -60,7 +60,7 @@ count or a command that lives elsewhere ([`tests/test_adr_index.py`](../tests/te
 [`docs-site.yml`](../.github/workflows/docs-site.yml) publishes `dist/` to GitHub Pages from `main`
 ([CI/CD](../wiki/ci-cd.md#documentation-site)). The build is plain static files, so **Cloudflare Pages** can host the
 same output instead: build command `npm ci --ignore-scripts && npx playwright install chromium && npm run build`, root
-directory `docs-site`, output directory `dist`, the Node version from `tools/pins.tsv`, and `SITE_URL` set to the
+directory `docs-site`, output directory `dist`, the Node version from `mise.toml`, and `SITE_URL` set to the
 address it is served at.
 
 The build's `site` and `base` follow `SITE_URL`: the deploy passes the published URL (`html_url`) from the Pages
