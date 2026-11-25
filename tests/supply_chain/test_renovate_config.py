@@ -307,13 +307,17 @@ def test_the_drift_note_covers_the_crd_sources() -> None:
         if "tools/pins.tsv" in r.get("matchFileNames", ()) and "prBodyNotes" in r
     )
     assert "charts/your-service-name/ci/crds/sources.tsv" in rule["matchFileNames"]
-    mise = next(
-        r
+    notes = {
+        tuple(r["matchManagers"]): r
         for r in renovate()["packageRules"]
         if r.get("matchFileNames") == ["mise.toml"] and "prBodyNotes" in r
-    )
-    assert "make pins-refresh" in mise["prBodyNotes"][0]
-    assert "mise.lock" in mise["prBodyNotes"][0]
+    }
+    assert set(notes) == {("mise",), ("custom.regex",)}
+    assert "mise lock" in notes[("mise",)]["prBodyNotes"][0]
+    by_hand = notes[("custom.regex",)]
+    assert set(by_hand["matchDepNames"]) == MISE_BY_REGEX
+    assert "make pins-refresh" in by_hand["prBodyNotes"][0]
+    assert "does not run `mise lock`" in by_hand["prBodyNotes"][0]
 
 
 ADMISSION_IMAGE_FILES = ("deploy/policies/test/kyverno-values.yaml",)

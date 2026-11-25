@@ -51,13 +51,12 @@ Complete guide to setting up, configuring, and running the service template loca
 ### The developer toolchain
 
 `make tools` (or `scripts/tools.sh install [name ...]`) installs the pinned tools into `.tools/bin`, on linux x64 and
-macOS arm64. It needs `bash`, `curl` and a `python3` (3.9 is enough: macOS's own works), and nothing else: no mise, no
-uv, no Python of 3.12 or later. It writes only inside the repository, never in your home directory.
+macOS arm64. It needs `bash`, `curl`, `tar`, a `python3` (3.9 is enough: macOS's own works) and a `sha256sum` or a `shasum`
+(macOS has the latter), and nothing else: no mise, no uv, no Python of 3.12 or later. mise's own download is a bare
+executable, so nothing is extracted until uv has installed the pinned Python. It writes only inside the repository, never in your home directory.
 
-- **Where the versions are.** [`mise.toml`](../mise.toml) lists 22 tools (Node, uv, Helm 3 and 4, two kubectls, kind,
-  kubeconform, promtool, ct, helm-unittest, actionlint, hadolint, gitleaks, squawk, oasdiff, cosign, kyverno, yq, bats,
-  shellcheck, lychee). [`mise.lock`](../mise.lock) holds, for each, the exact download url and its sha256 for both
-  platforms, and a signature or attestation where the vendor publishes one. Installs run `mise install --locked`, so a
+- **Where the versions are.** [`mise.toml`](../mise.toml) lists the tools and their versions.
+  [`mise.lock`](../mise.lock) holds, for each, the exact download url and its sha256 for both platforms, and a signature or attestation where the vendor publishes one. Installs run `mise install --locked`, so a
   changed byte in a download or in the lock refuses the install and links nothing; every installed tree is then
   checked for links out of it and setuid files. [`tools/pins.tsv`](../tools/pins.tsv) keeps what mise does not
   install: mise itself (the bootstrap, checksum-verified), Python and the six uv tools (hash-pinned requirements), and
@@ -69,7 +68,11 @@ uv, no Python of 3.12 or later. It writes only inside the repository, never in y
 - **Your own mise** (`mise activate`) is not needed. If you have it, `mise.toml`'s `[env]` puts `.tools/bin` on `PATH`
   inside the repository; `.env` is read by the app itself and is not loaded by mise.
 - **Updating.** Renovate bumps a version in `mise.toml` and runs `mise lock`, so `mise.toml` and `mise.lock` change in
-  the same pull request. By hand: change the version (a release at least 7 days old), run `make pins-refresh`, commit
+  the same pull request. Except for four lines, `helm3`, `helm4`, `kubectl` and `kubectl-floor`: Renovate's mise manager
+  cannot read them, so regex managers move them and no `mise lock` runs. Those pull requests change `mise.toml` only,
+  say so in their description, and the `pins` check is red until a maintainer runs `make pins-refresh` and pushes
+  `mise.lock` (or the weekly lock maintenance does). Nothing writes to a pull request branch: the jobs stay
+  `contents: read`. By hand: change the version (a release at least 7 days old), run `make pins-refresh`, commit
   both files. `mise lock` makes about 50 of the 60 GitHub API calls an unauthenticated address gets per hour: wait for
   the limit to reset if it stops, and do not use a personal token. Renovate runs it with its own token, and needs mise
   2026.7.12 or newer ([`renovate.json5`](../renovate.json5) says what else an adopter turns on).

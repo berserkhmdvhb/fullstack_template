@@ -2,7 +2,10 @@
 // see .github/dependabot.yml). This file is inert until the Renovate GitHub App is installed on the repository.
 //
 // The developer toolchain is in mise.toml and mise.lock: Renovate's mise manager moves a version in mise.toml and runs
-// `mise lock` for the lock, so the two change in one pull request and the `pins` check stays green. What it needs, for
+// `mise lock` for the lock, so the two change in one pull request and the `pins` check stays green. Four lines (helm3,
+// helm4, kubectl, kubectl-floor) are moved by regex managers, which have no `mise lock` step: that pull request changes
+// mise.toml only, and the `pins` check is red until `make pins-refresh` (or the weekly lock maintenance) writes the lock.
+// Nothing here writes to a pull request branch: the jobs stay `contents: read`. What the mise manager needs, for
 // an adopter: Renovate with mise 2026.7.12 or newer (it runs `mise lock` in safe mode, MISE_SAFE=1; an older mise, or
 // none, makes it skip mise.lock, and then the `pins` check is red until a maintainer runs `make pins-refresh`), and its
 // own GitHub token (`mise lock` makes about 50 API calls). The setting `"allowedUnsafeExecutions": ["mise"]` of a
@@ -37,7 +40,8 @@
     {
       // The tools that Renovate's mise manager cannot read in mise.toml: Helm's aqua recipe is an `http` package, and
       // helm3 and helm4 are aliases of one backend (each has its own version, so its own line). Renovate replaces the
-      // version inside the matched text; mise lock then re-locks the entry. (?m) because `^` must match at each line.
+      // version inside the matched text and runs no `mise lock` for a regex manager: the lock entry is written by
+      // `make pins-refresh` (the pull request note below says so). (?m) because `^` must match at each line.
       "customType": "regex",
       "description": "mise.toml: helm 3 and 4 (github.com/helm/helm)",
       "managerFilePatterns": ["/^mise\\.toml$/"],
@@ -317,8 +321,17 @@
     },
     {
       "description": "mise.toml: the lock moves with the version, or the pins check says so",
+      "matchManagers": ["mise"],
       "matchFileNames": ["mise.toml"],
       "prBodyNotes": ["`mise.lock` should change in this pull request too (Renovate runs `mise lock`). If it did not, the `pins` check is red: run `make pins-refresh` and push."]
+    },
+    {
+      // These four lines are moved by the regex managers, which cannot run `mise lock`.
+      "description": "helm and kubectl in mise.toml: the lock is written by hand",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["mise.toml"],
+      "matchDepNames": ["helm3", "helm4", "kubectl", "kubectl-floor"],
+      "prBodyNotes": ["This pull request changes `mise.toml` only: Renovate does not run `mise lock` for this line. The `pins` check is red until you run `make pins-refresh` and push `mise.lock`."]
     },
     {
       "description": "Tell the reviewer why pin drift is red",
