@@ -20,18 +20,18 @@ tests:
       - failedTemplate:
           errorPattern: 'edge\.gateway\.parentRefs names the placeholder Gateway "your-gateway"'
 
-  # The placeholder hosts are written in mixed case (DNS names ignore case, and so does the guard):
-  # infra/adapt/adopt.sh stamps the adopter's domain over the lower-case form, so these inputs, and the
-  # guard's own copy, stay the template's placeholder in an adopted copy too.
-  - it: on - a placeholder host, in any case, is refused
+  # The placeholder domain is written with an escaped dot ("\x2e"): infra/adapt/adopt.sh stamps the
+  # adopter's domain over the literal text, and these inputs must stay the template's placeholder in an
+  # adopted copy too.
+  - it: on - a placeholder host is refused
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {root: app.Your-Domain.Example}
+        hosts: {root: "app.your-domain\x2eexample"}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
-          errorPattern: 'edge\.hosts\.root is "app\.Your-Domain\.Example", which still holds the placeholder domain your-domain[.]example'
+          errorPattern: 'edge\.hosts\.root is "app\.your-domain[.]example", which still holds the placeholder domain your-domain[.]example'
 
   - it: on - real values render
     set:
@@ -55,7 +55,7 @@ tests:
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.notyour-domain.example.com, root: Your-Domain.Example.svc.test}
+        hosts: {api: api.notyour-domain.example.com, root: "your-domain\x2eexample.svc.test"}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - notFailedTemplate: {}
@@ -64,32 +64,34 @@ tests:
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {root: Your-Domain.Example}
+        hosts: {root: "your-domain\x2eexample"}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
-          errorPattern: 'edge\.hosts\.root is "Your-Domain\.Example"'
+          errorPattern: 'edge\.hosts\.root is "your-domain[.]example"'
 
   # Whether each committed values.<env>.yaml still holds the placeholder hosts, and so is refused, is
   # tests/backend/test_chart_production_guard.py's: the answer is yes in the template, no once adopted.
-  - it: on - a placeholder host with a trailing dot is refused
+  # The schema refuses these before the guard runs: a host is lower case, without a trailing dot.
+  - it: on - a host with upper case is refused by the schema
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.Your-Domain.Example., root: svc.test}
+        hosts: {api: api.Example.Org, root: svc.test}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
       - failedTemplate:
-          errorPattern: 'edge\.hosts\.api is "api\.Your-Domain\.Example\."'
+          errorPattern: "'/edge/hosts/api': .* does not match pattern"
 
-  - it: on - a real host with a trailing dot passes
+  - it: on - a host with a trailing dot is refused by the schema
     set:
       guards: {rejectPlaceholders: true}
       edge:
-        hosts: {api: api.notyour-domain.example.com., root: svc.test.}
+        hosts: {api: api.example.org., root: svc.test.}
         gateway: {parentRefs: [{name: edge, namespace: gateway-system}]}
     asserts:
-      - notFailedTemplate: {}
+      - failedTemplate:
+          errorPattern: "'/edge/hosts/root': .* does not match pattern"
 
   - it: the production rules do not apply elsewhere - values.local.yaml (no digest, in-cluster database, AUTH_MODE none, one replica) renders
     values: [../values.local.yaml]

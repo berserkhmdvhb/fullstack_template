@@ -329,7 +329,7 @@ tests:
       guards: {rejectPlaceholders: true}
       externalDatabase: {enabled: false}
       config: {DB_SSLMODE: disable, OIDC_ISSUER: "https://idp.Your-Domain.Example"}
-      edge: {hosts: {api: api.Your-Domain.Example, root: Your-Domain.Example}}
+      edge: {hosts: {api: "api.your-domain\x2eexample", root: "your-domain\x2eexample"}}
       cloudSqlProxy: {enabled: true, egressCIDRs: [199.36.153.8/30]}
       secrets: {existingSecret: "", externalSecret: {enabled: true}}
     asserts:
@@ -340,9 +340,9 @@ tests:
       - failedTemplate:
           errorPattern: 'cloudSqlProxy\.instanceConnectionName is the placeholder "your-project:your-region:your-instance"'
       - failedTemplate:
-          errorPattern: 'edge\.hosts\.api is "api\.Your-Domain\.Example"'
+          errorPattern: 'edge\.hosts\.api is "api\.your-domain[.]example"'
       - failedTemplate:
-          errorPattern: 'edge\.hosts\.root is "Your-Domain\.Example"'
+          errorPattern: 'edge\.hosts\.root is "your-domain[.]example"'
       - failedTemplate:
           errorPattern: 'images\.backend\.digest, images\.frontend\.digest still hold the placeholder digest'
       - failedTemplate:

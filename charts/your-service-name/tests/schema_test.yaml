@@ -70,14 +70,36 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "'/edge/hosts/api': .* does not match pattern"
-  - it: accepts a root host with a trailing dot
+  - it: rejects a root host with a trailing dot
     set: {edge: {hosts: {root: "example.org."}}}
     asserts:
-      - notFailedTemplate: {}
-  - it: accepts a root host with upper case
+      - failedTemplate:
+          errorPattern: "'/edge/hosts/root': .* does not match pattern"
+  - it: rejects a root host with upper case
     set: {edge: {hosts: {root: "Example.ORG"}}}
     asserts:
-      - notFailedTemplate: {}
+      - failedTemplate:
+          errorPattern: "'/edge/hosts/root': .* does not match pattern"
+  - it: rejects an api host with upper case
+    set: {edge: {hosts: {api: "Api.example.org"}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "'/edge/hosts/api': .* does not match pattern"
+  - it: rejects an api host with a trailing dot
+    set: {edge: {hosts: {api: "api.example.org."}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "'/edge/hosts/api': .* does not match pattern"
+  - it: rejects a root host of 254 characters
+    set: {edge: {hosts: {root: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "'/edge/hosts/root': .*"
+  - it: rejects an api host of 254 characters
+    set: {edge: {hosts: {api: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}
+    asserts:
+      - failedTemplate:
+          errorPattern: "'/edge/hosts/api': .*"
   - it: accepts a root host with a single label
     set: {edge: {hosts: {root: "localhost"}}}
     asserts:

@@ -207,12 +207,13 @@ def test_the_chart_reads_production_from_the_backends_env_names() -> None:
     assert set(re.findall(r'"([^"]+)"', match[1])) == set(PRODUCTION_ENVS)
 
 
-# The placeholder hosts and issuer in mixed case (the guard ignores case): infra/adapt/adopt.sh
-# stamps the adopter's domain over the lower-case form, so these stay placeholders once adopted.
+# The placeholder hosts and issuer, in pieces: infra/adapt/adopt.sh stamps the adopter's domain over
+# every whole copy, so these stay placeholders once adopted.
+_PLACEHOLDER = "your-domain" + ".example"
 PLACEHOLDER_HOSTS = (
-    *("--set", "edge.hosts.api=api.Your-Domain.Example"),
-    *("--set", "edge.hosts.root=Your-Domain.Example"),
-    *("--set", "config.OIDC_ISSUER=https://idp.Your-Domain.Example"),
+    *("--set", f"edge.hosts.api=api.{_PLACEHOLDER}"),
+    *("--set", f"edge.hosts.root={_PLACEHOLDER}"),
+    *("--set", f"config.OIDC_ISSUER=https://idp.{_PLACEHOLDER}"),
 )
 # The template's placeholders, in pieces so the adapter leaves them alone.
 PLACEHOLDER_DOMAIN = re.compile(r"(?<![\w-])your-domain[.]example\b")

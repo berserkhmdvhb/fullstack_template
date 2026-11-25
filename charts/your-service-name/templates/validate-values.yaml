@@ -173,7 +173,7 @@
 {{- $found = append $found "cloudSqlProxy.instanceConnectionName is the placeholder \"your-project:your-region:your-instance\" (set project:region:instance)" }}
 {{- end }}
 {{- range $role, $host := .Values.edge.hosts }}
-{{- $name := lower (trimSuffix "." $host) }}{{- /* one trailing dot: the absolute (FQDN) form; DNS names ignore case */}}
+{{- $name := lower (trimSuffix "." $host) }}{{- /* the schema allows lower case only and no trailing dot; both are normalised here anyway */}}
 {{- if or (eq $name $placeholderDomain) (hasSuffix (printf ".%s" $placeholderDomain) $name) }}
 {{- $found = append $found (printf "edge.hosts.%s is %q, which still holds the placeholder domain %s (set your real hostnames; infra/adapt/adopt.sh stamps them)" $role $host $placeholderDomain) }}
 {{- end }}
