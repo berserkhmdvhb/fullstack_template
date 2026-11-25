@@ -1,6 +1,7 @@
-"""Dev toolchain: `scripts/tools.sh` installs only what matches `tools/pins.tsv`.
+"""Dev toolchain: `scripts/tools.sh` installs only what matches `mise.lock` and `tools/pins.tsv`.
 
-Network-independent: pins point at local file:// artifacts (TOOLS_PROTO allows file://).
+Network-independent: pins point at local file:// artifacts (TOOLS_PROTO allows file://); the
+mise tools are covered offline by tests/scripts/tools.bats and test_mise_config.py.
 """
 
 import hashlib
@@ -13,7 +14,10 @@ import subprocess
 import tarfile
 from pathlib import Path
 
+import pytest
 import yaml
+
+from tests.supply_chain._pins import listing, pin
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPT = ROOT / "scripts/tools.sh"
@@ -22,10 +26,16 @@ SRC = SCRIPT.read_text()
 BASH: str = shutil.which("bash") or "/usr/bin/bash"
 PLATFORM = "linux-amd64"
 REQUIRED = {
-    "helm3", "helm4", "kind", "kubeconform", "promtool", "ct", "helm-unittest", "actionlint",
-    "hadolint", "gitleaks", "squawk", "oasdiff", "cosign", "kyverno", "yq", "bats", "node",
-    "zizmor", "schemathesis", "pre-commit", "python", "kubectl", "kubectl-floor", "uv", "mise",
-}  # fmt: skip
+    "mise",
+    "python",
+    "zizmor",
+    "schemathesis",
+    "pre-commit",
+    "yamale",
+    "yamllint",
+    "pip-audit",
+}
+LEFT = REQUIRED | {"k8s-openapi", "kyverno-chart"}  # what stays in pins.tsv
 
 
 def rows() -> list[list[str]]:
@@ -36,10 +46,10 @@ def rows() -> list[list[str]]:
 def sandbox(
     tmp: Path, sha: str, payload: bytes = b"#!/bin/sh\necho fake\n"
 ) -> tuple[dict[str, str], Path]:
-    art = tmp / "kind-linux-amd64"
+    art = tmp / "fixture-linux-amd64"
     art.write_bytes(payload)
     pins = tmp / "pins.tsv"
-    pins.write_text(f"kind\t9.9.9\t{PLATFORM}\tfile://{art}\t{sha}\n")
+    pins.write_text(f"fixture\t9.9.9\t{PLATFORM}\tfile://{art}\t{sha}\n")
     tools = tmp / ".tools"
     env = {**os.environ, "PINS": str(pins), "TOOLS_DIR": str(tools), "TOOLS_PROTO": "=file"}
     return env, tools
@@ -52,19 +62,19 @@ def run(args: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str
 
 
 def tar_sandbox(tmp: Path, sha: str | None) -> tuple[dict[str, str], Path, Path]:
-    """A kind pin whose artifact is a tarball; TMPDIR is private so leftovers are visible."""
-    art = tmp / "kind-linux-amd64.tar.gz"
+    """A fixture pin whose artifact is a tarball; TMPDIR is private so leftovers are visible."""
+    art = tmp / "fixture-linux-amd64.tar.gz"
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tf:
         data = b"#!/bin/sh\necho fake\n"
-        info = tarfile.TarInfo("kind")
+        info = tarfile.TarInfo("fixture")
         info.size = len(data)
         info.mode = 0o755
         tf.addfile(info, io.BytesIO(data))
     art.write_bytes(buf.getvalue())
     real = hashlib.sha256(buf.getvalue()).hexdigest()
     env, tools = sandbox(tmp, sha or real)
-    (tmp / "pins.tsv").write_text(f"kind\t9.9.9\t{PLATFORM}\tfile://{art}\t{sha or real}\n")
+    (tmp / "pins.tsv").write_text(f"fixture\t9.9.9\t{PLATFORM}\tfile://{art}\t{sha or real}\n")
     scratch = tmp / "scratch"
     scratch.mkdir()
     env["TMPDIR"] = str(scratch)
@@ -73,7 +83,7 @@ def tar_sandbox(tmp: Path, sha: str | None) -> tuple[dict[str, str], Path, Path]
 
 def test_checksum_mismatch_is_refused_and_installs_nothing(tmp_path: Path) -> None:
     env, tools = sandbox(tmp_path, "0" * 64)
-    r = run(["install", "kind"], env)
+    r = run(["install", "fixture"], env)
     assert r.returncode != 0
     assert "checksum mismatch" in r.stderr
     assert not (tools / "bin").exists()
@@ -82,7 +92,7 @@ def test_checksum_mismatch_is_refused_and_installs_nothing(tmp_path: Path) -> No
 
 def test_tar_checksum_mismatch_is_refused_and_leaves_nothing_behind(tmp_path: Path) -> None:
     env, tools, scratch = tar_sandbox(tmp_path, "0" * 64)
-    r = run(["install", "kind"], env)
+    r = run(["install", "fixture"], env)
     assert r.returncode != 0
     assert "checksum mismatch" in r.stderr
     assert not (tools / "bin").exists()
@@ -92,28 +102,28 @@ def test_tar_checksum_mismatch_is_refused_and_leaves_nothing_behind(tmp_path: Pa
 
 def test_tar_installs_and_stale_part_dir_is_not_promoted(tmp_path: Path) -> None:
     env, tools, _ = tar_sandbox(tmp_path, None)
-    stale = tools / "opt/kind-9.9.9.part"
+    stale = tools / "opt/fixture-9.9.9.part"
     stale.mkdir(parents=True)
     (stale / "evil").write_text("stale")
-    r = run(["install", "kind"], env)
+    r = run(["install", "fixture"], env)
     assert r.returncode == 0, r.stderr
-    assert (tools / "bin/kind").is_symlink()
-    assert not (tools / "opt/kind-9.9.9/evil").exists()
+    assert (tools / "bin/fixture").is_symlink()
+    assert not (tools / "opt/fixture-9.9.9/evil").exists()
 
 
 def test_tar_with_escaping_member_is_refused(tmp_path: Path) -> None:
-    art = tmp_path / "kind-linux-amd64.tar.gz"
+    art = tmp_path / "fixture-linux-amd64.tar.gz"
     with tarfile.open(art, "w:gz") as tf:
         info = tarfile.TarInfo("../escape")
         info.size = 1
         tf.addfile(info, io.BytesIO(b"x"))
     pins = tmp_path / "pins.tsv"
     pins.write_text(
-        f"kind\t9.9.9\t{PLATFORM}\tfile://{art}\t{hashlib.sha256(art.read_bytes()).hexdigest()}\n"
+        f"fixture\t9.9.9\t{PLATFORM}\tfile://{art}\t{hashlib.sha256(art.read_bytes()).hexdigest()}\n"
     )
     tools = tmp_path / ".tools"
     env = {**os.environ, "PINS": str(pins), "TOOLS_DIR": str(tools), "TOOLS_PROTO": "=file"}
-    r = run(["install", "kind"], env)
+    r = run(["install", "fixture"], env)
     assert r.returncode != 0
     assert "unsafe archive" in r.stderr
     assert not (tools / "bin").exists()
@@ -123,11 +133,11 @@ def test_tar_with_escaping_member_is_refused(tmp_path: Path) -> None:
 def test_matching_checksum_installs_and_second_run_skips(tmp_path: Path) -> None:
     payload = b"#!/bin/sh\necho fake\n"
     env, tools = sandbox(tmp_path, hashlib.sha256(payload).hexdigest(), payload)
-    r = run(["install", "kind"], env)
+    r = run(["install", "fixture"], env)
     assert r.returncode == 0, r.stderr
-    assert (tools / "bin/kind").resolve().read_bytes() == payload
+    assert (tools / "bin/fixture").resolve().read_bytes() == payload
     env["TOOLS_PROTO"] = "=https"  # a second download would now fail on the file:// URL
-    r2 = run(["install", "kind"], env)
+    r2 = run(["install", "fixture"], env)
     assert r2.returncode == 0, r2.stderr
     assert "already installed" in r2.stdout
 
@@ -138,6 +148,10 @@ def test_uv_row_without_matching_hashed_requirements_is_refused(tmp_path: Path) 
     pins = tmp_path / "pins.tsv"
     pins.write_text("zizmor\t1.0.0\tany\tuv:zizmor\t-\n")
     tools = tmp_path / ".tools"
+    (tools / "bin").mkdir(
+        parents=True
+    )  # the pinned uv is there already: the requirements are checked
+    (tools / "bin/uv").symlink_to(shutil.which("uv") or "/usr/bin/uv")
     env = {**os.environ, "PINS": str(pins), "TOOLS_DIR": str(tools), "REQS": str(reqs)}
     r = run(["install", "zizmor"], env)  # no requirements file
     assert r.returncode != 0
@@ -150,7 +164,7 @@ def test_uv_row_without_matching_hashed_requirements_is_refused(tmp_path: Path) 
     r = run(["install", "zizmor"], env)  # no hashes
     assert r.returncode != 0
     assert "no hashes" in r.stderr
-    assert not tools.exists()
+    assert not (tools / "uv-tools").exists()
 
 
 def test_dry_run_installs_nothing_and_never_calls_curl(tmp_path: Path) -> None:
@@ -163,7 +177,7 @@ def test_dry_run_installs_nothing_and_never_calls_curl(tmp_path: Path) -> None:
         stub.write_text(f"#!/bin/sh\necho {tool} >> {calls}\nexit 1\n")
         stub.chmod(0o755)
     env["PATH"] = f"{stubs}{os.pathsep}{env['PATH']}"
-    r = run(["--dry-run", "install", "kind"], env)
+    r = run(["--dry-run", "install", "fixture"], env)
     assert r.returncode == 0, r.stderr
     assert "nothing was installed" in r.stdout
     assert not tools.exists()
@@ -173,12 +187,15 @@ def test_dry_run_installs_nothing_and_never_calls_curl(tmp_path: Path) -> None:
 def test_dry_run_env_does_not_enable_dry_run(tmp_path: Path) -> None:
     env, tools = sandbox(tmp_path, "0" * 64)
     env["DRY_RUN"] = "true"
-    assert run(["install", "kind"], env).returncode != 0  # real run: mismatch refused
+    assert run(["install", "fixture"], env).returncode != 0  # real run: mismatch refused
     assert not tools.exists()
 
 
 def test_malformed_pins_are_refused(tmp_path: Path) -> None:
-    for bad in ("kind\t1\tlinux-amd64\turl\n", "kind\t\tlinux-amd64\turl\t" + "0" * 64 + "\n"):
+    for bad in (
+        "fixture\t1\tlinux-amd64\turl\n",
+        "fixture\t\tlinux-amd64\turl\t" + "0" * 64 + "\n",
+    ):
         pins = tmp_path / "pins.tsv"
         pins.write_text(bad)
         env = {**os.environ, "PINS": str(pins), "TOOLS_DIR": str(tmp_path / ".tools")}
@@ -192,8 +209,8 @@ def test_last_row_without_trailing_newline_is_read(tmp_path: Path) -> None:
     env, tools = sandbox(tmp_path, hashlib.sha256(payload).hexdigest(), payload)
     pins = Path(env["PINS"])
     pins.write_text(pins.read_text().rstrip("\n"))
-    assert run(["install"], env).returncode == 0
-    assert (tools / "bin/kind").is_symlink()
+    assert run(["install", "fixture"], env).returncode == 0
+    assert (tools / "bin/fixture").is_symlink()
 
 
 PIPE_TO_SHELL = [
@@ -233,9 +250,9 @@ def test_never_pipes_into_a_shell() -> None:
     assert "--proto-redir =https" in SRC
 
 
-def test_pins_cover_every_required_tool_with_a_checksum() -> None:
+def test_pins_hold_only_the_rows_mise_does_not_manage_each_with_a_checksum() -> None:
     by_name = {r[0]: r for r in rows()}
-    assert set(by_name) >= REQUIRED
+    assert set(by_name) == LEFT
     for name, _ver, plat, url, sha in rows():
         assert plat in (PLATFORM, "any") or (name, plat) == ("mise", "darwin-arm64"), name
         if url.startswith("uv:"):
@@ -255,19 +272,27 @@ def test_node_major_matches_frontend_engines_and_helm_default_is_recorded() -> N
     engines = json.loads((ROOT / "frontend/package.json").read_text())["engines"]["node"]
     major = re.match(r">=\s*(\d+)", engines)
     assert major, engines
-    node = next(r for r in rows() if r[0] == "node")
-    assert node[1].split(".")[0] == major.group(1)
+    assert pin("node").split(".")[0] == major.group(1)
     assert re.search(r"^#default-helm: [34]$", PINS.read_text(), re.MULTILINE)
 
 
+def test_the_listing_covers_every_required_tool_with_its_version() -> None:
+    listed = listing()
+    assert set(listed) >= {
+        "helm3", "helm4", "kind", "kubeconform", "promtool", "ct", "helm-unittest", "actionlint",
+        "hadolint", "gitleaks", "squawk", "oasdiff", "cosign", "kyverno", "yq", "bats", "node",
+        "kubectl", "kubectl-floor", "uv", "lychee", "shellcheck",
+    } | REQUIRED  # fmt: skip
+
+
 def link_tar(tmp: Path, members: list[tarfile.TarInfo]) -> tuple[dict[str, str], Path]:
-    art = tmp / "kind-linux-amd64.tar.gz"
+    art = tmp / "fixture-linux-amd64.tar.gz"
     with tarfile.open(art, "w:gz") as tf:
         for info in members:
             tf.addfile(info, io.BytesIO(b"x") if info.isfile() else None)
     pins = tmp / "pins.tsv"
     sha = hashlib.sha256(art.read_bytes()).hexdigest()
-    pins.write_text(f"kind\t9.9.9\t{PLATFORM}\tfile://{art}\t{sha}\n")
+    pins.write_text(f"fixture\t9.9.9\t{PLATFORM}\tfile://{art}\t{sha}\n")
     tools = tmp / ".tools"
     env = {**os.environ, "PINS": str(pins), "TOOLS_DIR": str(tools), "TOOLS_PROTO": "=file"}
     return env, tools
@@ -289,7 +314,7 @@ def regular(name: str) -> tarfile.TarInfo:
 
 def assert_refused(tmp: Path, members: list[tarfile.TarInfo], needle: str) -> None:
     env, tools = link_tar(tmp, members)
-    r = run(["install", "kind"], env)
+    r = run(["install", "fixture"], env)
     assert r.returncode != 0
     assert needle in r.stderr, r.stderr
     assert not (tools / "bin").exists()
@@ -313,11 +338,11 @@ def test_outside_hardlink_is_refused(tmp_path: Path) -> None:
 
 
 def test_in_tree_relative_links_are_allowed(tmp_path: Path) -> None:
-    members = [regular("kind"), link("bin-link", "kind"), link("sub/up", "../kind")]
+    members = [regular("fixture"), link("bin-link", "fixture"), link("sub/up", "../fixture")]
     env, tools = link_tar(tmp_path, members)
-    r = run(["install", "kind"], env)
+    r = run(["install", "fixture"], env)
     assert r.returncode == 0, r.stderr
-    assert (tools / "opt/kind-9.9.9/sub/up").is_symlink()
+    assert (tools / "opt/fixture-9.9.9/sub/up").is_symlink()
 
 
 def test_names_containing_arrows_cannot_smuggle_a_link(tmp_path: Path) -> None:
@@ -346,33 +371,30 @@ def test_device_and_fifo_members_are_refused(tmp_path: Path) -> None:
 
 
 def test_setuid_bit_is_stripped(tmp_path: Path) -> None:
-    info = regular("kind")
+    info = regular("fixture")
     info.mode = 0o4755
     env, tools = link_tar(tmp_path, [info])
-    r = run(["install", "kind"], env)
+    r = run(["install", "fixture"], env)
     assert r.returncode == 0, r.stderr
-    mode = (tools / "opt/kind-9.9.9/kind").stat().st_mode
+    mode = (tools / "opt/fixture-9.9.9/fixture").stat().st_mode
     assert mode & 0o7000 == 0
 
 
-def test_real_node_tarball_still_installs_and_npm_works(tmp_path: Path) -> None:
-    """The pinned Node tarball, as `scripts/tools.sh install node` downloaded and verified it (kept
-    in .tools/downloads), installs again against the pinned sha256 and its npm runs. Offline."""
-    _name, version, _plat, url, sha = next(r for r in rows() if r[0] == "node" and r[2] == PLATFORM)
-    kept = ROOT / ".tools" / "downloads" / f"node-{version}-{url.rsplit('/', 1)[1]}"
-    assert kept.is_file(), f"{kept} is missing: run `scripts/tools.sh install node`"
-    pins = tmp_path / "pins.tsv"
-    pins.write_text(f"node\t{version}\t{PLATFORM}\tfile://{kept}\t{sha}\n")
-    tools = tmp_path / ".tools"
-    env = {**os.environ, "PINS": str(pins), "TOOLS_DIR": str(tools), "TOOLS_PROTO": "=file"}
-    r = run(["install", "node"], env)
-    assert r.returncode == 0, r.stderr
-    env["PATH"] = f"{tools / 'bin'}{os.pathsep}{os.environ['PATH']}"
-    out = subprocess.run(
-        [str(tools / "bin/npm"), "--version"], capture_output=True, text=True, check=False, env=env
+def test_the_node_mise_installed_is_the_pinned_one_and_its_npm_runs() -> None:
+    """`scripts/tools.sh install node` links the pinned Node, and the npm bundled with it."""
+    node = ROOT / ".tools/bin/node"
+    assert node.is_file(), f"{node} is missing: run `scripts/tools.sh install node`"
+    out = subprocess.run([str(node), "--version"], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == f"v{pin('node')}"
+    env = {**os.environ, "PATH": f"{node.parent}{os.pathsep}{os.environ['PATH']}"}
+    npm = subprocess.run(
+        [str(node.parent / "npm"), "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
     )
-    shutil.rmtree(tools)  # about 250 MB unpacked; /tmp may be RAM-backed
-    assert out.returncode == 0, out.stderr
+    assert npm.returncode == 0, npm.stderr
 
 
 def test_the_ci_unit_job_installs_node_before_the_tests() -> None:
@@ -385,67 +407,31 @@ def test_the_ci_unit_job_installs_node_before_the_tests() -> None:
     assert install < next(i for i, r in enumerate(runs) if "make test-unit" in r)
 
 
-def test_an_installed_node_without_its_kept_download_gets_it_from_the_advised_command(
-    tmp_path: Path,
-) -> None:
-    """node installed before downloads were kept: `install node` (the test's advice) fetches and
-    verifies the download, leaves the install as it is, and refuses a mismatch."""
-    payload = b"the pinned node tarball"
-    art = tmp_path / "node-v9.9.9-linux-x64.tar.xz"
-    art.write_bytes(payload)
-    tools = tmp_path / ".tools"
-    bin_dir = tools / "opt" / "node-9.9.9" / "node-v9.9.9-linux-x64" / "bin"
-    bin_dir.mkdir(parents=True)
-    for exe in ("node", "npm", "npx"):
-        (bin_dir / exe).write_text("#!/bin/sh\n")
-    pins = tmp_path / "pins.tsv"
-    env = {**os.environ, "PINS": str(pins), "TOOLS_DIR": str(tools), "TOOLS_PROTO": "=file"}
-    kept = tools / "downloads" / "node-9.9.9-node-v9.9.9-linux-x64.tar.xz"
-
-    pins.write_text(f"node\t9.9.9\t{PLATFORM}\tfile://{art}\t{'0' * 64}\n")
-    bad = run(["install", "node"], env)
-    assert bad.returncode != 0
-    assert "checksum mismatch" in bad.stderr
-    assert not kept.exists()
-
-    pins.write_text(
-        f"node\t9.9.9\t{PLATFORM}\tfile://{art}\t{hashlib.sha256(payload).hexdigest()}\n"
-    )
-    good = run(["install", "node"], env)
-    assert good.returncode == 0, good.stderr
-    assert kept.read_bytes() == payload
-    assert (bin_dir / "node").read_text() == "#!/bin/sh\n"  # the install itself is untouched
-    assert run(["install", "node"], env).returncode == 0  # and a second run needs nothing
-
-
 def test_the_node_test_advises_the_command_that_fixes_it() -> None:
     assert 'run `scripts/tools.sh install node`"' in Path(__file__).read_text(encoding="utf-8")
 
 
-def test_tools_sh_keeps_the_verified_node_download(tmp_path: Path) -> None:
-    """A node install keeps its verified tarball in .tools/downloads; a mismatch keeps nothing."""
-    art = tmp_path / "node-v9.9.9-linux-x64.tar.xz"
-    art.write_bytes(b"not really a tarball")
+def test_uv_is_a_mise_tool_installed_before_every_uv_row() -> None:
+    """tools.sh runs the mise tools (uv among them) before the rows that need the pinned uv."""
+    assert listing()["uv"][1] == "aqua:astral-sh/uv"
+    assert not any(r[0] == "uv" for r in rows())
+    assert SRC.index('install_mise_tools "${tools[@]}"') < SRC.index("install_pin\n")
+    assert 'wanted+="uv "' in SRC, "naming a uv tool installs uv with it"
+
+
+def test_uv_keeps_its_cache_and_its_pythons_in_the_repository() -> None:
+    assert 'UV_CACHE_DIR="$TOOLS_DIR/uv/cache"' in SRC
+    assert 'UV_PYTHON_INSTALL_DIR="$TOOLS_DIR/uv/python"' in SRC
+
+
+def test_a_dry_run_names_exactly_the_requested_mise_tools(tmp_path: Path) -> None:
     pins = tmp_path / "pins.tsv"
-    pins.write_text(f"node\t9.9.9\t{PLATFORM}\tfile://{art}\t{'0' * 64}\n")
-    tools = tmp_path / ".tools"
-    env = {**os.environ, "PINS": str(pins), "TOOLS_DIR": str(tools), "TOOLS_PROTO": "=file"}
-    assert run(["install", "node"], env).returncode != 0
-    assert not (tools / "downloads").exists()
-    assert "downloads" in SRC
-    assert 'KEEP_DOWNLOAD="node"' in SRC
-
-
-def test_uv_is_pinned_from_the_vendor_release_and_installed_before_every_uv_row() -> None:
-    names = [r[0] for r in rows()]
-    uv = next(r for r in rows() if r[0] == "uv")
-    assert uv[2] == PLATFORM
-    assert uv[3] == (
-        f"https://github.com/astral-sh/uv/releases/download/{uv[1]}/"
-        "uv-x86_64-unknown-linux-gnu.tar.gz"
-    )
-    first_uv_row = next(i for i, r in enumerate(rows()) if r[3].startswith("uv:"))
-    assert names.index("uv") < first_uv_row, "uv must be installed before the rows that use it"
+    pins.write_text("")
+    env = {**os.environ, "PINS": str(pins), "TOOLS_DIR": str(tmp_path / ".tools")}
+    r = run(["--dry-run", "install", "helm4", "kubeconform"], env)
+    assert r.returncode == 0, r.stderr
+    assert "mise install --locked helm4 aqua:yannh/kubeconform\n" in r.stdout
+    assert not (tmp_path / ".tools").exists()
 
 
 def test_tools_sh_prefers_the_pinned_uv() -> None:
@@ -501,3 +487,14 @@ def test_mise_installs_from_a_verified_archive_to_bin(tmp_path: Path) -> None:
     assert (tools / "bin/mise").is_symlink()
     out = subprocess.run([str(tools / "bin/mise")], capture_output=True, text=True, check=True)
     assert out.stdout == "fake mise\n"
+
+
+def test_the_installed_helm_unittest_plugin_has_the_binary_its_plugin_yaml_runs() -> None:
+    plugin = ROOT / ".tools/helm-plugins/helm-unittest"
+    if not plugin.is_dir():
+        pytest.skip("helm-unittest is not installed (scripts/tools.sh install helm-unittest)")
+    commands = yaml.safe_load((plugin / "plugin.yaml").read_text())["platformCommand"]
+    linux = next(
+        c["command"] for c in commands if (c.get("os"), c.get("arch")) == ("linux", "amd64")
+    )
+    assert (plugin / linux.removeprefix("$HELM_PLUGIN_DIR/")).is_file()

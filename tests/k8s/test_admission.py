@@ -47,6 +47,7 @@ from tests.k8s._kube import (
     manifest_digest,
     registry_tls,
 )
+from tests.supply_chain._pins import pin as pinned
 
 NAMESPACE = "fst-admission"
 KYVERNO_NAMESPACE = "fst-kyverno"
@@ -79,8 +80,7 @@ PASSWORD = secrets.token_urlsafe(24)
 
 
 def _pin(name: str) -> str:
-    rows = (ROOT / "tools" / "pins.tsv").read_text().splitlines()
-    return next(r.split("\t")[1] for r in rows if r.startswith(f"{name}\t"))
+    return pinned(name)
 
 
 def _docker(*args: str, check: bool = True) -> str:

@@ -314,14 +314,14 @@ flow_secret() { export STUB_OLD="$STUB_OLD"$'\n---\nkind: Secret\nmetadata: {nam
   [[ "$output" != *"/a_c"* && "$output" != *"/ab"* ]]
 }
 
-# A yq stub: the pinned version (from tools/pins.tsv) unless told otherwise. STUB_YQ_MODE is what it
+# A yq stub: the pinned version (from mise.toml) unless told otherwise. STUB_YQ_MODE is what it
 # does with the real yq's output: fail (exit 1, the default), empty (print nothing, exit 0), drop
 # (without its last line), dupdrop (its second line replaced by a copy of the first), rename (one
 # object's name changed), phantom (for the render, one object more), or hide
 # (without the logging namespace).
 fake_yq() {
   local pin real
-  pin="$(awk -F'\t' '$1 == "yq" {print $2}' "$(dirname "$SCRIPT")/../tools/pins.tsv")"
+  pin="$(awk -F'"' '$2 == "aqua:mikefarah/yq" {print $4}' "$(dirname "$SCRIPT")/../mise.toml")"
   real="$(command -v yq)"
   cat > "$B/yq" <<STUB
 #!/usr/bin/env bash
@@ -567,9 +567,9 @@ STUB
 # A copy of the scripts whose line reader, like the yq stub's hide mode, leaves the logging namespace out.
 both_readers_hide() {
   local root="$BATS_TEST_TMPDIR/root"
-  mkdir -p "$root/scripts" "$root/tools"
+  mkdir -p "$root/scripts"
   cp "$(dirname "$SCRIPT")"/*.sh "$root/scripts/"
-  cp "$(dirname "$SCRIPT")/../tools/pins.tsv" "$root/tools/"
+  cp "$(dirname "$SCRIPT")/../mise.toml" "$root/"
   cat >> "$root/scripts/_manifest.sh" <<'PATCH'
 eval "$(declare -f manifest_objects | sed '1s/.*/real_manifest_objects ()/')"
 manifest_objects() { real_manifest_objects "$@" | sed '/^Namespace\/-\/app-ns-logging$/d'; }
@@ -665,11 +665,11 @@ boot_rbac() {
 # whose bootstrap values turn gmpClusterRules on and whose chart flavour is gmp.
 boot_cluster_rules() {
   local copy="$BATS_TEST_TMPDIR/repo"
-  mkdir -p "$copy/infra/k8s" "$copy/tools"
+  mkdir -p "$copy/infra/k8s"
   cp -r "$BATS_TEST_DIRNAME/../../scripts" "$copy/scripts"
   cp -r "$BATS_TEST_DIRNAME/../../infra/k8s/bootstrap" "$copy/infra/k8s/bootstrap"
   cp -r "$BATS_TEST_DIRNAME/../../charts" "$copy/charts"
-  cp "$BATS_TEST_DIRNAME/../../tools/pins.tsv" "$copy/tools/pins.tsv"
+  cp "$BATS_TEST_DIRNAME/../../mise.toml" "$copy/mise.toml"
   sed -i 's/^gmpClusterRules: false/gmpClusterRules: true/' "$copy/infra/k8s/bootstrap/values.yaml"
   sed -i 's/^  flavour: prometheus-operator/  flavour: gmp/' "$copy/charts/your-service-name/values.yaml"
   SCRIPT="$copy/scripts/migrate-to-bootstrap.sh"

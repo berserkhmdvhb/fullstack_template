@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.supply_chain._pins import listing
+
 ROOT = Path(__file__).resolve().parents[1]
 ADR_DIR = ROOT / "wiki" / "adr"
 ADRS = sorted(
@@ -61,11 +63,7 @@ def problems(name: str, text: str) -> list[str]:
 
 def pinned_versions() -> set[str]:
     """Each pinned version, and the minor of each three-part one, less those stated on purpose."""
-    pins = [
-        line.split("\t")[1].removeprefix("v")
-        for line in (ROOT / "tools" / "pins.tsv").read_text("utf-8").splitlines()
-        if line.strip() and not line.startswith("#")
-    ]
+    pins = [version.removeprefix("v") for version, _key in listing().values()]
     kind = (ROOT / "tools" / "kind-nodes.tsv").read_text("utf-8")
     pins += re.findall(r"kindest/node:v([\d.]+)@", kind)
     minors = {m.group() for v in pins if (m := re.match(r"\d+\.\d+(?=\.\d+$)", v))}
@@ -93,7 +91,7 @@ SITE_PAGES = sorted((ROOT / "docs-site" / "src" / "content" / "docs").rglob("*.m
 @pytest.mark.parametrize("doc", [*ADRS, ADR_DIR / "README.md", *SITE_PAGES], ids=lambda p: p.name)
 def test_no_adr_restates_a_pinned_version(doc: Path) -> None:
     assert stated_versions(doc.read_text("utf-8"), pinned_versions()) == [], (
-        f"{doc.name}: link tools/pins.tsv or tools/kind-nodes.tsv instead of the version"
+        f"{doc.name}: link mise.toml, tools/pins.tsv or tools/kind-nodes.tsv instead of the version"
     )
 
 

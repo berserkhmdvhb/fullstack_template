@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from tests.supply_chain._pins import listing
 from tests.supply_chain.test_renovate_config import renovate
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -44,12 +45,10 @@ def test_kind_gets_a_docker_daemon() -> None:
 def test_no_tool_version_is_restated() -> None:
     cfg = devcontainer()
     rest = {k: v for k, v in cfg.items() if k != "image"}
-    assert not re.search(r"\d+\.\d+", json.dumps(rest)), "versions belong in tools/pins.tsv"
+    assert not re.search(r"\d+\.\d+", json.dumps(rest)), "versions belong in mise.toml"
     raw = DEVCONTAINER.read_text(encoding="utf-8")
-    for row in (ln for ln in (ROOT / "tools" / "pins.tsv").read_text().splitlines()):
-        if row and not row.startswith("#"):
-            name, version = row.split("\t")[:2]
-            assert not re.search(rf"(?<![\w.]){re.escape(version)}(?![\w.])", raw), name
+    for name, (version, _key) in listing().items():
+        assert not re.search(rf"(?<![\w.]){re.escape(version)}(?![\w.])", raw), name
     assert not any(re.search(r"/(python|node)\b", ref) for ref in cfg["features"])
 
 

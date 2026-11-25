@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 import yaml
 
+from tests.supply_chain._pins import pin
 from tests.supply_chain.test_release_versions import SCM_PACKAGES
 
 pytestmark = pytest.mark.tree_wide
@@ -137,9 +138,7 @@ def test_the_node_cap_covers_every_manager_that_tracks_node_and_follows_the_pin(
     rule = next(r for r in renovate()["packageRules"] if r.get("matchPackageNames") == ["node"])
     assert {"custom.regex", "nvm", "nodenv", "dockerfile"} <= set(rule["matchManagers"])
     assert rule["groupName"] == "node"
-    major = (
-        next(r for r in PINS.splitlines() if r.startswith("node\t")).split("\t")[1].split(".")[0]
-    )
+    major = pin("node").split(".")[0]
     cap = re.fullmatch(r"/(.+)/", rule["allowedVersions"])
     assert cap
     assert re.search(cap[1], f"{major}.1.2")

@@ -2,7 +2,8 @@
 # -----------------------------------------------------------------------------
 # tools.bats — scripts/tools.sh runs mise from the repository root with repo-local directories, ignoring the
 # caller's environment and the user's global config. Offline: the installed mise is a stub; the real one
-# (when .tools/bin/mise exists) must also see nothing of a hostile config in the home directory.
+# (when .tools/bin/mise exists) must also see nothing of a hostile config in the home directory, and
+# installs a fixture tool from a local server, locked, or refuses it when a checksum has changed.
 # -----------------------------------------------------------------------------
 
 setup() {
@@ -84,7 +85,7 @@ tools() {
   tools bash "$PROJ/scripts/tools.sh" mise settings get lockfile
   [ "$output" = "true" ]
   tools bash "$PROJ/scripts/tools.sh" mise ls --json
-  [ "$output" = "{}" ]
+  [[ "$output" != *1.2.3* ]]
   tools bash "$PROJ/scripts/tools.sh" mise env --json
   [[ "$output" != *EVIL* ]]
 
@@ -107,4 +108,79 @@ tools() {
   tools bash "$PROJ/scripts/tools.sh" mise --version
   [ "$status" -ne 0 ]
   [[ "$output" == *"mise is not installed"*"install mise"* ]]
+}
+
+teardown() {
+  [ -z "${SRV_PID:-}" ] || kill "$SRV_PID" 2>/dev/null || true
+}
+
+# The real mise, a project locking one tool (kind) to an artifact served from 127.0.0.1, and a mise "release"
+# that is a wrapper around the real one, so tools.sh installs mise from its row first, as it does for real.
+fixture_project() {
+  if [ ! -x "$ROOT/.tools/bin/mise" ]; then
+    [ -z "${CI:-}" ] || { echo "CI must install the pinned mise first: scripts/tools.sh install mise" >&2; return 1; }
+    skip "needs the installed mise (scripts/tools.sh install mise)"
+  fi
+  SRV="$BATS_TEST_TMPDIR/srv"
+  mkdir -p "$SRV" "$BATS_TEST_TMPDIR/art/mise/bin"
+  printf '#!/bin/sh\necho fake kind\n' > "$SRV/kind-linux-amd64"
+  cp "$SRV/kind-linux-amd64" "$SRV/kind-darwin-arm64"
+  PORT="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+  python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$SRV" > /dev/null 2>&1 &
+  SRV_PID=$!
+  ART_SHA="$(sha256sum "$SRV/kind-linux-amd64" | cut -d' ' -f1)"
+  sed -n '/^\[settings\]/,/^\]$/p' "$ROOT/mise.toml" > "$PROJ/mise.toml"
+  printf '\n[tools]\n"aqua:kubernetes-sigs/kind" = "0.33.0"\n' >> "$PROJ/mise.toml"
+  write_lock "$ART_SHA"
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$ROOT/.tools/bin/mise" > "$BATS_TEST_TMPDIR/art/mise/bin/mise"
+  chmod +x "$BATS_TEST_TMPDIR/art/mise/bin/mise"
+  tar -czf "$BATS_TEST_TMPDIR/mise.tar.gz" -C "$BATS_TEST_TMPDIR/art" mise
+  SHA="$(sha256sum "$BATS_TEST_TMPDIR/mise.tar.gz" | cut -d' ' -f1)"
+  printf 'mise\t9.9.9\tlinux-amd64\tfile://%s\t%s\n' "$BATS_TEST_TMPDIR/mise.tar.gz" "$SHA" > "$PROJ/tools/pins.tsv"
+  sleep 1
+}
+
+write_lock() { # sha256 of the kind artifact the lock records
+  local key='tools."aqua:kubernetes-sigs/kind"'
+  {
+    printf 'lockfile_version = 4\n\n[[tools."aqua:kubernetes-sigs/kind"]]\nversion = "0.33.0"\n'
+    printf 'backend = "aqua:kubernetes-sigs/kind"\nspecifiers = ["0.33.0"]\n\n'
+    printf '[%s."platforms.linux-x64"]\nchecksum = "sha256:%s"\nurl = "http://127.0.0.1:%s/kind-linux-amd64"\n\n' "$key" "$1" "$PORT"
+    printf '[%s."platforms.macos-arm64"]\nchecksum = "sha256:%s"\nurl = "http://127.0.0.1:%s/kind-darwin-arm64"\n' "$key" "$1" "$PORT"
+  } > "$PROJ/mise.lock"
+}
+
+@test "a locked install of a mise tool downloads it, checks the lock's checksum and links it" {
+  fixture_project
+  tools bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -eq 0 ]
+  [ -L "$TOOLS/bin/kind" ]
+  [ "$("$TOOLS/bin/kind")" = "fake kind" ]
+}
+
+@test "a changed byte in a lock checksum is refused: nothing is linked and the exit is non-zero" {
+  fixture_project
+  write_lock "${ART_SHA:0:63}$([ "${ART_SHA:63:1}" = 0 ] && echo 1 || echo 0)"
+  tools bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"nothing was linked"* ]]
+  [ ! -e "$TOOLS/bin/kind" ]
+  [ ! -e "$TOOLS/mise/data/installs/aqua-kubernetes-sigs-kind/0.33.0" ]
+}
+
+@test "a changed byte in the downloaded artifact is refused: nothing is linked and the exit is non-zero" {
+  fixture_project
+  printf '#!/bin/sh\necho changed kind\n' > "$SRV/kind-linux-amd64"
+  tools bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -ne 0 ]
+  [ ! -e "$TOOLS/bin/kind" ]
+  [ ! -e "$TOOLS/mise/data/installs/aqua-kubernetes-sigs-kind/0.33.0" ]
+}
+
+@test "naming two mise tools installs only those two" {
+  : > "$PROJ/tools/pins.tsv"
+  tools bash "$PROJ/scripts/tools.sh" --dry-run install helm4 kubeconform
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"mise install --locked helm4 aqua:yannh/kubeconform"$'\n'* ]]
+  [[ "$output" != *"yq"* && "$output" != *"node"* && "$output" != *"kind"* ]]
 }

@@ -1,10 +1,11 @@
 """Helm is pinned: every job that runs it installs the checksum-verified `helm4` row of
-tools/pins.tsv, never a Helm container image or whatever Helm the runner carries."""
+mise.toml (and its lock), never a Helm container image or whatever Helm the runner carries."""
 
 from __future__ import annotations
 
 import re
 
+from tests.supply_chain._pins import lock_entry, pin
 from tests.supply_chain._workflows import REPO, WORKFLOWS, load
 
 # A helm command line: `helm <subcommand>` at the start of a command.
@@ -47,13 +48,10 @@ def test_every_job_that_runs_helm_installs_the_pinned_binary() -> None:
 
 
 def test_the_helm_pins_are_exact_versions_with_a_checksum() -> None:
-    rows = [
-        ln.split("\t")
-        for ln in (REPO / "tools" / "pins.tsv").read_text(encoding="utf-8").splitlines()
-        if ln.startswith("helm")
-    ]
-    assert {r[0] for r in rows} >= {"helm3", "helm4"}
-    for name, version, _plat, url, sha in rows:
+    for name in ("helm3", "helm4"):
+        version = pin(name)
         assert re.fullmatch(r"\d+\.\d+\.\d+", version), name
-        assert f"v{version}" in url, name
-        assert re.fullmatch(r"[0-9a-f]{64}", sha), name
+        for platform in ("linux-x64", "macos-arm64"):
+            locked = lock_entry(name, platform)
+            assert f"v{version}" in locked["url"], name
+            assert re.fullmatch(r"sha256:[0-9a-f]{64}", locked["checksum"]), name

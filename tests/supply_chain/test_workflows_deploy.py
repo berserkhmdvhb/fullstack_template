@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
+from tests.supply_chain._pins import lock_entry, pin
 from tests.supply_chain._workflows import (
     ACTIONS,
     REPO,
@@ -464,13 +465,9 @@ def test_every_deploy_and_ops_job_installs_helm_and_kubectl_from_the_pins() -> N
         assert job["steps"].index(install) < next(
             i for i, s in enumerate(job["steps"]) if s.get("uses") == COMPOSITE
         )
-    pins = {
-        ln.split("\t")[0]: ln.split("\t")
-        for ln in (REPO / "tools/pins.tsv").read_text().splitlines()
-        if ln and ln[0] != "#"
-    }
-    assert pins["kubectl"][3].startswith("https://dl.k8s.io/release/v")
-    assert len(pins["kubectl"][4]) == SHA256_HEX_LENGTH
+    locked = lock_entry("kubectl")
+    assert locked["url"].startswith("https://dl.k8s.io/v")
+    assert len(locked["checksum"].removeprefix("sha256:")) == SHA256_HEX_LENGTH
 
 
 def test_ops_shares_the_deploy_lock_of_its_environment() -> None:
@@ -542,10 +539,8 @@ def test_the_deploy_jobs_install_the_pinned_helm_4_before_any_helm_call() -> Non
     each deploy job installs it, first on PATH, instead of a runner's preinstalled Helm."""
     pins = (REPO / "tools" / "pins.tsv").read_text(encoding="utf-8")
     assert re.search(r"^#default-helm: 4$", pins, re.MULTILINE)
-    row = re.search(
-        r"^helm4\t(4\.\d+\.\d+)\tlinux-amd64\t(\S+)\t([0-9a-f]{64})$", pins, re.MULTILINE
-    )
-    assert row, "no helm4 4.x row with a sha256 in tools/pins.tsv"
+    assert re.fullmatch(r"4\.\d+\.\d+", pin("helm4")), "helm4 is not a 4.x pin in mise.toml"
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", lock_entry("helm4")["checksum"])
     for name in DEPLOY_JOBS:
         steps = _jobs()[name]["steps"]
         runs = [s.get("run", "") for s in steps]

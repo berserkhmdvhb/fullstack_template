@@ -37,7 +37,7 @@ def test_the_build_is_read_only_uncached_and_strict() -> None:
     assert "continue-on-error" not in job
     node = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/setup-node@"))
     assert node["with"]["package-manager-cache"] is False
-    assert "tools/pins.tsv" in _step_by_id(job, "pin")["run"]
+    assert "mise.toml" in _step_by_id(job, "pin")["run"]
     assert _step(job, "Install the site dependencies")["run"] == "npm ci --ignore-scripts"
     names = [s.get("name") for s in job["steps"]]
     assert names.index("Resolver unit tests") < names.index("Build the site")
@@ -101,6 +101,8 @@ def test_the_gate_lets_docs_site_skip_on_a_pull_request_only() -> None:
         ("CONTRIBUTING.md", True),
         ("CONVENTIONS.md", True),
         ("tools/pins.tsv", True),
+        ("mise.toml", True),
+        ("mise.lock", True),
         (".github/workflows/docs-site.yml", True),
         ("scripts/ci/retry.sh", True),
         ("src/your_service_name/main.py", False),
@@ -125,7 +127,7 @@ def test_the_deploy_runs_from_main_only_never_on_a_pull_request() -> None:
     assert set(doc["on"]) == {"push", "workflow_dispatch"}
     assert doc["on"]["push"]["branches"] == ["main"]
     paths = set(doc["on"]["push"]["paths"])
-    assert {"docs-site/**", "wiki/**", "CONTRIBUTING.md", "tools/pins.tsv"} <= paths
+    assert {"docs-site/**", "wiki/**", "CONTRIBUTING.md", "mise.toml", "mise.lock"} <= paths
     assert {".github/workflows/docs-site.yml", ".github/workflows/reusable-docs-site.yml"} <= paths
     assert doc["permissions"] == {}
     assert doc["concurrency"]["cancel-in-progress"] is False

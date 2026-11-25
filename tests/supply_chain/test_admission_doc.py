@@ -1,22 +1,13 @@
-"""The versions `wiki/admission-control.md` states must equal tools/pins.tsv."""
+"""The versions `wiki/admission-control.md` states must equal mise.toml."""
 
 from __future__ import annotations
 
 import re
 
-import pytest
-
+from tests.supply_chain._pins import pin
 from tests.supply_chain._workflows import REPO
 
 DOC = (REPO / "wiki" / "admission-control.md").read_text(encoding="utf-8")
-
-
-def pin(tool: str) -> str:
-    for line in (REPO / "tools" / "pins.tsv").read_text(encoding="utf-8").splitlines():
-        cols = line.split("\t")
-        if cols[0] == tool:
-            return cols[1]
-    pytest.fail(f"{tool} is not in tools/pins.tsv")
 
 
 def table_version(label: str) -> str:

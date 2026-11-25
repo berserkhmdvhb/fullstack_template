@@ -294,7 +294,7 @@ def test_fork_safety() -> None:
 def test_setup_frontend_reads_the_node_pin() -> None:
     action = load(ACTIONS / "setup-frontend" / "action.yml")
     text = (ACTIONS / "setup-frontend" / "action.yml").read_text(encoding="utf-8")
-    assert "tools/pins.tsv" in text
+    assert "mise.toml" in text
     assert "frontend/package-lock.json" in text
     assert "npm ci" in text
     assert action["description"]

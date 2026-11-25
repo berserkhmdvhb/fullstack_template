@@ -46,6 +46,39 @@ def _load() -> ModuleType:
 
 
 pr = _load()
+PRODUCTION_SOURCES = dict(pr.SOURCES)
+# The rows that moved to mise leave these checksum sources unused. The kinds stay for a row that has
+# to come back to tools/pins.tsv (a tool mise cannot verify as well): each kind keeps a sample row.
+SAMPLE_SOURCES = {
+    "helm4": ("sumfile", "{url}.sha256sum", "https://get.helm.sh/"),
+    "kubectl": ("hashfile", "{url}.sha256", "https://dl.k8s.io/release/"),
+    "kind": ("sumfile", "{url}.sha256sum", "https://github.com/kubernetes-sigs/kind/releases/download/"),
+    "promtool": ("sumfile", "{dir}/sha256sums.txt", "https://github.com/prometheus/prometheus/releases/download/"),
+    "yq": ("yq-columns", "{dir}/checksums", "https://github.com/mikefarah/yq/releases/download/"),
+    "bats": ("archive", "", "https://github.com/bats-core/bats-core/archive/refs/tags/"),
+    "squawk": ("gh-digest", "", "https://github.com/sbdchd/squawk/releases/download/"),
+    "node": ("sumfile", "https://nodejs.org/dist/v{ver}/SHASUMS256.txt", "https://nodejs.org/dist/"),
+    "uv": ("hashfile", "{url}.sha256", "https://github.com/astral-sh/uv/releases/download/"),
+    "cosign": ("sumfile", "{dir}/cosign_checksums.txt", "https://github.com/sigstore/cosign/releases/download/"),
+    "shellcheck": ("gh-digest", "", "https://github.com/koalaman/shellcheck/releases/download/"),
+    "lychee": ("hashfile", "{url}.sha256", "https://github.com/lycheeverse/lychee/releases/download/"),
+    "gitleaks": ("sumfile", "{dir}/gitleaks_{ver}_checksums.txt", "https://github.com/gitleaks/gitleaks/releases/download/"),
+    "hadolint": ("sumfile", "{dir}/checksums.sha256", "https://github.com/hadolint/hadolint/releases/download/"),
+    "oasdiff": ("sumfile", "{dir}/checksums.txt", "https://github.com/oasdiff/oasdiff/releases/download/"),
+    "kyverno": ("sumfile", "{dir}/checksums.txt", "https://github.com/kyverno/kyverno/releases/download/"),
+    "ct": ("sumfile", "{dir}/checksums.txt", "https://github.com/helm/chart-testing/releases/download/"),
+    "actionlint": ("sumfile", "{dir}/actionlint_{ver}_checksums.txt", "https://github.com/rhysd/actionlint/releases/download/"),
+    "kubeconform": ("sumfile", "{dir}/CHECKSUMS", "https://github.com/yannh/kubeconform/releases/download/"),
+    "helm-unittest": ("sumfile", "{dir}/helm-unittest-checksum.sha", "https://github.com/helm-unittest/helm-unittest/releases/download/"),
+    "helm3": ("sumfile", "{url}.sha256sum", "https://get.helm.sh/"),
+    "kubectl-floor": ("hashfile", "{url}.sha256", "https://dl.k8s.io/release/"),
+}  # fmt: skip
+
+
+@pytest.fixture(autouse=True)
+def _sample_sources(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name, source in SAMPLE_SOURCES.items():
+        monkeypatch.setitem(pr.SOURCES, name, source)
 
 
 def rows() -> list[list[str]]:
@@ -82,7 +115,9 @@ def test_uv_rows_have_a_lock_pinning_the_version(row: list[str]) -> None:
 
 def test_the_source_mapping_covers_every_pinned_tool_and_nothing_else() -> None:
     pinned = {r[0] for r in rows()}
-    assert pinned == set(pr.SOURCES), "a pin with no checksum source (or a stale source entry)"
+    assert pinned == set(PRODUCTION_SOURCES), (
+        "a pin with no checksum source (or a stale source entry)"
+    )
 
 
 def test_config_versions_are_well_formed_and_mapped() -> None:
@@ -338,6 +373,8 @@ def test_the_drift_job_is_blocking_and_filtered_on_pull_requests() -> None:
     pattern = next(m for m in re.findall(r"grep -Eq '([^']+)'", run) if "pins" in m)
     for path in (
         "tools/pins.tsv",
+        "mise.toml",
+        "mise.lock",
         "tools/requirements/zizmor.txt",
         "infra/security/config.yaml",
         "scripts/pins-refresh.sh",
@@ -1005,3 +1042,109 @@ def test_with_a_base_only_changed_crd_rows_are_checked(
     old = old.replace("1.7.0", "1.6.3")
     assert pr.main(["--check", "--base", "origin-sha"]) == 1
     assert seen
+
+
+# --- mise.toml and mise.lock: the lock must follow the config, for both platforms ---
+
+MISE_TOML = ROOT / "mise.toml"
+MISE_LOCK = ROOT / "mise.lock"
+
+
+def _mise_files(tmp_path: Path, config: str, lock: str) -> None:
+    (tmp_path / "mise.toml").write_text(config)
+    (tmp_path / "mise.lock").write_text(lock)
+
+
+def test_the_real_lock_follows_the_real_config() -> None:
+    assert pr.mise_problems(MISE_TOML.read_text(), MISE_LOCK.read_text()) == []
+
+
+def test_a_bump_in_mise_toml_without_its_lock_is_a_problem() -> None:
+    config = MISE_TOML.read_text().replace(
+        '"aqua:kubernetes-sigs/kind" = "0.33.0"', '"aqua:kubernetes-sigs/kind" = "0.34.0"'
+    )
+    found = pr.mise_problems(config, MISE_LOCK.read_text())
+    assert found == ["aqua:kubernetes-sigs/kind: mise.toml pins 0.34.0, mise.lock has 0.33.0"]
+
+
+def test_a_lock_entry_missing_a_platform_checksum_or_a_stale_entry_is_a_problem() -> None:
+    lock = MISE_LOCK.read_text()
+    no_mac = re.sub(
+        r'(\[tools\.helm4\."platforms\.macos-arm64"\]\n)checksum = "[^"]*"\n', r"\1", lock
+    )
+    assert no_mac != lock
+    assert pr.mise_problems(MISE_TOML.read_text(), no_mac) == [
+        "helm4: no sha256 for macos-arm64 in mise.lock"
+    ]
+    config = MISE_TOML.read_text().replace('"aqua:kubernetes-sigs/kind" = "0.33.0"\n', "")
+    assert pr.mise_problems(config, lock) == [
+        "aqua:kubernetes-sigs/kind: in mise.lock, not in mise.toml"
+    ]
+
+
+def test_check_names_a_lock_that_lags_the_config_and_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = MISE_TOML.read_text().replace(
+        '"aqua:kubernetes-sigs/kind" = "0.33.0"', '"aqua:kubernetes-sigs/kind" = "0.34.0"'
+    )
+    _mise_files(tmp_path, config, MISE_LOCK.read_text())
+    monkeypatch.setattr(pr, "MISE_TOML", tmp_path / "mise.toml")
+    monkeypatch.setattr(pr, "MISE_LOCK", tmp_path / "mise.lock")
+    _env(monkeypatch, tmp_path, _scratch(tmp_path, "a" * 64))
+    ran: list[list[str]] = []
+
+    def record(platforms: list[str]) -> bool:
+        ran.append(platforms)
+        return True
+
+    monkeypatch.setattr(pr, "mise_lock", record)
+    assert pr.main(["--check"]) == 1
+    assert (
+        "DRIFT mise.lock: aqua:kubernetes-sigs/kind: mise.toml pins 0.34.0"
+        in capsys.readouterr().out
+    )
+    assert ran == []
+
+
+def test_refresh_runs_mise_lock_for_both_platforms_only_when_the_lock_lags(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = MISE_TOML.read_text().replace(
+        '"aqua:kubernetes-sigs/kind" = "0.33.0"', '"aqua:kubernetes-sigs/kind" = "0.34.0"'
+    )
+    _mise_files(tmp_path, config, MISE_LOCK.read_text())
+    monkeypatch.setattr(pr, "MISE_TOML", tmp_path / "mise.toml")
+    monkeypatch.setattr(pr, "MISE_LOCK", tmp_path / "mise.lock")
+    _env(monkeypatch, tmp_path, _scratch(tmp_path, "a" * 64))
+    sums = "https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz.sha256sum"
+    _stub(monkeypatch, {sums: f"{'a' * 64}  helm-v4.3.2-linux-amd64.tar.gz\n".encode()})
+    ran: list[list[str]] = []
+
+    def lock(platforms: list[str]) -> bool:
+        ran.append(platforms)
+        (tmp_path / "mise.lock").write_text(
+            MISE_LOCK.read_text().replace('version = "0.33.0"', 'version = "0.34.0"')
+        )
+        return True
+
+    monkeypatch.setattr(pr, "mise_lock", lock)
+    assert pr.main([]) == 0
+    assert ran == [["linux-x64", "macos-arm64"]]
+    assert "UPDATED mise.lock" in capsys.readouterr().out
+    assert pr.main([]) == 0  # in step now: nothing more to lock
+    assert len(ran) == 1
+
+
+def test_refresh_fails_when_mise_lock_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = MISE_TOML.read_text().replace(
+        '"aqua:kubernetes-sigs/kind" = "0.33.0"', '"aqua:kubernetes-sigs/kind" = "0.34.0"'
+    )
+    _mise_files(tmp_path, config, MISE_LOCK.read_text())
+    monkeypatch.setattr(pr, "MISE_TOML", tmp_path / "mise.toml")
+    monkeypatch.setattr(pr, "MISE_LOCK", tmp_path / "mise.lock")
+    _env(monkeypatch, tmp_path, _scratch(tmp_path, "a" * 64))
+    monkeypatch.setattr(pr, "mise_lock", lambda _platforms: False)
+    assert pr.main([]) == 1

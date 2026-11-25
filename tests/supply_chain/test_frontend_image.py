@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.supply_chain._pins import pin as pinned
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 DOCKERFILE = (ROOT / "Dockerfile.frontend").read_text(encoding="utf-8")
 FROM = re.compile(r"^FROM (\S+) AS ([\w-]+)$", re.MULTILINE)
@@ -24,8 +26,7 @@ def _stage_text(name: str) -> str:
 
 
 def _pinned_node_version() -> str:
-    rows = (ROOT / "tools/pins.tsv").read_text(encoding="utf-8").splitlines()
-    return next(r.split("\t")[1] for r in rows if r.startswith("node\t"))
+    return pinned("node")
 
 
 def test_the_builder_node_is_the_pinned_node_version() -> None:
@@ -58,7 +59,7 @@ def test_the_version_files_and_engines_follow_the_pin() -> None:
 
 def test_package_manager_is_the_npm_bundled_with_the_pinned_node() -> None:
     pin = _pinned_node_version()
-    meta = ROOT / f".tools/opt/node-{pin}/node-v{pin}-linux-x64/lib/node_modules/npm/package.json"
+    meta = ROOT / f".tools/mise/data/installs/node/{pin}/lib/node_modules/npm/package.json"
     if not meta.is_file():
         pytest.skip("the pinned Node is not installed in .tools (make tools)")
     bundled = json.loads(meta.read_text(encoding="utf-8"))["version"]

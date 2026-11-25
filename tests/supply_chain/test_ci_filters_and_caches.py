@@ -64,3 +64,16 @@ def test_jobs_that_save_a_tools_cache_use_distinct_keys_per_tool_set() -> None:
 
 def test_every_actions_dir_is_still_scanned() -> None:
     assert list(ACTIONS.glob("*/action.yml"))
+
+
+def test_every_tool_cache_key_hashes_the_pins_the_mise_config_and_its_lock() -> None:
+    """A tool cache is only as good as its key: a bump in any of the three files must miss it."""
+    seen = 0
+    for path in all_files():
+        for key in re.findall(r"key: (tools-[^\n]+)", path.read_text(encoding="utf-8")):
+            seen += 1
+            files = re.search(r"hashFiles\(([^)]*)\)", key)
+            assert files, f"{path.name}: {key}"
+            for name in ("tools/pins.tsv", "mise.toml", "mise.lock"):
+                assert f"'{name}'" in files[1], f"{path.name}: {key} lacks {name}"
+    assert seen >= 4  # noqa: PLR2004 (ci.yml twice, reusable-backend twice)

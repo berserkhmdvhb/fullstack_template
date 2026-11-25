@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import yaml
 
+from tests.supply_chain._pins import pin
 from tests.supply_chain._workflows import REPO, workflow
 
 CONF = ".github/ct-lintconf.yaml"
@@ -20,12 +21,8 @@ def test_the_config_is_tracked_and_says_where_it_came_from() -> None:
     first = (REPO / CONF).read_text(encoding="utf-8").splitlines()[0]
     assert first.startswith("# ")
     assert "chart-testing" in first
-    pin = next(
-        ln.split("\t")[1]
-        for ln in (REPO / "tools" / "pins.tsv").read_text(encoding="utf-8").splitlines()
-        if ln.startswith("ct\t")
-    )
-    assert pin in first, "re-copy the config when the ct pin moves"
+    ct = pin("ct")
+    assert ct in first, "re-copy the config when the ct pin moves"
 
 
 def test_the_chart_job_runs_ct_lint_with_it() -> None:
@@ -55,12 +52,8 @@ def test_the_chart_schema_is_tracked_and_matches_the_ct_pin() -> None:
     first = (REPO / SCHEMA).read_text(encoding="utf-8").splitlines()[0]
     assert first.startswith("# ")
     assert "chart_schema.yaml" in first
-    pin = next(
-        ln.split("\t")[1]
-        for ln in (REPO / "tools" / "pins.tsv").read_text(encoding="utf-8").splitlines()
-        if ln.startswith("ct\t")
-    )
-    assert pin in first
+    ct = pin("ct")
+    assert ct in first
 
 
 def test_ct_lint_validates_the_chart_schema() -> None:

@@ -1,13 +1,16 @@
-"""mise.toml: settings only. Only the aqua, github and core backends are on, nothing runs code
-(no tasks, no hooks, no env templates), the lockfile is on and installs are locked to the two
-platforms we support."""
+"""mise.toml and mise.lock: the developer toolchain. Only the aqua, github and core backends are
+on, nothing runs code (no tasks, no hooks, no env templates), the lockfile is on, installs are
+locked to the two platforms we support, and every tool the mapping moves has a checksum for each."""
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
 import pytest
+
+from tests.supply_chain._pins import listing
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG = tomllib.loads((ROOT / "mise.toml").read_text())
@@ -30,7 +33,15 @@ def test_every_backend_but_the_allowed_ones_is_disabled() -> None:
 
 def test_the_tools_and_aliases_name_only_allowed_backends() -> None:
     aliased = [v for v in CONFIG.get("tool_alias", {}).values() if isinstance(v, str)]
-    specs = [*CONFIG.get("tools", {}), *aliased]
+    # A tool table may also name its backend: `"name" = { version = "1", backend = "aqua:x/y" }`.
+    options = [
+        v["backend"]
+        for v in CONFIG.get("tools", {}).values()
+        if isinstance(v, dict) and "backend" in v
+    ]
+    # An alias name stands for the backend its alias value names, which is checked as well.
+    names = [k for k in CONFIG.get("tools", {}) if k not in CONFIG.get("tool_alias", {})]
+    specs = [*names, *aliased, *options]
     for spec in specs:
         # A bare name resolves through the registry, which could pick any backend: not allowed.
         assert backend_of(spec) in ALLOWED, spec
@@ -62,3 +73,50 @@ def test_the_download_checks_stay_on() -> None:
         assert SETTINGS[name] is True, name
     for name in ("cosign", "minisign", "slsa", "github_attestations"):
         assert SETTINGS["aqua"][name] is True, name
+
+
+# The 22 rows the mapping moves; the rest of tools/pins.tsv stays (mise itself, Python, the six uv
+# tools, the two data rows).
+MOVED = {
+    "node", "uv", "helm3", "helm4", "kubectl", "kubectl-floor", "kind", "kubeconform", "promtool",
+    "ct", "helm-unittest", "actionlint", "hadolint", "gitleaks", "squawk", "oasdiff", "cosign",
+    "kyverno", "yq", "bats", "shellcheck", "lychee",
+}  # fmt: skip
+LOCK = tomllib.loads((ROOT / "mise.lock").read_text())
+
+
+def test_every_moved_tool_resolves_from_mise_toml_and_not_from_the_pins_file() -> None:
+    pins = {
+        ln.split("\t")[0]
+        for ln in (ROOT / "tools/pins.tsv").read_text().splitlines()
+        if ln[:1] != "#" and ln
+    }
+    assert not MOVED & pins
+    seen = listing()
+    for name in MOVED:
+        version, key = seen[name]
+        assert key, name
+        assert key in CONFIG["tools"], name
+        assert version, name
+
+
+def test_every_lock_entry_has_a_checksum_for_both_platforms_and_the_pinned_version() -> None:
+    assert len(LOCK["tools"]) == len(CONFIG["tools"])
+    for key, entries in LOCK["tools"].items():
+        assert len(entries) == 1, key
+        entry = entries[0]
+        for platform in ("linux-x64", "macos-arm64"):
+            locked = entry[f"platforms.{platform}"]
+            assert re.fullmatch(r"sha256:[0-9a-f]{64}", locked["checksum"]), (key, platform)
+            assert locked["url"].startswith("https://"), (key, platform)
+        # node is locked under its short name; the config spells its backend.
+        wanted = CONFIG["tools"].get(key, CONFIG["tools"].get(f"core:{key}"))
+        assert entry["version"] == (wanted["version"] if isinstance(wanted, dict) else wanted), key
+
+
+def test_the_helm_unittest_binary_keeps_the_name_its_plugin_yaml_runs() -> None:
+    """mise strips the platform from the name of a lone binary (untt-linux-amd64 -> untt), which
+    plugin.yaml does not know: each locked platform names the file it ships."""
+    table = CONFIG["tools"]["github:helm-unittest/helm-unittest"]["platforms"]
+    assert table["linux-x64"]["rename_exe"] == "untt-linux-amd64"
+    assert table["macos-arm64"]["rename_exe"] == "untt-macos-arm64"

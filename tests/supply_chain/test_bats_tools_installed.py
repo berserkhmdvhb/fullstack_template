@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.supply_chain._pins import listing
 from tests.supply_chain._workflows import REPO, workflow
 
 # Tools the bats tests mention but never run for real; each needs a reason.
@@ -37,8 +38,7 @@ _SCRIPT_REF = re.compile(r"(?:scripts|infra)/[\w/.-]+\.sh")
 
 
 def pinned_tools() -> set[str]:
-    rows = (REPO / "tools" / "pins.tsv").read_text(encoding="utf-8").splitlines()
-    return {r.split("\t")[0] for r in rows if r.strip() and not r.startswith("#")}
+    return set(listing())
 
 
 def _code(path: Path) -> str:

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # -----------------------------------------------------------------------------
-# yq-pin.bats — scripts/_yq.sh's pinned_yq: the yq on PATH must be the version tools/pins.tsv pins.
+# yq-pin.bats — scripts/_yq.sh's pinned_yq: the yq on PATH must be the version mise.toml pins.
 # -----------------------------------------------------------------------------
 
 bats_require_minimum_version 1.5.0
@@ -9,7 +9,7 @@ setup() {
   ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   B="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$B"
-  PIN="$(awk -F'\t' '$1 == "yq" {print $2}' "$ROOT/tools/pins.tsv")"
+  PIN="$(awk -F'"' '$2 == "aqua:mikefarah/yq" {print $4}' "$ROOT/mise.toml")"
 }
 
 stub_yq() { # the --version line it prints, and its exit status

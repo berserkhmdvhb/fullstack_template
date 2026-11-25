@@ -17,6 +17,7 @@ from typing import Any, cast
 
 import yaml
 
+from tests.supply_chain._pins import pin
 from tests.supply_chain._workflows import REPO, workflow
 
 POLICIES = REPO / "deploy" / "policies"
@@ -254,9 +255,7 @@ def test_the_kind_kyverno_images_come_from_ghcr_io_by_digest() -> None:
 
 
 def test_the_kind_kyverno_is_the_pinned_release_by_digest_with_admission_only() -> None:
-    text = (REPO / "tools" / "pins.tsv").read_text(encoding="utf-8")
-    rows = {r.split("\t")[0]: r.split("\t") for r in text.splitlines() if "\t" in r}
-    cli, chart = rows["kyverno"][1], rows["kyverno-chart"][1]
+    cli, chart = pin("kyverno"), pin("kyverno-chart")
     assert chart.startswith("3.")  # the chart's own line (3.10.x is Kyverno 1.20.x)
     values = load(KIND_VALUES)
     admission = values["admissionController"]

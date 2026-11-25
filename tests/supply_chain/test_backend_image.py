@@ -5,6 +5,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.supply_chain._pins import pin
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 DOCKERFILE = (ROOT / "Dockerfile.backend").read_text(encoding="utf-8")
 UV_COPY = re.compile(
@@ -13,8 +15,7 @@ UV_COPY = re.compile(
 
 
 def _pinned_uv_version() -> str:
-    rows = (ROOT / "tools/pins.tsv").read_text(encoding="utf-8").splitlines()
-    return next(r.split("\t")[1] for r in rows if r.startswith("uv\t"))
+    return pin("uv")
 
 
 def test_the_uv_image_tag_is_the_pinned_uv_version_and_a_digest() -> None:
