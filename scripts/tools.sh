@@ -203,13 +203,18 @@ verify() { # file sha256
   [[ "$got" == "$2" ]] || die "checksum mismatch for $NAME $VER: expected $2, got $got; refusing to install"
 }
 
-# Interpreter for scripts/safe_extract.py: a system python3 >= 3.12, else the uv-managed one.
+# Interpreter for scripts/safe_extract.py: a system python3 >= 3.12, else the uv-managed one, else an older python3
+# (3.9 is macOS's stock one: safe_extract.py does its own checks without tarfile's data filter, which that Python
+# lacks), so the first `make tools` on a bare Mac needs no Python installed first.
 safe_python() {
   if python3 -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null; then
     command -v python3
+  elif uv python find --managed-python "$(pin_version python)" 2>/dev/null; then
+    :
+  elif python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+    command -v python3
   else
-    uv python find --managed-python "$(pin_version python)" 2>/dev/null \
-      || die "$NAME: needs python >= 3.12 (system python3 too old; run 'scripts/tools.sh install python')"
+    die "$NAME: needs python3 >= 3.9"
   fi
 }
 

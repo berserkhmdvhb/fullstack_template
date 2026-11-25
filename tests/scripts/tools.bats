@@ -274,3 +274,39 @@ PY
   [[ "$output" == *"reinstalling"* ]]
   [ "$("$TOOLS/bin/kind")" = "fake kind" ]
 }
+
+# A stock macOS python3 (3.9) first on PATH and no uv yet: the mise archive, the installed trees and the links all go
+# through safe_extract.py on that python3, which has no tarfile data filter and does its own checks. The fake
+# python3 reports the version it is told to and runs the real one, logging each script it runs.
+old_python3() { # the version it reports: "3.9" or "3.8"
+  mkdir -p "$BATS_TEST_TMPDIR/fakebin"
+  cat > "$BATS_TEST_TMPDIR/fakebin/python3" <<PY
+#!/bin/sh
+case "\$*" in
+  *"(3, 12)"*) exit 1 ;;
+  *"(3, 9)"*) exit $([ "$1" = 3.8 ] && echo 1 || echo 0) ;;
+esac
+case "\$*" in *safe_extract.py*) echo "\$*" >> "$BATS_TEST_TMPDIR/python3.log" ;; esac
+exec "$(command -v python3)" "\$@"
+PY
+  chmod +x "$BATS_TEST_TMPDIR/fakebin/python3"
+}
+
+@test "python3 older than 3.12 and no uv: the install completes, checking each tree with that python3" {
+  fixture_project
+  old_python3 3.9
+  tools env PATH="$BATS_TEST_TMPDIR/fakebin:$PATH" bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -eq 0 ]
+  grep -q -- '--check' "$BATS_TEST_TMPDIR/python3.log"
+  grep -q 'mise.tar.gz' "$BATS_TEST_TMPDIR/python3.log"
+  [ "$("$TOOLS/bin/kind")" = "fake kind" ]
+}
+
+@test "a python3 older than 3.9 and no uv: refused before anything is linked" {
+  fixture_project
+  old_python3 3.8
+  tools env PATH="$BATS_TEST_TMPDIR/fakebin:$PATH" bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"needs python3 >= 3.9"* ]]
+  [ ! -e "$TOOLS/bin/kind" ]
+}

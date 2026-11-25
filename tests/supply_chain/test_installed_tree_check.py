@@ -5,11 +5,18 @@ directory) and refuses any other path, whatever it is. Offline, on fixture trees
 
 from __future__ import annotations
 
+import importlib.util
+import io
 import os
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
+from types import ModuleType
 
+import pytest
+
+EXECUTABLE = 0o755  # the mode a setuid 0o4777 file ends with
 SCRIPT = Path(__file__).resolve().parent.parent.parent / "scripts/safe_extract.py"
 
 
@@ -183,3 +190,96 @@ def test_a_removal_that_fails_is_reported_with_the_path_and_a_non_zero_exit(tmp_
         assert "could not remove" in r.stderr, r.stderr
     finally:
         locked.chmod(0o755)
+
+
+# --- Python without tarfile's data filter (macOS ships 3.9): the same rules, written out ---
+
+
+def _module() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("safe_extract_under_test", SCRIPT)
+    assert spec
+    assert spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _archive(path: Path, *members: tarfile.TarInfo) -> Path:
+    with tarfile.open(path, "w:gz") as tf:
+        for member in members:
+            tf.addfile(member, io.BytesIO(b"x") if member.isreg() else None)
+    return path
+
+
+def _member(name: str, kind: bytes = tarfile.REGTYPE, **attrs: object) -> tarfile.TarInfo:
+    info = tarfile.TarInfo(name)
+    info.type = kind
+    info.size = 1 if kind == tarfile.REGTYPE else 0
+    info.mode = 0o755
+    for key, value in attrs.items():
+        setattr(info, key, value)
+    return info
+
+
+@pytest.fixture
+def legacy(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """safe_extract.py as an older Python runs it: no data_filter, and rmtree's old callback."""
+    monkeypatch.delattr(tarfile, "data_filter", raising=False)
+    monkeypatch.setattr(sys, "version_info", (3, 9, 6, "final", 0))
+    return _module()
+
+
+def _extract(module: ModuleType, archive: Path, dest: Path) -> int:
+    return int(module.main(["safe_extract.py", str(archive), str(dest)]))
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+def test_the_legacy_filter_extracts_a_clean_archive_and_strips_setuid_and_write_bits(
+    legacy: ModuleType, tmp_path: Path
+) -> None:
+    archive = _archive(
+        tmp_path / "a.tgz",
+        _member("tool", tarfile.DIRTYPE),
+        _member("tool/run", mode=0o4777),
+        _member("tool/link", tarfile.SYMTYPE, linkname="run"),
+        _member("tool/hard", tarfile.LNKTYPE, linkname="tool/run"),
+    )
+    dest = tmp_path / "out"
+    assert _extract(legacy, archive, dest) == 0
+    assert (dest / "tool/link").is_symlink()
+    assert (dest / "tool/run").stat().st_mode & 0o7777 == EXECUTABLE
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        _member("../escape"),
+        _member("a/../../escape"),
+        _member("/etc/escape"),
+        _member("tool/out", tarfile.SYMTYPE, linkname="/etc"),
+        _member("tool/up", tarfile.SYMTYPE, linkname="../../.."),
+        _member("tool/hard", tarfile.LNKTYPE, linkname="../outside"),
+        _member("tool/fifo", tarfile.FIFOTYPE),
+        _member("tool/dev", tarfile.CHRTYPE),
+    ],
+    ids=lambda m: f"{m.name}-{m.type!r}",
+)
+def test_the_legacy_filter_refuses_what_the_data_filter_refuses(
+    legacy: ModuleType, tmp_path: Path, bad: tarfile.TarInfo
+) -> None:
+    dest = tmp_path / "out"
+    assert _extract(legacy, _archive(tmp_path / "a.tgz", bad), dest) == 1
+    assert not (tmp_path / "escape").exists()
+    assert not dest.exists() or not any(dest.rglob("*"))
+
+
+def test_the_checks_and_the_removal_work_without_the_new_rmtree_callback(
+    legacy: ModuleType, tmp_path: Path
+) -> None:
+    root = tree(tmp_path)
+    (root / "bin/out").symlink_to("/etc")
+    assert legacy.check_installed(str(tmp_path), [str(root)]) == 1
+    assert not root.exists()
+    other = tree(tmp_path, "other/1.0.0")
+    assert legacy.check_installed(str(tmp_path), [str(other)], remove_only=True) == 0
+    assert not other.exists()
