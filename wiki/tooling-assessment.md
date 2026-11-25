@@ -7,8 +7,10 @@
 > alternatives are today, and a verdict per layer.
 >
 > **Verdict:** the template is at current practice on most layers. Three gaps are worth closing now, none of which
-> changes how an adopter works: the frontend's lockfile has no release-age floor, the distroless base images' signatures
-> are never verified, and the secrets docs contradict each other (with one dead install URL). Three swaps are the
+> changes how an adopter installs, builds or deploys: the frontend's lockfile has no release-age floor (with one, `npm ci`
+> still installs the lock as it is, tried on the assessment date; only adding a package younger than seven days needs
+> the existing exemption flag), the distroless base images' signatures are never verified, and the secrets docs
+> contradict each other (with one dead install URL). Three swaps are the
 > maintainers' decision: pnpm for npm, External Secrets with Secret Manager as the production default, and prek for
 > pre-commit. The recommendation is to take the second and hold the other two.
 
@@ -38,25 +40,28 @@ download against the lock. The `uv-lock` hook runs `uv lock --check --offline`. 
 [ADR-0015](./adr/0015-uv-for-python.md).
 
 **Alternatives.** Poetry 2.5.2 (2026-11-21) and PDM 2.29.7 (2026-11-06) are maintained, lock with hashes, and Poetry
-now has a release-age setting (`solver.min-release-age`). uv is at 0.13.10 (2026-11-24); the pinned 0.13.8 is
-correct under the seven-day rule.
+now has a release-age setting (`solver.min-release-age`). uv itself releases often (0.13.10 on 2026-11-24); its pin
+is in `mise.toml` and moves with Renovate under the seven-day rule.
 
 **Verdict: keep.** uv already does everything the alternatives do here, and more that the template uses: a relative
 release-age span stored in the lock (`exclude-newer`, "Accepts ... a 'friendly' duration (e.g., 24 hours, 1 week,
 30 days)"), hashed build dependencies, and a frozen install in the image. Nothing would get stronger by switching.
 
-**Watch.** uv's settings reference now has a `[tool.uv.audit]` table, with an optional `malware-check` during sync
-against `https://api.osv.dev/` (default `false`). It is left off: it would make every `uv sync` call the network, and
-the malicious-package check already runs in CI (OSV-Scanner, [Supply-chain tooling
-assessment](./supply-chain-tooling-assessment.md)).
+**Watch (the maintainers' call).** uv's settings reference now has a `[tool.uv.audit]` table, with an optional
+`malware-check` during sync against `https://api.osv.dev/` (default `false`). It stays off: it would make every
+`uv sync` call the network (the tests and the image build are offline from the lock), and the malicious-package check
+already runs in CI (OSV-Scanner, [Supply-chain tooling assessment](./supply-chain-tooling-assessment.md)). What would
+reopen it: OSV-Scanner stops covering PyPI's `MAL-*` entries, or uv's audit can replace pip-audit (which the
+supply-chain assessment keeps because OSV-Scanner does not read `pyproject.toml`). Either is a scanner change, made
+the way that page describes.
 
 ## 2. The frontend's and the docs site's packages: npm and `package-lock.json`
 
 **Today.**
 
-- npm 11.20.0, pinned as `packageManager` in [`frontend/package.json`](../frontend/package.json) and
-  [`docs-site/package.json`](../docs-site/package.json). It is the npm that Node 26.13.1 (the pinned Node, an LTS
-  release) bundles, per nodejs.org's release index.
+- npm, pinned as `packageManager` in [`frontend/package.json`](../frontend/package.json) and
+  [`docs-site/package.json`](../docs-site/package.json). On the assessment date it is the npm that the pinned Node
+  ([`mise.toml`](../mise.toml), an LTS release) bundles, per nodejs.org's release index.
 - Both projects lock with `lockfileVersion: 3`. Every `resolved` URL in both lockfiles points at
   `registry.npmjs.org`: no git and no tarball-URL dependencies.
 - Every install is `npm ci --ignore-scripts`: CI, the kind tests, both image builds and the documented local install.
@@ -70,8 +75,12 @@ assessment](./supply-chain-tooling-assessment.md)).
 
 **What npm offers now** (npm config reference, v11):
 
-- `min-release-age`: "only versions that were available more than the given number of days ago will be installed".
-- `allow-git` and `allow-remote`: they limit git and tarball-URL dependencies. Both default to `"all"` in npm 11.
+- `min-release-age` (added in npm 11.10.0): "If set, npm will build the npm tree such that only versions that were
+  available more than the given number of days ago will be installed. If there are no versions available for the
+  current set of dependencies, the command will error." `min-release-age-exclude` came in 11.17.0.
+- `allow-git` (added in 11.10.0) and `allow-remote` (added in 11.14.0, per npm's changelog): they limit git and
+  tarball-URL dependencies. Both default to `"all"` in npm 11. An older npm warns on them as unknown keys; the pinned
+  npm knows both (`npm config ls -l` lists them, and an install with them set prints no warning).
 - `allowScripts` in `package.json`: the per-project install-script policy.
 
 npm 12.0.0 (2026-07-08) goes further. Its release notes: "Dependency lifecycle scripts are now blocked by default
@@ -83,13 +92,13 @@ No Node LTS bundles npm 12 yet; the 11.x line still gets releases (11.21.3, 2026
 | Manager | Version (date) | Install scripts | Release age | Other controls |
 |---|---|---|---|---|
 | pnpm | 12.23.0 (2026-11-22) | `strictDepBuilds` default `true`: an install fails on any unreviewed build script; `allowBuilds` lists the decisions | `minimumReleaseAge`, default 1440 minutes (one day), transitive included | `blockExoticSubdeps` default `true` (only direct dependencies may come from git or a URL); `trustPolicy: no-downgrade` (opt-in) fails when a package's trust evidence drops, for example from trusted publishing to none |
-| Yarn (Berry) | 4.19.0 (2026-11-21) | `enableScripts` default `false` | `npmMinimalAgeGate` | Plug'n'Play by default, a bigger change for Next.js tooling |
+| Yarn (Berry) | 4.19.0 (2026-11-21) | `enableScripts` default `false` | `npmMinimalAgeGate` | (not assessed further) |
 | Bun | 1.4.5 (2026-11-24) | `trustedDependencies` | `minimumReleaseAge`, default disabled | a different runtime as well as a manager |
 
 npm's config reference has no counterpart to pnpm's `trustPolicy`.
 
 **Verdict: keep npm; adopt now** the two settings that close the gap with npm alone, in
-`frontend/.npmrc` (new) and `docs-site/.npmrc`:
+a new `.npmrc` in `frontend/`, and in `docs-site/.npmrc`:
 
 ```ini
 min-release-age=7
@@ -97,9 +106,26 @@ allow-git=none
 allow-remote=none
 ```
 
-This is the docs site's rule, extended to the frontend, plus npm 12's defaults brought forward. Neither lockfile has
-a git or URL dependency, so no install changes. It holds the frontend's transitive dependencies to the same seven
-days as everything else, and blocks the exotic sources pnpm blocks by default.
+This is the docs site's rule, extended to the frontend, plus npm 12's defaults brought forward. It holds the
+frontend's transitive dependencies to the same seven days as everything else, and blocks the exotic sources pnpm
+blocks by default.
+
+**What the setting does to each install** (tried on 2026-11-25 with the pinned npm, in a scratch project whose lock
+held a dependency published less than five days earlier, `undici-types` 8.13.1, and an `.npmrc` with the three lines above):
+
+| Command | Result |
+|---|---|
+| `npm ci --ignore-scripts` | installs the locked version, exit 0: `npm ci` follows the lock and does not apply the window |
+| `npm install --ignore-scripts` with the lock in place | keeps the locked version |
+| `npm install undici-types@8.13.1 --ignore-scripts` | refused, exit 1: `ETARGET`, "No matching version found for undici-types@8.13.1 with a date before ..." |
+| the same with `--min-release-age-exclude=undici-types` | installs it, exit 0 |
+| `npm install undici-types@latest --ignore-scripts` | picks the newest version older than seven days (8.12.4) and rewrites the lock to it |
+
+So CI, the image builds and the documented local install (`npm ci`) do not change. What changes is the command that
+writes the lock: adding or bumping a package younger than seven days now needs the existing young-fix step
+(`--min-release-age-exclude=<package>`, [Security updates younger than 7
+days](./getting-started.md#security-updates-younger-than-7-days)), which then has to name the frontend as well as the
+docs site. Neither lockfile has a git or URL dependency, so `allow-git=none` and `allow-remote=none` change no install.
 
 **pnpm is the maintainers' decision** (section 11). The template already has the install-script control pnpm makes
 default (`--ignore-scripts` everywhere plus `allowScripts`). With the settings above, it also has the release age and
@@ -110,8 +136,7 @@ failures on any new build script.
 
 **Today.** One chart, [`charts/your-service-name`](../charts/your-service-name), with one values file per environment
 (`values.dev.yaml`, `values.qa.yaml`, `values.production.yaml`, `values.preview.yaml`, `values.local.yaml`) over
-`values.yaml`. [`values.schema.json`](../charts/your-service-name/values.schema.json) (JSON Schema draft-07, 69
-`additionalProperties` rules) makes Helm refuse an unknown key or a wrong type on every `lint`, `template` and
+`values.yaml`. [`values.schema.json`](../charts/your-service-name/values.schema.json) (JSON Schema draft-07, closed objects) makes Helm refuse an unknown key or a wrong type on every `lint`, `template` and
 `install`. `templates/validate-values.yaml` refuses invalid combinations and placeholders, and CI runs `ct lint`,
 `helm lint`, helm-unittest, and kubeconform (strict, offline) over every environment's render
 ([`reusable-chart.yml`](../.github/workflows/reusable-chart.yml)).
@@ -200,8 +225,9 @@ hold what the cluster runs; GitHub holds who may deploy where.
 
 ## 6. The task runner: make
 
-**Today.** [`Makefile`](../Makefile) (789 lines, about 125 targets) is the front door. 145 tracked files name a
-`make` target, 8 of them under `.github/`.
+**Today.** The [`Makefile`](../Makefile) is the front door: the docs, the workflows and the hooks call its targets.
+Measured on the assessment date, 145 tracked files name a `make` target, 8 of them under `.github/`; that is the size
+of a switch.
 
 **Alternatives.**
 
@@ -210,15 +236,15 @@ hold what the cluster runs; GitHub holds who may deploy where.
 - mise tasks, ruled out by ADR-0043: `mise.toml` holds no tasks, so mise stays the toolchain and nothing else.
 
 **Verdict: keep.** make is already on every CI runner and in the devcontainer, so it needs no pin, and the targets
-are plain shell calls into scripts that CI runs too. A switch would rewrite those 145 files and every adopter's
+are plain shell calls into scripts that CI runs too. A switch would rewrite those files and every adopter's
 habits for no gain in security or reproducibility. A maintainer who wants nicer syntax should weigh it against that
 cost. It is not recommended.
 
 ## 7. Git hooks: pre-commit
 
-**Today.** pre-commit 4.7.0 (PyPI, 2026-10-12; first released 2014), installed into its own venv from hash-pinned
-requirements (`tools/requirements/pre-commit.txt`). [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) holds 11
-hooks, all `repo: local` with `language: system`: each calls the tool CI uses, nothing is fetched, and nothing needs
+**Today.** pre-commit (first released 2014; its pin is a row in [`tools/pins.tsv`](../tools/pins.tsv)), installed
+into its own venv from hash-pinned requirements (`tools/requirements/pre-commit.txt`). Every hook in
+[`.pre-commit-config.yaml`](../.pre-commit-config.yaml) is `repo: local` with `language: system`: each calls the tool CI uses, nothing is fetched, and nothing needs
 the network.
 
 **Alternatives.**
@@ -245,8 +271,9 @@ barely apply here. prek is not yet 1.0.
 [`.github/dependabot.yml`](../.github/dependabot.yml) is limited to security updates (`open-pull-requests-limit: 0`),
 with a 7-day cooldown.
 
-**Alternatives.** Renovate is at 44.262.2 (npm, 2026-11-25). Dependabot's list of supported ecosystems has no mise
-and no custom (regex) managers, so it cannot update `mise.toml`, `tools/pins.tsv`, `infra/security/config.yaml` or
+**Alternatives.** Renovate is at 44.262.2 (npm, 2026-11-25). Dependabot's `package-ecosystem` list (its supported
+ecosystems page and the `dependabot.yml` options reference, both rechecked on 2026-11-25) has no mise entry, and the
+options reference has no custom or regex manager, so it cannot update `mise.toml`, `tools/pins.tsv`, `infra/security/config.yaml` or
 the digests in values files.
 
 **Verdict: keep.** Renovate is the only one of the two that covers every pinned file here, and the split (Renovate for
@@ -259,8 +286,9 @@ versions, Dependabot for GitHub's security alerts) is already in place.
 - Each Dockerfile declares its runtime base once, by digest:
   - `gcr.io/distroless/python3-debian13` ([`Dockerfile.backend`](../Dockerfile.backend));
   - `gcr.io/distroless/nodejs26-debian13` ([`Dockerfile.frontend`](../Dockerfile.frontend));
-  - `envoyproxy/envoy:distroless-v1.39.6` with its index digest ([`Dockerfile.waf`](../Dockerfile.waf)).
-- The build stages use `debian:13-slim`, `node:26.13.1-trixie-slim` and the uv image, all by digest.
+  - Envoy's distroless image, by tag and index digest ([`Dockerfile.waf`](../Dockerfile.waf)).
+- The build stages use `debian:13-slim`, the Node image and the uv image, all by digest (the tags are in the
+  Dockerfiles).
 - Renovate's `docker:pinDigests` keeps the digests current; Envoy's tag has its own versioning rule.
 - A `debian-fixes` stage lays a Debian security fix over a base that has not shipped it yet
   ([Debian fixes](./containerization.md#debian-fixes-the-base-has-not-shipped-yet)).
@@ -297,25 +325,27 @@ out of mise. Noted only; not assessed.
 | Layer | Today | Verdict | Reason |
 |---|---|---|---|
 | Python packages | uv, `uv.lock` (hashes, `exclude-newer` 7 days, hashed build backend) | keep | Already the strongest option: frozen hashed installs and a release-age span in the lock |
-| Frontend and docs-site packages | npm 11.20.0, `package-lock.json`, `--ignore-scripts`, `allowScripts` | keep; adopt now: `.npmrc` release age and exotic-source block; pnpm: maintainers' decision | The frontend lock has no release-age floor; npm can close it without a switch |
+| Frontend and docs-site packages | npm, `package-lock.json`, `--ignore-scripts`, `allowScripts` | keep; adopt now: `.npmrc` release age and exotic-source block; pnpm: maintainers' decision | The frontend lock has no release-age floor; npm can close it without a switch |
 | Cluster configuration | Helm values per environment, `values.schema.json`, strict offline renders | keep | Schema-validated chart linted per environment; the typed alternatives are pre-1.0 |
 | Secrets | three exclusive sources; production uses `existingSecret` | keep; adopt now: consistent docs and the moved Sealed Secrets URL; ESO as production default: maintainers' decision | The shape is right; the docs disagree and one install URL is dead |
 | Deploy settings | GitHub environments, variables, OIDC Workload Identity | keep | Per-environment rules and no stored cloud key |
-| Task runner | make | keep | Preinstalled, plain, and a switch would touch 145 files for no security gain |
-| Git hooks | pre-commit 4.7.0, local system hooks | keep; prek: maintainers' decision | Local hooks leave prek little to improve; prek is pre-1.0 |
+| Task runner | make | keep | Preinstalled, plain, and a switch would touch every file that names a target, for no security gain |
+| Git hooks | pre-commit, local system hooks | keep; prek: maintainers' decision | Local hooks leave prek little to improve; prek is pre-1.0 |
 | Dependency updates | Renovate; Dependabot for security only | keep | The only updater that covers mise, the pin files and the values digests |
 | Base images | distroless and Debian by digest, Renovate, `debian-fixes` | keep; adopt now: verify the distroless signatures | The vendor signs them and asks users to verify; the template does not |
 | Scanners' installer | `infra/security/tools-install.sh` | frozen; noted | Out of scope |
 
-**Adopt now** (each a scoped change that leaves how an adopter works as it is):
+**Adopt now** (each a scoped change that leaves how an adopter installs, builds and deploys as it is):
 
-1. **The frontend's release age and the exotic-source block.** Add `frontend/.npmrc` with `min-release-age=7`,
+1. **The frontend's release age and the exotic-source block.** Add an `.npmrc` to `frontend/` with `min-release-age=7`,
    `allow-git=none` and `allow-remote=none`, and add the two `allow-*` lines to `docs-site/.npmrc`. Then:
    - extend the docs site's `.npmrc` test to both files;
    - make the young-fix step in [getting-started](./getting-started.md#security-updates-younger-than-7-days) and the
-     comment in `.github/dependabot.yml` cover the frontend.
+     comment in `.github/dependabot.yml` cover the frontend: adding or bumping a frontend package younger than seven
+     days then needs `--min-release-age-exclude=<package>`.
 
-   First prove that `npm ci --ignore-scripts` still passes on the current frontend lock.
+   `npm ci` installs the lock as it is (section 2), so CI, the images and the local install do not change; a run of
+   the frontend jobs on the change confirms it on the real lock.
 2. **Verify the distroless base signatures.** Add a script that takes every `gcr.io/distroless/...@sha256:` reference
    from the Dockerfiles and runs the pinned cosign with the vendor's identity and issuer. Call it in the image check
    job before the build. Add a test that the script finds every distroless reference and fails on a wrong identity,
@@ -340,7 +370,8 @@ out of mise. Noted only; not assessed.
    - two lockfiles regenerated (`pnpm-lock.yaml`), a pnpm pin in `mise.toml`, and `packageManager` in both projects;
    - [`Dockerfile.frontend`](../Dockerfile.frontend), the `setup-frontend` action and five workflows;
    - the install-scripts guard and its test rewritten for `allowBuilds`;
-   - 63 tracked files that name an npm command or the lockfile, 18 of them wiki pages.
+   - every tracked file that names an npm command or the lockfile (measured on the assessment date: 63, 18 of them
+     wiki pages).
 
    Revisit when a Node LTS bundles npm 12 (scripts blocked by default) or if npm stays without a trust-downgrade check.
 3. **prek instead of pre-commit.** Not recommended before prek 1.0. Cost:
@@ -359,10 +390,13 @@ All checked on 2026-11-25.
   `[tool.uv.audit] malware-check`).
 - Poetry: [PyPI](https://pypi.org/project/poetry/) (2.5.2, 2026-11-21); [configuration](https://python-poetry.org/docs/configuration/)
   (`solver.min-release-age`). PDM: [PyPI](https://pypi.org/project/pdm/) (2.29.7, 2026-11-06).
-- npm: registry (`npm view npm time`: 11.20.0 2026-09-22, 12.0.0 2026-07-08, 11.21.3 2026-11-18); [config
+- npm: registry (`npm view npm time`: 12.0.0 2026-07-08, 11.21.3 2026-11-18); [config
   reference v11](https://docs.npmjs.com/cli/v11/using-npm/config) (`min-release-age`, `allow-git`, `allow-remote`,
   `allow-scripts`); [v12.0.0 release notes](https://github.com/npm/cli/releases/tag/v12.0.0); [Node.js release
-  index](https://nodejs.org/dist/index.json) (v26.13.1, 2026-11-10, npm 11.20.0, LTS).
+  index](https://nodejs.org/dist/index.json) (the npm each release bundles; the newest npm in any LTS is an 11.x);
+  [npm 11 changelog](https://github.com/npm/cli/blob/release/v11/CHANGELOG.md) (`min-release-age` and `allow-git` in
+  11.10.0, `allow-remote` in 11.14.0, `min-release-age-exclude` in 11.17.0); the `npm ci` trial in section 2, with the
+  pinned npm and `undici-types` 8.13.1 (published 2026-11-20).
 - pnpm: registry (12.23.0, 2026-11-22); [build settings](https://pnpm.io/settings/build) (`strictDepBuilds`,
   `allowBuilds`); [dependency resolution settings](https://pnpm.io/settings/dependency-resolution)
   (`minimumReleaseAge`, `blockExoticSubdeps`, `trustPolicy`).
@@ -385,10 +419,11 @@ All checked on 2026-11-25.
   answers 200; `https://bitnami-labs.github.io/sealed-secrets/` answers 404).
 - GitHub: [deployments and environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments);
   [OpenID Connect](https://docs.github.com/en/actions/concepts/security/openid-connect); [Dependabot supported
-  ecosystems](https://docs.github.com/en/code-security/dependabot/ecosystems-supported-by-dependabot/supported-ecosystems-and-repositories).
+  ecosystems](https://docs.github.com/en/code-security/dependabot/ecosystems-supported-by-dependabot/supported-ecosystems-and-repositories)
+  and the [`dependabot.yml` options reference](https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file).
 - just [1.59.0](https://github.com/casey/just/releases/tag/1.59.0) and [README](https://github.com/casey/just); Task
   [v3.54.0](https://github.com/go-task/task/releases/tag/v3.54.0).
-- pre-commit: [PyPI](https://pypi.org/project/pre-commit/) (4.7.0, 2026-10-12); prek
+- pre-commit: [PyPI](https://pypi.org/project/pre-commit/) (first release 2014); prek
   [v0.5.11](https://github.com/j178/prek/releases/tag/v0.5.11), [README](https://github.com/j178/prek) and
   [PyPI](https://pypi.org/project/prek/) (first release 2025-08-08); hk [v2.14.0](https://github.com/jdx/hk/releases/tag/v2.14.0)
   and [docs](https://hk.jdx.dev/); lefthook [v2.2.3](https://github.com/evilmartians/lefthook/releases/tag/v2.2.3); the
