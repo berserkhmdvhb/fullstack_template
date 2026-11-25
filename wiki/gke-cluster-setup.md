@@ -627,7 +627,7 @@ if gcloud iam roles describe roles/container.clusterViewer --format='value(inclu
      | tr ';' '\n' | grep -qx container.clusters.connect; then
   export DEPLOYER_CLUSTER_ROLE="roles/container.clusterViewer"
 else
-  # Google changed the role: make one with exactly the two permissions a deployer needs to connect.
+  # Google changed the role: create one with exactly the two permissions a deployer needs to connect.
   gcloud iam roles create gkeDnsConnect --project="$PROJECT_ID" --title="GKE DNS endpoint connect" \
     --permissions=container.clusters.get,container.clusters.connect --stage=GA
   export DEPLOYER_CLUSTER_ROLE="projects/$PROJECT_ID/roles/gkeDnsConnect"
