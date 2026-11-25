@@ -439,10 +439,12 @@ def test_the_external_secrets_test_runs_on_the_newest_leg_after_the_shutdown_che
     assert "timeout-minutes" in step
     assert names.index(SHUTDOWN) < names.index(name) < names.index(ZAP)
     assert "tests/k8s/test_external_secrets.py" in _recipe("kind-external-secrets-test")
+    assert "tests/k8s/test_external_secrets_switch.py" in _recipe("kind-external-secrets-test")
     assert "external-secrets-chart" in _step("Install the pinned tools")["run"]
 
 
 ESO_TEST = REPO / "tests" / "k8s" / "test_external_secrets.py"
+ESO_SWITCH_TEST = REPO / "tests" / "k8s" / "test_external_secrets_switch.py"
 ESO_VALUES = REPO / "deploy" / "external-secrets" / "external-secrets-values.yaml"
 
 
@@ -454,11 +456,12 @@ def test_the_operator_processes_no_cluster_store_and_keeps_stores_out_of_edit_an
     assert values["rbac"] == {"aggregateToEdit": False, "aggregateToAdmin": False}
 
 
-def test_the_external_secrets_test_never_asserts_on_a_secret_value() -> None:
+@pytest.mark.parametrize("test_file", [ESO_TEST, ESO_SWITCH_TEST], ids=lambda p: p.name)
+def test_the_external_secrets_test_never_asserts_on_a_secret_value(test_file: Path) -> None:
     """pytest's assertion rewriting prints both sides of a failed comparison: a comparison that
     holds a secret value is computed first, and the assert takes the boolean."""
-    secret_names = {"values", "other_value", "secret_data", "password"}
-    tree = ast.parse(ESO_TEST.read_text(encoding="utf-8"))
+    secret_names = {"values", "other_value", "secret_data", "password", "BEFORE"}
+    tree = ast.parse(test_file.read_text(encoding="utf-8"))
     offending = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Assert) and isinstance(node.test, ast.Compare):

@@ -693,9 +693,10 @@ kind-tracing-redis-test:
 	$(PYTHON) -m pytest tests/k8s/test_tracing_redis.py -o addopts="" -v -s
 
 # After kind-deploy: tests/k8s/test_external_secrets.py, the pinned External Secrets Operator and an OpenBao
-# store on fst, with a release of its own whose app Secret it syncs (wiki/security.md, OpenBao).
+# store on fst, with a release of its own whose app Secret it syncs (wiki/security.md, OpenBao); then
+# tests/k8s/test_external_secrets_switch.py, the same release switched from the chart's own Secret to it.
 kind-external-secrets-test:
-	$(PYTHON) -m pytest tests/k8s/test_external_secrets.py -o addopts="" -v -s -x
+	$(PYTHON) -m pytest tests/k8s/test_external_secrets.py tests/k8s/test_external_secrets_switch.py -o addopts="" -v -s -x
 
 # After kind-deploy and the frontend's Playwright install: tests/k8s/test_csp_report.py (it runs
 # frontend/e2e/csp-report.spec.ts through scripts/ci/kind-forward.sh; wiki/security.md, CSP Violation Reports).

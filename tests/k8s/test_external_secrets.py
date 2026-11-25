@@ -32,6 +32,7 @@ import secrets
 import tempfile
 import time
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -275,10 +276,11 @@ class Setup:
         assert args, f"the release {MAIN_RELEASE} has no image values: run make kind-deploy first"
         return args
 
-    def deploy(self) -> None:
-        """helm upgrade --install as the deployer: values.local.yaml and the store values only."""
+    def deploy(self, values: dict[str, Any] | None = None, what: str = "the OpenBao store") -> None:
+        """helm upgrade --install as the deployer: values.local.yaml and the store values only (or
+        the given values, in a file of the temporary directory)."""
         store_values = self.work / "store.yaml"
-        store_values.write_text(yaml.safe_dump(STORE_VALUES))
+        store_values.write_text(yaml.safe_dump(STORE_VALUES if values is None else values))
         cmd = [
             *self.helm,
             "upgrade",
@@ -296,7 +298,7 @@ class Setup:
         started = time.time()
         out = _run(cmd)
         assert "forbidden" not in out.lower(), out
-        print(f"deploy with the OpenBao store: {time.time() - started:.0f}s")
+        print(f"deploy with {what}: {time.time() - started:.0f}s")
 
     def secret_data(self, kube: Kube, name: str) -> dict[str, str]:
         """A Secret's decoded data (compared, never printed)."""
@@ -317,8 +319,12 @@ class Setup:
         _run([*delete, "namespace", OPERATOR_NAMESPACE], check=False)
 
 
-@pytest.fixture(scope="module")
-def setup(request: pytest.FixtureRequest) -> Iterator[Setup]:
+@contextmanager
+def environment(
+    request: pytest.FixtureRequest, before: Callable[[Setup], None] | None = None
+) -> Iterator[Setup]:
+    """Everything set up and the release deployed with the store values; `before` runs first,
+    once the stores are Ready (test_external_secrets_switch.py deploys the chart's own Secret)."""
     assert KUBECONFIG.is_file(), f"no {KUBECONFIG}: run make kind-up kind-deploy first"
     with tempfile.TemporaryDirectory() as work:
         s = Setup(Path(work))
@@ -331,6 +337,8 @@ def setup(request: pytest.FixtureRequest) -> Iterator[Setup]:
             _run([*s.cluster_wide, "create", "namespace", OTHER])
             s.install_openbao()
             s.stores()
+            if before is not None:
+                before(s)
             s.deploy()
             yield s
         finally:
@@ -340,6 +348,12 @@ def setup(request: pytest.FixtureRequest) -> Iterator[Setup]:
                 logs = ["logs", "deployment/external-secrets", "--tail=100"]
                 print(Kube(OPERATOR_NAMESPACE)(*logs, check=False))
             s.remove(objects)
+
+
+@pytest.fixture(scope="module")
+def setup(request: pytest.FixtureRequest) -> Iterator[Setup]:
+    with environment(request) as s:
+        yield s
 
 
 def test_both_external_secrets_sync_from_the_environments_store(setup: Setup) -> None:
