@@ -302,3 +302,50 @@ def test_the_make_target_scan_reads_code_only_and_skips_placeholders() -> None:
     assert missing_targets({"test", "version-check-ruff", "nope"}, {"test", "version-check-%"}) == {
         "nope"
     }
+
+
+# `make develop` builds .venv on the pinned Python: `make tools`, or an install naming `python`,
+# puts it in place.
+_BLOCK = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+_DEVELOP = re.compile(r"(?:^|&&|;)\s*make develop\b")
+_PYTHON_INSTALL = re.compile(
+    r"(?:^|&&|;)\s*(?:make tools\b|scripts/tools\.sh install\b[^#\n;&]*\bpython\b)"
+)
+
+
+def develop_without_python(text: str) -> list[str]:
+    """Each documented `make develop` command line with no earlier command line in the same doc that
+    runs `make tools` or a `scripts/tools.sh install` naming `python`."""
+    found, ready = [], False
+    for block in _BLOCK.findall(text):
+        for line in block.replace("\\\n", " ").splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            code = line.split(" #", 1)[0]
+            if _DEVELOP.search(code) and not ready:
+                found.append(line.strip())
+            ready = ready or bool(_PYTHON_INSTALL.search(code))
+    return found
+
+
+def test_every_documented_make_develop_comes_after_the_pinned_python() -> None:
+    offenders = {
+        str(p.relative_to(ROOT)): calls
+        for p in _docs()
+        if p.name != "changelog.md" and (calls := develop_without_python(p.read_text("utf-8")))
+    }
+    assert offenders == {}
+
+
+@pytest.mark.parametrize(
+    ("text", "found"),
+    [
+        ("```bash\nscripts/tools.sh install uv node\nmake develop\n```\n", 1),
+        ("```bash\nscripts/tools.sh install uv python && export X=1\nmake develop\n```\n", 0),
+        ("```bash\nmake tools\n```\nprose\n```bash\nmake develop && source x\n```\n", 0),
+        ("```bash\nmake develop\nmake tools\n```\n", 1),
+        ("```bash\n# make tools\nscripts/tools.sh install uv  # python\nmake develop\n```\n", 1),
+    ],
+)
+def test_develop_without_python_reads_the_order(text: str, found: int) -> None:
+    assert len(develop_without_python(text)) == found

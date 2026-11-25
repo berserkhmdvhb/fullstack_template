@@ -474,6 +474,7 @@ kubectl -n your-service-name-<env> top pods
 ```bash
 # Backend
 make clean-all
+make tools      # installs what is missing; .venv is built on the pinned Python
 make develop
 alembic upgrade head
 

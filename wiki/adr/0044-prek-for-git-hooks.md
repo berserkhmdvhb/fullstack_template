@@ -12,7 +12,7 @@ Accepted. `aqua:j178/prek` is in `mise.toml` and `mise.lock`; `make precommit` a
 
 The hooks in [`.pre-commit-config.yaml`](../../.pre-commit-config.yaml) are all `repo: local` with `language: system`: each calls the tool CI uses, nothing is fetched and nothing needs the network. The runner was pre-commit, a Python program installed into its own virtual environment from hash-pinned requirements (a row in `tools/pins.tsv`). The [tooling assessment](../tooling-assessment.md#7-git-hooks-prek) left the choice to the maintainers.
 
-prek is a single Rust binary that reads the same configuration file name and the same hook definitions. Its [aqua registry recipe](https://github.com/aquaproj/aqua-registry/blob/main/pkgs/j178/prek/registry.yaml) names the release assets, a `.sha256` file beside each, and a GitHub artifact attestation, so mise locks and verifies it like the other tools in [ADR-0043](./0043-mise-for-the-developer-toolchain.md): a sha256 per platform in `mise.lock`, and the attestation checked when the lock is written and at every install.
+prek is a single Rust binary that reads the same configuration file name and the same hook definitions. Its [aqua registry recipe](https://github.com/aquaproj/aqua-registry/blob/main/pkgs/j178/prek/registry.yaml) names the release assets, a `.sha256` file beside each, and a GitHub artifact attestation, so mise locks and verifies it like the other tools in [ADR-0043](./0043-mise-for-the-developer-toolchain.md): a sha256 per platform in `mise.lock`, the attestation verified when the lock is written, and the locked sha256 checked at every install.
 
 ## Decision
 

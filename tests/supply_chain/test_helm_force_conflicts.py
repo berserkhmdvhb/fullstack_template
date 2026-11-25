@@ -166,3 +166,47 @@ def test_every_documented_upgrade_and_rollback_carries_both_flags() -> None:
 def test_doc_calls_join_continuations_and_skip_prose() -> None:
     text = "x `helm upgrade` y\n```bash\n# helm rollback a 1\nhelm upgrade r c \\\n  --wait\n```\n"
     assert [" ".join(c.split()) for c in doc_calls(text)] == ["helm upgrade r c --wait"]
+
+
+# A command in a comment: a `#` line that starts with it (continuations joined, an inline comment
+# after the backslash dropped), or one in backticks. A bare `helm upgrade`, or one mid-sentence, is
+# prose.
+COMMENT_CALL = re.compile(r"^(?:\S*/)?helm\s+(?:upgrade|rollback)\s+\S")
+INLINE_CALL = re.compile(r"`((?:\S*/)?helm\s+(?:upgrade|rollback)\s+[^`]+)`")
+
+
+def comment_calls(text: str) -> list[str]:
+    body = "\n".join(
+        re.sub(r"\\\s+#.*$", r"\\", m[1])
+        for m in re.finditer(r"^[ \t]*#[ \t]?(.*)$", text, re.MULTILINE)
+    )
+    joined = re.sub(r"\\\n\s*", " ", body)
+    lines = [" ".join(ln.split()) for ln in joined.splitlines()]
+    return [ln for ln in lines if COMMENT_CALL.match(ln)] + INLINE_CALL.findall(joined)
+
+
+def test_every_upgrade_in_an_example_or_a_chart_comment_carries_both_flags() -> None:
+    """The commands a values file's comments give (copied by hand) behave as the deploy does."""
+    files = _tracked("*.example", "charts/**")
+    seen = 0
+    for name in files:
+        for call in comment_calls((REPO / name).read_text(encoding="utf-8")):
+            seen += 1
+            for flag in FLAGS:
+                assert flag in call.split(), (name, call)
+    assert seen >= 3  # noqa: PLR2004 - values.yaml, values.secret and values.cluster examples
+
+
+def test_comment_calls_join_continuations_and_skip_prose() -> None:
+    text = (
+        "#   helm upgrade --install r c \\\n"
+        "#     -f a.yaml \\            # or qa\n"
+        "#     -n ns\n"
+        "# a later helm upgrade must not delete it; `helm rollback` is safe\n"
+        "# (`helm rollback r 1 --wait`)\n"
+        "x: 1  # not a comment line: helm upgrade r c\n"
+    )
+    assert comment_calls(text) == [
+        "helm upgrade --install r c -f a.yaml -n ns",
+        "helm rollback r 1 --wait",
+    ]

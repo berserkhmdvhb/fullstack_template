@@ -56,11 +56,17 @@ macOS arm64. It needs `bash`, `curl`, `tar`, a `python3` (3.9 is enough: macOS's
 executable, so nothing is extracted until uv has installed the pinned Python. It writes only inside the repository, never in your home directory.
 
 - **Where the versions are.** [`mise.toml`](../mise.toml) lists the tools and their versions.
-  [`mise.lock`](../mise.lock) holds, for each, the exact download url and its sha256 for both platforms, and a signature or attestation where the vendor publishes one. Installs run `mise install --locked`, so a
+  [`mise.lock`](../mise.lock) holds, for each, the exact download url and its sha256 for both platforms. A signature or
+  attestation, where the vendor publishes one, is verified when the lock is written; installs run `mise install --locked`
+  and check the locked sha256, so a
   changed byte in a download or in the lock refuses the install and links nothing; every installed tree is then
   checked for links out of it and setuid files. [`tools/pins.tsv`](../tools/pins.tsv) keeps what mise does not
   install: mise itself (the bootstrap, checksum-verified), Python and the four uv tools (hash-pinned requirements), and
   two data rows. [ADR-0043](./adr/0043-mise-for-the-developer-toolchain.md) says why.
+- **What writes to your home directory.** `make tools` writes nothing outside the repository. `make develop` (and
+  `make install`) writes uv's download cache, `~/.cache/uv`, and a bare `pnpm` writes its state, `~/.local/state/pnpm`.
+  Both are caches of their own tool, not configuration: nothing in them is read back unchecked (uv checks every
+  package against the hashes in `uv.lock`, pnpm against `pnpm-lock.yaml`), and deleting them only costs a download.
 - **Run mise through `scripts/tools.sh mise ...`**, for example `scripts/tools.sh mise ls` or
   `scripts/tools.sh mise doctor`. It runs the pinned mise with this repository's directories under `.tools/`, ignores
   your own mise configuration and any `MISE_*` or GitHub token in your environment. The bare `.tools/bin/mise` would
@@ -77,7 +83,10 @@ executable, so nothing is extracted until uv has installed the pinned Python. It
   the limit to reset if it stops, and do not use a personal token. Renovate runs it with its own token, and needs mise
   2026.7.12 or newer ([`renovate.json5`](../renovate.json5) says what else an adopter turns on).
 - **The check.** The `pins` job (and `make pins-refresh` without `--check`) fails when `mise.toml` names a version
-  `mise.lock` does not hold, or an entry lacks a sha256 for either platform; that part is offline. It also compares
+  `mise.lock` does not hold, an entry lacks a sha256 for either platform, or an entry's url is not under the vendor
+  origin its key implies (`MISE_ORIGINS` in [`scripts/pins_refresh.py`](../scripts/pins_refresh.py): the repository's
+  releases, `get.helm.sh`, `dl.k8s.io`, `nodejs.org`; a key with no rule fails), so a pull request that swaps a url
+  and its checksum together stays red; that part is offline. It also compares
   each `github:` tool's locked sha256 with the vendor's own checksum file where one exists. After a pull request that
   changes a tool's lock entry, the first `make tools` reinstalls that tool.
 
@@ -193,13 +202,14 @@ Secret, with per-environment values selected from `charts/your-service-name/valu
 
 ## Backend Setup
 
-### 1. Install uv
+### 1. Install uv and Python
 
-The backend is locked with [uv](https://docs.astral.sh/uv/). The pinned version is in `mise.toml`;
-`scripts/tools.sh install uv` installs it (checksum-verified) into `.tools/bin`.
+The backend is locked with [uv](https://docs.astral.sh/uv/). The pinned version is in `mise.toml`, and `.venv` is built
+on the pinned Python only (the `python` row of `tools/pins.tsv`). `scripts/tools.sh install uv python` installs both
+(checksum-verified) under `.tools/`; `make tools` installs them with every other tool.
 
 ```bash
-scripts/tools.sh install uv
+scripts/tools.sh install uv python
 export PATH="$PWD/.tools/bin:$PATH"
 ```
 

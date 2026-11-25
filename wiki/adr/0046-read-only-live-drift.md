@@ -49,8 +49,9 @@ weekly re-scan uses) with the live objects:
   `--server-side=true --force-conflicts`, so a hand edit (whose kubectl field manager now owns the field) is
   restored by the next deploy or rollback instead of failing it, and the check reports it before that.
 - Bad: a deploy does not remove an addition the chart doesn't set (an extra object, an added env var or ConfigMap
-  key). The check reports it as `added` or `extra` on every run until someone removes it by hand. The chart never sets a field another controller owns at runtime (no `replicas`
-  with the HPA on, no Secret External Secrets writes), so the deploy never fights one.
+  key). The check reports it as `added` or `extra` on every run until someone removes it by hand.
+- Good: the chart never sets a field another controller owns at runtime (no `replicas` with the HPA on, no Secret
+  External Secrets writes), so the deploy never fights one.
 - Bad: a fix made by hand during an incident lasts only until the next deploy; it must be made permanent in the
   values or the chart first.
 - Bad: a field the chart does not set is not compared (a label added by hand), except a ConfigMap's keys (compared

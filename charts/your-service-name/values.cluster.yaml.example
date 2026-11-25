@@ -23,10 +23,11 @@
 #   # edit values.<your-cluster>.yaml (fill the <ALL-CAPS> blanks)
 #   scripts/k8s-bootstrap.sh dev | kubectl apply -f -   # once, as a cluster admin: the namespaces
 #   helm upgrade --install your-service-name charts/your-service-name \
+#     --server-side=true --force-conflicts \
 #     -f charts/your-service-name/values.dev.yaml \            # or qa / production
 #     -f charts/your-service-name/values.<your-cluster>.yaml \
-#     -f charts/your-service-name/values.secret.yaml \          # DB password (gitignored)
 #     -n your-service-name-dev
+#   # the app Secret: External Secrets, from the store named in values.dev.yaml (wiki/gke-cluster-setup.md, §14)
 # =============================================================================
 
 # --- Images (registry-pull) -------------------------------------------------
