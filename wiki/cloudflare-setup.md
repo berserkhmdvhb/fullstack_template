@@ -16,7 +16,7 @@ Every step ends with a **Check**. Don't move on until it passes.
 |---|---|
 | Time | 45 to 75 minutes. DNSSEC can take up to a day to go active, but nothing else waits on it. |
 | Cost | the domain, about $10 to $20 a year depending on the TLD, sold at cost. Everything else here is on Cloudflare's free tiers. |
-| You need | a Cloudflare account, the GKE cluster from the previous guide, and `curl`, `dig` and `openssl` |
+| You need | a Cloudflare account, the GKE cluster from the previous guide, and `curl`, `dig`, `openssl`, `jq`, and Docker with buildx |
 | Written | 2026-11-20; checked against Cloudflare's docs on 2026-11-25. Dashboard menus move around, so if a path has changed, search the dashboard for the setting's name. |
 
 ## Contents
@@ -100,10 +100,12 @@ Decide these now. The rest of the guide uses them.
 | `<domain>`, `www.<domain>` | your public site | at publish |
 | `preview.<domain>` | your site's previews, behind Access | now |
 | `hello.<domain>` | a temporary test service for this guide | deleted at the end of section 9 |
-| `app-dev.<domain>`, `api-dev.<domain>` | the template app's dev environment, behind Access | when the pipeline deploys it |
+| `dev.<domain>`, `dev-app.<domain>`, `dev-api.<domain>`; `qa.<domain>`, `qa-app.<domain>`, `qa-api.<domain>`; `<SERVICE_NAME>.<domain>`, `app.<domain>`, `api.<domain>` | the template app's dev, qa and production environments: the root, app and api hosts of `edge.hosts` in each environment's values. Dev and qa stay behind Access; production is public when you publish | when the pipeline deploys it |
 | `<service>-pr-<N>.<preview-zone>` (and `-api`, `-app`) | optional pull request previews of the template app, behind Access | only if you turn previews on ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews)) |
 
 Your site's `preview.<domain>` and the app's pull request previews are different things. The app's previews need one hostname per pull request, each one label under a zone: the free Universal SSL certificate covers `<zone>` and `*.<zone>`, never a second level such as `*.preview.<domain>`.
+
+Each hostname is one tunnel route (8.4) and, while it is not public, one Access application (9).
 
 Buying the domain now just reserves the name. Pointing the apex at a live site is the publish step.
 
@@ -561,7 +563,8 @@ Use a zone of its own for previews (a second domain, with the section 6 baseline
 **Check,** once a preview is deployed:
 
 ```bash
-P="<service>-pr-<N>.$PREVIEW_DOMAIN"
+export PREVIEW_DOMAIN="your-preview-domain.example"   # the previews' zone
+P="<SERVICE_NAME>-pr-<N>.$PREVIEW_DOMAIN"
 curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "https://$P"
 # → 302 https://<team>.cloudflareaccess.com/...   (anonymous visitors go to the login)
 read -rs CF_ACCESS_CLIENT_ID && read -rs CF_ACCESS_CLIENT_SECRET
@@ -732,7 +735,7 @@ These are list prices from 2026; check Cloudflare's pricing pages.
 | Tunnel Pods `CreateContainerConfigError` | the `tunnel-token` Secret is missing or named differently | `kubectl -n cloudflared get secret tunnel-token` and recreate it as in 8.3 |
 | Pods Running but the tunnel is **Down**, with `Unauthorized` in the logs | wrong or rotated tunnel token | copy the token again from the dashboard and recreate the Secret |
 | Logs show connection timeouts on port 7844 | outbound traffic blocked | check Cloud NAT (GKE guide, section 6), and any egress NetworkPolicy in `cloudflared` |
-| `hello.<domain>` returns **502 Bad Gateway** | the tunnel can't reach the Service | check that the URL in the public hostname matches `<svc>.<namespace>.svc.cluster.local:<port>`, that the Pod is Ready, and that no NetworkPolicy in the target namespace blocks the `cloudflared` namespace |
+| `hello.<domain>` returns **502 Bad Gateway** | the tunnel can't reach the Service | check that the URL in the public hostname matches `<svc>.<namespace>.svc.cluster.local:<port>`, that the Pod is Ready, that the target namespace carries the label `tier=app-ns` (8.3's connector policy blocks any other), and that no NetworkPolicy in it blocks the `cloudflared` namespace |
 | **Error 1033** | no connector is online for that tunnel | `kubectl -n cloudflared get pods`; see the rows above |
 | **Error 1016**, origin DNS error | the hostname was routed before the tunnel existed, or to a deleted tunnel | delete and re-add the public hostname |
 | Too many redirects | the origin redirects to HTTPS while the tunnel speaks HTTP | point the route at the Service's HTTP port, and leave redirects to Cloudflare |
@@ -740,7 +743,7 @@ These are list prices from 2026; check Cloudflare's pricing pages.
 | Wrangler `403` / `Authentication error` | the token is missing a permission or the right zone | compare with 7.1; check the zone is selected under **Zone Resources** |
 | The r2.dev URL or a custom domain is on (section 12's privacy check) | the bucket has public access | **R2 → bucket → Settings:** disable the Public Development URL and remove any custom domain |
 | A preview's smoke test lands on a login page | the service token's policy is **Allow**, not **Service Auth** | change the `preview-smoke` policy's action to **Service Auth** (9.2) |
-| A preview returns 502 | the internal Gateway's address changed, or the connector's egress policy to it is missing | rerun [GKE 12.5](./gke-cluster-setup.md#125-optional-pull-request-previews)'s last step and update the route (9.2) |
+| A preview returns 502 | the internal Gateway's address changed, the connector's egress policy to it is missing, or the preview namespace lacks the `tier: preview-app` label | rerun [GKE 12.5](./gke-cluster-setup.md#125-optional-pull-request-previews)'s last step and update the route (9.2) |
 
 ## 16. What comes next
 

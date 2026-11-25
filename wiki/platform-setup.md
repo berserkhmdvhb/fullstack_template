@@ -27,7 +27,7 @@ The platform runs on three providers. This page says what each one is for, the o
 
 ## The order
 
-> **Do now** for rows 0 to 4. **After the first push** for rows 5 to 7.
+> **Do now** for rows 0 to 4. **After the first push** for rows 5 to 8.
 
 | Step | What | Where | Takes |
 |---|---|---|---|

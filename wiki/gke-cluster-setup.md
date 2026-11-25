@@ -402,7 +402,7 @@ kubectl delete namespace np-test
 
 Decide how traffic reaches the chart. The two modes:
 
-- **`tunnel`, this platform's choice.** Cloudflare Tunnel ([Cloudflare §8](./cloudflare-setup.md#8-cloudflare-tunnel-into-gke)): no load balancer and no public origin. Set `edge.mode: tunnel` in `charts/your-service-name/values.dev.yaml`, `values.qa.yaml` and `values.production.yaml`, with your hostnames (`edge.hosts`; [Infrastructure, Edge](./infrastructure.md#edge)). The chart's default is `gateway`, and a deploy that still names the placeholder Gateway is refused. Nothing else to do on GKE now: skip the rest of 9.4. (Pull request previews still use a Gateway, an internal one: [12.5](#125-optional-pull-request-previews).)
+- **`tunnel`, this platform's choice.** Cloudflare Tunnel ([Cloudflare §8](./cloudflare-setup.md#8-cloudflare-tunnel-into-gke)): no load balancer and no public origin. Set `edge.mode: tunnel` in `charts/your-service-name/values.dev.yaml`, `values.qa.yaml` and `values.production.yaml`, with your hostnames (`edge.hosts`; [Infrastructure, Edge](./infrastructure.md#edge)). The chart's default is `gateway`, and a deploy that still names the placeholder Gateway is refused. Nothing else to do on GKE now: skip the rest of 9.4. **Check:** `grep -H 'mode: tunnel' charts/your-service-name/values.{dev,qa,production}.yaml` prints three lines. (Pull request previews still use a Gateway, an internal one: [12.5](#125-optional-pull-request-previews).)
 - **`gateway`.** A public GKE Gateway: an external load balancer (about $18 to $20 a month, see [14](#14-costs-pausing-and-teardown)), a listener certificate you manage, and Cloudflare in front as a proxied DNS record ([Cloudflare §1](./cloudflare-setup.md#1-what-you-will-build)). Do the steps below at the platform rollout, after the bootstrap ([13.2](#132-the-namespaces-and-the-deployer-rbac-come-from-the-bootstrap)) has created the namespaces; the chart isn't deployed before then.
 
 The `gateway` steps:
@@ -772,7 +772,9 @@ Previews need, on Google Cloud, a deployer, a second provider, and an internal G
 
 4. **The internal Gateway,** after the preview bootstrap ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews), step 1) so the namespaces exist. Create the namespace `gateway-system` first if it doesn't exist.
 
-   ```yaml
+   ```bash
+   kubectl create namespace gateway-system --dry-run=client -o yaml | kubectl apply -f -
+   kubectl apply -f - <<'EOF'
    apiVersion: gateway.networking.k8s.io/v1
    kind: Gateway
    metadata:
@@ -789,6 +791,7 @@ Previews need, on Google Cloud, a deployer, a second provider, and an internal G
              from: Selector
              selector:
                matchLabels: {tier: preview-app}
+   EOF
    ```
 
    The selector is `tier: preview-app`, not `app-ns`: the preview namespaces carry that label (the bootstrap's `appTier` for previews). HTTP is right here: Cloudflare terminates TLS, and the hop from the connector to the Gateway stays inside the VPC, as the Tunnel's hop to a Service does. Then:
@@ -831,7 +834,7 @@ Previews need, on Google Cloud, a deployer, a second provider, and an internal G
    EOF
    ```
 
-   **Check:** `kubectl -n gateway-system get gateway preview-internal` shows `PROGRAMMED` `True` and an address from your subnet's range; `kubectl -n cloudflared get networkpolicy` lists `cloudflared-to-preview-gateway`.
+   **Check:** `kubectl -n gateway-system get gateway preview-internal` shows `PROGRAMMED` `True` and a private address, normally from `$SUBNET`'s range (`10.10.0.0/20`), never from the proxy-only subnet; `kubectl -n cloudflared get networkpolicy` lists `cloudflared-to-preview-gateway`.
 
 ## 13. The end-to-end check from GitHub
 
@@ -962,7 +965,12 @@ While paused you pay only for disks that still exist, and for the load balancer 
 
 Teardown deletes everything this guide created. Run it in this order:
 
-If you made a Gateway (9.4 or 12.5), delete it first, so GKE removes its load balancer: `kubectl delete gateway --all -n gateway-system`.
+If you made a Gateway (9.4 or 12.5), delete it first, so GKE removes its load balancer: `kubectl delete gateway --all -n gateway-system`. Then wait until the load balancer is gone:
+
+```bash
+gcloud compute forwarding-rules list --format='value(name)'
+# → nothing (rerun after a minute if a name is still listed)
+```
 
 ```bash
 gcloud container clusters delete "$CLUSTER" --location="$ZONE" --quiet
@@ -1025,7 +1033,7 @@ When rows 1 to 12 pass (leaving out optional row 9 if you skipped section 10), y
 
 ## 17. What comes next
 
-> **Planned changes.** The first item is already in the repository; the rest is not implemented yet.
+> **Planned changes.** 17.1 is a status table and 17.2 is a step of the platform rollout. The rest of 17.3 is not implemented yet, except the settings script, which is in the repository.
 
 ### 17.1 Before production: what is done and what is still open
 
@@ -1055,4 +1063,5 @@ This turns off the external IP endpoint and keeps the internal one, which the no
 - **Settings script and release App (in the repository):** [`scripts/github-settings.sh`](../scripts/github-settings.sh) replaces the hand steps of 11.2 and adds the `release` environment and the release GitHub App's tag ruleset ([GitHub repository settings](./github-repository-settings.md)).
 - **Domain, TLS and public traffic:** through Cloudflare. See [Cloudflare Setup](./cloudflare-setup.md): a Tunnel by default, so the cluster has no public load balancer. The alternative is a `Gateway` with a Google-managed certificate.
 - **The edge mode:** the template's default `edge.mode` is `gateway`. A platform that uses Cloudflare Tunnel sets `edge.mode: tunnel` in its own environment values (9.4; [Infrastructure, Edge](./infrastructure.md#edge)).
+- **Other services:** each packaged as a Helm chart and deployed to this same cluster.
 - **Infrastructure as code:** everything in this guide expressed in OpenTofu or Terraform, with state in a locked GCS bucket, so the cluster can be rebuilt from Git.
