@@ -930,6 +930,18 @@ for env in dev qa production; do
     "$(kubectl auth can-i list secrets -n "$ns" --as="$who")"
 done
 # → yes no no no no   (three times)
+
+# The database namespaces (dev and qa; production has none): the same, with the StatefulSet.
+for env in dev qa; do
+  who="gh-drift-$env@$PROJECT_ID.iam.gserviceaccount.com" ns="$SERVICE_NAME-$env-db"
+  echo "$env-db:" \
+    "$(kubectl auth can-i list statefulsets.apps -n "$ns" --as="$who")" \
+    "$(kubectl auth can-i patch statefulsets.apps -n "$ns" --as="$who")" \
+    "$(kubectl auth can-i delete configmaps -n "$ns" --as="$who")" \
+    "$(kubectl auth can-i get secrets -n "$ns" --as="$who")" \
+    "$(kubectl auth can-i list secrets -n "$ns" --as="$who")"
+done
+# → yes no no no no   (twice)
 ```
 
 #### 4. The GitHub environments and their variables
@@ -945,9 +957,14 @@ for env in dev qa production; do
     --body "projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-oidc-drift-$env"
   gh variable set DRIFT_SA --env "drift-$env" --repo "$GH_REPO" --body "gh-drift-$env@$PROJECT_ID.iam.gserviceaccount.com"
 done
+# Last, turn the check on (repository variable; until then the drift and report jobs never run, so a copy
+# that never sets it never references a drift-<env> environment):
+gh variable set DRIFT_ENABLED --repo "$GH_REPO" --body true
 ```
 
 **Check:** run **Actions → Live drift → Run workflow** from `main`. The run is green; each `Drift (<env>)` job logs in, and its summary lists the findings or says `no drift`, with what it didn't compare and why (Jobs, Helm hooks, Secrets). An environment you skipped says `skipped` and which variable is missing. Findings open or update one issue per environment, labelled `drift`.
+
+If a `Drift (<env>)` job's login is refused on the provider's attribute condition, remove `deployment: false` from the drift job's `environment:` in `drift.yml` (the jobs declare it so a drift run records no deployment). The run then records its deployments under `drift-<env>`, which no deployment lookup reads (the re-scan and the drift check ask for `dev`, `qa` and `production` by name), and the workflow's tests allow the change.
 
 ## 13. The end-to-end check from GitHub
 

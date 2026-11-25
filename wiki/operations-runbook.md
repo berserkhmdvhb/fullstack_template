@@ -142,9 +142,18 @@ A Pod that stays unready with `reason: schema_behind` or `schema_missing` is wai
 
 ### Hand edits and the next deploy
 
-**The deploy always wins over a hand edit.** Every upgrade and rollback the template runs passes `--force-conflicts`, so a `kubectl scale`, `kubectl set image`, `kubectl set env`, `kubectl edit` or `kubectl patch` of a field the chart sets is overwritten by the next deploy or rollback, never a reason for it to fail. The weekly [live-drift check](./ci-cd.md#live-drift) reports such an edit before that: one `drift` issue per environment, with each field's path.
+**The deploy always wins over a hand edit of a field the chart sets.** Every upgrade and rollback the template runs passes `--server-side=true --force-conflicts`, so a `kubectl scale`, `kubectl set image`, `kubectl set env`, `kubectl edit` or `kubectl patch` that changes or removes such a field, or deletes an object of the release, is restored by the next deploy or rollback, never a reason for it to fail. The weekly [live-drift check](./ci-cd.md#live-drift) reports the edit before that: one `drift` issue per environment, with each field's path.
 
-So a fix made by hand during an incident is temporary. To keep it, make it permanent in Git (the environment's `values.<env>.yaml`, or the chart) before the next deploy; otherwise that deploy reverts it. An object you created by hand is not Helm's: a deploy leaves it, and the drift check reports it while it carries the release's `app.kubernetes.io/instance` label.
+**A deploy does not remove an addition.** A field the chart doesn't set stays as you added it: an extra object, an added env var, an added ConfigMap key (which the app reads, through `envFrom`). The drift check reports each (`added`, `extra`) on every run until you remove it by hand:
+
+```bash
+kubectl -n your-service-name-<environment> set env deployment/your-service-name-backend NAME-   # an added env var
+kubectl -n your-service-name-<environment> patch configmap your-service-name-config --type json \
+  -p '[{"op": "remove", "path": "/data/KEY"}]'                                                  # an added key
+kubectl -n your-service-name-<environment> delete configmap <name>                              # an extra object
+```
+
+So a fix made by hand during an incident is temporary, or lingers where you didn't mean it to. To keep it, make it permanent in Git (the environment's `values.<env>.yaml`, or the chart) before the next deploy; otherwise that deploy reverts it, and an addition you no longer need must still be removed by hand.
 
 ## Scaling
 

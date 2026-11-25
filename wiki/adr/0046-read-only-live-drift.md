@@ -32,7 +32,8 @@ weekly re-scan uses) with the live objects:
 - The drift jobs declare their environment with `deployment: false`: its variables and branch policy, no
   deployment record, so a drift run never looks like a deploy to the lookups that read those records.
 - The identity is read-only: per environment, a GitHub environment `drift-<env>` with no required reviewers, a
-  Workload Identity provider that admits only `drift.yml` on `main` in that environment, a service account with only
+  Workload Identity provider that admits only `drift.yml` on `main` in that environment (the whole check is off until
+  the repository variable `DRIFT_ENABLED` is `true`, so a copy that never turns it on never references `drift-<env>`), a service account with only
   the cluster-connect role, and the bootstrap's `bootstrap-drift` Role in each namespace with `get` and `list` on
   exactly the kinds the chart renders there. It has no Secrets right at all (a `list` returns their data), so it
   never reads Helm's release records.
@@ -44,14 +45,20 @@ weekly re-scan uses) with the live objects:
 
 - Good: a hand edit is reported within a week, with where it is, by an identity that cannot change or read a secret.
 - Good: no controller runs in the cluster, and the deploy path stays the one that applies.
-- Good: the deploy always wins. Every Helm upgrade and rollback passes `--force-conflicts`, so a hand edit (whose
-  kubectl field manager now owns the field) is overwritten by the next deploy or rollback instead of failing it, and
-  the check reports it before that. The chart never sets a field another controller owns at runtime (no `replicas`
+- Good: the deploy always wins over a changed or removed field. Every Helm upgrade and rollback passes
+  `--server-side=true --force-conflicts`, so a hand edit (whose kubectl field manager now owns the field) is
+  restored by the next deploy or rollback instead of failing it, and the check reports it before that.
+- Bad: a deploy does not remove an addition the chart doesn't set (an extra object, an added env var or ConfigMap
+  key). The check reports it as `added` or `extra` on every run until someone removes it by hand. The chart never sets a field another controller owns at runtime (no `replicas`
   with the HPA on, no Secret External Secrets writes), so the deploy never fights one.
 - Bad: a fix made by hand during an incident lasts only until the next deploy; it must be made permanent in the
   values or the chart first.
-- Bad: a field the chart does not set (a label added by hand, a container a webhook injects into a list it does not
-  name) is not compared, and a Secret's content is not checked at all.
+- Bad: a field the chart does not set is not compared (a label added by hand), except a ConfigMap's keys (compared
+  whole: the app reads them all) and the items of a list matched by name (a container a webhook injects is reported).
+  A Secret's content is not checked at all.
+- The general rule for absent fields: a plain field the render sets to `false` or `0` comes back omitted, so its
+  absence is no change; a pointer field keeps `false` and `0`, so deleting one the render sets is reported. The check
+  names those pointer fields (the security settings among them) rather than guessing per field.
 - Bad: after a `deploy-ops.yml` rollback, or once a dev deploy's digest artifact has expired, the environment is not
   compared until the next deploy, and it says so.
 
