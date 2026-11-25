@@ -1069,7 +1069,12 @@ done
 ```bash
 env=dev   # or qa; production: see the second step
 # 1. The database. dev and qa: psql prompts for the new password twice (never on a command line).
-kubectl -n "$SERVICE_NAME-$env-db" exec -it "$SERVICE_NAME-postgresql-0" -c postgresql -- \
+#    The Pod by the StatefulSet's labels (release SERVICE_NAME, as the deploy names it), not by a
+#    guessed name: the chart's fullname is the release, or <release>-<chart> when the release
+#    name does not contain the chart's.
+pod="$(kubectl -n "$SERVICE_NAME-$env-db" get pods -o name \
+  -l "app.kubernetes.io/instance=$SERVICE_NAME,app.kubernetes.io/component=postgresql")"
+kubectl -n "$SERVICE_NAME-$env-db" exec -it "$pod" -c postgresql -- \
   psql -U app -d service_template -c '\password app'   # postgresql.auth.user and .database
 #    production: the Cloud SQL user, which prompts the same way:
 #    gcloud sql users set-password <user> --instance=<instance> --prompt-for-password

@@ -401,7 +401,8 @@ def _refused(kube: Kube, name: str, what: str) -> None:
     status, reason = _ready(kube.get("externalsecret", name))
     print(f"{what}: Ready={status} ({reason})")
     assert reason == "SecretSyncedError", reason
-    assert not kube.get("secret", name), f"the refused read of {what} still made a Secret"
+    made = bool(kube.get("secret", name))  # a boolean: a failed assert never prints the Secret
+    assert not made, f"the refused read of {what} still made a Secret"
     log = Kube(OPERATOR_NAMESPACE)("logs", "deployment/external-secrets", "--tail=1000")
     namespace = kube.base[-1]
     refused = [
@@ -457,4 +458,5 @@ def test_an_external_secret_naming_a_cluster_store_is_never_synced(setup: Setup)
     es = setup.other.get("externalsecret", "fst-via-cluster")
     print(f"an ExternalSecret naming a ClusterSecretStore: status {es.get('status', {})}")
     assert _ready(es)[0] != "True", es.get("status")
-    assert not setup.other.get("secret", "fst-via-cluster"), "a ClusterSecretStore was read"
+    made = bool(setup.other.get("secret", "fst-via-cluster"))
+    assert not made, "an ExternalSecret naming a ClusterSecretStore made its Secret"

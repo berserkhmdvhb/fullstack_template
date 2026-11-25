@@ -471,4 +471,39 @@ def test_the_external_secrets_test_never_asserts_on_a_secret_value() -> None:
             }
             if names & secret_names or subs & {"password", "DB_PASSWORD"}:
                 offending.append(node.lineno)
-    assert offending == [], f"asserts that would print a secret value, lines {offending}"
+    offending += _negated_objects(tree)
+    assert offending == [], f"asserts that would print a secret value, lines {sorted(offending)}"
+
+
+def _is_bool(node: ast.expr | None) -> bool:
+    """bool(...): a call whose result is a boolean, safe to assert on."""
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "bool"
+
+
+def _negated_objects(tree: ast.AST) -> list[int]:
+    """`assert not <call>` and `assert not <name bound to a call>`: on failure pytest prints the
+    object the call returned (a Secret's JSON, data and all). Only bool(...) is a safe operand."""
+    found = []
+    for func in ast.walk(tree):
+        if not isinstance(func, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        bound = {
+            t.id: n.value
+            for n in ast.walk(func)
+            if isinstance(n, ast.Assign)
+            for t in n.targets
+            if isinstance(t, ast.Name)
+        }
+        for node in ast.walk(func):
+            if not (
+                isinstance(node, ast.Assert)
+                and isinstance(node.test, ast.UnaryOp)
+                and isinstance(node.test.op, ast.Not)
+            ):
+                continue
+            operand = node.test.operand
+            if isinstance(operand, ast.Name):
+                operand = bound.get(operand.id, operand)
+            if isinstance(operand, ast.Call) and not _is_bool(operand):
+                found.append(node.lineno)
+    return found
