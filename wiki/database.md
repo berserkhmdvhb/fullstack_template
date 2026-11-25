@@ -572,7 +572,8 @@ externalDatabase:
   host: "<external-host>"          # the port is config.DB_PORT (the one source)
   name: service_template
   user: app
-  # password comes from an out-of-band secret (sealed-secrets / ESO / SOPS)
+  # the password is DB_PASSWORD of the app Secret, which the External Secrets Operator syncs
+  # (security.md, Secret sources)
 ```
 
 **Pros**: High availability, automated backups, managed scaling, security patches  

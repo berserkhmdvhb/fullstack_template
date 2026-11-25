@@ -146,7 +146,7 @@ Set the budget before you create anything that costs money.
 3. **Amount:** a specified amount, for example **$100 a month**.
 4. **Alerts:** at **50 %, 90 % and 100 %** of actual spend, plus **100 % of forecasted** spend. Email the billing admins, which is you.
 
-A budget alerts you; it doesn't stop spending. [Section 14](#15-costs-pausing-and-teardown) shows how to pause the cluster.
+A budget alerts you; it doesn't stop spending. [Section 15](#15-costs-pausing-and-teardown) shows how to pause the cluster.
 
 **Check:**
 
@@ -404,7 +404,7 @@ kubectl delete namespace np-test
 Decide how traffic reaches the chart. The two modes:
 
 - **`tunnel`, this platform's choice.** Cloudflare Tunnel ([Cloudflare §8](./cloudflare-setup.md#8-cloudflare-tunnel-into-gke)): no load balancer and no public origin. Set `edge.mode: tunnel` in `charts/your-service-name/values.dev.yaml`, `values.qa.yaml` and `values.production.yaml`, with your hostnames (`edge.hosts`; [Infrastructure, Edge](./infrastructure.md#edge)). The chart's default is `gateway`, and a deploy that still names the placeholder Gateway is refused. Nothing else to do on GKE now: skip the rest of 9.4. **Check:** `grep -H 'mode: tunnel' charts/your-service-name/values.{dev,qa,production}.yaml` prints three lines. (Pull request previews still use a Gateway, an internal one: [12.5](#125-optional-pull-request-previews).)
-- **`gateway`.** A public GKE Gateway: an external load balancer (about $18 to $20 a month, see [14](#15-costs-pausing-and-teardown)), a listener certificate you manage, and Cloudflare in front as a proxied DNS record ([Cloudflare §1](./cloudflare-setup.md#1-what-you-will-build)). Do the steps below at the platform rollout, after the bootstrap ([13.2](#132-the-namespaces-and-the-deployer-rbac-come-from-the-bootstrap)) has created the namespaces; the chart isn't deployed before then.
+- **`gateway`.** A public GKE Gateway: an external load balancer (about $18 to $20 a month, see [15](#15-costs-pausing-and-teardown)), a listener certificate you manage, and Cloudflare in front as a proxied DNS record ([Cloudflare §1](./cloudflare-setup.md#1-what-you-will-build)). Do the steps below at the platform rollout, after the bootstrap ([13.2](#132-the-namespaces-and-the-deployer-rbac-come-from-the-bootstrap)) has created the namespaces; the chart isn't deployed before then.
 
 The `gateway` steps:
 
@@ -957,7 +957,7 @@ In dev, qa and production the app's Secret (`DB_USER`, `DB_PASSWORD`, `STATS_PAS
 
 ### 14.1 Install the operator from its pinned chart
 
-The chart version and its checksum are pinned in `tools/pins.tsv` (`external-secrets-chart`); `scripts/tools.sh` downloads the chart, checks its sha256 and unpacks it, and installs a Helm of its own. Run it from your clone of the repository. The values ([`deploy/external-secrets/external-secrets-values.yaml`](../deploy/external-secrets/external-secrets-values.yaml)) pin the images by digest and keep the store kinds out of every namespace's `edit` and `admin` roles.
+The chart version and its checksum are pinned in `tools/pins.tsv` (`external-secrets-chart`); `scripts/tools.sh` downloads the chart, checks its sha256 and unpacks it, and installs a Helm of its own. Run it from your clone of the repository. The values ([`deploy/external-secrets/external-secrets-values.yaml`](../deploy/external-secrets/external-secrets-values.yaml)) pin the images by digest, keep the store kinds out of every namespace's `edit` and `admin` roles, and turn the `ClusterSecretStore` controller off (`processClusterStore: false`): the operator then skips any `ExternalSecret` that names a cluster-wide store, so a deployer can reach only its namespace's own store. The chart accepts `SecretStore` only.
 
 ```bash
 scripts/tools.sh install helm4 external-secrets-chart
@@ -1001,6 +1001,8 @@ for env in dev qa production; do grant "$SERVICE_NAME-$env" "$SERVICE_NAME-$env-
 for env in dev qa; do grant "$SERVICE_NAME-$env-db" "$SERVICE_NAME-$env-db-password"; done
 ```
 
+**The grant names a namespace, not a cluster.** The principal is in the project's one Workload Identity pool (`<PROJECT_ID>.svc.id.goog`), which every cluster of the project shares, so a namespace of the same name and its `external-secrets` service account in any cluster of this project get the same access ([GKE: identity sameness](https://cloud.google.com/kubernetes-engine/docs/concepts/workload-identity#identity_sameness)). With the one cluster of this guide that is exactly the five namespaces above. A second cluster in the same project (a production cluster of its own, 2.3) gets the grants for any of these names it creates: create only its own environment's namespaces there, and treat its admins as able to read those secrets; or put the second cluster in a project of its own, whose pool is separate.
+
 **Check:** five bindings, each with its namespace's title and a condition:
 
 ```bash
@@ -1028,24 +1030,31 @@ Then name the store in each environment's values: in `charts/your-service-name/v
 ```bash
 kubectl get secretstores --all-namespaces
 # → secret-manager in the five namespaces, STATUS Valid, READY True
-for env in dev qa production; do
-  as="gh-deployer-$env@$PROJECT_ID.iam.gserviceaccount.com"
-  echo "$env: $(kubectl auth can-i create externalsecrets.external-secrets.io -n "$SERVICE_NAME-$env" --as="$as")" \
-    "$(kubectl auth can-i create secretstores.external-secrets.io -n "$SERVICE_NAME-$env" --as="$as")"
+for ns in dev dev-db qa qa-db production; do
+  as="gh-deployer-${ns%-db}@$PROJECT_ID.iam.gserviceaccount.com"
+  echo "$ns: $(kubectl auth can-i create externalsecrets.external-secrets.io -n "$SERVICE_NAME-$ns" --as="$as")" \
+    "$(kubectl auth can-i create secretstores.external-secrets.io -n "$SERVICE_NAME-$ns" --as="$as")"
 done
-# → yes no   (three times; a first "no" means the bootstrap of 13.2 predates this section: re-run it)
+# → yes no   (five times). A first "no" in dev-db or qa-db means the bootstrap of 13.2 predates the
+#   database namespace's ExternalSecret right; in an app namespace, that it predates External Secrets.
+#   Either way, re-run the bootstrap of 13.2.
 ```
 
 ### 14.4 Create the secrets
 
-One secret per key and environment, named `<service>-<env>-<key>`: `db-user`, `db-password` and `stats-pass`. Each value is read without being shown and reaches `gcloud` on its standard input (`--data-file=-`), so it is never on a command line, in the shell history or on the screen. In production, `db-user` and `db-password` are the managed database's user and password ([Database](./database.md)); in dev and qa, choose a password: the in-cluster database is created with it.
+One secret per key and environment, named `<service>-<env>-<key>`: `db-user`, `db-password` and `stats-pass`. Each value is read without being shown and reaches `gcloud` on its standard input (`--data-file=-`), so it is never on a command line, in the shell history or on the screen. In production, `db-user` and `db-password` are the managed database's user and password ([Database](./database.md)). In dev and qa the in-cluster PostgreSQL is created with the user `postgresql.auth.user` of the chart's `values.yaml` (`app` unless you changed it) and the password `db-password`, so `db-user` must be that user name: the loop takes it from the chart, and asks only for the passwords (the user name is not secret).
 
 ```bash
 for env in dev qa production; do
   for key in db-user db-password stats-pass; do
     name="$SERVICE_NAME-$env-$key"
-    printf 'Value of %s (not shown): ' "$name"
-    IFS= read -rs value && echo
+    if [ "$key" = db-user ] && [ "$env" != production ]; then
+      value="$(awk '/^postgresql:/ {p = 1} p && /^    user:/ {print $2; exit}' charts/your-service-name/values.yaml)"
+      echo "$name: $value (postgresql.auth.user)"
+    else
+      printf 'Value of %s (not shown): ' "$name"
+      IFS= read -rs value && echo
+    fi
     printf '%s' "$value" | gcloud secrets create "$name" --replication-policy=user-managed \
       --locations="$REGION" --data-file=- --format=none
     unset value
@@ -1053,12 +1062,34 @@ for env in dev qa production; do
 done
 ```
 
-To change a value later, add a version the same way (`gcloud secrets versions add <name> --data-file=-`, after the same `read -rs`); the operator picks it up within the `refreshInterval` (1 hour), and the Pods read it when they next start.
+**To change `stats-pass`,** add a version the same way (`gcloud secrets versions add <name> --data-file=-`, after the same `read -rs`); the operator picks it up within the `refreshInterval` (1 hour), and the Pods read it when they next start.
+
+**To change `db-password`, change the database first.** The in-cluster PostgreSQL takes `POSTGRES_PASSWORD` only when it creates an empty volume, and nothing in the chart runs `ALTER ROLE`; a managed database keeps its user's password until you change it. A new version alone leaves the database on the old password: the running Pods keep working until they restart, then every new Pod, the migration Job of the next deploy and (dev and qa) the backup jobs fail to log in. In this order:
+
+```bash
+env=dev   # or qa; production: see the second step
+# 1. The database. dev and qa: psql prompts for the new password twice (never on a command line).
+kubectl -n "$SERVICE_NAME-$env-db" exec -it "$SERVICE_NAME-postgresql-0" -c postgresql -- \
+  psql -U app -d service_template -c '\password app'   # postgresql.auth.user and .database
+#    production: the Cloud SQL user, which prompts the same way:
+#    gcloud sql users set-password <user> --instance=<instance> --prompt-for-password
+# 2. The secret: the same password, read without echo.
+IFS= read -rs value && echo
+printf '%s' "$value" | gcloud secrets versions add "$SERVICE_NAME-$env-db-password" --data-file=- --format=none
+unset value
+# 3. Sync now instead of within the hour, then restart the backend.
+for ns in "$SERVICE_NAME-$env" "$SERVICE_NAME-$env-db"; do   # production: the app namespace only
+  kubectl -n "$ns" annotate externalsecrets --all force-sync="$(date +%s)" --overwrite
+done
+kubectl -n "$SERVICE_NAME-$env" rollout restart deployment -l app.kubernetes.io/component=backend
+```
+
+**Check:** `kubectl -n "$SERVICE_NAME-$env" rollout status deployment -l app.kubernetes.io/component=backend` completes (the readiness probe queries the database with the new password).
 
 **Check:** nine names, and no value printed:
 
 ```bash
-gcloud secrets list --filter="name~^$SERVICE_NAME-" --format='value(name)' | sort
+gcloud secrets list --filter="name~/secrets/$SERVICE_NAME-" --format='value(name.basename())' | sort
 # → <service>-dev-db-password … <service>-qa-stats-pass   (9 lines)
 ```
 
@@ -1167,7 +1198,7 @@ gcloud compute networks subnets delete apps-proxy-only --region="$REGION" --quie
 gcloud compute networks delete "$NETWORK" --quiet
 gcloud iam workload-identity-pools delete github --location=global --quiet   # kept for 30 days: the name stays reserved until it is purged
 for env in dev qa production; do gcloud iam service-accounts delete "gh-deployer-$env@$PROJECT_ID.iam.gserviceaccount.com" --quiet; done
-gcloud secrets list --filter="name~^$SERVICE_NAME-" --format='value(name)' \
+gcloud secrets list --filter="name~/secrets/$SERVICE_NAME-" --format='value(name.basename())' \
   | while read -r name; do gcloud secrets delete "$name" --quiet; done   # the secrets of 14.4
 gcloud iam service-accounts delete "$NODE_SA" --quiet
 ```

@@ -891,7 +891,9 @@ with an identity that reads only its environment's secrets. [GKE Cluster Setup, 
 Secrets](./gke-cluster-setup.md#14-the-apps-secrets-external-secrets-with-secret-manager) installs them for Secret
 Manager. The deployer's Roles (`infra/k8s/bootstrap`) hold `externalsecrets` in the `external-secrets.io` group, in
 the app and the database namespace, and no store kind: the deployer chooses which keys a release reads, never what a
-store may read. `make kind-external-secrets-test` runs the chart this way on kind
+store may read. The operator runs without its `ClusterSecretStore` controller (`processClusterStore: false` in
+[`deploy/external-secrets/external-secrets-values.yaml`](../deploy/external-secrets/external-secrets-values.yaml)), so
+an `ExternalSecret` that names a cluster-wide store is skipped, and the chart's schema accepts `SecretStore` only. `make kind-external-secrets-test` runs the chart this way on kind
 ([`tests/k8s/test_external_secrets.py`](../tests/k8s/test_external_secrets.py)): the pinned operator, an OpenBao
 store, and the release with only the store values switched.
 
@@ -915,29 +917,29 @@ secrets:
     remoteProperty: value
 ```
 
-**Least privilege**: a policy per environment that reads only its path, and a Kubernetes-auth role per environment,
-bound to that environment's namespaces and its `external-secrets` service account (OpenBao's own service account
-needs `system:auth-delegator` to review the tokens):
+**Least privilege**, per namespace as with Secret Manager: a Kubernetes-auth role per namespace, bound to that
+namespace's `external-secrets` service account only, with a policy that reads only what the namespace needs: the app
+namespace its environment's path, the database namespace (dev and qa) only its environment's `db-password` (OpenBao's
+own service account needs `system:auth-delegator` to review the tokens):
 
 ```bash
 export BAO_ADDR="https://openbao.example.internal:8200"   # your OpenBao; log in first (bao login)
 export SERVICE_NAME="your-service-name"
 bao auth enable kubernetes   # once; then bao write auth/kubernetes/config kubernetes_host=<the API server>
-for env in dev qa production; do
-  printf 'path "secret/data/%s/%s/*" { capabilities = ["read"] }\n' "$SERVICE_NAME" "$env" \
-    | bao policy write "$SERVICE_NAME-$env" -
-  namespaces="$SERVICE_NAME-$env"
-  [ "$env" = production ] || namespaces="$namespaces,$SERVICE_NAME-$env-db"
-  bao write "auth/kubernetes/role/$SERVICE_NAME-$env" bound_service_account_names=external-secrets \
-    bound_service_account_namespaces="$namespaces" token_policies="$SERVICE_NAME-$env" \
-    audience=openbao token_ttl=10m
-done
+role() {   # role <namespace> <path it may read>; the role and the policy are named for the namespace
+  printf 'path "secret/data/%s" { capabilities = ["read"] }\n' "$2" | bao policy write "$1" -
+  bao write "auth/kubernetes/role/$1" bound_service_account_names=external-secrets \
+    bound_service_account_namespaces="$1" token_policies="$1" audience=openbao token_ttl=10m
+}
+for env in dev qa production; do role "$SERVICE_NAME-$env" "$SERVICE_NAME/$env/*"; done
+for env in dev qa; do role "$SERVICE_NAME-$env-db" "$SERVICE_NAME/$env/db-password"; done
 ```
 
-Set the role in each namespace's store (`role: your-service-name-<env>`). **Check:** `kubectl get secretstores
+Set the namespace's role in its store (`role: your-service-name-<env>`, or `your-service-name-<env>-db` in a database
+namespace). **Check:** `kubectl get secretstores
 --all-namespaces` shows `openbao` READY `True` in each namespace; an `ExternalSecret` in dev that names
-`your-service-name/production/db-user` shows `SecretSyncedError`, and the operator's log has OpenBao's `403`, as the
-kind test proves.
+`your-service-name/production/db-user`, or one in `your-service-name-dev-db` that names `your-service-name/dev/db-user`,
+shows `SecretSyncedError`, and the operator's log has OpenBao's `403`, as the kind test proves.
 
 **Migrating from Secret Manager**, one environment at a time, dev first:
 
@@ -957,9 +959,41 @@ kind test proves.
 3. Switch the values (`secretStoreRef`, `remoteKeyTemplate`, `remoteProperty`) in `values.<env>.yaml` and deploy.
 4. Wait for `Ready`: `kubectl -n <namespace> wait externalsecret --all --for=condition=Ready --timeout=120s`, in the
    app namespace and the database namespace; the Pods keep running on the same values.
-5. Remove the old secrets once the environment runs on OpenBao: the Secret Manager store (`kubectl -n <namespace>
-   delete secretstore secret-manager`), the environment's Secret Accessor bindings, and the secrets
-   (`gcloud secrets delete "$SERVICE_NAME-$env-<key>"`).
+5. Remove the old secrets once the environment runs on OpenBao: the Secret Manager stores, the environment's Secret
+   Accessor bindings (each removal names the binding's exact condition, as [GKE Cluster Setup
+   §14.2](./gke-cluster-setup.md#142-one-identity-per-namespace-limited-to-its-environment) created it), and the
+   secrets:
+
+   ```bash
+   source ~/gke-setup.env   # PROJECT_ID, PROJECT_NUMBER, SERVICE_NAME
+   env=dev
+   pool="projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$PROJECT_ID.svc.id.goog"
+   revoke() {   # revoke <namespace> <secret-name prefix>: the binding of 14.2, condition and all
+     gcloud projects remove-iam-policy-binding "$PROJECT_ID" --role=roles/secretmanager.secretAccessor \
+       --member="principal://iam.googleapis.com/$pool/subject/ns/$1/sa/external-secrets" \
+       --condition="expression=resource.name.startsWith(\"projects/$PROJECT_NUMBER/secrets/$2\"),title=eso-$1" \
+       --format=none
+   }
+   revoke "$SERVICE_NAME-$env" "$SERVICE_NAME-$env-"
+   kubectl -n "$SERVICE_NAME-$env" delete secretstore secret-manager
+   if [ "$env" != production ]; then
+     revoke "$SERVICE_NAME-$env-db" "$SERVICE_NAME-$env-db-password"
+     kubectl -n "$SERVICE_NAME-$env-db" delete secretstore secret-manager
+   fi
+   for key in db-user db-password stats-pass; do gcloud secrets delete "$SERVICE_NAME-$env-$key" --quiet; done
+   ```
+
+   **Check:** no binding of the environment is left, and no secret:
+
+   ```bash
+   env=dev   # the environment of step 5
+   gcloud projects get-iam-policy "$PROJECT_ID" --flatten=bindings \
+     --filter="bindings.role=roles/secretmanager.secretAccessor AND bindings.condition.title~^eso-$SERVICE_NAME-$env" \
+     --format='value(bindings.condition.title)'
+   # → nothing
+   gcloud secrets list --filter="name~/secrets/$SERVICE_NAME-$env-" --format='value(name.basename())'
+   # → nothing
+   ```
 
 ### Infisical
 
