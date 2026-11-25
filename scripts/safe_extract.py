@@ -10,19 +10,18 @@ setgid files) over trees that something else extracted (the tools mise installed
 tree is removed. `--remove <installs> <tree>...` removes trees. Both touch only a <tool>/<version>
 directory strictly inside <installs> (an absolute path, never / or a directory holding $HOME) and
 refuse every other path before doing anything.
-Exits non-zero on any problem. Python 3.12 or newer uses the data filter; an older Python (3.9 is
-the one macOS ships) has none and gets the same rules from legacy_filter() below.
+Exits non-zero on any problem. Extracting needs Python 3.12 or newer (the data filter); --check and
+--remove only walk and remove, and run on the 3.9 that macOS ships.
 """
 
 from __future__ import annotations
 
 import os
-import posixpath
 import shutil
 import stat
 import sys
 import tarfile
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 ARGC = 3
 
@@ -61,34 +60,6 @@ MIN_DEPTH = 2  # <tool>/<version> below the installs directory
 
 class RefusedPathError(Exception):
     """A path the bounded modes will not touch."""
-
-
-def inside(base: str, name: str) -> bool:
-    """Whether `name`, joined to `base` and normalised, stays under `base` (names only)."""
-    joined = posixpath.normpath(posixpath.join(base, name))
-    return not PurePosixPath(name).is_absolute() and joined.split("/")[0] != ".."
-
-
-def legacy_filter(tf: tarfile.TarFile) -> list[tarfile.TarInfo]:
-    """The rules of tarfile's data filter, for a Python that does not have it: no absolute name, no
-    `..`, only files, directories and links, a link that stays inside the archive's tree, no setuid,
-    setgid or sticky bit and nothing group- or world-writable."""
-    members = tf.getmembers()
-    for member in members:
-        name = PurePosixPath(member.name)
-        if name.is_absolute() or ".." in name.parts:
-            msg = f"{member.name}: absolute or .. name"
-            raise UnsafeTreeError(msg)
-        if not (member.isreg() or member.isdir() or member.issym() or member.islnk()):
-            msg = f"{member.name}: a device or special file"
-            raise UnsafeTreeError(msg)
-        # A symlink's target is relative to its directory; a hard link's, to the archive's root.
-        base = str(name.parent) if member.issym() else ""
-        if (member.issym() or member.islnk()) and not inside(base, member.linkname):
-            msg = f"{member.name}: a link that leads outside the tree"
-            raise UnsafeTreeError(msg)
-        member.mode &= 0o755
-    return members
 
 
 def bounded(installs: str, trees: list[str], *, must_exist: bool) -> list[Path]:
@@ -178,12 +149,10 @@ def main(argv: list[str]) -> int:
         return 1
     try:
         with tarfile.open(archive) as tf:
-            if hasattr(tarfile, "data_filter"):
-                tf.extractall(dest, filter="data")
-            else:
-                tf.extractall(dest, members=legacy_filter(tf))  # noqa: S202 - checked by legacy_filter
+            tf.extractall(dest, filter="data")
         check_tree(dest)
-    except (tarfile.TarError, OSError, UnsafeTreeError) as exc:
+    except (tarfile.TarError, OSError, UnsafeTreeError, TypeError, KeyError) as exc:
+        # TypeError: a Python without the data filter (before 3.12): refuse rather than extract.
         sys.stderr.write(f"safe_extract: refusing {archive.name}: {exc}\n")
         return 1
     return 0

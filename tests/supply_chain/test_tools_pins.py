@@ -470,17 +470,11 @@ def test_a_dry_run_names_exactly_the_requested_mise_tools(tmp_path: Path) -> Non
 
 
 def mise_sandbox(tmp: Path, sha: str | None) -> tuple[dict[str, str], Path]:
-    """A mise pin whose artifact is a tarball laid out like the release's (mise/bin/mise)."""
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-        data = b"#!/bin/sh\necho fake mise\n"
-        info = tarfile.TarInfo("mise/bin/mise")
-        info.size = len(data)
-        info.mode = 0o755
-        tf.addfile(info, io.BytesIO(data))
-    art = tmp / "mise-v9.9.9-linux-x64.tar.gz"
-    art.write_bytes(buf.getvalue())
-    sha = sha or hashlib.sha256(buf.getvalue()).hexdigest()
+    """A mise pin whose artifact is a bare executable, as the release ships it."""
+    data = b"#!/bin/sh\necho fake mise\n"
+    art = tmp / "mise-v9.9.9-linux-x64"
+    art.write_bytes(data)
+    sha = sha or hashlib.sha256(data).hexdigest()
     pins = tmp / "pins.tsv"
     pins.write_text(f"mise\t9.9.9\t{PLATFORM}\tfile://{art}\t{sha}\n")
     tools = tmp / ".tools"
@@ -495,7 +489,7 @@ def test_mise_is_the_first_row_with_a_linux_and_a_macos_asset() -> None:
     assert len({r[1] for r in mise}) == 1
     for r in mise:
         assert r[3].startswith(f"https://github.com/jdx/mise/releases/download/v{r[1]}/"), r
-        assert r[3].endswith((".tar.gz", ".tar.xz")), "an archive, extracted by the safe path"
+        assert re.search(r"/mise-v[0-9.]+-(linux|macos)-(x64|arm64)$", r[3]), "the bare executable"
         assert re.fullmatch(r"[0-9a-f]{64}", r[4]), r
 
 
@@ -508,7 +502,7 @@ def test_a_changed_mise_checksum_is_refused_and_links_nothing(tmp_path: Path) ->
     assert not (tools / "opt").exists()
 
 
-def test_mise_installs_from_a_verified_archive_to_bin(tmp_path: Path) -> None:
+def test_mise_installs_from_a_verified_bare_executable_to_bin(tmp_path: Path) -> None:
     env, tools = mise_sandbox(tmp_path, None)
     r = run(["install", "mise"], env)
     assert r.returncode == 0, r.stderr

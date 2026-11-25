@@ -1229,10 +1229,28 @@ def test_a_bump_with_its_lock_is_in_step_and_the_same_bump_without_it_is_not(
     assert pr.mise_problems(config, MISE_LOCK.read_text()) != []
     monkeypatch.setattr(pr, "MISE_TOML", tmp_path / "mise.toml")
     monkeypatch.setattr(pr, "MISE_LOCK", tmp_path / "mise.lock")
+    monkeypatch.setattr(pr, "mise_vendor_problems", VENDOR_CROSS_CHECK)
     seen = _stub(monkeypatch, {})
     _mise_files(tmp_path, config, lock)
-    assert pr.run_mise(check=True) is False
+    # In step: the check goes on to the vendors (a fetch this stub refuses), so it fails there...
+    assert pr.run_mise(check=True) is True
+    assert seen != []
+    seen.clear()
+    # ...and without the lock it stops at the offline comparison and fetches nothing.
     _mise_files(tmp_path, config, MISE_LOCK.read_text())
     assert pr.run_mise(check=True) is True
     assert "DRIFT mise.lock: aqua:kubernetes-sigs/kind" in capsys.readouterr().out
-    assert seen == []  # the drift check itself reads two local files and fetches nothing
+    assert seen == []
+    # With the vendors' files served, the bumped pair is green (the bump moved no github: tool).
+    seen_ok = _vendor_files(monkeypatch, lock)
+    _mise_files(tmp_path, config, lock)
+    assert pr.run_mise(check=True) is False
+    assert seen_ok  # the drift check itself reads two local files and fetches nothing
+
+
+def test_two_tools_sharing_a_checksum_file_fetch_it_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    lock = MISE_LOCK.read_text()
+    seen = _vendor_files(monkeypatch, lock)
+    assert VENDOR_CROSS_CHECK(MISE_TOML.read_text(), lock) == []
+    assert len(seen) == len(set(seen)), seen  # one fetch per file, not one per platform
+    assert len(seen) == 3  # noqa: PLR2004 - helm-unittest, oasdiff and prometheus; squawk has none

@@ -716,7 +716,8 @@ def mise_vendor_problems(config: str, lock: str) -> list[str]:
                 continue
             directory, asset = url.rsplit("/", 1)
             source = template.format(dir=directory)
-            files.setdefault(source, fetch(source).decode())
+            if source not in files:
+                files[source] = fetch(source).decode()
             vendor = sha_from_sumfile(files[source], asset)
             if vendor != sha:
                 found.append(f"{key}: {platform} lock has {sha}, vendor {vendor}")

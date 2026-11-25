@@ -18,14 +18,12 @@ setup() {
 
 # A mise release archive whose mise prints where it runs and the environment it got.
 stub_mise_archive() {
-  mkdir -p "$BATS_TEST_TMPDIR/art/mise/bin"
   # shellcheck disable=SC2016 # the stub expands $(pwd) itself
-  printf '#!/bin/sh\necho "cwd=$(pwd)"\nenv | grep -E "^(MISE_|GITHUB_|GH_)" | sort\n' > "$BATS_TEST_TMPDIR/art/mise/bin/mise"
-  chmod +x "$BATS_TEST_TMPDIR/art/mise/bin/mise"
-  tar -czf "$BATS_TEST_TMPDIR/mise.tar.gz" -C "$BATS_TEST_TMPDIR/art" mise
-  SHA="$(sha256sum "$BATS_TEST_TMPDIR/mise.tar.gz" | cut -d' ' -f1)"
+  printf '#!/bin/sh\necho "cwd=$(pwd)"\nenv | grep -E "^(MISE_|GITHUB_|GH_)" | sort\n' > "$BATS_TEST_TMPDIR/mise-linux-x64"
+  chmod +x "$BATS_TEST_TMPDIR/mise-linux-x64"
+  SHA="$(sha256sum "$BATS_TEST_TMPDIR/mise-linux-x64" | cut -d' ' -f1)"
   printf 'mise\t9.9.9\tlinux-amd64\tfile://%s\t%s\nmise\t9.9.9\tdarwin-arm64\tfile://%s\t%s\n' \
-    "$BATS_TEST_TMPDIR/mise.tar.gz" "$SHA" "$BATS_TEST_TMPDIR/mise.tar.gz" "$SHA" > "$PROJ/tools/pins.tsv"
+    "$BATS_TEST_TMPDIR/mise-linux-x64" "$SHA" "$BATS_TEST_TMPDIR/mise-linux-x64" "$SHA" > "$PROJ/tools/pins.tsv"
 }
 
 tools() {
@@ -96,9 +94,8 @@ tools() {
 
 @test "mise gets its own flags, --dry-run included" {
   stub_mise_archive
-  printf '#!/bin/sh\nprintf "args=%%s\\n" "$*"\n' > "$BATS_TEST_TMPDIR/art/mise/bin/mise"
-  tar -czf "$BATS_TEST_TMPDIR/mise.tar.gz" -C "$BATS_TEST_TMPDIR/art" mise
-  sed -i "s/$SHA/$(sha256sum "$BATS_TEST_TMPDIR/mise.tar.gz" | cut -d' ' -f1)/" "$PROJ/tools/pins.tsv"
+  printf '#!/bin/sh\nprintf "args=%%s\\n" "$*"\n' > "$BATS_TEST_TMPDIR/mise-linux-x64"
+  sed -i "s/$SHA/$(sha256sum "$BATS_TEST_TMPDIR/mise-linux-x64" | cut -d' ' -f1)/" "$PROJ/tools/pins.tsv"
   tools bash "$PROJ/scripts/tools.sh" install mise
   [ "$status" -eq 0 ]
   tools bash "$PROJ/scripts/tools.sh" mise install --dry-run
@@ -124,7 +121,7 @@ fixture_project() {
     skip "needs the installed mise (scripts/tools.sh install mise)"
   fi
   SRV="$BATS_TEST_TMPDIR/srv"
-  mkdir -p "$SRV" "$BATS_TEST_TMPDIR/art/mise/bin"
+  mkdir -p "$SRV"
   printf '#!/bin/sh\necho fake kind\n' > "$SRV/kind-linux-amd64"
   cp "$SRV/kind-linux-amd64" "$SRV/kind-darwin-arm64"
   PORT="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
@@ -134,11 +131,10 @@ fixture_project() {
   sed -n '/^\[settings\]/,/^\]$/p' "$ROOT/mise.toml" > "$PROJ/mise.toml"
   printf '\n[tools]\n"aqua:kubernetes-sigs/kind" = "0.33.0"\n' >> "$PROJ/mise.toml"
   write_lock "$ART_SHA"
-  printf '#!/bin/sh\nexec "%s" "$@"\n' "$ROOT/.tools/bin/mise" > "$BATS_TEST_TMPDIR/art/mise/bin/mise"
-  chmod +x "$BATS_TEST_TMPDIR/art/mise/bin/mise"
-  tar -czf "$BATS_TEST_TMPDIR/mise.tar.gz" -C "$BATS_TEST_TMPDIR/art" mise
-  SHA="$(sha256sum "$BATS_TEST_TMPDIR/mise.tar.gz" | cut -d' ' -f1)"
-  printf 'mise\t9.9.9\tlinux-amd64\tfile://%s\t%s\n' "$BATS_TEST_TMPDIR/mise.tar.gz" "$SHA" > "$PROJ/tools/pins.tsv"
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$ROOT/.tools/bin/mise" > "$BATS_TEST_TMPDIR/mise-linux-x64"
+  chmod +x "$BATS_TEST_TMPDIR/mise-linux-x64"
+  SHA="$(sha256sum "$BATS_TEST_TMPDIR/mise-linux-x64" | cut -d' ' -f1)"
+  printf 'mise\t9.9.9\tlinux-amd64\tfile://%s\t%s\n' "$BATS_TEST_TMPDIR/mise-linux-x64" "$SHA" > "$PROJ/tools/pins.tsv"
   sleep 1
 }
 
@@ -217,9 +213,8 @@ PY
 @test "mise where printing nothing stops tools.sh before the check runs or anything is removed" {
   fixture_project
   # shellcheck disable=SC2016 # the wrapper expands $1 and $@ itself
-  printf '#!/bin/sh\n[ "$1" = where ] && exit 0\nexec "%s" "$@"\n' "$ROOT/.tools/bin/mise" > "$BATS_TEST_TMPDIR/art/mise/bin/mise"
-  tar -czf "$BATS_TEST_TMPDIR/mise.tar.gz" -C "$BATS_TEST_TMPDIR/art" mise
-  printf 'mise\t9.9.9\tlinux-amd64\tfile://%s\t%s\n' "$BATS_TEST_TMPDIR/mise.tar.gz" "$(sha256sum "$BATS_TEST_TMPDIR/mise.tar.gz" | cut -d' ' -f1)" > "$PROJ/tools/pins.tsv"
+  printf '#!/bin/sh\n[ "$1" = where ] && exit 0\nexec "%s" "$@"\n' "$ROOT/.tools/bin/mise" > "$BATS_TEST_TMPDIR/mise-linux-x64"
+  printf 'mise\t9.9.9\tlinux-amd64\tfile://%s\t%s\n' "$BATS_TEST_TMPDIR/mise-linux-x64" "$(sha256sum "$BATS_TEST_TMPDIR/mise-linux-x64" | cut -d' ' -f1)" > "$PROJ/tools/pins.tsv"
   tools bash "$PROJ/scripts/tools.sh" install mise
   [ "$status" -eq 0 ]
   mv "$PROJ/scripts/safe_extract.py" "$PROJ/scripts/real_safe_extract.py"
@@ -275,11 +270,15 @@ PY
   [ "$("$TOOLS/bin/kind")" = "fake kind" ]
 }
 
-# A stock macOS python3 (3.9) first on PATH and no uv yet: the mise archive, the installed trees and the links all go
-# through safe_extract.py on that python3, which has no tarfile data filter and does its own checks. The fake
-# python3 reports the version it is told to and runs the real one, logging each script it runs.
+# A stock macOS python3 (3.9) first on PATH and no uv yet. mise is installed from its bare executable (nothing to
+# extract), uv comes through mise, and the tree check only walks the tree, so none of it needs a newer Python. The fake
+# python3 reports an old version and runs the real one, logging each script it runs; PY39=<a real 3.9> replaces it.
 old_python3() { # the version it reports: "3.9" or "3.8"
   mkdir -p "$BATS_TEST_TMPDIR/fakebin"
+  if [ -n "${PY39:-}" ] && [ "$1" = 3.9 ]; then
+    ln -sf "$PY39" "$BATS_TEST_TMPDIR/fakebin/python3"
+    return
+  fi
   cat > "$BATS_TEST_TMPDIR/fakebin/python3" <<PY
 #!/bin/sh
 case "\$*" in
@@ -292,14 +291,33 @@ PY
   chmod +x "$BATS_TEST_TMPDIR/fakebin/python3"
 }
 
-@test "python3 older than 3.12 and no uv: the install completes, checking each tree with that python3" {
+@test "python3 older than 3.12 and no uv: mise installs from its bare executable and the tree check runs on that python3" {
   fixture_project
   old_python3 3.9
   tools env PATH="$BATS_TEST_TMPDIR/fakebin:$PATH" bash "$PROJ/scripts/tools.sh" install kind
   [ "$status" -eq 0 ]
-  grep -q -- '--check' "$BATS_TEST_TMPDIR/python3.log"
-  grep -q 'mise.tar.gz' "$BATS_TEST_TMPDIR/python3.log"
   [ "$("$TOOLS/bin/kind")" = "fake kind" ]
+  [ -f "$TOOLS/opt/mise-9.9.9/mise" ]
+  if [ -f "$BATS_TEST_TMPDIR/python3.log" ]; then
+    ! grep -v -- '--check' "$BATS_TEST_TMPDIR/python3.log"
+  fi
+}
+
+@test "a real python 3.9 runs the tree check and the removal (PY39=<python3.9>)" {
+  [ -n "${PY39:-}" ] || skip "set PY39 to a real Python 3.9"
+  fixture_project
+  old_python3 3.9
+  tools env PATH="$BATS_TEST_TMPDIR/fakebin:$PATH" bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -eq 0 ]
+  [ "$(python3 --version)" ] # the fake dir is first only inside tools
+  run env PATH="$BATS_TEST_TMPDIR/fakebin:$PATH" python3 --version
+  [[ "$output" == "Python 3.9"* ]]
+  # a changed lock entry: the reinstall removes the tool with the 3.9 rmtree
+  write_lock "${ART_SHA:0:63}$([ "${ART_SHA:63:1}" = 0 ] && echo 1 || echo 0)"
+  tools env PATH="$BATS_TEST_TMPDIR/fakebin:$PATH" bash "$PROJ/scripts/tools.sh" install kind
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"reinstalling"* ]]
+  [ ! -e "$TOOLS/$INSTALL_DIR" ]
 }
 
 @test "a python3 older than 3.9 and no uv: refused before anything is linked" {
@@ -307,6 +325,50 @@ PY
   old_python3 3.8
   tools env PATH="$BATS_TEST_TMPDIR/fakebin:$PATH" bash "$PROJ/scripts/tools.sh" install kind
   [ "$status" -ne 0 ]
-  [[ "$output" == *"needs python3 >= 3.9"* ]]
+  [[ "$output" == *"needs python"* ]]
   [ ! -e "$TOOLS/bin/kind" ]
+}
+
+@test "extracting an archive needs python 3.12 or newer: on an older one it is refused, with the way out" {
+  fixture_project
+  old_python3 3.9
+  mkdir -p "$BATS_TEST_TMPDIR/data"
+  echo x > "$BATS_TEST_TMPDIR/data/f"
+  tar -czf "$BATS_TEST_TMPDIR/chart.tgz" -C "$BATS_TEST_TMPDIR" data
+  printf 'kyverno-chart\t1.0.0\tany\tfile://%s\t%s\n' "$BATS_TEST_TMPDIR/chart.tgz" "$(sha256sum "$BATS_TEST_TMPDIR/chart.tgz" | cut -d' ' -f1)" >> "$PROJ/tools/pins.tsv"
+  tools env PATH="$BATS_TEST_TMPDIR/fakebin:$PATH" bash "$PROJ/scripts/tools.sh" install kyverno-chart
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"python 3.12"*"install python"* ]]
+  [ ! -e "$TOOLS/opt/kyverno-chart-1.0.0" ]
+}
+
+# macOS has shasum, not GNU sha256sum: a PATH with every tool of /usr/bin but sha256sum, and a shasum that calls it.
+no_sha256sum_path() {
+  local d="$BATS_TEST_TMPDIR/nosha" f
+  mkdir -p "$d"
+  for f in /usr/bin/*; do [ "${f##*/}" = sha256sum ] || ln -sf "$f" "$d/"; done
+  rm -f "$d/shasum"
+  # shellcheck disable=SC2016 # the shim expands its own arguments
+  printf '#!/bin/sh\n[ "$1" = -a ] && [ "$2" = 256 ] || exit 2\nshift 2\nexec /usr/bin/sha256sum "$@"\n' > "$d/shasum"
+  chmod +x "$d/shasum"
+  NOSHA="$d"
+}
+
+@test "without sha256sum on PATH the checksum of a download is checked with shasum -a 256" {
+  stub_mise_archive
+  no_sha256sum_path
+  [ ! -e "$NOSHA/sha256sum" ]
+  tools env PATH="$NOSHA" bash "$PROJ/scripts/tools.sh" install mise
+  [ "$status" -eq 0 ]
+  [ -x "$TOOLS/bin/mise" ]
+}
+
+@test "without sha256sum a changed byte in the download is still refused" {
+  stub_mise_archive
+  no_sha256sum_path
+  printf 'x' >> "$BATS_TEST_TMPDIR/mise-linux-x64"
+  tools env PATH="$NOSHA" bash "$PROJ/scripts/tools.sh" install mise
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"checksum mismatch"* ]]
+  [ ! -e "$TOOLS/bin/mise" ]
 }

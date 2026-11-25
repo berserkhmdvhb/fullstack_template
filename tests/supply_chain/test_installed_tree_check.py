@@ -13,10 +13,11 @@ import sys
 import tarfile
 from pathlib import Path
 from types import ModuleType
+from typing import TYPE_CHECKING
 
-import pytest
+if TYPE_CHECKING:
+    import pytest
 
-EXECUTABLE = 0o755  # the mode a setuid 0o4777 file ends with
 SCRIPT = Path(__file__).resolve().parent.parent.parent / "scripts/safe_extract.py"
 
 
@@ -192,7 +193,7 @@ def test_a_removal_that_fails_is_reported_with_the_path_and_a_non_zero_exit(tmp_
         locked.chmod(0o755)
 
 
-# --- Python without tarfile's data filter (macOS ships 3.9): the same rules, written out ---
+# --- extraction: tarfile's data filter only, and the walk and removal on the 3.9 macOS ships ---
 
 
 def _module() -> ModuleType:
@@ -221,65 +222,69 @@ def _member(name: str, kind: bytes = tarfile.REGTYPE, **attrs: object) -> tarfil
     return info
 
 
-@pytest.fixture
-def legacy(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    """safe_extract.py as an older Python runs it: no data_filter, and rmtree's old callback."""
-    monkeypatch.delattr(tarfile, "data_filter", raising=False)
-    monkeypatch.setattr(sys, "version_info", (3, 9, 6, "final", 0))
-    return _module()
+def _extract(archive: Path, dest: Path) -> int:
+    return int(_module().main(["safe_extract.py", str(archive), str(dest)]))
 
 
-def _extract(module: ModuleType, archive: Path, dest: Path) -> int:
-    return int(module.main(["safe_extract.py", str(archive), str(dest)]))
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-def test_the_legacy_filter_extracts_a_clean_archive_and_strips_setuid_and_write_bits(
-    legacy: ModuleType, tmp_path: Path
-) -> None:
+def test_a_symlink_chain_never_writes_outside_the_destination(tmp_path: Path) -> None:
+    """a/b -> .., s -> a/b, s2 -> s/.., then the file s2/evil: each name is fine on its own. The
+    data filter refuses it or keeps the file inside the destination; it never lands outside."""
     archive = _archive(
         tmp_path / "a.tgz",
-        _member("tool", tarfile.DIRTYPE),
-        _member("tool/run", mode=0o4777),
-        _member("tool/link", tarfile.SYMTYPE, linkname="run"),
-        _member("tool/hard", tarfile.LNKTYPE, linkname="tool/run"),
+        _member("a", tarfile.DIRTYPE),
+        _member("a/b", tarfile.SYMTYPE, linkname=".."),
+        _member("s", tarfile.SYMTYPE, linkname="a/b"),
+        _member("s2", tarfile.SYMTYPE, linkname="s/.."),
+        _member("s2/evil"),
     )
-    dest = tmp_path / "out"
-    assert _extract(legacy, archive, dest) == 0
-    assert (dest / "tool/link").is_symlink()
-    assert (dest / "tool/run").stat().st_mode & 0o7777 == EXECUTABLE
+    dest = tmp_path / "out" / "dest"
+    dest.parent.mkdir()
+    _extract(archive, dest)
+    assert not (dest.parent / "evil").exists()
+    assert {p.name for p in dest.parent.iterdir()} <= {"dest"}
 
 
-@pytest.mark.parametrize(
-    "bad",
-    [
-        _member("../escape"),
-        _member("a/../../escape"),
-        _member("/etc/escape"),
-        _member("tool/out", tarfile.SYMTYPE, linkname="/etc"),
-        _member("tool/up", tarfile.SYMTYPE, linkname="../../.."),
-        _member("tool/hard", tarfile.LNKTYPE, linkname="../outside"),
-        _member("tool/fifo", tarfile.FIFOTYPE),
-        _member("tool/dev", tarfile.CHRTYPE),
-    ],
-    ids=lambda m: f"{m.name}-{m.type!r}",
-)
-def test_the_legacy_filter_refuses_what_the_data_filter_refuses(
-    legacy: ModuleType, tmp_path: Path, bad: tarfile.TarInfo
+def test_a_hard_link_through_a_symlink_is_refused(tmp_path: Path) -> None:
+    archive = _archive(
+        tmp_path / "a.tgz",
+        _member("a", tarfile.DIRTYPE),
+        _member("a/b", tarfile.SYMTYPE, linkname=".."),
+        _member("h", tarfile.LNKTYPE, linkname="a/b/outside"),
+    )
+    dest = tmp_path / "out" / "dest"
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "outside").write_text("secret")
+    assert _extract(archive, dest) == 1
+    assert (tmp_path / "out" / "outside").read_text() == "secret"
+    assert not (dest / "h").exists()
+
+
+def test_a_python_without_the_data_filter_refuses_to_extract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Before the 3.9.17 backport extractall takes no `filter`: refuse, never extract."""
+
+    def no_filter_kwarg(*_args: object, **kwargs: object) -> None:
+        assert "filter" in kwargs, "extraction always asks for the data filter"
+        msg = "extractall() got an unexpected keyword argument 'filter'"
+        raise TypeError(msg)
+
+    monkeypatch.setattr(tarfile.TarFile, "extractall", no_filter_kwarg)
+    archive = _archive(tmp_path / "a.tgz", _member("tool"))
     dest = tmp_path / "out"
-    assert _extract(legacy, _archive(tmp_path / "a.tgz", bad), dest) == 1
-    assert not (tmp_path / "escape").exists()
+    assert _extract(archive, dest) == 1
     assert not dest.exists() or not any(dest.rglob("*"))
 
 
 def test_the_checks_and_the_removal_work_without_the_new_rmtree_callback(
-    legacy: ModuleType, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setattr(sys, "version_info", (3, 9, 6, "final", 0))
+    module = _module()
     root = tree(tmp_path)
     (root / "bin/out").symlink_to("/etc")
-    assert legacy.check_installed(str(tmp_path), [str(root)]) == 1
+    assert module.check_installed(str(tmp_path), [str(root)]) == 1
     assert not root.exists()
     other = tree(tmp_path, "other/1.0.0")
-    assert legacy.check_installed(str(tmp_path), [str(other)], remove_only=True) == 0
+    assert module.check_installed(str(tmp_path), [str(other)], remove_only=True) == 0
     assert not other.exists()

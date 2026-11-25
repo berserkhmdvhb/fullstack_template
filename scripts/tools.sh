@@ -63,7 +63,7 @@ run() {
 # Executable path(s) inside the unpacked artifact of a pins.tsv row: "<relpath>:<link name>".
 exes_for() {
   case "$1" in
-    mise) echo "mise/bin/mise:mise" ;;
+    mise) echo "mise:mise" ;; # the release asset is the bare executable
     k8s-openapi|kyverno-chart) echo "" ;; # data (kubeconform.sh and the kind admission test read them)
     *) echo "$1:$1" ;;
   esac
@@ -125,7 +125,11 @@ config_entry() { # tool key
   awk -v k="$1" '/^\[/ { t = ($0 == "[tools]" || $0 == "[tool_alias]"); next }
     t && !/^#/ && /=/ { key=$0; sub(/ *=.*/, "", key); gsub(/"/, "", key); if (key == k) print }' "$ROOT/mise.toml"
 }
-stamp_of() { { lock_entry "$1"; config_entry "$1"; } | sha256sum | cut -d' ' -f1; }
+# sha256 of stdin or of the file given: GNU sha256sum, or shasum -a 256 where that is what there is (macOS).
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi | cut -d' ' -f1
+}
+stamp_of() { { lock_entry "$1"; config_entry "$1"; } | sha256; }
 
 # Unlink a mise tool and remove its install (and the download mise kept), inside mise's own directories only.
 unlink_and_remove() { # name key exes install-dir
@@ -134,8 +138,8 @@ unlink_and_remove() { # name key exes install-dir
   [[ "$exes" != "-" ]] || rm -f "$TOOLS_DIR/helm-plugins/$name"
   rm -f "$TOOLS_DIR/mise/stamps/$name"
   slug="${dir#"$INSTALLS"/}"
-  "$(safe_python)" -I "$ROOT/scripts/safe_extract.py" --remove "$INSTALLS" "$dir" || die "$name: could not remove its install"
-  "$(safe_python)" -I "$ROOT/scripts/safe_extract.py" --remove "$DOWNLOADS" "$DOWNLOADS/$slug" || die "$name: could not remove its download"
+  "$(tree_python)" -I "$ROOT/scripts/safe_extract.py" --remove "$INSTALLS" "$dir" || die "$name: could not remove its install"
+  "$(tree_python)" -I "$ROOT/scripts/safe_extract.py" --remove "$DOWNLOADS" "$DOWNLOADS/$slug" || die "$name: could not remove its download"
 }
 
 # Install the named tools with the pinned mise, locked; check each installed tree; only then link anything.
@@ -168,7 +172,7 @@ install_mise_tools() { # names...
     [[ -n "$dir" ]] || die "mise where $key printed no directory; nothing was linked"
     dirs+=("$dir")
   done
-  "$(safe_python)" -I "$ROOT/scripts/safe_extract.py" --check "$INSTALLS" "${dirs[@]}" || die "an installed tool failed the tree check; nothing was linked"
+  "$(tree_python)" -I "$ROOT/scripts/safe_extract.py" --check "$INSTALLS" "${dirs[@]}" || die "an installed tool failed the tree check; nothing was linked"
   mkdir -p "$TOOLS_DIR/bin" "$TOOLS_DIR/mise/stamps"
   for name in "$@"; do
     read -r key exes <<<"$(mise_spec "$name")"
@@ -199,22 +203,29 @@ uv_exes_for() {
 
 verify() { # file sha256
   local got
-  got="$(sha256sum "$1" | cut -d' ' -f1)"
+  got="$(sha256 "$1")"
   [[ "$got" == "$2" ]] || die "checksum mismatch for $NAME $VER: expected $2, got $got; refusing to install"
 }
 
-# Interpreter for scripts/safe_extract.py: a system python3 >= 3.12, else the uv-managed one, else an older python3
-# (3.9 is macOS's stock one: safe_extract.py does its own checks without tarfile's data filter, which that Python
-# lacks), so the first `make tools` on a bare Mac needs no Python installed first.
+# Interpreter for extracting an archive (tarfile's "data" filter, which needs Python 3.12): a system python3 >= 3.12, else
+# the uv-managed one (installed before any archive is extracted), else a message that says how to get it.
 safe_python() {
   if python3 -c 'import sys; sys.exit(sys.version_info < (3, 12))' 2>/dev/null; then
     command -v python3
   elif uv python find --managed-python "$(pin_version python)" 2>/dev/null; then
     :
-  elif python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+  else
+    die "$NAME: extracting an archive needs python 3.12 or newer (the system python3 is older); run: scripts/tools.sh install python"
+  fi
+}
+
+# Interpreter for the tree check and the removal (safe_extract.py --check, --remove): they only walk and remove, so
+# the 3.9 that macOS ships is enough; with anything older, as safe_python.
+tree_python() {
+  if python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
     command -v python3
   else
-    die "$NAME: needs python3 >= 3.9"
+    safe_python
   fi
 }
 
@@ -278,7 +289,8 @@ install_pin() { # uses NAME VER URL SHA
     uv:*) install_uv "${URL#uv:}"; return ;;
   esac
   dest="$TOOLS_DIR/opt/$NAME-$VER"
-  if [[ -d "$dest" && "$DRY_RUN" != "true" ]]; then
+  # (mise was once an unpacked archive: a directory where its bare executable is now, which is reinstalled.)
+  if [[ -d "$dest" && ( "$NAME" != mise || -f "$dest/mise" ) && "$DRY_RUN" != "true" ]]; then
     echo "$NAME $VER already installed"
   else
     echo "==> $NAME $VER ($URL)"
@@ -298,6 +310,7 @@ install_pin() { # uses NAME VER URL SHA
       else
         cp "$file" "$PART/$NAME"
       fi
+      rm -rf "$dest"
       mv "$PART" "$dest"
       PART=""
       rm -rf "$TMP"
@@ -335,9 +348,10 @@ cmd_install() {
   # Installing a mise tool installs mise first, from its row.
   [[ ${#tools[@]} -eq 0 ]] || wanted+="mise "
   found+="${tools[*]} "
-  # Pass 1 is the mise row, then the mise tools, then the other rows (the uv tools need the pinned uv).
-  for pass in mise rest; do
-    if [[ "$pass" == rest && ${#tools[@]} -gt 0 ]]; then
+  # The mise row (a bare executable: nothing to extract), then the mise tools (uv among them), then Python, then the other
+  # rows: an archive is extracted only with Python 3.12, which a stock macOS gets from uv here, and the uv tools need uv.
+  for pass in mise python rest; do
+    if [[ "$pass" == python && ${#tools[@]} -gt 0 ]]; then
       install_mise_tools "${tools[@]}"
       use_pinned_uv
     fi
@@ -345,7 +359,7 @@ cmd_install() {
       [[ -z "$line" || "$line" == \#* ]] && continue
       split_row "$line"
       [[ "$PLAT" == any || "$PLAT" == "$PLATFORM" ]] || continue
-      [[ "$NAME" == mise && "$pass" == mise || "$NAME" != mise && "$pass" == rest ]] || continue
+      case "$NAME" in mise) [[ "$pass" == mise ]] ;; python) [[ "$pass" == python ]] ;; *) [[ "$pass" == rest ]] ;; esac || continue
       [[ $# -eq 0 || "$wanted" == *" $NAME "* ]] || continue
       found+="$NAME "
       [[ "$URL" == uv:* || "$SHA" =~ ^[0-9a-f]{64}$ ]] || die "$NAME: pin has no sha256"
