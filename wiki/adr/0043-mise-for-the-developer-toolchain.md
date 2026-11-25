@@ -18,7 +18,7 @@ What mise does not do is resolve application dependencies. The backend's package
 
 ## Decision
 
-mise owns the developer toolchain: the command-line tools, the Node and Python runtimes and uv, and the shell's PATH for local work. uv and npm keep the application's packages. Helm values and the GitHub environments keep the cluster and deploy configuration. `make` stays the front door and `pre-commit` the git-hook runner.
+mise owns the developer toolchain: the command-line tools, the Node runtime and uv, and the shell's PATH for local work. uv and npm keep the application's packages. Helm values and the GitHub environments keep the cluster and deploy configuration. `make` stays the front door and `pre-commit` the git-hook runner.
 
 **The bootstrap.** The first row of `tools/pins.tsv` is mise itself. `scripts/tools.sh` installs it first, through the verified path every other row uses: the download is the release's bare executable, checked against the row's sha256 before it is linked, and a changed byte installs nothing. The sha256 is the one in the release's `SHASUMS256.txt` (the GitHub release-asset digest of the same file agrees). The release also ships `SHASUMS256.txt.minisig` (minisign) and `SHASUMS256.asc` (OpenPGP). Neither is checked: both need a minisign or gpg binary, and the toolchain has neither until it has installed something. Adding a verifier and a committed key is a separate change; the sha256 in the row is reviewed in the diff and `make pins-refresh --check` fetches the vendor's file again. The row also covers macOS (`darwin-arm64`); the tools in `mise.lock` are locked for both platforms.
 
@@ -35,6 +35,7 @@ mise owns the developer toolchain: the command-line tools, the Node and Python r
 **The settings.** `mise.toml` holds the settings and the tools, no tasks and no hooks; its `[env]` is one entry, `.tools/bin` on `PATH` for people who run `mise activate` with their own mise (`.env` stays read by the app, not loaded twice). Each name was checked against the settings reference of the pinned release and against `mise settings ls`:
 
 - `lockfile = true` and `locked = true`: mise.lock is read and kept, and installs are locked to it (a locked install makes no GitHub API call and refuses any download whose checksum differs from the lock; both were tried against a rate-limited, token-less address and against a changed lock byte). `mise lock` still writes new entries in this mode, with a warning per tool that has no entry yet.
+- `minimum_release_age = "7d"`: a version is locked only if it was released at least seven days ago, which is the project's pin rule. It filters on the release date of the tool's version; re-locking the committed pins with it changed no entry. A test keeps it at seven days and without excludes.
 - `lockfile_platforms = ["linux-x64", "macos-arm64"]`: CI and the devcontainer, and macOS on Apple silicon.
 - `use_versions_host = false` and `use_versions_host_track = false`: release data comes from the forge and the vendor, not from a mirror run by mise's author, and no usage report is sent. With the mirror on, a lock entry records the mirror's copy of a GitHub digest and marks it (`checksum_source = "mise-versions"`); with it off, the same value comes from GitHub's own API and carries no mark. The values were identical in the mapping run.
 - `github_attestations`, `slsa` and `aqua.cosign`, `aqua.minisign`, `aqua.slsa`, `aqua.github_attestations` stay on, so a recipe that declares a signature or provenance has it verified.
@@ -50,6 +51,7 @@ Where a column says "alias", the tool name is a `[tool_alias]` of the same backe
 |---|---|---|
 | `mise` | stays | The bootstrap: it installs the rest; sha256 as above. |
 | `uv` | `aqua:astral-sh/uv` | Checksum, GitHub attestation. |
+| `zizmor` | `aqua:zizmorcore/zizmor` | Checksum (the release's digest), GitHub attestation: verified when the lock is written (mise downloads each artifact for it) and again at every install, which fails when there is none. |
 | `helm3`, `helm4` | alias of `aqua:helm/helm` | Checksum from the vendor's `.sha256sum` beside each archive. |
 | `kubectl`, `kubectl-floor` | `aqua:kubernetes/kubernetes/kubectl`, alias for the floor | Checksum from the vendor's `.sha256` beside each binary (dl.k8s.io). |
 | `kind` | `aqua:kubernetes-sigs/kind` | Checksum (the release's digest, equal to its `.sha256sum`). |
@@ -69,12 +71,11 @@ Where a column says "alias", the tool name is a `[tool_alias]` of the same backe
 | `shellcheck` | `aqua:koalaman/shellcheck` | Checksum (digest); no vendor file, as today. The asset is the `.tar.xz`. |
 | `lychee` | `aqua:lycheeverse/lychee` | Checksum (digest, equal to the `.sha256` beside the asset). |
 | `node` | `core:node` | Checksum from nodejs.org's `SHASUMS256.txt` (equal to the vendor's file); the asset is the `.tar.gz`. |
-| `python` | `core:python` | Checksum (python-build-standalone's `install_only_stripped` build, equal to the release's `SHA256SUMS`), GitHub attestation. See the Python runtime, below. |
-| `zizmor` | `aqua:zizmorcore/zizmor` | Checksum (the release's digest), GitHub attestation: verified when the lock is written (mise downloads each artifact for it) and again at every install, which fails when there is none. |
+| `python` | stays | See the Python runtime, below. |
 | `schemathesis`, `pre-commit`, `yamale`, `yamllint`, `pip-audit` | stay | Python tools in per-tool virtual environments from hash-pinned requirements; mise's `pipx` backend does not hash-pin transitive dependencies. |
 | `k8s-openapi`, `kyverno-chart` | stay | Data, not tools. |
 
-That is 32 rows: 24 move (18 `aqua`, 4 `github`, 2 `core`), 8 stay. Of the 24, six carry a GitHub attestation, three a cosign signature and fifteen a checksum only. No tool is verified less than today, so no tool stays for that reason.
+That is 32 rows: 23 move (18 `aqua`, 4 `github`, 1 `core`), 9 stay. Of the 23, five carry a GitHub attestation, three a cosign signature and fifteen a checksum only. No tool is verified less than today, so no tool stays for that reason.
 
 **Extra effects for the next steps.**
 
@@ -88,15 +89,11 @@ Renovate's `mise` manager reads `mise.toml` and, with lock file maintenance, run
 
 The `pins` check fails, offline, when `mise.toml` names a version `mise.lock` does not hold or an entry lacks a sha256 for either platform. It also compares every `github:` tool's locked sha256 with the vendor's own checksum file where one exists (the network path, as the old check did for every row), so the lock `mise lock` wrote is cross-checked, not trusted. `scripts/pins_refresh.py` names the vendor file for each `github:` tool and fails on a `github:` tool it has no entry for.
 
-The `mise` rows of `tools/pins.tsv` are the release's bare executables (the release ships them beside the archives, with their sha256 in the same `SHASUMS256.txt`), so nothing is extracted before the pinned Python exists. The order is mise, then every mise tool in one locked install (Python and uv among them), then the uv tools and the data rows. The tree check and the removal only walk and remove, so they run on the system `python3` when it is 3.9 or newer (the one macOS ships is enough; tested on a real 3.9), and otherwise on the mise Python that was just installed and whose checksum `mise install --locked` has checked: a machine with no `python3` works, and a test runs it with a PATH that has none. Extracting an archive needs Python 3.12 and tarfile's `data` filter: the system one if it is that new, else the mise one; `scripts/tools.sh` refuses when neither is there, naming `scripts/tools.sh install python`. The checksum uses `sha256sum`, or `shasum -a 256` where that is what there is.
+The `mise` rows of `tools/pins.tsv` are the release's bare executables (the release ships them beside the archives, with their sha256 in the same `SHASUMS256.txt`), so nothing is extracted before the pinned Python exists. The order is mise, then uv through mise, then `uv python install`, then everything else. The tree check and the removal only walk and remove, so they run on the 3.9 that macOS ships (tested on a real 3.9); extracting an archive needs Python 3.12 and tarfile's `data` filter, and `scripts/tools.sh` refuses on an older one, naming `scripts/tools.sh install python`. The checksum uses `sha256sum`, or `shasum -a 256` where that is what there is.
 
 ## The Python runtime
 
-The interpreter is `core:python` in `mise.toml`, at an exact patch of the minor the project uses (the backend image, `requires-python` and the setup-python default follow that minor; a test reads `mise.toml` for all three, and `scripts/pins_refresh.py` reads it for `uv pip compile --python-version`). mise installs python-build-standalone's `install_only_stripped` build, the same builds uv installs, and the lock records its sha256 and a GitHub attestation for `linux-x64` and `macos-arm64`; mise checks the attestation when it installs and refuses a build that has none. The sha256 equals the one in the build's `SHA256SUMS`.
-
-This was the one tool whose move depended on a condition (an interpreter has to be usable by uv with no second download path, and the lock has to record a checksum). Both hold: `scripts/tools.sh` builds every tool venv with `uv venv --python <the mise interpreter>`, the Makefile points `UV_PYTHON` at `.tools/bin/python3` (a link to it) for `uv sync`, and `UV_PYTHON_DOWNLOADS=never` is set in both, so uv fetches no interpreter of its own and nothing is written under uv's Python directory. A Python bump in `mise.toml` rebuilds the tool venvs on the next `make tools` (they are rebuilt on every run). The patch is the newest the Python Software Foundation had published at least seven days before it was pinned; the python-build-standalone tag the lock names is the newest one that builds it, which `mise lock` picks and the lock then fixes (mise has no setting to choose an older tag).
-
-Renovate proposes patches of the pinned minor only (a rule caps it); a new minor moves the image, `requires-python`'s ceiling of testing, the compile target and the setup-python default together, by hand.
+The runtime stays `uv python install`, as the `python` row says. mise's `core:python` does lock it (python-build-standalone, a checksum and a GitHub attestation per platform), and uv can use any interpreter by path, but two reasons keep it out. First, the build age: `uv python install` takes its build from the download metadata compiled into the pinned uv (offline, `uv python list --only-downloads` shows the same build; no list is fetched), and a uv release is at least seven days old, so its builds are too. `core:python` always takes the newest python-build-standalone build for the version, and every new build release rebuilds all versions, so a re-lock can pin a build that is hours old; `minimum_release_age` filters on the Python version's date, not the build's, and mise has no setting for the build tag (checked at the pinned release). Moving Python would weaken the seven-day rule. Second, it would give two download paths for the one interpreter: `uv sync` and `uv venv` in the Makefile, the images' build and the adopter's machine all fetch their own managed Python, and `scripts/tools.sh` finds its interpreter with `uv python find --managed-python`. The checksum uv checks for its own download is built into the pinned uv. The row pins the minor.
 
 ## How mise extracts archives
 
@@ -117,7 +114,7 @@ So `..` and absolute names are covered by mise, and an out-of-tree symlink and a
 - Good: a Renovate bump changes `mise.toml` and `mise.lock` together, and the checksum comes from `mise lock`, not by hand; macOS is a second platform in the same lock, not a second copy of every row.
 - Good: more tools than today are verified by more than a checksum: GitHub attestations and cosign signatures where a vendor publishes them.
 - Good: a locked install needs no GitHub API call, so no token and no rate limit in CI.
-- Bad: two places describe the toolchain: `mise.toml` and `mise.lock` for the tools mise installs, `tools/pins.tsv` for the rows it does not (mise itself, five Python tools, two data files).
+- Bad: two places describe the toolchain: `mise.toml` and `mise.lock` for the tools mise installs, `tools/pins.tsv` for the rows it does not (mise itself, Python and five Python tools, two data files).
 - Bad: a 61 MB archive (about 180 MB unpacked) joins the download, and a mise settings or backend change is a new thing to review in each mise release.
 - Bad: the extraction guard is ours, not mise's, so it is one more check to keep; the next change adds it with a test that plants each bad archive.
 - Bad: the minisign and OpenPGP signatures over the mise release's checksum file are not checked yet.

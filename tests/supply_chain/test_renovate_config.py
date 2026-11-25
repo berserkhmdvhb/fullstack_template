@@ -544,30 +544,15 @@ def test_the_pins_that_must_stay_equal_are_grouped_with_the_mise_entries() -> No
     assert {"minor", "major"} == set(kubectl["matchUpdateTypes"])
 
 
-def test_python_and_zizmor_are_read_by_the_mise_manager_and_by_no_pins_manager() -> None:
-    for key in ("core:python", "aqua:zizmorcore/zizmor"):
-        assert key in tomllib.loads(MISE)["tools"]
-        assert re.fullmatch(r"(aqua|github|core):[\w.-]+(/[\w.-]+)?", key)
-        assert key not in {f"aqua:{r}" for r in MISE_BY_REGEX}
+def test_zizmor_is_read_by_the_mise_manager_and_by_no_pins_manager() -> None:
+    key = "aqua:zizmorcore/zizmor"
+    assert key in tomllib.loads(MISE)["tools"]
+    assert re.fullmatch(r"(aqua|github|core):[\w.-]+(/[\w.-]+)?", key)
     names = set()
     for manager in _managers("pins"):
         for ms in manager["matchStrings"]:
             names |= {m.group("depName") for m in _compile(ms).finditer(PINS)}
-    assert not {"python", "zizmor"} & names
+    assert "zizmor" not in names
     assert {"pip-audit", "pre-commit", "schemathesis", "yamale", "yamllint"} <= names
-    # The rule that switched the old python row off is gone.
-    rules = renovate()["packageRules"]
-    assert not [r for r in rules if r.get("matchDepNames") == ["python"]]
-
-
-def test_the_python_cap_follows_the_pinned_minor_in_mise_toml() -> None:
-    rule = next(r for r in renovate()["packageRules"] if r.get("matchPackageNames") == ["python"])
-    assert rule["matchManagers"] == ["mise"]
-    cap = re.fullmatch(r"/(.+)/", rule["allowedVersions"])
-    assert cap
-    version = tomllib.loads(MISE)["tools"]["core:python"]
-    minor = version.rsplit(".", 1)[0]
-    assert re.search(cap[1], version)
-    assert re.search(cap[1], f"{minor}.99")
-    major, mnr = (int(x) for x in minor.split("."))
-    assert not re.search(cap[1], f"{major}.{mnr + 1}.0")
+    # The python row is not a PyPI package: its lookup stays disabled.
+    assert any(r.get("matchDepNames") == ["python"] for r in renovate()["packageRules"])

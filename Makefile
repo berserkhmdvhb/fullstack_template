@@ -33,12 +33,6 @@
 PYTHON := $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else command -v python3 || command -v python; fi)
 # uv: the pinned binary from mise.toml (scripts/tools.sh install uv) when present, else the one on PATH.
 UV := $(or $(wildcard .tools/bin/uv),uv)
-# uv builds the project's .venv on the interpreter mise.toml pins (scripts/tools.sh install python links it as
-# .tools/bin/python3) and never downloads another: one interpreter, one download path.
-export UV_PYTHON_DOWNLOADS := never
-ifneq ($(wildcard .tools/bin/python3),)
-export UV_PYTHON := $(CURDIR)/.tools/bin/python3
-endif
 SERVICE := your_service_name
 # The project venv's tools (ruff, mypy, uvicorn) first, so make finds them without activating it.
 export PATH := $(CURDIR)/.venv/bin:$(PATH)

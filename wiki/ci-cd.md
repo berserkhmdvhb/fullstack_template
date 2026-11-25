@@ -261,7 +261,7 @@ Pull requests and tags restore caches and never save them, so a pull request can
 | What | Where |
 |---|---|
 | Third-party actions | the `uses:` line, a full 40-character SHA with a `# vX.Y.Z` comment (Renovate keeps them current) |
-| Dev tools (shellcheck, bats, yq, actionlint, zizmor, lychee, helm, kubectl, node, python, uv, ...) | `mise.toml` and `mise.lock` (a sha256 per platform), installed by `scripts/tools.sh`; [how](./getting-started.md#the-developer-toolchain). mise itself and the data rows: `tools/pins.tsv` |
+| Dev tools (shellcheck, bats, yq, actionlint, zizmor, lychee, helm, kubectl, node, uv, ...) | `mise.toml` and `mise.lock` (a sha256 per platform), installed by `scripts/tools.sh`; [how](./getting-started.md#the-developer-toolchain). mise itself, Python and the data rows: `tools/pins.tsv` |
 | Python tools (pip-audit, yamllint, ...) | `tools/requirements/*.txt`, hash-pinned; `pyyaml.txt` is the PyYAML of the jobs with no setup-python (the container matrix helper, the hardening lint, the chart and preview jobs), installed into a venv and called by full path |
 | Security tools (syft, grype, grant, osv-scanner, kubescape, ...) | `infra/security/config.yaml`, installed by `infra/security/tools-install.sh` |
 | The ZAP image | `infra/security/config.yaml` (`dast.zap_image`), by tag and digest |

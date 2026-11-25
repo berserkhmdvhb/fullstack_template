@@ -1,12 +1,15 @@
 # The developer toolchain: scripts/tools.sh runs the pinned mise (tools/pins.tsv) with these settings and the
 # repo-local environment it sets, installs the tools below --locked from mise.lock (a sha256 per platform, and
 # the vendor's signature or attestation where its recipe has one) and links them into .tools/bin.
-# Five Python tools (hash-pinned requirements), the data rows and mise itself stay in tools/pins.tsv. Only the aqua, github and core backends
+# Python (uv installs it: its builds are older than 7 days), five Python tools (hash-pinned requirements), the data rows
+# and mise itself stay in tools/pins.tsv. Only the aqua, github and core backends
 # are on; there are no tasks, no hooks and no env files.
 [settings]
 # mise.lock is read and kept; installs run --locked from it.
 lockfile = true
 locked = true
+# A version is locked only if it was released at least 7 days ago (the project's pin rule), also when a lock is rewritten.
+minimum_release_age = "7d"
 lockfile_platforms = ["linux-x64", "macos-arm64"]
 # Release data comes from the forge and the vendor, not from a mirror, and no usage report is sent.
 use_versions_host = false
@@ -40,10 +43,6 @@ kubectl-floor = "aqua:kubernetes/kubernetes/kubectl"
 # kubectl must stay within one minor of the cluster; kubectl-floor is the chart's kubeVersion floor.
 [tools]
 "core:node" = "26.13.1"
-# Python: the minor is the backend image's (Dockerfile.backend), requires-python's tested ceiling, the setup-python default and the
-# compile target of the hashed locks (tests/supply_chain/test_mise_config.py); the patch is the newest published at least 7 days
-# before it was pinned. uv builds every venv on it by path and never downloads one.
-"core:python" = "3.13.18"
 "aqua:astral-sh/uv" = "0.13.8"
 helm3 = "3.22.1"
 helm4 = "4.3.2"

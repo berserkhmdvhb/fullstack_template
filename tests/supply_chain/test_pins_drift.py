@@ -94,7 +94,9 @@ def test_row_shape(row: list[str]) -> None:
     assert SHA.fullmatch(sha), f"{name}: sha256 is not 64 hex"
 
 
-@pytest.mark.parametrize("row", [r for r in rows() if r[3].startswith("uv:")], ids=lambda r: r[0])
+@pytest.mark.parametrize(
+    "row", [r for r in rows() if r[3].startswith("uv:") and r[0] != "python"], ids=lambda r: r[0]
+)
 def test_uv_rows_have_a_lock_pinning_the_version(row: list[str]) -> None:
     name, version, _plat, url, _sha = row
     lock = REQS / f"{name}.txt"
@@ -606,15 +608,11 @@ def test_the_check_runs_the_lock_check_and_fails_closed(
 
 def test_the_regeneration_command_is_the_documented_one_with_a_cutoff() -> None:
     header = " ".join(ln.lstrip("# ") for ln in PINS.read_text().splitlines() if ln.startswith("#"))
-    tail = " --python-platform x86_64-unknown-linux-gnu"
-    assert (
-        f"uv pip compile --generate-hashes --no-header --python-version <mise.toml>{tail}" in header
+    documented = (
+        "uv pip compile --generate-hashes --no-header --python-version 3.13"
+        " --python-platform x86_64-unknown-linux-gnu"
     )
-    # The Python the locks are compiled for is the minor of the interpreter mise.toml pins.
-    minor = ".".join(
-        tomllib.loads((ROOT / "mise.toml").read_text())["tools"]["core:python"].split(".")[:2]
-    )
-    documented = f"uv pip compile --generate-hashes --no-header --python-version {minor}{tail}"
+    assert documented in header
     cmd = pr.compile_command(Path("lock.txt"), Path("c.txt"), NOW)
     assert cmd[0] == pr.UV
     assert " ".join(["uv", *(c for c in cmd[1:] if c != "--quiet")]).startswith(documented)

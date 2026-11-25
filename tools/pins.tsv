@@ -2,11 +2,11 @@
 # Columns (tab-separated): name  version  platform  url  sha256
 #
 # Most tools are in mise.toml and mise.lock (mise install --locked, a sha256 per platform for linux-x64 and macos-arm64,
-# plus a signature or attestation where the vendor publishes one): Node, Python, uv, zizmor, Helm 3 and 4, both
-# kubectls, kind, kubeconform, promtool, ct, helm-unittest, actionlint, hadolint, gitleaks, squawk, oasdiff, cosign,
-# kyverno, yq, bats, shellcheck, lychee. Renovate moves those; `make pins-refresh` re-locks them. What stays here is
-# what mise cannot verify as well as today or does not manage: mise itself (the bootstrap), five Python tools
-# (hash-pinned requirements), and two data files.
+# plus a signature or attestation where the vendor publishes one): Node, uv, zizmor, Helm 3 and 4, both kubectls, kind,
+# kubeconform, promtool, ct, helm-unittest, actionlint, hadolint, gitleaks, squawk, oasdiff, cosign, kyverno, yq,
+# bats, shellcheck, lychee. Renovate moves those; `make pins-refresh` re-locks them. What stays here is what mise
+# cannot verify as well as today or does not manage: mise itself (the bootstrap), Python and the five uv tools (hash-pinned
+# requirements), and two data files.
 #
 # Rule: a pin is the newest stable release published at least 7 days before it was pinned
 # (Renovate minimumReleaseAge). Pinned on 2026-11-20.
@@ -21,12 +21,12 @@ mise	2026.11.9	darwin-arm64	https://github.com/jdx/mise/releases/download/v2026.
 # Rows with url uv:<pkg> are Python tools. Each is installed into its own venv,
 # .tools/uv-tools/<name>, with `uv pip install --require-hashes -r tools/requirements/<name>.txt`
 # (every transitive dependency hash-pinned; `make pins-refresh` regenerates a lock in place with
-# `uv pip compile --generate-hashes --no-header --python-version <mise.toml> --python-platform x86_64-unknown-linux-gnu`
+# `uv pip compile --generate-hashes --no-header --python-version 3.13 --python-platform x86_64-unknown-linux-gnu`
 # plus `--exclude-newer` (now minus 7 days) and pyyaml held at the version in tools/requirements/pyyaml.txt),
-# where <mise.toml> is the minor of the Python that mise.toml pins (core:python). mise's pipx backend does not hash-pin
-# transitive dependencies, so these stay.
+# on the pinned `python` row. mise's pipx backend does not hash-pin transitive dependencies, so these stay.
 # Their sha256 column is `-` because the hashes live in the requirements file. yamale and yamllint
-# are what `ct lint` shells out to. Every venv is built on the mise Python, by path, and uv never downloads an interpreter.
+# are what `ct lint` shells out to. `uv:python` runs `uv python install <version>` (uv's own download, kept under
+# .tools/uv); uv verifies that download with its built-in checksums, which is accepted here.
 # The pinned uv itself is in mise.toml; the backend image copies it from the official image at the same version (a test keeps the two equal).
 #
 # Helm major: see the default-helm line. Both majors are installed (helm3, helm4, in mise.toml); `helm` links to the default.
@@ -47,6 +47,7 @@ mise	2026.11.9	darwin-arm64	https://github.com/jdx/mise/releases/download/v2026.
 # digest the chart repository's index.yaml lists, confirmed against the downloaded bytes; hashed on download.
 k8s-openapi	1.34.13	any	https://raw.githubusercontent.com/kubernetes/kubernetes/v1.34.13/api/openapi-spec/swagger.json	d3b0cdc2fda15c753206d25ab459dc7c12df64e2fd652b6809687471ea751c37
 kyverno-chart	3.10.0	any	https://kyverno.github.io/kyverno/kyverno-3.10.0.tgz	55961392dc0821eb367323f0e9585c061dd4407ef7ada921bd56ea1642c2a301
+python	3.13	any	uv:python	-
 schemathesis	4.33.4	any	uv:schemathesis	-
 pre-commit	4.7.0	any	uv:pre-commit	-
 yamale	6.1.0	any	uv:yamale	-

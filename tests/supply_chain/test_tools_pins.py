@@ -27,6 +27,7 @@ BASH: str = shutil.which("bash") or "/usr/bin/bash"
 PLATFORM = "linux-amd64"
 REQUIRED = {
     "mise",
+    "python",
     "schemathesis",
     "pre-commit",
     "yamale",
@@ -255,9 +256,12 @@ def test_pins_hold_only_the_rows_mise_does_not_manage_each_with_a_checksum() -> 
         assert plat in (PLATFORM, "any") or (name, plat) == ("mise", "darwin-arm64"), name
         if url.startswith("uv:"):
             assert sha == "-", name
-            req = (ROOT / f"tools/requirements/{name}.txt").read_text()
-            assert re.search(rf"^{re.escape(name)}=={re.escape(_ver)}\b", req, re.MULTILINE), name
-            assert "--hash=sha256:" in req, name
+            if url != "uv:python":
+                req = (ROOT / f"tools/requirements/{name}.txt").read_text()
+                assert re.search(rf"^{re.escape(name)}=={re.escape(_ver)}\b", req, re.MULTILINE), (
+                    name
+                )
+                assert "--hash=sha256:" in req, name
         else:
             assert url.startswith("https://"), name
             assert re.fullmatch(r"[0-9a-f]{64}", sha), name
@@ -276,7 +280,7 @@ def test_the_listing_covers_every_required_tool_with_its_version() -> None:
     assert set(listed) >= {
         "helm3", "helm4", "kind", "kubeconform", "promtool", "ct", "helm-unittest", "actionlint",
         "hadolint", "gitleaks", "squawk", "oasdiff", "cosign", "kyverno", "yq", "bats", "node",
-        "kubectl", "kubectl-floor", "uv", "lychee", "shellcheck", "python", "zizmor",
+        "kubectl", "kubectl-floor", "uv", "lychee", "shellcheck", "zizmor",
     } | REQUIRED  # fmt: skip
 
 
@@ -404,24 +408,19 @@ def test_the_ci_unit_job_installs_what_the_tool_tests_read_before_the_tests() ->
     assert install < next(i for i, r in enumerate(runs) if "make test-unit" in r)
 
 
-def test_python_and_zizmor_are_mise_tools_and_no_row_or_lock_is_left_for_them() -> None:
-    assert listing()["python"][1] == "core:python"
+def test_zizmor_is_a_mise_tool_and_python_stays_a_uv_row() -> None:
     assert listing()["zizmor"][1] == "aqua:zizmorcore/zizmor"
-    assert not {"python", "zizmor"} & {r[0] for r in rows()}
+    assert "zizmor" not in {r[0] for r in rows()}
+    assert ("python", "uv:python") in {(r[0], r[3]) for r in rows()}
     assert not (ROOT / "tools/requirements/zizmor.txt").exists()
-    assert "uv python install" not in SRC
 
 
-def test_uv_and_mise_python_are_installed_before_a_uv_tool_and_a_dry_run_says_so(
-    tmp_path: Path,
-) -> None:
+def test_uv_is_installed_before_a_uv_tool_and_a_dry_run_says_so(tmp_path: Path) -> None:
     env = {**os.environ, "TOOLS_DIR": str(tmp_path / ".tools")}
     r = run(["--dry-run", "install", "yamllint"], env)
     assert r.returncode == 0, r.stderr
     assert listing()["uv"][1] == "aqua:astral-sh/uv"
-    assert "mise install --locked core:python aqua:astral-sh/uv\n" in r.stdout
     assert r.stdout.index("==> uv ") < r.stdout.index("==> yamllint ")
-    assert r.stdout.index("==> python ") < r.stdout.index("==> yamllint ")
     assert not (tmp_path / ".tools").exists()
 
 
@@ -433,23 +432,17 @@ def test_a_dry_run_installs_zizmor_through_mise(tmp_path: Path) -> None:
     assert "uv, --require-hashes" not in r.stdout
 
 
-def test_the_pinned_uv_is_the_one_used_and_builds_every_venv_on_the_mise_python(
+def test_the_pinned_uv_is_the_one_used_and_keeps_its_cache_and_pythons_in_the_repository(
     tmp_path: Path,
 ) -> None:
     """A stub uv in .tools/bin records what it is called with; a different uv first on PATH is never
-    called; uv's cache and Python directory are inside .tools, its interpreter downloads are off,
-    and the venv is built on the interpreter mise installed (a stub mise says where that is)."""
+    called, and uv's cache and its Python directory are inside .tools."""
     tools = tmp_path / ".tools"
     (tools / "bin").mkdir(parents=True)
     log = tmp_path / "uv.log"
-    seen = "$0 $UV_CACHE_DIR $UV_PYTHON_INSTALL_DIR $UV_PYTHON_DOWNLOADS $*"
-    stub = f'#!/bin/sh\necho "{seen}" >> {log}\n'
-    py = tmp_path / "mise-python"
-    (py / "bin").mkdir(parents=True)
-    (py / "bin/python3").write_text("#!/bin/sh\n")
-    (py / "bin/python3").chmod(0o755)
-    (tools / "bin/mise").write_text(f'#!/bin/sh\n[ "$1" = where ] && echo {py}\n')
-    (tools / "bin/mise").chmod(0o755)
+    stub = (
+        f'#!/bin/sh\necho "$0 $UV_CACHE_DIR $UV_PYTHON_INSTALL_DIR" >> {log}\necho /fake/python\n'
+    )
     (tools / "bin/uv").write_text(stub)
     (tools / "bin/uv").chmod(0o755)
     other = tmp_path / "other"
@@ -473,12 +466,8 @@ def test_the_pinned_uv_is_the_one_used_and_builds_every_venv_on_the_mise_python(
     calls = log.read_text().splitlines()
     assert calls
     assert "WRONG" not in calls
-    prefix = f"{tools}/bin/uv {tools}/uv/cache {tools}/uv/python never "
     for call in calls:
-        assert call.startswith(prefix), call
-    venv = next(c for c in calls if " venv " in c)
-    assert venv.endswith(f"--python {py}/bin/python3 {tools}/uv-tools/yamllint"), venv
-    assert not any("python install" in c for c in calls)
+        assert call == f"{tools}/bin/uv {tools}/uv/cache {tools}/uv/python", call
 
 
 def test_a_dry_run_names_exactly_the_requested_mise_tools(tmp_path: Path) -> None:

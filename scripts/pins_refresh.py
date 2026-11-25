@@ -52,13 +52,11 @@ HEX64 = re.compile(r"[0-9a-f]{64}")
 MISE_TOML = ROOT / "mise.toml"
 MISE_LOCK = ROOT / "mise.lock"
 # The documented regeneration command (tools/pins.tsv header), plus --quiet.
-# The pinned uv (mise.toml, installed by scripts/tools.sh) when present, like tools.sh itself.
-# The locks are compiled for the minor of the Python that mise.toml pins.
-PYTHON_MINOR = ".".join(tomllib.loads(MISE_TOML.read_text())["tools"]["core:python"].split(".")[:2])
+# The pinned uv (tools/pins.tsv, installed by scripts/tools.sh) when present, like tools.sh itself.
 UV = str(ROOT / ".tools" / "bin" / "uv") if (ROOT / ".tools" / "bin" / "uv").is_file() else "uv"
 UV_COMPILE = [
     *(UV, "pip", "compile", "--quiet", "--generate-hashes", "--no-header"),
-    *("--python-version", PYTHON_MINOR, "--python-platform", "x86_64-unknown-linux-gnu"),
+    *("--python-version", "3.13", "--python-platform", "x86_64-unknown-linux-gnu"),
 ]
 MIN_AGE = timedelta(
     days=7
@@ -79,10 +77,12 @@ USAGE = "usage: pins-refresh.sh [--check] [--base REF] [name...]"
 #   gh-digest  the release-asset `digest` from the GitHub releases API (no vendor file exists)
 #   archive    a GitHub tag archive or a file at a tag (no vendor checksum): hashed on download
 #   uv         a Python tool: hashed lock in tools/requirements/, checked against PyPI
+#   none       uv downloads and verifies it itself
 SOURCES: dict[str, tuple[str, str, str]] = {
     "mise": ("sumfile", "{dir}/SHASUMS256.txt", "https://github.com/jdx/mise/releases/download/"),
     "k8s-openapi": ("archive", "", "https://raw.githubusercontent.com/kubernetes/kubernetes/"),
     "kyverno-chart": ("archive", "", "https://kyverno.github.io/kyverno/"),
+    "python": ("none", "", "uv:python"),
     "schemathesis": ("uv", "", "uv:schemathesis"),
     "pre-commit": ("uv", "", "uv:pre-commit"),
     "yamale": ("uv", "", "uv:yamale"),
@@ -407,6 +407,8 @@ def problem(pin: Pin) -> str | None:
     """None when the pin matches its vendor, else what differs. PinError if that cannot be told."""
     check_prefix(pin)
     kind = SOURCES[pin.name][0]
+    if kind == "none":
+        return None
     if kind == "uv":
         # The PyPI hashes and release age of every lock entry are checked per lock (lock_problems).
         pkg = pin.url.removeprefix("uv:")

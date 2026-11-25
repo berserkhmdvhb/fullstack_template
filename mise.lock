@@ -352,18 +352,3 @@ url = "https://nodejs.org/dist/v26.13.1/node-v26.13.1-linux-x64.tar.gz"
 [tools.node."platforms.macos-arm64"]
 checksum = "sha256:aec2514ea1ceb2ba52455e9ec65986f6749a06dd759e5db2a72e6889668c9735"
 url = "https://nodejs.org/dist/v26.13.1/node-v26.13.1-darwin-arm64.tar.gz"
-
-[[tools.python]]
-version = "3.13.18"
-backend = "core:python"
-specifiers = ["3.13.18"]
-
-[tools.python."platforms.linux-x64"]
-checksum = "sha256:b56ceb4fc1d8f0c49b7bd4dc91cd176bad7b86a88b9fc509bae6b10b3ee36692"
-url = "https://github.com/astral-sh/python-build-standalone/releases/download/20261124/cpython-3.13.18+20261124-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
-provenance = "github-attestations"
-
-[tools.python."platforms.macos-arm64"]
-checksum = "sha256:296f0903cccda15a5c9d3d8393cd2204718aeffd9b095a00f812d75c7b1c0967"
-url = "https://github.com/astral-sh/python-build-standalone/releases/download/20261124/cpython-3.13.18+20261124-aarch64-apple-darwin-install_only_stripped.tar.gz"
-provenance = "github-attestations"

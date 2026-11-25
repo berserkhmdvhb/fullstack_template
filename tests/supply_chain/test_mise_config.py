@@ -87,12 +87,12 @@ def test_the_download_checks_stay_on() -> None:
         assert SETTINGS["aqua"][name] is True, name
 
 
-# The 24 rows the mapping moves; the rest of tools/pins.tsv stays (mise itself, the four uv Python
-# tools and pre-commit, the two data rows).
+# The 23 rows the mapping moves; the rest of tools/pins.tsv stays (mise itself, Python, the five uv
+# tools, the two data rows).
 MOVED = {
     "node", "uv", "helm3", "helm4", "kubectl", "kubectl-floor", "kind", "kubeconform", "promtool",
     "ct", "helm-unittest", "actionlint", "hadolint", "gitleaks", "squawk", "oasdiff", "cosign",
-    "kyverno", "yq", "bats", "shellcheck", "lychee", "python", "zizmor",
+    "kyverno", "yq", "bats", "shellcheck", "lychee", "zizmor",
 }  # fmt: skip
 LOCK = tomllib.loads((ROOT / "mise.lock").read_text())
 
@@ -134,21 +134,21 @@ def test_the_helm_unittest_binary_keeps_the_name_its_plugin_yaml_runs() -> None:
     assert table["macos-arm64"]["rename_exe"] == "untt-macos-arm64"
 
 
-def test_python_is_one_exact_patch_and_zizmor_a_verified_aqua_tool() -> None:
-    assert re.fullmatch(r"3\.\d+\.\d+", CONFIG["tools"]["core:python"])
+def test_zizmor_is_a_verified_aqua_tool_and_python_is_not_a_mise_tool() -> None:
     assert "aqua:zizmorcore/zizmor" in CONFIG["tools"]
-    for key in ("python", "aqua:zizmorcore/zizmor"):
-        for platform in ("linux-x64", "macos-arm64"):
-            locked = LOCK["tools"][key][0][f"platforms.{platform}"]
-            assert locked["provenance"] == "github-attestations", (key, platform)
+    for platform in ("linux-x64", "macos-arm64"):
+        locked = LOCK["tools"]["aqua:zizmorcore/zizmor"][0][f"platforms.{platform}"]
+        assert locked["provenance"] == "github-attestations", platform
+    # mise's core:python takes the newest python-build-standalone build, which can be hours old;
+    # uv's pinned release carries older builds, so Python stays a `uv python install` row.
+    assert not [k for k in CONFIG["tools"] if k.removeprefix("core:") == "python"]
+    assert "python" in {
+        ln.split("\t")[0]
+        for ln in (ROOT / "tools/pins.tsv").read_text().splitlines()
+        if ln[:1] != "#"
+    }
 
 
-def test_the_python_minor_in_mise_toml_is_the_one_the_image_and_the_project_use() -> None:
-    """The old `python` row is gone: mise.toml is the one place the interpreter is pinned."""
-    minor = CONFIG["tools"]["core:python"].rsplit(".", 1)[0]
-    image = (ROOT / "Dockerfile.backend").read_text()
-    assert f"UV_PYTHON=/usr/bin/python{minor}" in image
-    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
-    assert int(project["requires-python"].removeprefix(">=3.")) <= int(minor.split(".")[1])
-    action = (ROOT / ".github/actions/setup-backend/action.yml").read_text()
-    assert f'default: "{minor}"' in action
+def test_a_version_is_locked_only_if_it_is_at_least_seven_days_old() -> None:
+    assert SETTINGS["minimum_release_age"] == "7d"
+    assert "minimum_release_age_excludes" not in SETTINGS
