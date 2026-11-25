@@ -225,12 +225,15 @@ safe_python() {
 }
 
 # Interpreter for the tree check and the removal (safe_extract.py --check, --remove): they only walk and remove, so
-# the 3.9 that macOS ships is enough; with anything older, as safe_python.
+# the 3.9 that macOS ships is enough; with anything older, the uv-managed one. Without either nothing can be installed
+# (the tree check runs after every install, the pinned Python's too), so the way out is a system python3.
 tree_python() {
   if python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
     command -v python3
+  elif uv python find --managed-python "$(pin_version python)" 2>/dev/null; then
+    :
   else
-    safe_python
+    die "$NAME: checking an installed tree needs python 3.9 or newer, and there is none; install a python3 (3.9 or newer)"
   fi
 }
 

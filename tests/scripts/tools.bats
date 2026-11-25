@@ -320,12 +320,13 @@ PY
   [ ! -e "$TOOLS/$INSTALL_DIR" ]
 }
 
-@test "a python3 older than 3.9 and no uv: refused before anything is linked" {
+@test "a python3 older than 3.9 and no uv: refused before anything is linked, and told to install a python3" {
   fixture_project
   old_python3 3.8
   tools env PATH="$BATS_TEST_TMPDIR/fakebin:$PATH" bash "$PROJ/scripts/tools.sh" install kind
   [ "$status" -ne 0 ]
-  [[ "$output" == *"needs python"* ]]
+  [[ "$output" == *"needs python 3.9 or newer"*"install a python3 (3.9 or newer)"* ]]
+  [[ "$output" != *"tools.sh install python"* ]]
   [ ! -e "$TOOLS/bin/kind" ]
 }
 
