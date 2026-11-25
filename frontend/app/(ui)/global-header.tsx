@@ -22,7 +22,7 @@ import { useTheme } from './theme-provider';
 // the `/api/v1` prefix the browser uses for data calls. Derive that origin from
 // the same `NEXT_PUBLIC_API_URL` the data client uses so the "API Docs" link
 // resolves correctly in every environment (local ingress host, port-forward,
-// or production `api.your-domain.example`). A bare relative `/docs` would resolve
+// or the production host). A bare relative `/docs` would resolve
 // against the frontend origin, hit the Next.js router, and 404.
 //
 // API_BASE is absolute in every real deployment; the only relative case is the

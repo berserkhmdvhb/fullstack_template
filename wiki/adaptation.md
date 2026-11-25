@@ -45,7 +45,7 @@ infra/adapt/adopt.sh             # 3. apply (backs up every touched file to .ada
 same `adopt.conf`, so one edit applies everywhere — forwarding `--dry-run`. The stamping replaces
 `your-domain.example` / `registry.your-domain.example` in every file that carries them: the `Dockerfile*`,
 `pyproject.toml`, the chart's `values.*.yaml` and `Chart.yaml`, and the conduct contact in `CODE_OF_CONDUCT.md`,
-among others. The optional `REPOSITORY` (`owner/name`) replaces `your-org/your-repo` in the `SOURCE_URL` default of
+among others. The stamp, with the name, gives each environment one hostname, `<name>[-dev|-qa].<domain>` (production is `<name>.<domain>`); `edge.hosts.api` stays empty unless you want a backend-only host ([Infrastructure, edge hostnames](./infrastructure.md#edge-hostnames)). The optional `REPOSITORY` (`owner/name`) replaces `your-org/your-repo` in the `SOURCE_URL` default of
 the three Dockerfiles (the image's OCI `source` label for local and kind builds; CI passes the real URL), the README
 badges, and the links in `SECURITY.md`, the issue forms and the pull request template. The optional `CODEOWNER` (a user
 `@name`, a team `@org/team` or an email; GitHub rejects a bare organisation) replaces `@your-org` in

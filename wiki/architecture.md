@@ -224,9 +224,9 @@ flowchart LR
 
 | Environment | Replicas | Debug | Log Level | Hosts |
 |-------------|----------|-------|-----------|-------|
-| **dev** | 1 | true | DEBUG | dev-api, dev-app |
-| **qa** | 2 | false | INFO | qa-api, qa-app |
-| **production** | 3 | false | WARNING | api, app |
+| **dev** | 1 | true | DEBUG | your-service-name-dev |
+| **qa** | 2 | false | INFO | your-service-name-qa |
+| **production** | 3 | false | WARNING | your-service-name |
 
 ---
 

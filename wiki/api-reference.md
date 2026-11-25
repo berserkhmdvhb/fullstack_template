@@ -21,10 +21,10 @@ Complete API documentation for all endpoints, request/response schemas, and usag
 | Environment | URL |
 |------------|-----|
 | **Local (direct backend)** | `http://127.0.0.1:${BACKEND_PORT}` |
-| **Kubernetes (via Ingress)** | `https://api.your-domain.example` |
+| **Kubernetes (via Ingress)** | `https://your-service-name.your-domain.example` |
 | **API prefix** | `/api/${API_VERSION}` |
 
-Default: `http://127.0.0.1:8000/api/v1` or `https://api.your-domain.example/api/v1`
+Default: `http://127.0.0.1:8000/api/v1` or `https://your-service-name.your-domain.example/api/v1`
 
 ---
 
@@ -383,8 +383,8 @@ snapshot, not the live schema). ReDoc is intentionally not shipped
 
 | Tool | URL (Local) | URL (Kubernetes) |
 |------|-------------|-------------------|
-| **Swagger UI** | `http://localhost:${BACKEND_PORT}/docs` | `https://api.your-domain.example/docs` |
-| **OpenAPI JSON** | `http://localhost:${BACKEND_PORT}/openapi.json` | `https://api.your-domain.example/openapi.json` |
+| **Swagger UI** | `http://localhost:${BACKEND_PORT}/docs` | `https://your-service-name.your-domain.example/docs` |
+| **OpenAPI JSON** | `http://localhost:${BACKEND_PORT}/openapi.json` | `https://your-service-name.your-domain.example/openapi.json` |
 | **Metrics** | `http://localhost:${METRICS_PORT}/metrics` (the launcher's metrics port, default `9102`; not on the API port) | cluster-internal only: the backend Service's `metrics` port, never the edge |
 
 The frontend uses `openapi.json` to generate typed TypeScript API client code:

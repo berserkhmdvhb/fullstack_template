@@ -212,8 +212,7 @@ helm upgrade --install your-service-name charts/your-service-name \
 kubectl -n your-service-name-local port-forward svc/your-service-name-frontend 3000:3000
 
 # Or access via Ingress (if DNS is configured)
-# http://dev-api.your-domain.example
-# http://dev-app.your-domain.example
+# http://your-service-name-dev.your-domain.example
 ```
 
 ### Iterative Development

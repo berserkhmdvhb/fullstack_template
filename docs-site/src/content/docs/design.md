@@ -59,7 +59,8 @@ replace it on purpose.
   [dev, qa and production](../../../../wiki/adr/0030-environments-dev-qa-production.md),
   [optional previews](../../../../wiki/adr/0031-optional-pr-previews.md), [the Kubernetes floor](../../../../wiki/adr/0033-kubernetes-floor-1-34.md),
   [Helm for deploys](../../../../wiki/adr/0034-helm-4.md), [kind as the local cluster](../../../../wiki/adr/0035-kind-default-local-cluster.md),
-  [two monitoring flavours](../../../../wiki/adr/0036-two-monitoring-flavours.md).
+  [two monitoring flavours](../../../../wiki/adr/0036-two-monitoring-flavours.md),
+  [one hostname per environment](../../../../wiki/adr/0042-one-hostname-per-environment.md).
 
 **The supply chain and the release**
 - [Debian fixes over the base](../../../../wiki/adr/0014-debian-fixes-over-the-base.md), [uv for Python](../../../../wiki/adr/0015-uv-for-python.md),

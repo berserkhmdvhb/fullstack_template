@@ -221,8 +221,8 @@ kubectl -n your-service-name get svc
 kubectl -n your-service-name get ingress
 
 # Test health endpoints
-curl -fsS https://api.your-domain.example/api/v1/health
-curl -fsS https://app.your-domain.example/
+curl -fsS https://your-service-name.your-domain.example/api/v1/health
+curl -fsS https://your-service-name.your-domain.example/
 
 # Check HPA
 kubectl -n your-service-name get hpa

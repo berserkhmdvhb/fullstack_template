@@ -537,24 +537,38 @@ the `edge:` and `networkPolicy:` blocks of [`values.yaml`](../charts/your-servic
 | `ingress` | One controller-agnostic `networking.k8s.io/v1` Ingress, no class or annotations by default | The cluster has an Ingress controller and no Gateway. |
 | `tunnel` | No edge object; NOTES prints the route table | A tunnel (for example Cloudflare Tunnel) is the only way in. |
 
+### Edge hostnames
+
+One hostname per environment: `edge.hosts.root` serves the whole app on one origin (the browser calls
+`/api` on the page's own host, so there is no CORS, the cookies are host-locked, `connect-src` is
+`'self'`, and there is one certificate, one tunnel route and one Access application per environment).
+The scheme is `<service>[-<env>].<domain>`, always one label under the zone: the free Universal SSL
+certificate covers `*.<domain>`, never a second level, and the service name in the host lets many
+services share one domain. Production is `<service>.<domain>`, the others `<service>-dev.<domain>`
+and `<service>-qa.<domain>`; a pull request preview is `<service>-pr-<N>.<preview-zone>`. A flagship
+service may take the apex (`edge.hosts.root: <domain>`): Cloudflare flattens the apex CNAME, so a
+tunnel route works there. See [ADR-0042](./adr/0042-one-hostname-per-environment.md).
+
+Set `edge.hosts.api` (`<service>-api[-<env>].<domain>`) only for a backend-only host, when a client
+that is not a browser needs its own rules: a rate limit, an Access policy, a service token. It serves
+the `backend` routes, and joins the backend's `ALLOWED_HOSTS`, the Ingress TLS hosts and NOTES. Leave
+it empty otherwise. There is no `app` host: the schema refuses one.
+
 ### The routes list
 
 `edge.routes` in [`values.yaml`](../charts/your-service-name/values.yaml): `/api`, `/docs` and
 `/openapi.json` go to `backend`, everything else to `frontend`. The root host serves every route,
-the api host the `backend` routes, the app host the `frontend` routes. `backend` is the API Service,
-or the WAF Service when `waf.enabled`. Gateway mode renders it into the HTTPRoutes, ingress mode into
+the optional api host the `backend` routes only; there is no frontend-only host. `backend` is the API
+Service, or the WAF Service when `waf.enabled`. Gateway mode renders it into the HTTPRoutes, ingress mode into
 the Ingress rules.
 
 In tunnel mode the same list is the tunnel's route table. `helm install` prints it in NOTES (print it
 again with `helm get notes <release> -n <namespace>`), one line per hostname and path, with the
 in-cluster URL to point the tunnel at. The full table for the default values, release `svc` in
-namespace `app`:
+namespace `app`, with no api host set (with `edge.hosts.api` set, the three `backend` lines repeat
+on that host):
 
 ```text
-api.your-domain.example/api                              PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
-api.your-domain.example/docs                             PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
-api.your-domain.example/openapi.json                     Exact      -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
-app.your-domain.example/                                 PathPrefix -> http://svc-your-service-name-frontend.app.svc.cluster.local:3000
 your-service-name.your-domain.example/api                PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
 your-service-name.your-domain.example/docs               PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
 your-service-name.your-domain.example/openapi.json       Exact      -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
@@ -706,7 +720,7 @@ The chart renders no edge header filter, so response headers come from the backe
 Set `config.TRUSTED_PROXY_CIDRS` to the hops that connect to the backend: the gateway Pods' range
 (gateway mode, in-cluster), the Google ranges above (GKE), the controller's Pods (ingress), or the
 `cloudflared` Pod range (tunnel); add the WAF's Pods when it is on. With the WAF off, add the
-frontend Pod range too: same-origin `/api/v1` calls on the app host reach the backend from the
+frontend Pod range too: same-origin `/api/v1` calls on the root host reach the backend from the
 frontend's proxy, which forwards `X-Forwarded-For` unchanged (it appends nothing), so trusting it
 keeps each client's own address. The rules and what each proxy
 must do: [Security, Client IP](./security.md#client-ip).

@@ -244,8 +244,8 @@ kubectl -n your-service-name-<environment> get httproute,ingress
 kubectl -n <edge-namespace> get pods
 
 # Test via the edge
-curl -fsS https://api.your-domain.example/api/v1/health
-curl -fsS https://app.your-domain.example/
+curl -fsS https://your-service-name.your-domain.example/api/v1/health
+curl -fsS https://your-service-name.your-domain.example/
 ```
 
 ### Prometheus Metrics
@@ -494,10 +494,10 @@ kubectl -n <edge-namespace> logs <edge-pod>
 kubectl -n your-service-name-<environment> describe httproute,ingress
 
 # Test DNS resolution
-nslookup api.your-domain.example
+nslookup your-service-name.your-domain.example
 
 # Check TLS certificate
-echo | openssl s_client -connect api.your-domain.example:443 2>/dev/null | openssl x509 -noout -dates
+echo | openssl s_client -connect your-service-name.your-domain.example:443 2>/dev/null | openssl x509 -noout -dates
 ```
 
 ### Resource Issues

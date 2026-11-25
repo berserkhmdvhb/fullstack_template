@@ -189,7 +189,7 @@ twice, but a client's copy that the proxy forwards alone, for example on a route
 authenticate, is believed.
 
 **Routing.** In `gateway` mode every API request must reach the backend through the auth proxy:
-route the API host (and `/api/v1` on the app host) to the auth proxy at the edge, or point the
+route `/api/v1` on the root host (and the api host, when set) to the auth proxy at the edge, or point the
 frontend's same-origin proxy at it with `BACKEND_URL`. Otherwise a browser's same-origin `/api/v1`
 calls through the frontend get a `401`, by design: the frontend is not in the list and strips the
 headers. The auth proxy needs three things: a NetworkPolicy flow to the backend
@@ -422,7 +422,7 @@ request id.
 - An entry is a host only: one with a port is refused at startup (the request's port is ignored), and
   a `Host` header that is not a valid hostname, IPv4 address or bracketed IPv6 (plus an optional
   numeric port) is a `400`.
-- The chart sets `ALLOWED_HOSTS` from `edge.hosts` (`api`, `app`, `root`) plus the backend
+- The chart sets `ALLOWED_HOSTS` from `edge.hosts` (`root`, and `api` when set) plus the backend
   Service names (`<svc>`, `<svc>.<ns>`, `<svc>.<ns>.svc`, `<svc>.<ns>.svc.cluster.local`): the
   frontend's server-side calls reach the backend by Service name. `backend.extraAllowedHosts`
   (comma-separated) appends more; `values.local.yaml` adds `localhost,127.0.0.1` so a local
@@ -522,7 +522,7 @@ Per edge mode:
 | **Ingress** | The ingress controller's Pod range, plus the WAF's (Envoy) when `waf.enabled`. | `false` |
 | **Tunnel** (Cloudflare Tunnel) | The same, plus `cloudflared`'s Pod range if it targets the backend Service directly. | `true`, with `cloudflared` the only way in |
 | **Google** load balancer / GKE Gateway | The Google front end that is the peer (its request source ranges are listed in the [load balancer documentation](https://cloud.google.com/load-balancing/docs/https)), **and the load balancer's own address**: the balancer appends `CLIENT_IP, LOAD_BALANCER_IP`, so without that address trusted every client resolves to it. | `false` |
-| *Every mode, WAF off* | Add the frontend's Pod range: same-origin `/api/v1` calls on the app host reach the backend from the frontend's proxy, which forwards `X-Forwarded-For` unchanged (it appends nothing), so each client keeps its own address. | — |
+| *Every mode, WAF off* | Add the frontend's Pod range: same-origin `/api/v1` calls on the root host reach the backend from the frontend's proxy, which forwards `X-Forwarded-For` unchanged (it appends nothing), so each client keeps its own address. | — |
 
 ---
 
@@ -951,11 +951,11 @@ leaves that list empty, so with the shipped values nothing sends HSTS. Choose on
   so the backend sends none; use the edge then.
 - **The edge:** set HSTS on your Gateway, controller or Cloudflare, and set `edge.hsts: edge`.
 
-**The app host.** Its pages come from the frontend and carry no HSTS. The browser applies HSTS per
-host, so the app host is covered once one of its responses carries it, such as a same-origin API call
+**The root host.** Its pages come from the frontend and carry no HSTS. The browser applies HSTS per
+host, so the root host is covered once one of its responses carries it, such as a same-origin API call
 that the frontend's proxy (`frontend/proxy.ts`) passes to the backend. The proxy forwards the edge's
 `X-Forwarded-Proto` unchanged (Next.js fills in `http`, its own connection, only when the header is
-missing), but the backend's peer is then the frontend: the backend's copy reaches the app host only
+missing), but the backend's peer is then the frontend: the backend's copy reaches the root host only
 when the frontend's Pod range is in `TRUSTED_PROXY_CIDRS` too (the table's "Every mode, WAF off" row).
 An edge source covers every host directly.
 

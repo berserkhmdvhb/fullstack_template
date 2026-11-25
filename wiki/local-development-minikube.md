@@ -614,8 +614,8 @@ kubectl get pods -n ingress-nginx
 
 # ③ Wire self-signed TLS (local-dev only; production uses letsencrypt-prod)
 ./scripts/certs-local.sh --env local
-# Then map the hosts (from values.local.yaml: local-api/app/root .your-service.test)
-# to 127.0.0.1 and trust the CA:  mkcert -install && mkcert local-api.your-service.test ...
+# Then map the host (from values.local.yaml: local.your-service.test)
+# to 127.0.0.1 and trust the CA:  mkcert -install && mkcert local.your-service.test
 ```
 
 ---

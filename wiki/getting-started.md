@@ -415,8 +415,7 @@ helm upgrade --install your-service-name charts/your-service-name \
 kubectl -n your-service-name-local port-forward svc/your-service-name-frontend 3000:3000
 
 # Or access via Ingress (if DNS is configured)
-# http://dev-api.your-domain.example
-# http://dev-app.your-domain.example
+# http://your-service-name-dev.your-domain.example
 ```
 
 #### 6. Verify Deployment
@@ -535,20 +534,20 @@ curl -fsS http://127.0.0.1:${FRONTEND_PORT}/
 
 ```bash
 # Backend health via Ingress
-curl -fsS https://api.your-domain.example/api/v1/health
+curl -fsS https://your-service-name.your-domain.example/api/v1/health
 
 # Frontend via Ingress
-curl -fsS https://app.your-domain.example/
+curl -fsS https://your-service-name.your-domain.example/
 
 # Healthz (always returns ok)
-curl -fsS https://api.your-domain.example/healthz
+curl -fsS https://your-service-name.your-domain.example/healthz
 ```
 
 ### API Docs
 
 Open in browser: `http://127.0.0.1:${BACKEND_PORT}/docs`
 
-Or via Ingress: `https://api.your-domain.example/docs`
+Or via Ingress: `https://your-service-name.your-domain.example/docs`
 
 ### Items CRUD
 

@@ -100,8 +100,8 @@ Decide these now. The rest of the guide uses them.
 | `<domain>`, `www.<domain>` | your public site | at publish |
 | `preview.<domain>` | your site's previews, behind Access | now |
 | `hello.<domain>` | a temporary test service for this guide | deleted at the end of section 9 |
-| `dev.<domain>`, `dev-app.<domain>`, `dev-api.<domain>`; `qa.<domain>`, `qa-app.<domain>`, `qa-api.<domain>`; `<SERVICE_NAME>.<domain>`, `app.<domain>`, `api.<domain>` | the template app's dev, qa and production environments: the root, app and api hosts of `edge.hosts` in each environment's values. Dev and qa stay behind Access; production is public when you publish | when the pipeline deploys it |
-| `<service>-pr-<N>.<preview-zone>` (and `-api`, `-app`) | optional pull request previews of the template app, behind Access | only if you turn previews on ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews)) |
+| `<SERVICE_NAME>-dev.<domain>`, `<SERVICE_NAME>-qa.<domain>`, `<SERVICE_NAME>.<domain>` | the template app's dev, qa and production environments: one host each, the `edge.hosts.root` of each environment's values (the whole app on one origin; an optional `<SERVICE_NAME>-api[-<env>].<domain>` is a backend-only host, see [Infrastructure](./infrastructure.md#edge-hostnames)). Always one label under the zone, so the free Universal SSL certificate covers it. Dev and qa stay behind Access; production is public when you publish | when the pipeline deploys it |
+| `<service>-pr-<N>.<preview-zone>` | optional pull request previews of the template app, behind Access | only if you turn previews on ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews)) |
 
 Your site's `preview.<domain>` and the app's pull request previews are different things. The app's previews need one hostname per pull request, each one label under a zone: the free Universal SSL certificate covers `<zone>` and `*.<zone>`, never a second level such as `*.preview.<domain>`.
 
@@ -554,7 +554,7 @@ dig +short "hello.$DOMAIN"     # → nothing, once the record is gone
 
 > **Only if you turn previews on** with public hostnames ([CI/CD, Pull request previews](./ci-cd.md#pull-request-previews)), after [GKE 12.5](./gke-cluster-setup.md#125-optional-pull-request-previews).
 
-Use a zone of its own for previews (a second domain, with the section 6 baseline): its wildcard Access application then covers previews only. On your main zone, the wildcard would also cover every hostname that has no Access application of its own, `www` included. `PREVIEW_DOMAIN` is that zone. Each preview is one label under it, which the free Universal SSL certificate covers (2.2).
+Use a zone of its own for previews (a second domain, with the section 6 baseline): its wildcard Access application then covers previews only. On your main zone, the wildcard would also cover every hostname that has no Access application of its own, `www` included. `PREVIEW_DOMAIN` is that zone. Each preview has one hostname, one label under it, which the free Universal SSL certificate covers (2.2).
 
 1. **The service token.** Go to **Zero Trust → Access controls → Service credentials → Service Tokens → Create Service Token**, named `preview-smoke`, with a duration of one year and a renewal reminder (section 7's rule 2). Copy the **Client ID** and **Client Secret**; the secret is shown once. In GitHub, add them as the secrets `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` of the `preview` environment.
 2. **The Access application,** before the route, so no preview is ever public. **Add an application → Self-hosted**, named `previews`, with public hostname subdomain `*` and domain `<PREVIEW_DOMAIN>`. Add two policies: `owner` (**Allow**, your email, as in 9) and `preview-smoke` (action **Service Auth**, include **Service Token → `preview-smoke`**). Service Auth matters: with **Allow**, Access sends the smoke test to a login page.

@@ -965,10 +965,10 @@ While paused you pay only for disks that still exist, and for the load balancer 
 
 Teardown deletes everything this guide created. Run it in this order:
 
-If you made a Gateway (9.4 or 12.5), delete it first, so GKE removes its load balancer: `kubectl delete gateway --all -n gateway-system`. Then wait until the load balancer is gone:
+If you made a Gateway (9.4 or 12.5), delete it first, so GKE removes its load balancer: `kubectl delete gateway --all -n gateway-system`. Then wait until the Gateway's forwarding rules are gone (other rules in the project are not yours to wait for):
 
 ```bash
-gcloud compute forwarding-rules list --format='value(name)'
+gcloud compute forwarding-rules list --filter="name~^gkegw" --format='value(name)'
 # → nothing (rerun after a minute if a name is still listed)
 ```
 
