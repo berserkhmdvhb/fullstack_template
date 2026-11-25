@@ -183,7 +183,7 @@ help::
 	@echo "  security-scan-search PATTERN=<re>  Grep a pattern across the JSON outputs"
 
 python-pinned:
-	@$(UV) python find --managed-python $(PINNED_PYTHON) >/dev/null 2>&1 || { \
+	@$(UV) python find $(PINNED_PYTHON) >/dev/null 2>&1 || { \
 	  echo "Python $(PINNED_PYTHON) (tools/pins.tsv) is not installed under .tools/uv/python; run: make tools" >&2; exit 1; }
 
 install: python-pinned
