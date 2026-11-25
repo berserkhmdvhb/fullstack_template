@@ -78,7 +78,7 @@ the way that page describes.
 - `min-release-age` (added in npm 11.10.0): "If set, npm will build the npm tree such that only versions that were
   available more than the given number of days ago will be installed. If there are no versions available for the
   current set of dependencies, the command will error." `min-release-age-exclude` came in 11.17.0.
-- `allow-git` (added in 11.10.0) and `allow-remote` (added in 11.14.0, per npm's changelog): they limit git and
+- `allow-git` (added in 11.9.0) and `allow-remote` (added in 11.14.0, per npm's changelog): they limit git and
   tarball-URL dependencies. Both default to `"all"` in npm 11. An older npm warns on them as unknown keys; the pinned
   npm knows both (`npm config ls -l` lists them, and an install with them set prints no warning).
 - `allowScripts` in `package.json`: the per-project install-script policy.
@@ -376,8 +376,9 @@ out of mise. Noted only; not assessed.
    Revisit when a Node LTS bundles npm 12 (scripts blocked by default) or if npm stays without a trust-downgrade check.
 3. **prek instead of pre-commit.** Not recommended before prek 1.0. Cost:
    - the `pre-commit` row and its requirements file move to a `mise.toml` entry;
-   - the `precommit` target, `scripts/ci/hook-run.sh` messages, and about 20 files that name pre-commit (AGENTS.md,
-     CONTRIBUTING.md, the quality-gates skill, the pin tests).
+   - the `precommit` target, `scripts/ci/hook-run.sh` messages, and every tracked file that names pre-commit
+     (measured on the assessment date: 29, among them AGENTS.md, CONTRIBUTING.md, the quality-gates skill and the pin
+     tests).
 
    `.pre-commit-config.yaml` stays as it is. The switch is cheap whenever it is wanted.
 
@@ -394,8 +395,8 @@ All checked on 2026-11-25.
   reference v11](https://docs.npmjs.com/cli/v11/using-npm/config) (`min-release-age`, `allow-git`, `allow-remote`,
   `allow-scripts`); [v12.0.0 release notes](https://github.com/npm/cli/releases/tag/v12.0.0); [Node.js release
   index](https://nodejs.org/dist/index.json) (the npm each release bundles; the newest npm in any LTS is an 11.x);
-  [npm 11 changelog](https://github.com/npm/cli/blob/release/v11/CHANGELOG.md) (`min-release-age` and `allow-git` in
-  11.10.0, `allow-remote` in 11.14.0, `min-release-age-exclude` in 11.17.0); the `npm ci` trial in section 2, with the
+  [npm 11 changelog](https://github.com/npm/cli/blob/release/v11/CHANGELOG.md) (`allow-git` in 11.9.0,
+  `min-release-age` in 11.10.0, `allow-remote` in 11.14.0, `min-release-age-exclude` in 11.17.0); the `npm ci` trial in section 2, with the
   pinned npm and `undici-types` 8.13.1 (published 2026-11-20).
 - pnpm: registry (12.23.0, 2026-11-22); [build settings](https://pnpm.io/settings/build) (`strictDepBuilds`,
   `allowBuilds`); [dependency resolution settings](https://pnpm.io/settings/dependency-resolution)
