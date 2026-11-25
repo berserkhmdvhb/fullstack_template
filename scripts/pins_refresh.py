@@ -684,6 +684,76 @@ def mise_problems(config: str, lock: str) -> list[str]:
             if not re.fullmatch(r"sha256:[0-9a-f]{64}", sha):
                 found.append(f"{key}: no sha256 for {platform} in mise.lock")
     found += [f"{short}: in mise.lock, not in mise.toml" for short in locked if short not in wanted]
+    return found + mise_url_problems(config, lock)
+
+
+# Where each mise.lock entry may download from: its key (resolved through mise.toml's
+# [tool_alias]) -> (url, url_api, or None where the lock must hold no url_api). {v} is the locked
+# version, {tag} a release tag ending in it, {file} one path segment, {id} a number, {repo} the
+# key's <owner>/<repo>. An aqua: or github: <owner>/<repo> key with no row here downloads from that
+# repository's releases (GITHUB_ORIGIN); any other key has no rule and is a problem, so a new tool
+# is anchored before it is locked.
+MISE_ORIGINS: dict[str, tuple[str, str | None]] = {
+    "core:node": ("https://nodejs.org/dist/v{v}/{file}", None),
+    "aqua:helm/helm": ("https://get.helm.sh/helm-v{v}-{file}", None),
+    "aqua:kubernetes/kubernetes/kubectl": (
+        "https://dl.k8s.io/v{v}/bin/{file}/{file}/kubectl",
+        None,
+    ),
+    # Its recipe downloads the tag archive.
+    "aqua:bats-core/bats-core": (
+        "https://github.com/{repo}/archive/refs/tags/v{v}.tar.gz",
+        "https://api.github.com/repos/{repo}/tarball/v{v}",
+    ),
+}
+GITHUB_ORIGIN = (
+    "https://github.com/{repo}/releases/download/{tag}/{file}",
+    "https://api.github.com/repos/{repo}/releases/assets/{id}",
+)
+GITHUB_KEY = re.compile(r"(?:aqua|github):([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)")
+ORIGIN_FIELD = re.compile(r"(\{(?:v|tag|file|id|repo)\})")
+
+
+def origin_matches(template: str, url: str, repo: str, version: str) -> bool:
+    """Whether a plain https url fits a MISE_ORIGINS template (its literal parts match exactly)."""
+    fields = {
+        "{v}": re.escape(version),
+        "{tag}": f"[A-Za-z0-9_.+-]*{re.escape(version)}",
+        "{file}": "[A-Za-z0-9_.+-]+",
+        "{id}": "[0-9]+",
+        "{repo}": re.escape(repo),
+    }
+    pattern = "".join(fields.get(p, re.escape(p)) for p in ORIGIN_FIELD.split(template))
+    return url_problem(url) is None and re.fullmatch(pattern, url) is not None
+
+
+def mise_url_problems(config: str, lock: str) -> list[str]:
+    """Where a mise.lock url or url_api is not under the origin its key implies (offline). The
+    sha256 alone proves nothing when a pull request swaps both the url and the checksum."""
+    cfg = tomllib.loads(config)
+    aliases, tools = cfg.get("tool_alias", {}), cfg.get("tools", {})
+    found: list[str] = []
+    for short, entries in tomllib.loads(lock).get("tools", {}).items():
+        entry = entries[0]
+        key = aliases.get(short) or (f"core:{short}" if f"core:{short}" in tools else short)
+        if entry.get("backend") != key:
+            found.append(f"{short}: backend {entry.get('backend')}, mise.toml says {key}")
+            continue
+        repo = GITHUB_KEY.fullmatch(key)
+        rule = MISE_ORIGINS.get(key) or (GITHUB_ORIGIN if repo else None)
+        if rule is None:
+            found.append(f"{short}: no origin rule for {key}")
+            continue
+        owner_repo, version = (repo[1] if repo else ""), str(entry.get("version"))
+        for platform in cfg["settings"]["lockfile_platforms"]:
+            locked = entry.get(f"platforms.{platform}", {})
+            for field, template in (("url", rule[0]), ("url_api", rule[1])):
+                url = locked.get(field)
+                if url is None and (field == "url_api" or not locked):
+                    continue  # no url_api is fine; a missing platform is mise_problems' finding
+                if template is None or not origin_matches(template, url or "", owner_repo, version):
+                    where = template.replace("{repo}", owner_repo) if template else "nowhere"
+                    found.append(f"{short}: {platform} {field} {url} is not under {where}")
     return found
 
 

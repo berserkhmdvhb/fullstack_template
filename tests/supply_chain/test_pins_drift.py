@@ -1065,6 +1065,76 @@ def test_a_lock_entry_missing_a_platform_checksum_or_a_stale_entry_is_a_problem(
     ]
 
 
+def test_every_real_lock_url_sits_under_the_origin_its_key_implies() -> None:
+    assert pr.mise_url_problems(MISE_TOML.read_text(), MISE_LOCK.read_text()) == []
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        # A look-alike owner, with the checksum swapped too: the sha256 alone would pass.
+        (
+            "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64",
+            "https://github.com/kubernetes-sigz/kind/releases/download/v0.33.0/kind-linux-amd64",
+        ),
+        # Another release of the right repository.
+        (
+            "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64",
+            "https://github.com/kubernetes-sigs/kind/releases/download/v0.32.0/kind-linux-amd64",
+        ),
+        # A vendor host for a key that downloads from GitHub, and GitHub for a vendor-host key.
+        (
+            "https://get.helm.sh/helm-v3.22.1-linux-amd64.tar.gz",
+            "https://github.com/helm/helm/releases/download/v3.22.1/helm-v3.22.1-linux-amd64.tar.gz",
+        ),
+        (
+            "https://dl.k8s.io/v1.37.2/bin/linux/amd64/kubectl",
+            "https://dl.k8s.io.example.org/v1.37.2/bin/linux/amd64/kubectl",
+        ),
+        (
+            "https://nodejs.org/dist/v26.13.1/node-v26.13.1-linux-x64.tar.gz",
+            "https://nodejs.org/dist/v26.13.1/../v26.0.0/node-v26.0.0-linux-x64.tar.gz",
+        ),
+        # The API url is anchored as well.
+        (
+            "https://api.github.com/repos/kubernetes-sigs/kind/releases/assets/",
+            "https://api.github.com/repos/kubernetes-sigz/kind/releases/assets/",
+        ),
+    ],
+)
+def test_a_swapped_lock_url_is_a_problem(old: str, new: str) -> None:
+    lock = MISE_LOCK.read_text()
+    assert old in lock
+    swapped = lock.replace(old, new, 1).replace(
+        re.findall(r'checksum = "(sha256:[0-9a-f]{64})"', lock)[0], "sha256:" + "0" * 64, 1
+    )
+    found = pr.mise_url_problems(MISE_TOML.read_text(), swapped)
+    assert len(found) == 1, found
+    assert pr.mise_problems(MISE_TOML.read_text(), swapped) == found
+
+
+def test_a_lock_key_with_no_origin_rule_fails_closed() -> None:
+    config = MISE_TOML.read_text().replace(
+        '"core:node" = "26.13.1"', '"core:node" = "26.13.1"\n"core:python" = "3.13.0"'
+    )
+    lock = MISE_LOCK.read_text() + (
+        '\n[[tools.python]]\nversion = "3.13.0"\nbackend = "core:python"\n'
+        '\n[tools.python."platforms.linux-x64"]\nchecksum = "sha256:' + "0" * 64 + '"\n'
+        'url = "https://www.python.org/ftp/python/3.13.0/Python-3.13.0.tgz"\n'
+    )
+    assert pr.mise_url_problems(config, lock) == ["python: no origin rule for core:python"]
+
+
+def test_a_lock_entry_whose_backend_is_not_its_keys_is_a_problem() -> None:
+    lock = MISE_LOCK.read_text().replace(
+        'backend = "aqua:kubernetes-sigs/kind"', 'backend = "aqua:kubernetes-sigz/kind"', 1
+    )
+    wrong, right = "aqua:kubernetes-sigz/kind", "aqua:kubernetes-sigs/kind"
+    assert pr.mise_url_problems(MISE_TOML.read_text(), lock) == [
+        f"{right}: backend {wrong}, mise.toml says {right}"
+    ]
+
+
 def test_check_names_a_lock_that_lags_the_config_and_changes_nothing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1106,9 +1176,7 @@ def test_refresh_runs_mise_lock_for_both_platforms_only_when_the_lock_lags(
 
     def lock(platforms: list[str]) -> bool:
         ran.append(platforms)
-        (tmp_path / "mise.lock").write_text(
-            MISE_LOCK.read_text().replace('version = "0.33.0"', 'version = "0.34.0"')
-        )
+        (tmp_path / "mise.lock").write_text(_bump_kind(config, MISE_LOCK.read_text())[1])
         return True
 
     monkeypatch.setattr(pr, "mise_lock", lock)
@@ -1217,8 +1285,10 @@ def _bump_kind(config: str, lock: str) -> tuple[str, str]:
     config = config.replace(
         '"aqua:kubernetes-sigs/kind" = "0.33.0"', '"aqua:kubernetes-sigs/kind" = "0.34.0"'
     )
-    lock = lock.replace('version = "0.33.0"', 'version = "0.34.0"').replace(
-        'specifiers = ["0.33.0"]', 'specifiers = ["0.34.0"]'
+    lock = (
+        lock.replace('version = "0.33.0"', 'version = "0.34.0"')
+        .replace('specifiers = ["0.33.0"]', 'specifiers = ["0.34.0"]')
+        .replace("/kind/releases/download/v0.33.0/", "/kind/releases/download/v0.34.0/")
     )
     return config, lock
 
