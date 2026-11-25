@@ -6,7 +6,7 @@
 # placeholder (underscore or hyphen form) is a missed rename; list it and fail.
 # Allowed to keep the placeholder: the paths in infra/adapt/excludes.txt (what the adapter leaves alone).
 #
-# Run from the repo root (pre-commit does). The placeholders are spelled in two pieces so the
+# Run from the repo root (prek does). The placeholders are spelled in two pieces so the
 # adapt tooling, which rewrites this very file, can never turn them into the new name.
 set -euo pipefail
 

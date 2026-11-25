@@ -1,7 +1,7 @@
 # The developer toolchain: scripts/tools.sh runs the pinned mise (tools/pins.tsv) with these settings and the
 # repo-local environment it sets, installs the tools below --locked from mise.lock (a sha256 per platform, and
 # the vendor's signature or attestation where its recipe has one) and links them into .tools/bin.
-# Python (uv installs it: its builds are older than 7 days), five Python tools (hash-pinned requirements), the data rows
+# Python (uv installs it: its builds are older than 7 days), four Python tools (hash-pinned requirements), the data rows
 # and mise itself stay in tools/pins.tsv. Only the aqua, github and core backends
 # are on; there are no tasks, no hooks and no env files.
 [settings]
@@ -66,3 +66,4 @@ kubectl-floor = "1.34.13"
 "aqua:koalaman/shellcheck" = "0.11.0"
 "aqua:lycheeverse/lychee" = "0.24.2"
 "aqua:zizmorcore/zizmor" = "1.32.0"
+"aqua:j178/prek" = "0.5.11"

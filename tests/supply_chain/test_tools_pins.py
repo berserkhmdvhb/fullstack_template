@@ -29,7 +29,6 @@ REQUIRED = {
     "mise",
     "python",
     "schemathesis",
-    "pre-commit",
     "yamale",
     "yamllint",
     "pip-audit",

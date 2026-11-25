@@ -87,12 +87,12 @@ def test_the_download_checks_stay_on() -> None:
         assert SETTINGS["aqua"][name] is True, name
 
 
-# The 23 rows the mapping moves; the rest of tools/pins.tsv stays (mise itself, Python, the five uv
+# The 24 rows the mapping moves; the rest of tools/pins.tsv stays (mise itself, Python, the four uv
 # tools, the two data rows).
 MOVED = {
     "node", "uv", "helm3", "helm4", "kubectl", "kubectl-floor", "kind", "kubeconform", "promtool",
     "ct", "helm-unittest", "actionlint", "hadolint", "gitleaks", "squawk", "oasdiff", "cosign",
-    "kyverno", "yq", "bats", "shellcheck", "lychee", "zizmor",
+    "kyverno", "yq", "bats", "shellcheck", "lychee", "zizmor", "prek",
 }  # fmt: skip
 LOCK = tomllib.loads((ROOT / "mise.lock").read_text())
 

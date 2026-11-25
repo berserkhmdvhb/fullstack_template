@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hadolint.sh — lint every tracked Dockerfile (backs the `hadolint` job in .github/workflows/ci.yml
-# and the pre-commit hook). Uses .hadolint.yaml at the repo root when present.
+# and the git hook). Uses .hadolint.yaml at the repo root when present.
 set -euo pipefail
 
 mapfile -t files < <(git ls-files 'Dockerfile*' '*/Dockerfile*' '*.Dockerfile' | LC_ALL=C sort -u)

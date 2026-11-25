@@ -553,6 +553,6 @@ def test_zizmor_is_read_by_the_mise_manager_and_by_no_pins_manager() -> None:
         for ms in manager["matchStrings"]:
             names |= {m.group("depName") for m in _compile(ms).finditer(PINS)}
     assert "zizmor" not in names
-    assert {"pip-audit", "pre-commit", "schemathesis", "yamale", "yamllint"} <= names
+    assert {"pip-audit", "schemathesis", "yamale", "yamllint"} <= names
     # The python row is not a PyPI package: its lookup stays disabled.
     assert any(r.get("matchDepNames") == ["python"] for r in renovate()["packageRules"])

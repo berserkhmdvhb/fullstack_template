@@ -1,4 +1,4 @@
-# Run with `make precommit` (all files) or `pre-commit install` (on every commit).
+# Run with `make precommit` (all files) or `prek install` (on every commit).
 # Every hook is a local one that calls the tool CI uses, so each version has one source: the
 # project venv (pyproject.toml), the frontend lockfile, or mise.toml and tools/pins.tsv via scripts/tools.sh.
 # A missing tool fails with the command that installs it. Nothing here needs the network.

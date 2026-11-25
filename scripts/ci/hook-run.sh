@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hook-run.sh TOOL CMD... — run a pre-commit hook command with the repo's own tools first on PATH.
+# hook-run.sh TOOL CMD... — run a git hook command with the repo's own tools first on PATH.
 #
 # Every hook calls the tool the CI jobs use (the project venv, or .tools from mise.toml and tools/pins.tsv), so a
 # version lives in one place. When TOOL is missing this says how to get it instead of a bare

@@ -49,7 +49,7 @@ def test_the_lock_names_no_local_path_but_the_project_itself() -> None:
     assert local == [PYPROJECT["project"]["name"].replace("_", "-")]
 
 
-def test_a_pre_commit_hook_checks_the_lock_with_the_pinned_uv() -> None:
+def test_a_git_hook_checks_the_lock_with_the_pinned_uv() -> None:
     config = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
     hook = next(h for r in config["repos"] for h in r["hooks"] if h["id"] == "uv-lock")
     assert "uv lock --check" in hook["entry"]

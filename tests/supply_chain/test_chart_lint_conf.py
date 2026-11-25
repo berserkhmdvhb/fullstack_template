@@ -1,4 +1,4 @@
-"""One tracked yamllint config for the chart, read by `ct lint` in CI and by the pre-commit hook."""
+"""One tracked yamllint config for the chart, read by `ct lint` in CI and by the git hook."""
 
 from __future__ import annotations
 

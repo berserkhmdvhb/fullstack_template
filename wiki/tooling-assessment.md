@@ -243,7 +243,7 @@ cost. It is not recommended.
 ## 7. Git hooks: pre-commit
 
 **Today.** pre-commit (first released 2014; its pin is a row in [`tools/pins.tsv`](../tools/pins.tsv)), installed
-into its own venv from hash-pinned requirements (`tools/requirements/pre-commit.txt`). Every hook in
+into its own venv from hash-pinned requirements. Every hook in
 [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) is `repo: local` with `language: system`: each calls the tool CI uses, nothing is fetched, and nothing needs
 the network.
 

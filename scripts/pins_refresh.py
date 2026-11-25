@@ -84,7 +84,6 @@ SOURCES: dict[str, tuple[str, str, str]] = {
     "kyverno-chart": ("archive", "", "https://kyverno.github.io/kyverno/"),
     "python": ("none", "", "uv:python"),
     "schemathesis": ("uv", "", "uv:schemathesis"),
-    "pre-commit": ("uv", "", "uv:pre-commit"),
     "yamale": ("uv", "", "uv:yamale"),
     "yamllint": ("uv", "", "uv:yamllint"),
     "pip-audit": ("uv", "", "uv:pip-audit"),

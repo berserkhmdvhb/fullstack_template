@@ -80,7 +80,7 @@ help::
 	@echo "  frontend-deployment-id   Build the frontend image and check the page carries the deployment id"
 	@echo "  check-all                Run dev tool drift check + format + lint + mypy + env-docs (rewrites files)"
 	@echo "  check-all-dry            Same as above but read-only (format-check, env-docs-check)"
-	@echo "  precommit                Run every pre-commit hook on all files (pinned pre-commit, no network)"
+	@echo "  precommit                Run every git hook on all files (pinned prek, no network)"
 	@echo "  chart-unittest           Run the chart's helm-unittest suites (pinned plugin, no cluster)"
 	@echo "  kubeconform              Validate every chart and bootstrap render, strict and offline (local schemas only)"
 	@echo "  rules-test               Check the chart's alert and recording rules (both flavours) with promtool, and run its rule unit tests"
@@ -211,7 +211,7 @@ env-docs-check:
 # -------------------------------------------------------------------
 # Develop Tools (Including Code Quality & Security Checks)
 # -------------------------------------------------------------------
-# One scope for format, lint and the pre-commit hook: all the Python the repo owns.
+# One scope for format, lint and the git hook: all the Python the repo owns.
 RUFF_PATHS := src/ tests/ scripts/ infra/ .github/scripts/
 
 ruff-format:
@@ -223,7 +223,7 @@ ruff-format-check:
 ruff-lint:
 	ruff check --no-fix $(RUFF_PATHS)
 
-# Auto-fixing lint, used only by check-all (never by CI, check-all-dry or pre-commit).
+# Auto-fixing lint, used only by check-all (never by CI, check-all-dry or prek).
 ruff-lint-fix:
 	ruff check --fix $(RUFF_PATHS)
 
@@ -358,10 +358,10 @@ dev-tools-upgrade: python-pinned
 check-all: dev-tools-outdated ruff-format ruff-lint-fix mypy-check env-docs
 check-all-dry: dev-tools-outdated ruff-format-check ruff-lint mypy-check env-docs-check
 
-# The hooks in .pre-commit-config.yaml, run by the pinned pre-commit (tools/pins.tsv).
+# The hooks in .pre-commit-config.yaml, run by the pinned prek (mise.toml).
 precommit:
-	@test -x .tools/bin/pre-commit || { echo "pre-commit not found; run: scripts/tools.sh install pre-commit" >&2; exit 1; }
-	.tools/bin/pre-commit run --all-files
+	@test -x .tools/bin/prek || { echo "prek not found; run: scripts/tools.sh install prek" >&2; exit 1; }
+	PREK_HOME="$(CURDIR)/.tools/prek" .tools/bin/prek run --all-files
 
 # The chart's helm-unittest suites (charts/your-service-name/tests), run by the pinned plugin
 # (mise.toml; scripts/tools.sh install helm-unittest; found through HELM_PLUGINS above).
