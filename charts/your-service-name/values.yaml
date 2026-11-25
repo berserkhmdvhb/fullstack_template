@@ -1,8 +1,8 @@
 # =============================================================================
 # values.yaml — single source of truth for the your-service-name chart.
 #
-# Every environment overrides only what differs, via `values.<env>.yaml`
-# (`helm upgrade --install --server-side=true --force-conflicts -f charts/your-service-name/values.dev.yaml`).
+# Every environment overrides only what differs, via `values.<env>.yaml` (`helm upgrade --install
+# --server-side=true --force-conflicts -f charts/your-service-name/values.dev.yaml`).
 # The defaults here mirror the Kustomize base (dev-like).
 #
 # NOTE ON COUPLING: resources.{requests,limits} here, hpa.* maxReplicas, and the

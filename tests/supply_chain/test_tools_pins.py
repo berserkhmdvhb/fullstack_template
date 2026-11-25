@@ -243,7 +243,9 @@ def test_pipe_to_shell_detector_catches_the_known_forms() -> None:
 def test_never_pipes_into_a_shell() -> None:
     assert not pipes_into_shell(SRC)
     code = "\n".join(ln for ln in SRC.splitlines() if not ln.lstrip().startswith("#"))
-    assert "sha256sum" in SRC
+    # The checksum helper tools.sh sources (shared with kubeconform.sh and kind-deploy.sh).
+    assert 'source "$ROOT/scripts/_sha256.sh"' in SRC
+    assert "sha256sum" in (ROOT / "scripts" / "_sha256.sh").read_text()
     assert "helm plugin install" not in code
     assert "set -Eeuo pipefail" in SRC
     assert "--proto-redir =https" in SRC
