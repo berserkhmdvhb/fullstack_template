@@ -16,7 +16,8 @@
 # DEPLOY_IMAGES (comma list of image ids) DIGESTS (JSON of <ID>_IMAGE_DIGEST) IMAGE_TAG HELM_TIMEOUT
 # BACKEND_PORT API_VERSION; FRONTEND_PORT (3000); WORK_DIR (RUNNER_TEMP); SMOKE_WAIT_TRIES (30), SMOKE_WAIT_SLEEP (2).
 # MATRIX_CMD (the matrix helper command; deploy.yml points it at a PyYAML venv) and, for tests only,
-# VERIFY_SCRIPT and SMOKE_SCRIPT are overridable.
+# VERIFY_SCRIPT and SMOKE_SCRIPT are overridable. DEPLOY_RENDER_ONLY=<file> writes the release render
+# (the upgrade's values and flags) to the file and stops before any cluster call (step 1c).
 # Test only: DEPLOY_ENV=kind deploys to the local kind cluster fst (tests/k8s/test_deploy_env.py), and
 # only with DEPLOY_ENV_KIND_TEST=1 and a kubeconfig whose one context is kind-fst; it is refused
 # otherwise, and no workflow sets it. It takes values.local.yaml, then each file of KIND_VALUES
@@ -142,6 +143,15 @@ for id in ${DEPLOY_IMAGES//,/ }; do
   fi
   echo "- \`$id\`: $dg" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 done
+
+# 1c. DEPLOY_RENDER_ONLY=<file>: the release's render, with exactly the upgrade's values and flags, into
+# the file, then stop before any cluster call (the live-drift check, scripts/ci/drift-env.sh).
+if [[ -n "${DEPLOY_RENDER_ONLY:-}" ]]; then
+  helm template "$RELEASE" "$CHART_DIR" "${release_values[@]}" --namespace "$NAMESPACE" > "$DEPLOY_RENDER_ONLY" ||
+    fail "cannot render ${RELEASE} for ${DEPLOY_ENV}"
+  echo "Rendered ${RELEASE} for ${DEPLOY_ENV} into ${DEPLOY_RENDER_ONLY}; nothing deployed"
+  exit 0
+fi
 
 # 2. the revision to return to
 history="$(helm history "$RELEASE" -n "$NAMESPACE" -o json 2>/dev/null || echo '[]')"

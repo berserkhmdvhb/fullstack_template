@@ -183,8 +183,11 @@ def release_by_tag(gh: Gh, repo: str, tag: str) -> dict[str, Any] | None:
         return None
 
 
-def deployed(gh: Gh, repo: str, env: str) -> Images | None:
-    """What an environment runs; None when no release deployment is found; LookupError to report."""
+def latest_deployment(
+    gh: Gh, repo: str, env: str
+) -> tuple[dict[str, Any], str, int, dict[str, Any]] | None:
+    """The newest successful deployment of an environment made by the release or the ops workflow:
+    (deployment, workflow path, run id, job); None when there is none; LookupError to report."""
     deps = api(gh, f"repos/{repo}/deployments?environment={env}&per_page={LIMIT}")
     for dep in deps:
         statuses = api(gh, f"repos/{repo}/deployments/{dep['id']}/statuses?per_page=1")
@@ -197,14 +200,30 @@ def deployed(gh: Gh, repo: str, env: str) -> Images | None:
             msg = "not scannable: the deployment's job does not belong to its run"
             raise LookupError(msg)
         path = str(api(gh, f"repos/{repo}/actions/runs/{run_id}").get("path", "")).split("@")[0]
-        if path == OPS_WORKFLOW:  # it records a deployment only for a rollback
-            raise LookupError(ROLLBACK)
-        if path == RELEASE_WORKFLOW:
-            ref = str(dep.get("ref", ""))
-            release = release_by_tag(gh, repo, ref) if ref.startswith("v") else None
-            built = from_release(gh, repo, release) if release else None
-            return built or from_run(gh, repo, run_id, str(job["started_at"]))
+        if path in (OPS_WORKFLOW, RELEASE_WORKFLOW):
+            return dep, path, run_id, job
     return None
+
+
+def deployment_images(
+    gh: Gh, repo: str, dep: dict[str, Any], run_id: int, job: dict[str, Any]
+) -> Images:
+    """The images a release deployment ran: its release's assets, else its run's artifact."""
+    ref = str(dep.get("ref", ""))
+    release = release_by_tag(gh, repo, ref) if ref.startswith("v") else None
+    built = from_release(gh, repo, release) if release else None
+    return built or from_run(gh, repo, run_id, str(job["started_at"]))
+
+
+def deployed(gh: Gh, repo: str, env: str) -> Images | None:
+    """What an environment runs; None when no release deployment is found; LookupError to report."""
+    found = latest_deployment(gh, repo, env)
+    if found is None:
+        return None
+    dep, path, run_id, job = found
+    if path == OPS_WORKFLOW:  # it records a deployment only for a rollback
+        raise LookupError(ROLLBACK)
+    return deployment_images(gh, repo, dep, run_id, job)
 
 
 def release_images(gh: Gh, repo: str, release: dict[str, Any]) -> Images:

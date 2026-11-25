@@ -1,0 +1,193 @@
+name: Live drift
+
+# Weekly, read-only: is each environment still what its latest deployment applied? The chart is
+# rendered from the deployed commit with that deploy's inputs (scripts/ci/drift-render.sh) and
+# compared with the live objects (scripts/drift.py): a changed field, a missing object or an extra
+# one carrying the release's label opens or updates one issue per environment, labelled `drift`;
+# nothing is closed automatically. Findings are reported, so the run is green; it fails only when
+# collecting fails (the GitHub API, the render or a read the drift identity is refused).
+# Three jobs, each with its own grant: collect reads the GitHub API, drift reads the cluster as the
+# environment's read-only drift identity (GitHub environment drift-<env>, its variables
+# DRIFT_WIF_PROVIDER and DRIFT_SA; wiki/gke-cluster-setup.md), report writes issues and has no
+# cluster access. Without those variables (a fresh fork) each drift job says so and skips.
+on:
+  schedule:
+    - cron: "23 6 * * 4"
+  workflow_dispatch:
+
+permissions: {}
+
+# A literal prefix, never ${{ github.workflow }}. A second run waits, so an issue is never opened twice.
+concurrency:
+  group: drift
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: Find what each environment's deployment applied
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # the scripts
+      actions: read # the deploying job and run, and the release run's digests artifact
+      deployments: read # which commit each environment runs
+    outputs:
+      deployments: ${{ steps.collect.outputs.deployments }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Collect the deployments
+        id: collect
+        run: |
+          set -euo pipefail
+          python3 scripts/drift_collect.py drift-input
+          echo "deployments=$(jq -c . drift-input/deployments.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: drift-input
+          path: drift-input/
+          retention-days: 30
+
+  drift:
+    name: Drift (${{ matrix.environment }})
+    needs: collect
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, qa, production]
+    # The read-only identity of this environment: no required reviewers, its own variables. No
+    # deployment record: the run deploys nothing, and the environment's history stays empty.
+    environment:
+      name: drift-${{ matrix.environment }}
+      deployment: false
+    permissions:
+      contents: read
+      id-token: write  # Workload Identity Federation (OIDC token for the cloud login)
+    steps:
+      - name: Say whether this environment is checked
+        id: gate
+        env:
+          DRIFT_WIF_PROVIDER: ${{ vars.DRIFT_WIF_PROVIDER }}
+          DRIFT_SA: ${{ vars.DRIFT_SA }}
+          DEPLOYED: ${{ toJSON(fromJSON(needs.collect.outputs.deployments)[matrix.environment]) }}
+          ENVIRONMENT: ${{ matrix.environment }}
+          REF: ${{ github.ref }}
+        run: |
+          reason=""
+          missing=()
+          [[ -n "${DRIFT_WIF_PROVIDER}" ]] || missing+=(DRIFT_WIF_PROVIDER)
+          [[ -n "${DRIFT_SA}" ]] || missing+=(DRIFT_SA)
+          skip="$(jq -r 'if type == "object" then .skip // "" else "no deployment found" end' <<<"${DEPLOYED}")"
+          if (( ${#missing[@]} > 0 )); then
+            reason="the environment drift-${ENVIRONMENT} has no ${missing[*]} (the drift identity is not set up: wiki/gke-cluster-setup.md, Live drift)"
+          elif [[ "${REF}" != refs/heads/main ]]; then
+            reason="the drift identity logs in only from main, and this run is on ${REF}"
+          elif [[ -n "${skip}" ]]; then
+            reason="${skip}"
+          fi
+          if [[ -n "${reason}" ]]; then
+            echo "::notice::drift-${ENVIRONMENT}: skipped: ${reason}"
+            echo "- drift-${ENVIRONMENT}: skipped: ${reason}" >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.gate.outputs.run == 'true'
+        with:
+          persist-credentials: false
+      # The deployed commit, for its chart and its own deploy path (never run with cluster access).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.gate.outputs.run == 'true'
+        with:
+          ref: ${{ fromJSON(needs.collect.outputs.deployments)[matrix.environment].sha }}
+          path: deployed
+          persist-credentials: false
+      - name: Install the pinned Helm and kubectl
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          scripts/tools.sh install helm4 kubectl
+          echo "$PWD/.tools/bin" >> "$GITHUB_PATH"
+      # The matrix helper and the comparison import PyYAML; a hashed venv supplies it.
+      - name: Install PyYAML
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pyyaml"
+          "$RUNNER_TEMP/pyyaml/bin/pip" install --quiet --require-hashes --no-deps -r tools/requirements/pyyaml.txt
+      - name: Render the deployed commit
+        id: render
+        if: steps.gate.outputs.run == 'true'
+        env:
+          DRIFT_ENV: ${{ matrix.environment }}
+          DEPLOYED_DIR: deployed
+          DEPLOYED_REF: ${{ fromJSON(needs.collect.outputs.deployments)[matrix.environment].ref }}
+          DEPLOYED_SHA: ${{ fromJSON(needs.collect.outputs.deployments)[matrix.environment].sha }}
+          DIGESTS: ${{ toJSON(fromJSON(needs.collect.outputs.deployments)[matrix.environment].digests) }}
+          SERVICE_NAME: ${{ vars.SERVICE_NAME || 'your-service-name' }}
+          PYTHON: ${{ runner.temp }}/pyyaml/bin/python
+          OUT: ${{ runner.temp }}/render.yaml
+        run: bash scripts/ci/drift-render.sh
+      - name: Connect to the cluster
+        if: steps.gate.outputs.run == 'true' && steps.render.outputs.rendered == 'true'
+        uses: ./.github/actions/cluster-access
+        with:
+          mode: gke
+          wif_provider: ${{ vars.DRIFT_WIF_PROVIDER }}
+          service_account: ${{ vars.DRIFT_SA }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_LOCATION }}
+      - name: Compare with the cluster
+        if: steps.gate.outputs.run == 'true' && steps.render.outputs.rendered == 'true'
+        env:
+          DRIFT_ENV: ${{ matrix.environment }}
+          SERVICE_NAME: ${{ vars.SERVICE_NAME || 'your-service-name' }}
+          PYTHON: ${{ runner.temp }}/pyyaml/bin/python
+        run: |
+          set -euo pipefail
+          mkdir -p findings
+          "$PYTHON" scripts/drift.py --rendered "$RUNNER_TEMP/render.yaml" --release "$SERVICE_NAME" \
+            --environment "$DRIFT_ENV" --out "findings/${DRIFT_ENV}.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.gate.outputs.run == 'true' && steps.render.outputs.rendered == 'true'
+        with:
+          name: drift-findings-${{ matrix.environment }}
+          path: findings/
+          retention-days: 30
+
+  # Runs after a failed drift job too, so one environment's error does not hide the others' findings.
+  report:
+    name: Open or update the issues
+    needs: [collect, drift]
+    if: ${{ !cancelled() && needs.collect.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # the report script
+      issues: write # create the drift label, open and update issues, add comments
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: drift-input
+          path: drift-input
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: drift-findings-*
+          merge-multiple: true
+          path: findings
+      - name: Report the findings
+        run: |
+          mkdir -p findings
+          python3 scripts/drift_report.py drift-input/deployments.json findings

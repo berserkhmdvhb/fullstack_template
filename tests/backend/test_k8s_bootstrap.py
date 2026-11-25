@@ -811,3 +811,106 @@ def test_the_preview_deployer_is_its_own_identity() -> None:
         for env in BOOTSTRAP_ENVS
     }
     assert names["preview"] not in {n for e, n in names.items() if e != "preview"}
+
+
+# ---- The live-drift reader's RBAC (.github/workflows/drift.yml) ---------------------------------
+
+DRIFT_NAME = "bootstrap-drift"
+DRIFT_VERBS = {"get", "list"}
+WRITE_VERBS = {"create", "update", "patch", "delete", "deletecollection", "escalate", "bind"}
+
+
+def _drift(tmp_path: Path, env: str, *args: str) -> list[dict[str, Any]]:
+    who = {
+        "drift": {"kind": "User", "name": f"gh-drift-{env}@your-project.iam.gserviceaccount.com"}
+    }
+    return bootstrap(helm_path(), env, "--values", _extra(tmp_path, who), *args)
+
+
+def helm_path() -> str:
+    return require_helm(find_helm(), ci=bool(os.environ.get("CI")))
+
+
+@pytest.mark.parametrize("env", BOOTSTRAP_ENVS)
+def test_no_drift_reader_is_bound_by_default(helm: str, env: str) -> None:
+    names = {d["metadata"]["name"] for d in bootstrap(helm, env)}
+    assert DRIFT_NAME not in names
+    assert _merged(BOOTSTRAP / "values.yaml")["drift"] == {
+        "kind": "User",
+        "name": "",
+        "namespace": "",
+    }
+
+
+@pytest.mark.parametrize("release", ["your-service-name", "svc"])
+def test_the_drift_role_reads_exactly_the_kinds_the_chart_renders_but_secrets(
+    helm: str, tmp_path: Path, release: str
+) -> None:
+    import sys  # noqa: PLC0415 - scripts/ is not a package
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        from drift import RESOURCES  # noqa: PLC0415
+    finally:
+        sys.path.remove(str(ROOT / "scripts"))
+    ns = f"{release}-dev"
+    derived = chart_resources(helm, release, ns)
+    docs = _drift(tmp_path, "dev", "--release", release)
+    for where, namespace in (("app", ns), ("db", f"{ns}-db")):
+        roles = [
+            d
+            for d in docs
+            if d["kind"] == "Role"
+            and d["metadata"]["name"] == DRIFT_NAME
+            and d["metadata"]["namespace"] == namespace
+        ]
+        assert len(roles) == 1, namespace
+        expected = {k: DRIFT_VERBS for k in derived[where] if k != ("", "secrets")}
+        assert _rules(roles[0]) == expected, where
+    # The drift check lists the same kinds by the same resource names.
+    rendered = {KIND_TO_RESOURCE[k] for k in RESOURCES}
+    assert rendered == (derived["app"] | derived["db"]) - {("", "secrets")}
+    assert {k: v[1] for k, v in KIND_TO_RESOURCE.items() if k in RESOURCES} == RESOURCES
+
+
+@pytest.mark.parametrize("env", BOOTSTRAP_ENVS)
+def test_the_drift_reader_can_never_write_or_read_a_secret(tmp_path: Path, env: str) -> None:
+    docs = _drift(tmp_path, env)
+    roles = [d for d in docs if d["kind"] == "Role" and d["metadata"]["name"] == DRIFT_NAME]
+    assert len(roles) == len([d for d in docs if d["kind"] == "Namespace"])
+    for role in roles:
+        for rule in role["rules"]:
+            assert set(rule["verbs"]) <= DRIFT_VERBS, rule
+            assert not set(rule["verbs"]) & WRITE_VERBS
+            assert "*" not in rule["verbs"] + rule["resources"] + rule["apiGroups"]
+            assert "secrets" not in rule["resources"]
+            assert not [r for r in rule["resources"] if "/" in r], "no subresource (exec, log, ...)"
+            assert not rule.get("resourceNames")
+    bindings = [
+        d for d in docs if d["kind"] == "RoleBinding" and d["metadata"]["name"] == DRIFT_NAME
+    ]
+    assert len(bindings) == len(roles)
+    for b in bindings:
+        assert b["roleRef"] == {
+            "apiGroup": "rbac.authorization.k8s.io",
+            "kind": "Role",
+            "name": DRIFT_NAME,
+        }
+        assert b["subjects"] == [
+            {
+                "apiGroup": "rbac.authorization.k8s.io",
+                "kind": "User",
+                "name": f"gh-drift-{env}@your-project.iam.gserviceaccount.com",
+            }
+        ]
+
+
+def test_a_service_account_drift_reader_carries_its_namespace(helm: str, tmp_path: Path) -> None:
+    who = {"drift": {"kind": "ServiceAccount", "name": "drift", "namespace": "ops"}}
+    docs = bootstrap(helm, "local", "--values", _extra(tmp_path, who))
+    (b, *_) = [
+        d for d in docs if d["kind"] == "RoleBinding" and d["metadata"]["name"] == DRIFT_NAME
+    ]
+    assert b["subjects"] == [{"kind": "ServiceAccount", "name": "drift", "namespace": "ops"}]
+    bad = {"drift": {"kind": "Group", "name": "x"}}
+    assert run_bootstrap(helm, "dev", "--values", _extra(tmp_path, bad)).returncode != 0

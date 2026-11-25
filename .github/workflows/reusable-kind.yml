@@ -146,6 +146,14 @@ jobs:
         if: matrix.leg == 'newest'
         timeout-minutes: 25
         run: make kind-deploy-env-test
+      # The live-drift check (tests/k8s/test_drift.py; wiki/ci-cd.md, "Live drift"): deploy-env.sh deploys
+      # and renders a release of its own, scripts/drift.py compares the two as the bootstrap's read-only
+      # drift Role (a ServiceAccount token, never printed), after six hand edits and a redeploy. Newest
+      # leg only (about 3 minutes on a workstation), after the deploy script test, whose path it shares.
+      - name: Live drift (own release; hand edits reported, nothing after a redeploy, read-only identity)
+        if: matrix.leg == 'newest'
+        timeout-minutes: 15
+        run: make kind-drift-test
       # Pull request previews (tests/k8s/test_previews.py; wiki/ci-cd.md, "Pull request previews"):
       # the preview bootstrap, deploy-env.sh with PREVIEW_PR for two pull requests and a redeploy, and
       # preview-cleanup.sh, as the preview deployer, the main release's images from the throwaway

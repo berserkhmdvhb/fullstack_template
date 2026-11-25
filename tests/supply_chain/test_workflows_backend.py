@@ -210,6 +210,9 @@ WRITE_ALLOWLIST = {
     ("preview.yml", "sweep", "id-token"),
     # The weekly re-scan: only its report job writes, and only issues.
     ("rescan.yml", "report", "issues"),
+    # The weekly live drift: the read-only drift identity's login, and the report job's issues.
+    ("drift.yml", "drift", "id-token"),
+    ("drift.yml", "report", "issues"),
     # The optional AI reviewer: its comments (pull requests, and the issues API for replies).
     ("pr-agent.yml", "review", "pull-requests"),
     ("pr-agent.yml", "review", "issues"),
@@ -231,6 +234,9 @@ READ_ALLOWLIST = {
     ("rescan.yml", "collect", "actions", "read"),
     ("rescan.yml", "collect", "deployments", "read"),
     ("rescan.yml", "scan", "packages", "read"),
+    # The live drift: what each environment's deployment applied (as rescan_collect.py reads it).
+    ("drift.yml", "collect", "actions", "read"),
+    ("drift.yml", "collect", "deployments", "read"),
     # The previews: the digests dev runs (rescan_collect.py --deployed), and the open pull requests.
     ("preview.yml", "digests", "actions", "read"),
     ("preview.yml", "digests", "deployments", "read"),

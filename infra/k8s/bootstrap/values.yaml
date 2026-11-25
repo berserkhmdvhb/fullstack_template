@@ -44,6 +44,16 @@ deployer:
   name: your-deployer
   namespace: ""
 
+# The optional live-drift reader (.github/workflows/drift.yml): read-only, get and list on the
+# chart's kinds, never Secrets (templates/drift-rbac.yaml). "" binds no one. kind: User or
+# ServiceAccount (a ServiceAccount also needs its namespace). On GKE the user name is the drift
+# reader's Google service account email, for example
+#   name: gh-drift-dev@<PROJECT_ID>.iam.gserviceaccount.com
+drift:
+  kind: User
+  name: ""
+  namespace: ""
+
 # The app namespace's ResourceQuota, sized from the chart's worst case by a test
 # (tests/backend/test_chart_quota.py): every Deployment at its HPA maximum plus the rollout surge
 # and a wave of terminating Pods, the WAF, the Cloud SQL proxy sidecars, the migration Job and the helm test Jobs, with

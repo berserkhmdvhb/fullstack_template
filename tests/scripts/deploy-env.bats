@@ -478,6 +478,31 @@ STUB
   [ ! -s "$LOG" ]
 }
 
+@test "DEPLOY_RENDER_ONLY renders the release with the upgrade's own values and flags, and touches no cluster" {
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  upgrade="$(grep "^helm upgrade --install svc charts/x" "$LOG")"
+  : > "$LOG"
+  DEPLOY_RENDER_ONLY="$BATS_TEST_TMPDIR/render.yaml" run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"nothing deployed"* ]]
+  grep -q "^kind: Deployment" "$BATS_TEST_TMPDIR/render.yaml"
+  # The second render is the release's: the upgrade's arguments, less its cluster-only flags.
+  render="$(grep "^helm template" "$LOG" | tail -n 1)"
+  want="${upgrade/helm upgrade --install/helm template}"
+  want="${want%% --rollback-on-failure*}"
+  [ "$render" = "$want" ]
+  [[ "$render" == *"--set guards.rejectPlaceholders=true"* ]]
+  run grep -E "^kubectl|^helm (upgrade|history|rollback)|^verify|^smoke" "$LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "DEPLOY_RENDER_ONLY still refuses a release image without its digest" {
+  DIGESTS='{}' DEPLOY_RENDER_ONLY="$BATS_TEST_TMPDIR/render.yaml" run bash "$SCRIPT"
+  [ "$status" -eq 1 ]
+  [ ! -s "$BATS_TEST_TMPDIR/render.yaml" ]
+}
+
 @test "every upgrade and rollback the script runs takes ownership of conflicting fields (a hand edit never blocks it)" {
   STUB_VERIFY_RC=1 run bash "$SCRIPT"
   [ "$status" -eq 1 ]

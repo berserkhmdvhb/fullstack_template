@@ -318,6 +318,7 @@ def test_the_registry_tests_have_no_identity_login_or_secret() -> None:
         "Deploy script",
         "Pull request previews",
         "Migration lifecycle",
+        "Live drift",
     ):
         step = _step(next(n for n in _names() if n.startswith(prefix)))
         assert set(step) <= {"name", "if", "timeout-minutes", "run"}, step  # no env, no action
@@ -327,6 +328,7 @@ def test_the_registry_tests_have_no_identity_login_or_secret() -> None:
         "_kube.py",
         "test_admission.py",
         "test_deploy_env.py",
+        "test_drift.py",
         "test_migrations.py",
         "test_previews.py",
     } <= {p.name for p in pushers}
@@ -507,3 +509,18 @@ def _negated_objects(tree: ast.AST) -> list[int]:
             if isinstance(operand, ast.Call) and not _is_bool(operand):
                 found.append(node.lineno)
     return found
+
+
+def test_the_drift_test_runs_on_the_newest_leg_after_the_deploy_script_test() -> None:
+    """Blocking, after the deploy script test (the path it shares) and the steps that check the main
+    release, before ZAP; its own make target and timeout, no env, action or secret."""
+    names = _names()
+    name = next(n for n in names if n.startswith("Live drift"))
+    step = _step(name)
+    assert step["run"] == "make kind-drift-test"
+    assert step["if"] == "matrix.leg == 'newest'"
+    assert "continue-on-error" not in step
+    assert set(step) <= {"name", "if", "timeout-minutes", "run"}, step
+    deploy_script = next(n for n in names if n.startswith("Deploy script"))
+    assert names.index(SHUTDOWN) < names.index(deploy_script) < names.index(name) < names.index(ZAP)
+    assert "tests/k8s/test_drift.py" in _recipe("kind-drift-test")

@@ -15,7 +15,7 @@
     dev-tools-list dev-tools-outdated dev-tools-upgrade version-check- \
     k8s-apply k8s-delete k8s-build k8s-status k8s-pods k8s-services k8s-port-forward \
     k8s-wait k8s-logs k8s-port-forward-all deploy rebuild-and-roll smoke-test \
-    kind-up kind-deploy kind-down kind-shutdown-test kind-migration-test kind-deploy-env-test kind-preview-test kind-admission-test \
+    kind-up kind-deploy kind-down kind-shutdown-test kind-migration-test kind-deploy-env-test kind-drift-test kind-preview-test kind-admission-test \
     kind-tracing-redis-test kind-external-secrets-test kind-csp-report-test kind-live kind-smoke kind-e2e kind-zap \
     secrets db-backup certs \
     security-local security-build security-tools \
@@ -157,6 +157,7 @@ help::
 	@echo "  kind-shutdown-test       Delete a backend and a frontend Pod under load on fst: no request may fail"
 	@echo "  kind-migration-test      The migration lifecycle on fst (install, upgrade, rollbacks, failures, TLS)"
 	@echo "  kind-deploy-env-test     scripts/ci/deploy-env.sh itself on fst: install, upgrade, rollbacks, failed first install"
+	@echo "  kind-drift-test          The live-drift check on fst: hand edits reported, nothing after a redeploy, read-only identity"
 	@echo "  kind-preview-test        Pull request previews on fst: two deployed, one redeployed, both cleaned up, the deployer fenced"
 	@echo "  kind-admission-test      The image admission policy on fst: signed and attested admitted, the rest denied"
 	@echo "  kind-tracing-redis-test  Spans to a collector and the rate limit in Redis, through the NetworkPolicy, on fst"
@@ -667,6 +668,11 @@ kind-migration-test:
 # own, its images by digest from a throwaway registry (one sequence, so it stops at the first failure).
 kind-deploy-env-test:
 	$(PYTHON) -m pytest tests/k8s/test_deploy_env.py -o addopts="" -v -s -x
+
+# After kind-deploy: tests/k8s/test_drift.py, the live-drift check on a release of its own: deploy-env.sh
+# deploys and renders it, scripts/drift.py compares as the read-only drift identity (one sequence).
+kind-drift-test:
+	$(PYTHON) -m pytest tests/k8s/test_drift.py -o addopts="" -v -s -x
 
 # After kind-deploy: tests/k8s/test_previews.py, pull request previews (the preview bootstrap, deploy-env.sh
 # with PREVIEW_PR, preview-cleanup.sh) as the preview deployer, in namespaces of its own (one sequence).

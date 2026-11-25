@@ -30,7 +30,8 @@ if TYPE_CHECKING:
 
 BASH: str = shutil.which("bash") or "/usr/bin/bash"
 
-DEPLOY_ENVIRONMENT_JOBS = 7  # cluster logins: deploy.yml 3, deploy-ops.yml 1, preview.yml 3
+# Cluster logins: deploy.yml 3, deploy-ops.yml 1, preview.yml 3, drift.yml 1.
+DEPLOY_ENVIRONMENT_JOBS = 8
 SHA256_HEX_LENGTH = 64
 COMPOSITE = "./.github/actions/cluster-access"
 DEPLOY_JOBS = ("deploy-dev", "deploy-qa", "deploy-production")
@@ -262,6 +263,8 @@ def test_only_wif_and_signing_jobs_hold_id_token() -> None:
         ("preview.yml", "deploy"),
         ("preview.yml", "cleanup"),
         ("preview.yml", "sweep"),
+        # The live drift's read-only login, one leg per environment, each behind drift-<env>.
+        ("drift.yml", "drift"),
         ("scorecard.yml", "analysis"),  # OIDC token for the published Scorecard results
         ("docs-site.yml", "deploy"),  # deploy-pages' OIDC token, in the github-pages environment
     }

@@ -333,13 +333,15 @@ def deploy_env(  # noqa: PLR0913 - the script's inputs, each optional but the fi
     verify: Path | None = None,
     user: str = "",
     preview_pr: int = 0,
+    render: Path | None = None,
 ) -> tuple[int, str]:
     """scripts/ci/deploy-env.sh as deploy.yml runs it, with DEPLOY_ENV=kind: helm and kubectl as
     the deployer on fst (``user``, else the local deployer), the pushed images by digest, the
     deploy workflow's default HELM_TIMEOUT, KIND_VALUES the secrets, the kind values and these
     files. ``verify`` replaces deploy-verify.sh (VERIFY_SCRIPT); ``preview_pr`` deploys that pull
     request's preview release (PREVIEW_PR), without the kind secrets: its values file names the
-    bootstrap's Secrets. Returns the exit code and the script's output."""
+    bootstrap's Secrets. ``render`` writes the release's render there instead of deploying
+    (DEPLOY_RENDER_ONLY, the live-drift check's). Returns the exit code and the script's output."""
     run = work / "run"
     run.mkdir(exist_ok=True)
     matrix = work / "matrix.sh"
@@ -369,6 +371,8 @@ def deploy_env(  # noqa: PLR0913 - the script's inputs, each optional but the fi
         env["VERIFY_SCRIPT"] = str(verify)
     if preview_pr:
         env["PREVIEW_PR"] = str(preview_pr)
+    if render:
+        env["DEPLOY_RENDER_ONLY"] = str(render)
     cmd = ["bash", str(DEPLOY_ENV)]
     done = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
     return done.returncode, done.stdout + done.stderr

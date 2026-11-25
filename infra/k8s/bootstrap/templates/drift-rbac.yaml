@@ -1,0 +1,98 @@
+{{/*
+   The live-drift reader (.github/workflows/drift.yml), only when drift.name is set: one Role and
+   RoleBinding per namespace with `get` and `list` on exactly the kinds the chart renders there,
+   and nothing else. tests/backend/test_k8s_bootstrap.py derives that set from the chart.
+   - Never Secrets, not even `list` (a list returns their data), so never Helm's release records
+     either; the drift check reads each ExternalSecret's status instead.
+   - Never a write verb, `watch`, a subresource (exec, log, port-forward) or RBAC: it cannot change
+     anything, so a `kubectl diff` or a server-side dry run, which need `patch`, is out of reach.
+*/}}
+{{- if .Values.drift.name }}
+{{- $read := list "get" "list" }}
+{{- range (include "bootstrap.namespaces" . | fromJsonArray) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bootstrap-drift
+  namespace: {{ .name }}
+  labels:
+{{- include "bootstrap.labels" $ | nindent 4 }}
+rules:
+{{- if eq .role "app" }}
+  - apiGroups: [""]
+    resources: [configmaps, services, serviceaccounts]
+    verbs: {{ toJson $read }}
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: {{ toJson $read }}
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: {{ toJson $read }}
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: {{ toJson $read }}
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: {{ toJson $read }}
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies, ingresses]
+    verbs: {{ toJson $read }}
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes]
+    verbs: {{ toJson $read }}
+  - apiGroups: [networking.gke.io]
+    resources: [healthcheckpolicies, gcpbackendpolicies]
+    verbs: {{ toJson $read }}
+  - apiGroups: [monitoring.coreos.com]
+    resources: [servicemonitors, prometheusrules]
+    verbs: {{ toJson $read }}
+  - apiGroups: [monitoring.googleapis.com]
+    resources: [podmonitorings, rules]
+    verbs: {{ toJson $read }}
+  - apiGroups: [external-secrets.io]
+    resources: [externalsecrets]
+    verbs: {{ toJson $read }}
+{{- else }}
+  - apiGroups: [""]
+    resources: [configmaps, services, persistentvolumeclaims]
+    verbs: {{ toJson $read }}
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: {{ toJson $read }}
+  - apiGroups: [batch]
+    resources: [cronjobs]
+    verbs: {{ toJson $read }}
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: {{ toJson $read }}
+  - apiGroups: [external-secrets.io]
+    resources: [externalsecrets]
+    verbs: {{ toJson $read }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bootstrap-drift
+  namespace: {{ .name }}
+  labels:
+{{- include "bootstrap.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: bootstrap-drift
+subjects:
+{{- if eq $.Values.drift.kind "ServiceAccount" }}
+  - kind: ServiceAccount
+    name: {{ $.Values.drift.name }}
+    namespace: {{ required "drift.namespace is required for a ServiceAccount" $.Values.drift.namespace }}
+{{- else if eq $.Values.drift.kind "User" }}
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: {{ $.Values.drift.name | quote }}
+{{- else }}
+{{- fail "drift.kind must be User or ServiceAccount" }}
+{{- end }}
+{{- end }}
+{{- end }}
