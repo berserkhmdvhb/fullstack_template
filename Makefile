@@ -35,12 +35,15 @@ PYTHON := $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; else c
 UV := $(or $(wildcard .tools/bin/uv),uv)
 # The project's .venv is built on the interpreter of the `python` row of tools/pins.tsv, installed by `make tools` under
 # .tools/uv/python: the one the tool venvs, CI (setup-python) and the backend image use. Never the system Python and never
-# a download, so a missing interpreter stops with "run make tools" (python-pinned below).
+# a download, so a missing interpreter stops with "run make tools" (python-pinned below). Only the targets that build or
+# sync .venv get these settings: on any other uv call (uv tree, lock, export) they would make uv refuse a .venv built on
+# another interpreter, as CI's is (setup-python).
 PINNED_PYTHON := $(shell awk -F'\t' '$$1 == "python" {print $$2; exit}' tools/pins.tsv)
-export UV_PYTHON := $(PINNED_PYTHON)
-export UV_PYTHON_PREFERENCE := only-managed
-export UV_PYTHON_DOWNLOADS := never
-export UV_PYTHON_INSTALL_DIR := $(CURDIR)/.tools/uv/python
+VENV_TARGETS := install develop dev-tools-upgrade python-pinned
+$(VENV_TARGETS): export UV_PYTHON := $(PINNED_PYTHON)
+$(VENV_TARGETS): export UV_PYTHON_PREFERENCE := only-managed
+$(VENV_TARGETS): export UV_PYTHON_DOWNLOADS := never
+$(VENV_TARGETS): export UV_PYTHON_INSTALL_DIR := $(CURDIR)/.tools/uv/python
 SERVICE := your_service_name
 # The project venv's tools (ruff, mypy, uvicorn) first, so make finds them without activating it.
 export PATH := $(CURDIR)/.venv/bin:$(PATH)

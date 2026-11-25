@@ -65,6 +65,22 @@ def test_sync_gets_the_pinned_python_from_the_repository_never_a_download(
     assert f"DIR={REPO}/.tools/uv/python" in sync
 
 
+@pytest.mark.parametrize(
+    "target", ["lock", "lock-check", "version-check-ruff", "export-requirements"]
+)
+def test_uv_calls_that_build_no_venv_get_none_of_the_interpreter_settings(
+    tmp_path: Path, target: str
+) -> None:
+    """Elsewhere they would make uv refuse a .venv built on another interpreter (setup-python)."""
+    env, log = _env(tmp_path, installed=True)
+    # The stub's empty `uv tree` fails version-check-*; only the log counts.
+    _make(env, tmp_path / "uv", target)
+    lines = log.read_text().splitlines()
+    assert lines
+    for ln in lines:
+        assert "UV_PYTHON= PREF= DL= DIR=" in ln, ln
+
+
 def test_a_missing_pinned_python_stops_with_the_way_out_and_syncs_nothing(tmp_path: Path) -> None:
     env, log = _env(tmp_path, installed=False)
     r = _make(env, tmp_path / "uv", "develop")
