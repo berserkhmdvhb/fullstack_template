@@ -18,6 +18,8 @@ REPO = Path(__file__).resolve().parent.parent.parent
 SCRIPT = REPO / "infra/security/generate-vex.sh"
 LIST_FILE = REPO / "infra/security/local/vex-not-affected.json"
 BASH: str = shutil.which("bash") or "/usr/bin/bash"
+# Found before any PATH change: the shim below runs it for every call but the script's day.
+REAL_DATE: str = shutil.which("date") or "/bin/date"
 DIGEST = "sha256:" + "a" * 64
 JUSTIFICATIONS = {
     "component_not_present",
@@ -98,6 +100,18 @@ def _run_full(
     lst.write_text(raw_list if raw_list is not None else json.dumps(entries or []))
     env = {"PATH": "/usr/bin:/bin:/usr/local/bin", "LIB_TS": "0", "VEX_NOT_AFFECTED_LIST": str(lst)}
     env["PATH"] = f"{Path(shutil.which('jq') or '/usr/bin/jq').parent}:{env['PATH']}"
+    # The script reads its day from `date -u +%Y-%m-%d`; pin it to TODAY so a run across UTC
+    # midnight agrees with the entries' dates. Plain sh, no GNU-only flags (BSD date too).
+    shim = tmp_path / "date-shim"
+    shim.mkdir()
+    (shim / "date").write_text(
+        "#!/bin/sh\n"
+        'if [ "$#" -eq 2 ] && [ "$1" = -u ] && [ "$2" = +%Y-%m-%d ]; then\n'
+        f"  echo {TODAY.isoformat()}\n"
+        f'else exec "{REAL_DATE}" "$@"; fi\n'
+    )
+    (shim / "date").chmod(0o755)
+    env["PATH"] = f"{shim}:{env['PATH']}"
     out = tmp_path / "out"
     p = subprocess.run(
         [BASH, str(SCRIPT), str(out), str(tmp_path / "scan.env"), str(tmp_path / "digests.env")],
