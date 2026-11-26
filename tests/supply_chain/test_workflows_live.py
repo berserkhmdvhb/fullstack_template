@@ -29,7 +29,7 @@ def test_live_is_a_call_only_workflow() -> None:
 def test_advisory_on_pull_requests_blocking_elsewhere() -> None:
     job = _live_job()
     assert job["continue-on-error"] == "${{ github.event_name == 'pull_request' }}"
-    warn = [s for s in job["steps"] if "::warning" in s.get("run", "")]
+    warn = [s for s in job["steps"] if "::warning title=Live suites" in s.get("run", "")]
     assert len(warn) == 1
     assert warn[0]["if"] == "failure() && github.event_name == 'pull_request'"
     assert "live suite failed (advisory on PRs)" in warn[0]["run"]
@@ -70,6 +70,13 @@ def test_live_starts_the_stack_through_the_entrypoint_and_always_stops_it() -> N
     assert all(s.get("if") == "always()" for s in stop)
     names = [s.get("name") for s in job["steps"]]
     assert names.index(stop[0]["name"]) > names.index("Start the stack")
+    # A stop that outlives its wait kills the process group the start step made; a taken port fails.
+    assert "setsid ./infra/runtime/entrypoint.sh" in runs
+    assert 'kill -KILL -- "-$pid"' in stop[0]["run"]
+    assert "::warning" in stop[0]["run"]
+    assert "::error" in stop[0]["run"]
+    for port in ("BACKEND_PORT", "FRONTEND_PORT", "METRICS_PORT"):
+        assert f"${{{port}:-" in stop[0]["run"], port
 
 
 def test_live_uses_no_literal_ports() -> None:

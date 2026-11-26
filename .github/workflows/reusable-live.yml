@@ -44,7 +44,8 @@ jobs:
         run: |
           export PATH="$PWD/.venv/bin:$PATH"
           export BACKEND_URL="http://127.0.0.1:${BACKEND_PORT:-8000}"
-          ./infra/runtime/entrypoint.sh --mode all --no-wait > stack.log 2>&1 &
+          # Its own process group (its PID), so the stop step can signal every server it started.
+          setsid ./infra/runtime/entrypoint.sh --mode all --no-wait > stack.log 2>&1 &
           echo $! > stack.pid
           python tests/utils/wait_for_service.py "http://127.0.0.1:${BACKEND_PORT:-8000}/api/${API_VERSION:-v1}/health" 60 0.5 Backend
           python tests/utils/wait_for_service.py "http://127.0.0.1:${FRONTEND_PORT:-3000}/" 60 0.5 Frontend
@@ -76,8 +77,9 @@ jobs:
       - name: Show the stack log
         if: failure()
         run: tail -n 200 stack.log || true
-      # The entrypoint's exit trap stops the servers it started and waits for them; waiting for the
-      # entrypoint here means no server from the stack is left listening when the step ends.
+      # The entrypoint's exit trap stops the servers it started and waits for them. If the entrypoint outlives
+      # its 60 s, the step kills its process group (a warning names the PID); then it fails if a stack port
+      # is still taken, so no server from the stack is left listening when the step passes.
       - name: Stop the stack
         if: always()
         run: |
@@ -85,4 +87,17 @@ jobs:
             pid="$(cat stack.pid)"
             kill "$pid" 2>/dev/null || true
             for _ in $(seq 60); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+            if kill -0 "$pid" 2>/dev/null; then
+              echo "::warning title=Stop the stack::the entrypoint (PID $pid) outlived its stop; killing its process group"
+              kill -KILL -- "-$pid" 2>/dev/null || true
+              sleep 2
+            fi
+          fi
+          busy=""
+          for port in "${BACKEND_PORT:-8000}" "${FRONTEND_PORT:-3000}" "${METRICS_PORT:-9102}"; do
+            [[ -z "$(ss -Htln "sport = :$port")" ]] || busy+=" $port"
+          done
+          if [[ -n "$busy" ]]; then
+            echo "::error title=Stop the stack::still listening after the stop:$busy"
+            exit 1
           fi
