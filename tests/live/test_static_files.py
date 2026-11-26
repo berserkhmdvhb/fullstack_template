@@ -36,6 +36,7 @@ from tests.live.test_header_set import (
     _STATIC_LAYER,
     _assert_final_set,
 )
+from tests.utils.standalone_copy import copy_standalone
 from tests.utils.static_paths import parse_backend_paths
 
 pytestmark = pytest.mark.live
@@ -81,6 +82,23 @@ def _unavailable(reason: str) -> NoReturn:
     pytest.skip(reason)
 
 
+def _wait_ready(proc: subprocess.Popen[bytes], client: httpx.Client, log: Path) -> None:
+    """Wait for /api/healthz; fail at once if the server exits, with its log's tail either way."""
+
+    def tail() -> str:
+        return "\n".join(log.read_text(encoding="utf-8", errors="replace").splitlines()[-40:])
+
+    for _ in range(60):
+        if proc.poll() is not None:
+            pytest.fail(f"the standalone server exited with {proc.returncode}:\n{tail()}")
+        try:
+            if client.get("/api/healthz").status_code == status.HTTP_200_OK:
+                return
+        except httpx.TransportError:
+            time.sleep(0.5)
+    pytest.fail(f"the standalone server did not answer /api/healthz:\n{tail()}")
+
+
 @pytest.fixture(scope="module")
 def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[httpx.Client]:
     if os.getenv("LIVE_TARGET") == "deployed":
@@ -95,7 +113,7 @@ def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[httpx.Client]:
     if node is None:
         _unavailable("node is not on PATH")
     work = tmp_path_factory.mktemp("standalone")
-    shutil.copytree(bundle, work, dirs_exist_ok=True, ignore_dangling_symlinks=True)
+    copy_standalone(bundle, work)
     shutil.rmtree(work / ".next" / "static", ignore_errors=True)
     (work / ".next" / "static").unlink(missing_ok=True)
     shutil.copytree(_ROOT / ".next" / "static", work / ".next" / "static")
@@ -117,23 +135,14 @@ def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[httpx.Client]:
         "BACKEND_URL": f"http://127.0.0.1:{backend.server_port}",
         "NODE_ENV": "production",
     }
-    proc = subprocess.Popen(
-        [node, "server.js"],
-        cwd=work,
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    log = work / "server.log"
+    with log.open("wb") as out:
+        proc = subprocess.Popen(
+            [node, "server.js"], cwd=work, env=env, stdout=out, stderr=subprocess.STDOUT
+        )
     client = httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=10.0, trust_env=False)
     try:
-        for _ in range(60):
-            try:
-                if client.get("/api/healthz").status_code == status.HTTP_200_OK:
-                    break
-            except httpx.TransportError:
-                time.sleep(0.5)
-        else:
-            pytest.fail("the standalone server did not start")
+        _wait_ready(proc, client, log)
         yield client
     finally:
         client.close()
