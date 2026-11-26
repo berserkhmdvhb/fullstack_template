@@ -31,6 +31,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -373,17 +374,20 @@ def _condition(job: dict[str, Any], kind: str) -> bool:
 
 
 @contextmanager
-def _endpoints(cluster: Cluster) -> Iterator[list[tuple[float, int]]]:
-    """Samples (time, ready backend endpoints) every POLL seconds while the block runs."""
-    samples: list[tuple[float, int]] = []
+def _endpoints(cluster: Cluster) -> Iterator[list[tuple[float, float, int]]]:
+    """Samples (read started, read returned, ready backend endpoints) every POLL seconds while the
+    block runs."""
+    samples: list[tuple[float, float, int]] = []
     stop = threading.Event()
 
     def poll() -> None:
         while not stop.is_set():
+            started = time.time()
             try:
-                samples.append((time.time(), cluster.ready_endpoints()))
+                n = cluster.ready_endpoints()
             except Exception:  # noqa: BLE001 - a failed read is a missing sample, checked below
-                samples.append((time.time(), -1))
+                n = -1
+            samples.append((started, time.time(), n))
             stop.wait(POLL)
 
     thread = threading.Thread(target=poll, daemon=True)
@@ -411,8 +415,8 @@ def _answered(result: dict[str, Any], rows: list[list[str]]) -> None:
     assert result["rows"] == rows, result
 
 
-def _never_empty(samples: list[tuple[float, int]]) -> None:
-    counts = [n for _, n in samples]
+def _never_empty(samples: list[tuple[float, float, int]]) -> None:
+    counts = [n for *_, n in samples]
     gaps = [b[0] - a[0] for a, b in pairwise(samples)]
     summary = f"{len(samples)} samples, min {min(counts)}, max gap {max(gaps):.1f}s"
     print(f"endpoints: {summary}")
@@ -619,8 +623,8 @@ def test_a_migration_over_150_s_runs_without_restarts_and_holds_readiness(
 ) -> None:
     """The database is emptied (RESET: the same as a fresh one, checked against a database created
     the bootstrap's way), then an upgrade whose migration sleeps SLOW seconds first: the backend
-    stays unready until the Job finishes, then becomes ready; nothing restarts (liveness and
-    startup probe the process, not the schema)."""
+    stays unready until the migration has committed, then becomes ready; nothing restarts
+    (liveness and startup probe the process, not the schema)."""
     reference = "freshness_reference"
     cluster.psql(f"DROP DATABASE IF EXISTS {reference}")
     cluster.psql(f"CREATE DATABASE {reference}")
@@ -635,22 +639,17 @@ def test_a_migration_over_150_s_runs_without_restarts_and_holds_readiness(
     pods = {p["metadata"]["uid"] for p in cluster.backend_pods()}
     with _endpoints(cluster) as samples:
         rc, out = cluster.deploy(*ROLL, "--set", f"tests.migration.delaySeconds={SLOW}")
-    assert rc == 0, out
     rev = cluster.revision()["revision"]
+    assert rc == 0, out + _migrate_logs(cluster, rev)
     job = cluster.job(rev)
     start = _ts(job["status"]["startTime"])
     done = _ts(job["status"]["completionTime"])
     print(f"migration Job ran {done - start:.0f}s")
     assert done - start > SLOW - 10  # over 150 s
     assert len(cluster.job_pods(rev)) == 1
-    log = cluster.app("logs", f"job/{JOB_PREFIX}{rev}", "-c", "migrate")
+    log = cluster.app("logs", "--timestamps", f"job/{JOB_PREFIX}{rev}", "-c", "migrate")
     assert "Database is missing; upgrading to head" in log  # a first migration
-    unready = [n for t, n in samples if t < done - 1]
-    ready = [t for t, n in samples if n > 0]
-    assert unready, "no sample while the migration ran"
-    assert max(unready) == 0, "a backend endpoint was ready before the migration finished"
-    assert ready, "the backend never became ready"
-    assert min(ready) >= done - 1, "ready before the migration finished"
+    _unready_until(samples, _committed(log))
     assert {p["metadata"]["uid"] for p in cluster.backend_pods()} == pods  # same Pods, now ready
     assert _restarts(cluster.app, cluster.db) == {}
     assert cluster.psql("SELECT version_num FROM alembic_version") == schema.load_revisions().head
@@ -659,6 +658,37 @@ def test_a_migration_over_150_s_runs_without_restarts_and_holds_readiness(
 
 def _ts(stamp: str) -> float:
     return calendar.timegm(time.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ"))
+
+
+def _committed(log: str) -> float:
+    """When the migrate container logged ``Migrations applied.`` (run_migrations.py logs it once
+    alembic's upgrade has returned, so after its transaction committed), from the
+    ``kubectl logs --timestamps`` prefix (RFC 3339, nanoseconds)."""
+    line = next((x for x in log.splitlines() if "Migrations applied." in x), None)
+    assert line, f"the migration never logged its commit:\n{log}"
+    return datetime.fromisoformat(line.split(" ", 1)[0]).timestamp()
+
+
+def _unready_until(samples: list[tuple[float, float, int]], committed: float) -> None:
+    """No read provably saw a ready backend endpoint before the migration committed: a sample is a
+    violation only when the read that returned n > 0 returned before ``committed`` (1 s slack for
+    timestamp resolution). The first ready observation is at or after it by the same rule."""
+    before = [n for _, returned, n in samples if returned < committed - 1]
+    ready = [returned for _, returned, n in samples if n > 0]
+    assert before, "no sample while the migration ran"
+    assert max(before) == 0, "a backend endpoint was ready before the migration committed"
+    assert ready, "the backend never became ready"
+    assert min(ready) >= committed - 1, "ready before the migration committed"
+
+
+def _migrate_logs(cluster: Cluster, revision: int) -> str:
+    """The migrate container's logs from every Job Pod of the revision (each failed attempt)."""
+    logs = [
+        f"\n--- migrate logs of {name}\n"
+        + cluster.app("logs", name, "-c", "migrate", "--timestamps", check=False)
+        for name in (p["metadata"]["name"] for p in cluster.job_pods(revision))
+    ]
+    return "".join(logs) or f"\n--- no Job Pod of revision {revision} is left"
 
 
 def test_the_chart_s_timeouts_take_effect_against_the_in_cluster_database(
