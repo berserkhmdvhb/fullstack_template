@@ -370,7 +370,7 @@ def _frontend_json() -> dict[str, Any]:
 def test_a11y_job_is_blocking_scoped_and_reaches_ci_ok() -> None:
     job = _jobs()["a11y"]
     assert "continue-on-error" not in job
-    assert job["timeout-minutes"] <= 15  # noqa: PLR2004
+    assert job["timeout-minutes"] <= 40  # noqa: PLR2004
     assert job["permissions"] == {"contents": "read"}
     assert job["if"] == "inputs.frontend-changed"
     assert "build" in _needs(job)
@@ -415,7 +415,7 @@ def test_lighthouse_job_is_advisory_and_not_a_blocking_gate() -> None:
     job = _jobs()["lighthouse"]
     assert job["continue-on-error"] is True
     assert job["name"].endswith("(advisory)")
-    assert job["timeout-minutes"] <= 20  # noqa: PLR2004
+    assert job["timeout-minutes"] <= 40  # noqa: PLR2004
     assert job["permissions"] == {"contents": "read"}
     assert job["if"] == "inputs.frontend-changed"
     runs = _runs(job)

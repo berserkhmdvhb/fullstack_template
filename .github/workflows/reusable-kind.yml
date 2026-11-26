@@ -100,9 +100,9 @@ jobs:
       # locally installed Playwright.
       - name: Install the Playwright system deps
         if: matrix.leg == 'newest'
-        timeout-minutes: 5
+        timeout-minutes: 22
         working-directory: frontend
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/playwright-deps.sh"
       - name: Download the Playwright browser
         if: matrix.leg == 'newest'
         timeout-minutes: 5

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 BASH: str = shutil.which("bash") or "/usr/bin/bash"
 RETRY = REPO / "scripts" / "ci" / "retry.sh"
+PW_DEPS = REPO / "scripts" / "ci" / "playwright-deps.sh"
 DEPS = "Install the Playwright system deps"
 BROWSER = "Download the Playwright browser"
 OLD = "Install the Playwright browser"
@@ -32,6 +33,7 @@ WORKDIR = {
     "ci.yml": "${{ runner.temp }}/adopted/docs-site",
 }
 STEP_MINUTES = 5
+DEPS_STEP_MINUTES = 22
 ATTEMPT_SECONDS = 130
 KILL_AFTER_SECONDS = 10
 ATTEMPTS = 2
@@ -50,16 +52,18 @@ def test_each_playwright_install_is_two_bounded_retried_steps(file: str, job: st
     assert "--with-deps" not in "\n".join(s.get("run", "") for s in steps)
     deps, browser = (steps[names.index(n)] for n in (DEPS, BROWSER))
     assert names.index(DEPS) + 1 == names.index(BROWSER)
-    for step, cmd in ((deps, "install-deps chromium"), (browser, "install chromium")):
-        assert step["working-directory"] == WORKDIR.get(file, "frontend")
-        assert step["timeout-minutes"] == STEP_MINUTES
-        assert step["run"] == (
-            f'bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" {ATTEMPTS} {DELAY_SECONDS} '
-            f"{ATTEMPT_SECONDS} pnpm exec playwright {cmd}"
-        )
-        # Every attempt, with its pause, fits the step's own budget.
-        worst = ATTEMPTS * (ATTEMPT_SECONDS + KILL_AFTER_SECONDS) + (ATTEMPTS - 1) * DELAY_SECONDS
-        assert worst <= STEP_MINUTES * 60
+    assert deps["run"] == 'bash "$GITHUB_WORKSPACE/scripts/ci/playwright-deps.sh"'
+    assert deps["working-directory"] == WORKDIR.get(file, "frontend")
+    assert deps["timeout-minutes"] == DEPS_STEP_MINUTES
+    assert browser["working-directory"] == WORKDIR.get(file, "frontend")
+    assert browser["timeout-minutes"] == STEP_MINUTES
+    assert browser["run"] == (
+        f'bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" {ATTEMPTS} {DELAY_SECONDS} '
+        f"{ATTEMPT_SECONDS} pnpm exec playwright install chromium"
+    )
+    # Every attempt, with its pause, fits the browser step's own budget.
+    worst = ATTEMPTS * (ATTEMPT_SECONDS + KILL_AFTER_SECONDS) + (ATTEMPTS - 1) * DELAY_SECONDS
+    assert worst <= STEP_MINUTES * 60
 
 
 def test_the_kind_install_stays_on_the_newest_leg_only() -> None:
@@ -69,10 +73,10 @@ def test_the_kind_install_stays_on_the_newest_leg_only() -> None:
 
 
 def test_job_budgets_fit_the_install_steps() -> None:
-    # Two steps at their full budget must leave room in the job (the frontend jobs allow 15 and 20).
+    # Both steps at their full budget must leave room in the job.
     for file, job in SITES:
         budget = workflow(file)["jobs"][job]["timeout-minutes"]
-        assert budget >= 2 * STEP_MINUTES + 5, (file, job)
+        assert budget >= DEPS_STEP_MINUTES + STEP_MINUTES + 10, (file, job)
 
 
 def test_lighthouse_still_uses_the_playwright_chromium() -> None:
@@ -241,3 +245,80 @@ def test_every_tool_download_retries_and_times_out() -> None:
     for line in lines:
         for flag in ("--retry ", "--retry-connrefused", "--connect-timeout ", "--speed-limit "):
             assert flag in line, (flag, line)
+
+
+def test_no_workflow_installs_the_system_deps_directly() -> None:
+    github = REPO / ".github"
+    hits = [
+        str(f)
+        for f in github.rglob("*")
+        if f.is_file() and "install-deps" in f.read_text(errors="ignore")
+    ]
+    assert hits == []
+    assert PW_DEPS.stat().st_mode & 0o111
+
+
+def _run_deps(
+    tmp_path: Path, *, actions: str | None, fail_first: int
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    conf = tmp_path / "apt"
+    conf.mkdir()
+    bin_dir = _stub(tmp_path, "sudo", 'exec "$@"')
+    _stub(
+        tmp_path,
+        "pnpm",
+        f'echo "$@" >> "$CALLS"\n(( $(wc -l < "$CALLS") > {fail_first} )) && exit 0\nexit 7',
+    )
+    _stub(tmp_path, "sleep", "true")
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "APT_CONF_DIR": str(conf),
+        "CALLS": str(tmp_path / "calls"),
+    }
+    if actions is not None:
+        env["GITHUB_ACTIONS"] = actions
+    done = subprocess.run(
+        [BASH, str(PW_DEPS)], env=env, capture_output=True, text=True, check=False, cwd=tmp_path
+    )
+    return done, conf
+
+
+@pytest.mark.parametrize("actions", [None, "false", ""])
+def test_playwright_deps_refuses_outside_ci(tmp_path: Path, actions: str | None) -> None:
+    done, conf = _run_deps(tmp_path, actions=actions, fail_first=0)
+    assert done.returncode != 0
+    assert "GitHub Actions" in done.stderr
+    assert list(conf.iterdir()) == []
+    assert not (tmp_path / "calls").exists()
+
+
+def test_playwright_deps_writes_the_apt_drop_in_and_installs(tmp_path: Path) -> None:
+    done, conf = _run_deps(tmp_path, actions="true", fail_first=0)
+    assert done.returncode == 0, done.stderr
+    settings = [
+        line
+        for line in (conf / "80-ci-network").read_text().splitlines()
+        if line and not line.startswith("//")
+    ]
+    assert settings == [
+        'DPkg::Lock::Timeout "600";',
+        'Acquire::Retries "5";',
+        'Acquire::http::Timeout "30";',
+        'Acquire::https::Timeout "30";',
+    ]
+    assert (tmp_path / "calls").read_text().splitlines() == [
+        "exec playwright install-deps chromium"
+    ]
+
+
+def test_playwright_deps_retries_once(tmp_path: Path) -> None:
+    done, _ = _run_deps(tmp_path, actions="true", fail_first=1)
+    assert done.returncode == 0, done.stderr
+    assert done.stderr.count("::warning::attempt 1/2") == 1
+    assert len((tmp_path / "calls").read_text().splitlines()) == 2  # noqa: PLR2004
+
+
+def test_playwright_deps_fails_with_the_last_status(tmp_path: Path) -> None:
+    done, _ = _run_deps(tmp_path, actions="true", fail_first=99)
+    assert done.returncode == 7  # noqa: PLR2004
+    assert "failed after 2 attempts" in done.stderr

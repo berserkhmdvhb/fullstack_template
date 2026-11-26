@@ -22,7 +22,7 @@ def test_it_always_runs_behind_the_gate_with_a_read_only_token_and_its_own_budge
     assert "if" not in JOB
     assert "adopted" in workflow("ci.yml")["jobs"]["ci-ok"]["needs"]
     assert JOB["permissions"] == {"contents": "read"}
-    assert 0 < JOB["timeout-minutes"] <= 30  # noqa: PLR2004 (the measured run, with headroom)
+    assert 0 < JOB["timeout-minutes"] <= 40  # noqa: PLR2004 (the measured run, plus the system-deps step's room)
 
 
 def test_it_reads_no_secret_and_uses_no_cache() -> None:

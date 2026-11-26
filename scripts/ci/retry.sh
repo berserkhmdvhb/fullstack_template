@@ -5,6 +5,8 @@
 # the step's budget); the command runs again after DELAY seconds, up to ATTEMPTS runs in all. Every
 # failed attempt prints its number and exit status; the last failure's status is the script's.
 # Retry only an idempotent command.
+# Hazard: a retried command that starts children through sudo can leave them running past the timeout (sudo gives them
+# their own session); scripts/ci/playwright-deps.sh is the pattern: make the child wait or bound itself.
 #
 # Usage: retry.sh ATTEMPTS DELAY TIMEOUT COMMAND [ARG...]
 set -uo pipefail

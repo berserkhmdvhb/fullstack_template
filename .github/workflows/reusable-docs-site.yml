@@ -21,7 +21,7 @@ jobs:
   build:
     name: Docs site (build and axe)
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     permissions:
       contents: read
     env:
@@ -52,9 +52,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       # Mermaid renders at build time in the Playwright Chromium; the axe scan drives the same browser.
       - name: Install the Playwright system deps
-        timeout-minutes: 5
+        timeout-minutes: 22
         working-directory: docs-site
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/playwright-deps.sh"
       - name: Download the Playwright browser
         timeout-minutes: 5
         working-directory: docs-site

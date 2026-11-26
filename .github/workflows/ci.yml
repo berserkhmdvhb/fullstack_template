@@ -281,7 +281,7 @@ jobs:
   adopted:
     name: Adopted copy
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     permissions:
       contents: read
     steps:
@@ -390,9 +390,9 @@ jobs:
           pnpm install --frozen-lockfile
       - name: Install the Playwright system deps
         if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
-        timeout-minutes: 5
+        timeout-minutes: 22
         working-directory: ${{ runner.temp }}/adopted/docs-site
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/playwright-deps.sh"
       - name: Download the Playwright browser
         if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
         timeout-minutes: 5

@@ -177,7 +177,7 @@ jobs:
     if: inputs.frontend-changed
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 40
     permissions:
       contents: read
     steps:
@@ -190,9 +190,9 @@ jobs:
         run: pnpm run build
       # The version comes from the lockfile because pnpm exec runs the locally installed Playwright.
       - name: Install the Playwright system deps
-        timeout-minutes: 5
+        timeout-minutes: 22
         working-directory: frontend
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/playwright-deps.sh"
       - name: Download the Playwright browser
         timeout-minutes: 5
         working-directory: frontend
@@ -218,7 +218,7 @@ jobs:
     if: inputs.frontend-changed
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     continue-on-error: true
     permissions:
       contents: read
@@ -233,9 +233,9 @@ jobs:
         working-directory: frontend
         run: pnpm run build
       - name: Install the Playwright system deps
-        timeout-minutes: 5
+        timeout-minutes: 22
         working-directory: frontend
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install-deps chromium
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/playwright-deps.sh"
       - name: Download the Playwright browser
         timeout-minutes: 5
         working-directory: frontend
