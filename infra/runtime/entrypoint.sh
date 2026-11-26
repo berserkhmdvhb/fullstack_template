@@ -295,7 +295,16 @@ echo " API_VERSION=${API_VERSION}"
 
 # ---- Starters ---------------------------------------------------------------
 pids=()
-trap 'echo "Stopping..."; for p in "${pids[@]:-}"; do kill "$p" 2>/dev/null || true; done' TERM INT EXIT
+# Every child is started directly or exec'd from its subshell, so its PID is the server itself. On exit the
+# trap stops them and waits, so a stopped stack leaves no server (and no listening port) behind.
+stop_children() {
+  echo "Stopping..."
+  for p in "${pids[@]:-}"; do [[ -n "$p" ]] && kill "$p" 2>/dev/null || true; done
+  wait
+}
+trap stop_children EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 run_migrations() {
   echo "🚀 Running database migrations ..."
@@ -364,7 +373,7 @@ start_frontend_react() {
   (
     cd "$app_root"
     HOSTNAME="${FRONTEND_BIND:-${FRONTEND_HOST}}" PORT="${FRONTEND_PORT}" \
-      node .next/standalone/server.js
+      exec node .next/standalone/server.js
   ) &
   pids+=("$!")
 }
