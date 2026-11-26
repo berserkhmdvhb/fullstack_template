@@ -54,9 +54,11 @@ jobs:
       # The frontend is the one public port of this stack: it serves the pages and proxies /api, /docs and
       # /openapi.json, so test_full_stack.py (which skips without PUBLIC_PORT) targets it.
       - name: Backend live suite
+        timeout-minutes: 30
         run: PUBLIC_PORT="${FRONTEND_PORT:-3000}" make test-live
       - name: Frontend live suite (Playwright)
         if: ${{ !cancelled() && steps.stack.outcome == 'success' }}
+        timeout-minutes: 30
         working-directory: frontend
         run: pnpm run test:e2e
       - name: Upload the test reports on failure

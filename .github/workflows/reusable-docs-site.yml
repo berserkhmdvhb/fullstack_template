@@ -60,14 +60,17 @@ jobs:
         working-directory: docs-site
         run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install chromium
       - name: Resolver unit tests
+        timeout-minutes: 20
         working-directory: docs-site
         run: pnpm test
       # Strict: a broken link or #anchor, invalid front matter, a missing loaded file or a diagram that does
       # not render fails the build.
       - name: Build the site
+        timeout-minutes: 20
         working-directory: docs-site
         run: pnpm run build
       - name: axe accessibility scan
+        timeout-minutes: 20
         working-directory: docs-site
         run: pnpm run test:a11y
       - name: Upload the test reports on failure

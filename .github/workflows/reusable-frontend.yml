@@ -198,6 +198,7 @@ jobs:
         working-directory: frontend
         run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install chromium
       - name: axe accessibility scan
+        timeout-minutes: 15
         working-directory: frontend
         run: pnpm run test:a11y
       - name: Upload the test reports on failure
@@ -242,6 +243,7 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/scripts/ci/retry.sh" 2 10 130 pnpm exec playwright install chromium
       # Lighthouse drives the Playwright Chromium (CHROME_PATH), so there is no second browser download.
       - name: Collect the Lighthouse runs
+        timeout-minutes: 20
         working-directory: frontend
         run: |
           CHROME_PATH="$(node -p "require('@playwright/test').chromium.executablePath()")"

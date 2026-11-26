@@ -323,6 +323,7 @@ jobs:
       # ADOPTED_COPY: the bats checks the copy adopted above (its log beside it) instead of adopting another.
       - name: The end-to-end adoption checks
         if: steps.detect.outputs.template == 'true'
+        timeout-minutes: 30
         env:
           ADOPTED_COPY: ${{ runner.temp }}/adopted
         run: .tools/bin/bats tests/scripts/adopt-e2e.bats
@@ -345,6 +346,7 @@ jobs:
           PATH="$PWD/.venv/bin:$PATH" bash infra/security/check-ci-hardening.sh
       - name: The copy's backend suite (unit, integration, e2e and the supply-chain tests)
         if: steps.detect.outputs.template == 'true'
+        timeout-minutes: 30
         working-directory: ${{ runner.temp }}/adopted
         run: make test
       - name: The copy's chart unit tests and lint
@@ -376,6 +378,7 @@ jobs:
         run: scripts/tools.sh install mise kyverno squawk oasdiff lychee
       - name: The copy's bats suites and doc links
         if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
+        timeout-minutes: 30
         working-directory: ${{ runner.temp }}/adopted
         # The copy's backend venv first: scripts/k8s-env.sh reads services.yaml with python3 and PyYAML, and the
         # setup-python interpreter has no PyYAML (the repo job runs on the runner's own python3).
@@ -401,6 +404,7 @@ jobs:
       # Strict: every link into the renamed tree resolves.
       - name: The copy's docs site resolver tests and strict build
         if: steps.detect.outputs.template == 'true' && github.event_name != 'pull_request'
+        timeout-minutes: 30
         working-directory: ${{ runner.temp }}/adopted/docs-site
         run: |
           pnpm test

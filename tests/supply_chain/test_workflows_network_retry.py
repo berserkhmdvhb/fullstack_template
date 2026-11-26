@@ -79,6 +79,38 @@ def test_job_budgets_fit_the_install_steps() -> None:
         assert budget >= DEPS_STEP_MINUTES + STEP_MINUTES + 10, (file, job)
 
 
+# The job limits grew to fit the install; each long test step keeps the old job limit or less, so
+# a hung step fails as early as before.
+TEST_STEPS: dict[tuple[str, str], tuple[int, list[str]]] = {
+    ("reusable-frontend.yml", "a11y"): (15, ["axe accessibility scan"]),
+    ("reusable-frontend.yml", "lighthouse"): (20, ["Collect the Lighthouse runs"]),
+    ("reusable-docs-site.yml", "build"): (
+        20,
+        ["Resolver unit tests", "Build the site", "axe accessibility scan"],
+    ),
+    ("ci.yml", "adopted"): (
+        30,
+        [
+            "The end-to-end adoption checks",
+            "The copy's backend suite (unit, integration, e2e and the supply-chain tests)",
+            "The copy's bats suites and doc links",
+            "The copy's docs site resolver tests and strict build",
+        ],
+    ),
+    ("reusable-live.yml", "live"): (30, ["Backend live suite", "Frontend live suite (Playwright)"]),
+}
+
+
+@pytest.mark.parametrize(("file", "job"), list(TEST_STEPS))
+def test_each_long_test_step_keeps_its_own_limit(file: str, job: str) -> None:
+    old_limit, names = TEST_STEPS[(file, job)]
+    steps = {s.get("name"): s for s in _steps(file, job)}
+    for name in names:
+        minutes = steps[name].get("timeout-minutes")
+        assert isinstance(minutes, int), (file, job, name)
+        assert 0 < minutes <= old_limit, (file, job, name)
+
+
 def test_lighthouse_still_uses_the_playwright_chromium() -> None:
     steps = _steps("reusable-frontend.yml", "lighthouse")
     names = [s.get("name") for s in steps]
@@ -259,11 +291,17 @@ def test_no_workflow_installs_the_system_deps_directly() -> None:
 
 
 def _run_deps(
-    tmp_path: Path, *, actions: str | None, fail_first: int
+    tmp_path: Path, *, actions: str | None, fail_first: int, conf_dir: bool = True
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
     conf = tmp_path / "apt"
     conf.mkdir()
-    bin_dir = _stub(tmp_path, "sudo", 'exec "$@"')
+    # It logs its argv; without APT_CONF_DIR the drop-in would land in /etc, so it only reads stdin.
+    bin_dir = _stub(
+        tmp_path,
+        "sudo",
+        'printf \'%s\\n\' "$*" >> "$SUDO_LOG"\n'
+        '[[ -n "${APT_CONF_DIR:-}" ]] || { cat > /dev/null; exit 0; }\nexec "$@"',
+    )
     _stub(
         tmp_path,
         "pnpm",
@@ -272,9 +310,11 @@ def _run_deps(
     _stub(tmp_path, "sleep", "true")
     env = {
         "PATH": f"{bin_dir}:/usr/bin:/bin",
-        "APT_CONF_DIR": str(conf),
         "CALLS": str(tmp_path / "calls"),
+        "SUDO_LOG": str(tmp_path / "sudo"),
     }
+    if conf_dir:
+        env["APT_CONF_DIR"] = str(conf)
     if actions is not None:
         env["GITHUB_ACTIONS"] = actions
     done = subprocess.run(
@@ -290,6 +330,7 @@ def test_playwright_deps_refuses_outside_ci(tmp_path: Path, actions: str | None)
     assert "GitHub Actions" in done.stderr
     assert list(conf.iterdir()) == []
     assert not (tmp_path / "calls").exists()
+    assert not (tmp_path / "sudo").exists()
 
 
 def test_playwright_deps_writes_the_apt_drop_in_and_installs(tmp_path: Path) -> None:
@@ -309,6 +350,14 @@ def test_playwright_deps_writes_the_apt_drop_in_and_installs(tmp_path: Path) -> 
     assert (tmp_path / "calls").read_text().splitlines() == [
         "exec playwright install-deps chromium"
     ]
+    # Through sudo tee: a plain redirect would run as the runner user and be refused in /etc.
+    assert (tmp_path / "sudo").read_text().splitlines() == [f"tee {conf}/80-ci-network"]
+
+
+def test_playwright_deps_writes_to_apt_s_own_dir_by_default(tmp_path: Path) -> None:
+    done, _ = _run_deps(tmp_path, actions="true", fail_first=0, conf_dir=False)
+    assert done.returncode == 0, done.stderr
+    assert (tmp_path / "sudo").read_text().splitlines() == ["tee /etc/apt/apt.conf.d/80-ci-network"]
 
 
 def test_playwright_deps_retries_once(tmp_path: Path) -> None:
