@@ -301,6 +301,31 @@ async def _failure(settings: Settings) -> str:
     return str(excinfo.value)
 
 
+async def test_a_scripts_problem_names_its_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _use(monkeypatch, tmp_path, [("0001", None), ("0002a", "0001"), ("0002b", "0001")])
+    message = await _failure(Settings())
+    assert message.startswith("migration failed while loading the migration scripts: ")
+    assert "multiple heads" in message
+
+
+async def test_a_failed_sqlite_dir_names_its_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _use(monkeypatch, tmp_path, [("0001", None)])
+
+    def boom(*_a: object) -> None:
+        msg = "read-only file system"
+        raise OSError(msg)
+
+    monkeypatch.setattr(runner, "_ensure_sqlite_dir", boom)
+    message = await _failure(Settings())
+    assert message == (
+        "migration failed while preparing the database directory: OSError: read-only file system"
+    )
+
+
 async def test_a_failed_revision_read_names_its_step(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

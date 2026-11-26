@@ -206,10 +206,12 @@ async def run_migrations(settings: Settings) -> None:
         logger.warning("alembic.ini not found at %s; skipping migrations.", _ALEMBIC_CFG_PATH_STR)
         return
     url = _database_url(settings)
-    step = "reading the database revision"  # named in the error, so an empty one still says where
+    step = "loading the migration scripts"  # named in the error, so an empty one still says where
     try:
         revisions = schema.load_revisions()  # more than one head fails here, before any connect
+        step = "preparing the database directory"
         _ensure_sqlite_dir(url)
+        step = "reading the database revision"
         state = schema.classify(await _read_revision_with_retry(settings, url), revisions)
         step = "running the test hook"
         await _test_hooks(settings)
