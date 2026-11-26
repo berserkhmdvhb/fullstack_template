@@ -292,3 +292,60 @@ async def test_asyncpg_connection_errors_are_retried(monkeypatch: pytest.MonkeyP
         monkeypatch, asyncpg.CannotConnectNowError("the database system is starting up")
     )
     assert len(attempts) == 3  # noqa: PLR2004
+
+
+async def _failure(settings: Settings) -> str:
+    with pytest.raises(RuntimeError) as excinfo:
+        await runner.run_migrations(settings)
+    assert excinfo.value.__cause__ is None  # the chain stays dropped (it can echo the URL)
+    return str(excinfo.value)
+
+
+async def test_a_failed_revision_read_names_its_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _use(monkeypatch, tmp_path, [("0001", None)])
+
+    async def boom(*_a: object) -> None:
+        msg = "no route"
+        raise ValueError(msg)
+
+    monkeypatch.setattr(runner, "_read_revision_with_retry", boom)
+    message = await _failure(Settings())
+    assert message == "migration failed while reading the database revision: ValueError: no route"
+
+
+async def test_a_failed_test_hook_names_its_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _use(monkeypatch, tmp_path, [("0001", None)])
+    message = await _failure(Settings(MIGRATION_TEST_FAIL=True))
+    assert message.startswith("migration failed while running the test hook: RuntimeError: ")
+
+
+async def test_a_failed_upgrade_names_its_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _use(monkeypatch, tmp_path, [("0001", None)])
+
+    def boom(*_a: object, **_k: object) -> None:
+        msg = "disk full"
+        raise OSError(msg)
+
+    monkeypatch.setattr(command, "upgrade", boom)
+    message = await _failure(Settings())
+    assert message == "migration failed while applying the migrations: OSError: disk full"
+
+
+async def test_an_error_without_text_says_so(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A bare TimeoutError (what a connect timeout raises) still tells the operator something."""
+    _use(monkeypatch, tmp_path, [("0001", None)])
+
+    def boom(*_a: object, **_k: object) -> None:
+        raise TimeoutError
+
+    monkeypatch.setattr(command, "upgrade", boom)
+    message = await _failure(Settings())
+    assert message == "migration failed while applying the migrations: TimeoutError: no detail"

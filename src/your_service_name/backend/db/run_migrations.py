@@ -200,17 +200,20 @@ async def run_migrations(settings: Settings) -> None:
     -----
     - Reads `alembic.ini` from the project root; skips with a warning when it is absent.
     - Safe to call repeatedly: at head it does nothing.
-    - Raises ``RuntimeError`` with the database URL redacted.
+    - Raises ``RuntimeError`` naming the step that failed, with the database URL redacted.
     """
     if not Path(_ALEMBIC_CFG_PATH_STR).is_file():
         logger.warning("alembic.ini not found at %s; skipping migrations.", _ALEMBIC_CFG_PATH_STR)
         return
     url = _database_url(settings)
+    step = "reading the database revision"  # named in the error, so an empty one still says where
     try:
         revisions = schema.load_revisions()  # more than one head fails here, before any connect
         _ensure_sqlite_dir(url)
         state = schema.classify(await _read_revision_with_retry(settings, url), revisions)
+        step = "running the test hook"
         await _test_hooks(settings)
+        step = "applying the migrations"
         if state is schema.SchemaState.CURRENT:
             logger.info("Database is already at head (%s); nothing to migrate.", revisions.head)
         elif state is schema.SchemaState.AHEAD:
@@ -223,7 +226,8 @@ async def run_migrations(settings: Settings) -> None:
             logger.info("Migrations applied.")
     except Exception as exc:  # noqa: BLE001 - redact whatever failed
         # Connection and config errors can echo the URL; raise one that cannot.
-        msg = f"{type(exc).__name__}: {_redact(str(exc), settings.database_url)}"
+        detail = _redact(str(exc), settings.database_url) or "no detail"
+        msg = f"migration failed while {step}: {type(exc).__name__}: {detail}"
         raise RuntimeError(msg) from None
 
 
