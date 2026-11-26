@@ -113,12 +113,7 @@ def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[httpx.Client]:
     if node is None:
         _unavailable("node is not on PATH")
     work = tmp_path_factory.mktemp("standalone")
-    copy_standalone(bundle, work)
-    shutil.rmtree(work / ".next" / "static", ignore_errors=True)
-    (work / ".next" / "static").unlink(missing_ok=True)
-    shutil.copytree(_ROOT / ".next" / "static", work / ".next" / "static")
-    if (_ROOT / "public").is_dir():
-        shutil.copytree(_ROOT / "public", work / "public", dirs_exist_ok=True)
+    copy_standalone(bundle, work, static=_ROOT / ".next" / "static", public=_ROOT / "public")
     (work / "public").mkdir(exist_ok=True)
     for name, body in _FILES.items():
         (work / "public" / name).parent.mkdir(parents=True, exist_ok=True)
