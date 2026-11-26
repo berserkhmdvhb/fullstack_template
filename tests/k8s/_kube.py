@@ -46,11 +46,16 @@ MANIFEST_TYPES = ", ".join(
 )
 
 
-def _run(cmd: list[str], stdin: str | None = None, *, check: bool = True) -> str:
+def _run_both(cmd: list[str], stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+    """``cmd`` with its stdout and stderr, never failing on its status (``_run`` checks it)."""
     # KUBECONFIG is always fst's file, and helm's own context variables are dropped.
     env = {k: v for k, v in os.environ.items() if not k.startswith("HELM_KUBE")}
     env["KUBECONFIG"] = str(KUBECONFIG)
-    done = subprocess.run(cmd, input=stdin, capture_output=True, text=True, env=env, check=False)
+    return subprocess.run(cmd, input=stdin, capture_output=True, text=True, env=env, check=False)
+
+
+def _run(cmd: list[str], stdin: str | None = None, *, check: bool = True) -> str:
+    done = _run_both(cmd, stdin)
     if check and done.returncode:
         pytest.fail(f"{' '.join(cmd[:6])} ... failed ({done.returncode}): {done.stderr.strip()}")
     return done.stdout

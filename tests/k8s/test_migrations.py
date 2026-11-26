@@ -639,8 +639,8 @@ def test_a_migration_over_150_s_runs_without_restarts_and_holds_readiness(
     pods = {p["metadata"]["uid"] for p in cluster.backend_pods()}
     with _endpoints(cluster) as samples:
         rc, out = cluster.deploy(*ROLL, "--set", f"tests.migration.delaySeconds={SLOW}")
+    assert rc == 0, out + _migrate_logs(cluster)
     rev = cluster.revision()["revision"]
-    assert rc == 0, out + _migrate_logs(cluster, rev)
     job = cluster.job(rev)
     start = _ts(job["status"]["startTime"])
     done = _ts(job["status"]["completionTime"])
@@ -681,14 +681,29 @@ def _unready_until(samples: list[tuple[float, float, int]], committed: float) ->
     assert min(ready) >= committed - 1, "ready before the migration committed"
 
 
-def _migrate_logs(cluster: Cluster, revision: int) -> str:
-    """The migrate container's logs from every Job Pod of the revision (each failed attempt)."""
-    logs = [
-        f"\n--- migrate logs of {name}\n"
-        + cluster.app("logs", name, "-c", "migrate", "--timestamps", check=False)
-        for name in (p["metadata"]["name"] for p in cluster.job_pods(revision))
-    ]
-    return "".join(logs) or f"\n--- no Job Pod of revision {revision} is left"
+def _migrate_logs(cluster: Cluster) -> str:
+    """The migrate container's logs, with kubectl's stderr, from every Pod of the newest migration
+    Job (each failed attempt). It never raises: it runs inside a failing assertion's message."""
+    try:
+        pods = _kube._run_both([*cluster.app.base, "get", "pods", "-l", "job-name", "-o", "json"])
+        if pods.returncode:
+            return f"\n--- could not list the Job Pods: {pods.stderr.strip()}"
+        jobs: dict[int, list[str]] = {}
+        for pod in json.loads(pods.stdout).get("items", []):
+            job = pod["metadata"]["labels"]["job-name"]
+            if job.startswith(JOB_PREFIX) and job[len(JOB_PREFIX) :].isdigit():
+                jobs.setdefault(int(job[len(JOB_PREFIX) :]), []).append(pod["metadata"]["name"])
+        if not jobs:
+            return "\n--- no migration Job Pod is left"
+        logs = []
+        for name in jobs[max(jobs)]:
+            done = _kube._run_both(
+                [*cluster.app.base, "logs", name, "-c", "migrate", "--timestamps"]
+            )
+            logs.append(f"\n--- migrate logs of {name}\n{done.stdout}{done.stderr}")
+        return "".join(logs)
+    except Exception as exc:  # noqa: BLE001 - the deploy output must still reach the report
+        return f"\n--- could not read the migrate logs: {type(exc).__name__}: {exc}"
 
 
 def test_the_chart_s_timeouts_take_effect_against_the_in_cluster_database(
