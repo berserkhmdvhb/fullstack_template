@@ -34,7 +34,7 @@ export default defineConfig({
       sidebar: [
         { label: 'Start here', items: ['getting-started'] },
         { label: 'Overview', items: ['architecture', 'pipeline', 'security', 'design', 'practices', 'releasing'] },
-        { label: 'Contribute', items: ['walkthroughs/contributing'] },
+        { label: 'Contribute', items: ['contribute/contributing'] },
         {
           label: 'Set up the platform',
           items: ['setup/platform', 'setup/gke', 'setup/cloudflare', 'setup/github-pages', 'setup/pr-agent'],

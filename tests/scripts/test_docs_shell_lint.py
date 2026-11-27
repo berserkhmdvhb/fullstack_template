@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -70,6 +71,17 @@ def test_other_languages_are_not_checked(tmp_path: Path) -> None:
 
 
 def test_the_setup_guides_are_clean() -> None:
-    """With no argument: Cloudflare and Platform setup block; a guide in PENDING only reports."""
+    """With no argument: a clean guide blocks; a guide in PENDING only reports."""
     result = run()
     assert result.returncode == 0, result.stdout
+
+
+def test_guides_are_every_setup_guide() -> None:
+    """A new wiki/*-setup.md cannot skip the lint: it must be added to GUIDES."""
+    spec = importlib.util.spec_from_file_location("docs_shell_lint", SCRIPT)
+    assert spec
+    assert spec.loader
+    lint = importlib.util.module_from_spec(spec)
+    sys.modules["docs_shell_lint"] = lint
+    spec.loader.exec_module(lint)
+    assert set(lint.GUIDES) == {p.name for p in (ROOT / "wiki").glob("*-setup.md")}

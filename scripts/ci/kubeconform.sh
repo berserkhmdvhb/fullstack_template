@@ -130,7 +130,7 @@ printf 'monitoring: {flavour: gmp, runbookUrl: "git.svc.test/ops/runbook.md"}\n'
 check "production bootstrap with the gmp ClusterRules" "$ROOT/scripts/k8s-bootstrap.sh" production \
   --values "$WORK/bootstrap-gmp.yaml" --chart-values "$WORK/chart-gmp.yaml"
 for f in "$ROOT"/deploy/external-secrets/secretstore-*.yaml "$ROOT"/deploy/cloudflared/*.yaml; do
-  check "store ${f#"$ROOT"/}" cat "$f"
+  check "manifest ${f#"$ROOT"/}" cat "$f"
 done
 
 if (( ${#failed[@]} )); then

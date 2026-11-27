@@ -73,7 +73,7 @@ test('a link to a loaded file resolves to its page, with the anchor kept', () =>
   const { tree } = resolve(`[c](${UP}CONTRIBUTING.md) [g](${UP}wiki/gke-cluster-setup.md#111-public-or-private)`);
   const root = base.replace(/\/$/, '');
   assert.deepEqual(links(tree), [
-    `${root}/walkthroughs/contributing/`,
+    `${root}/contribute/contributing/`,
     `${root}/setup/gke/#111-public-or-private`,
   ]);
 });
@@ -92,7 +92,7 @@ test('the loader lists exactly CONTRIBUTING.md and the five setup guides', () =>
   assert.deepEqual(
     Object.entries(LOADED),
     [
-      ['CONTRIBUTING.md', 'walkthroughs/contributing'],
+      ['CONTRIBUTING.md', 'contribute/contributing'],
       ['wiki/platform-setup.md', 'setup/platform'],
       ['wiki/gke-cluster-setup.md', 'setup/gke'],
       ['wiki/cloudflare-setup.md', 'setup/cloudflare'],

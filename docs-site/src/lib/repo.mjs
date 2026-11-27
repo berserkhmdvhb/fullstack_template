@@ -38,7 +38,7 @@ export const { site, base } = pagesLocation(repository, process.env.SITE_URL);
 
 // The repository files the site renders as its own pages (loaded, never copied): path -> page slug.
 export const LOADED = {
-  'CONTRIBUTING.md': 'walkthroughs/contributing',
+  'CONTRIBUTING.md': 'contribute/contributing',
   'wiki/platform-setup.md': 'setup/platform',
   'wiki/gke-cluster-setup.md': 'setup/gke',
   'wiki/cloudflare-setup.md': 'setup/cloudflare',
