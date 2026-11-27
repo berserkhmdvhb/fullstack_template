@@ -96,8 +96,8 @@ The chart supports both (`edge.mode: gateway`, the default, or `edge.mode: tunne
 | Node.js 26+, only for section 10 | <https://nodejs.org> or your version manager | `node --version` |
 | AWS CLI v2, only for section 12 | <https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html> | `aws --version` |
 
-
 The blocks that read the cluster's variables use `GKE_SETUP_ENV`, the variables file of the GKE guide. Set it in each terminal session first: `export GKE_SETUP_ENV="${HOME}/gke-setup.env"` (or the file you chose there).
+
 ### 2.2 The hostname plan
 
 Decide these now. The rest of the guide uses them.
