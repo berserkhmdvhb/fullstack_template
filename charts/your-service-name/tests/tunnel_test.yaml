@@ -71,8 +71,21 @@ tests:
           - {path: /openapi.json, match: Exact, service: backend}
     asserts:
       - matchRegexRaw:
-          pattern: '(?s)your-service-name\.your-domain\.example\s+\^/api/v1\(/\|\$\)\s.*\^/openapi\\\.json\$\s.*\(empty\)\s+http://svc-your-service-name-frontend'
+          pattern: '(?s)your-service-name\.your-domain\.example\s+\^/openapi\\\.json\$\s.*\^/api/v1\(/\|\$\)\s.*\(empty\)\s+http://svc-your-service-name-frontend'
       - notMatchRegexRaw:
           pattern: '(?s)\(empty\)\s+http://svc-your-service-name-frontend[^\n]*\n\s*your-service-name\.your-domain\.example\s+\^'
       - matchRegexRaw:
           pattern: 'first match wins'
+
+  - it: overlapping prefixes print the longest first, the exact path before them, as the Gateway matches
+    template: NOTES.txt
+    set:
+      edge:
+        routes:
+          - {path: /api, match: PathPrefix, service: backend}
+          - {path: /, match: PathPrefix, service: frontend}
+          - {path: /api/admin, match: PathPrefix, service: frontend}
+          - {path: /api/v1/health, match: Exact, service: backend}
+    asserts:
+      - matchRegexRaw:
+          pattern: '(?s)\^/api/v1/health\$\s.*\^/api/admin\(/\|\$\)\s.*\^/api\(/\|\$\)\s.*\(empty\)\s'
