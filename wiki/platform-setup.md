@@ -84,6 +84,23 @@ This is the single list. Every `vars.*` and `secrets.*` that a template workflow
 
 Google Cloud needs no secret at all: GitHub Actions logs in with a short-lived token through Workload Identity Federation. The environment variables above aren't sensitive; a job reads its environment's values only after the environment's branch policy (and, for `production`, its approval) has passed.
 
+### Production in its own project
+
+A `production` environment in a project and cluster of its own sets five environment-level variables, through `ENV_production_*` lines in the vars-file of [the settings script](./github-repository-settings.md#the-vars-file). The deploy jobs run with `environment:` set, so an environment variable overrides the repository one of the same name ([GitHub: variable precedence](https://docs.github.com/en/actions/learn-github-actions/variables)), and no workflow changes. Keep the repository-level `GCP_PROJECT_ID`, `GKE_CLUSTER` and `GKE_LOCATION` for `dev` and `qa`.
+
+```text
+GCP_PROJECT_ID=NONPROD_PROJECT_ID
+GKE_CLUSTER=apps-dev
+GKE_LOCATION=NONPROD_LOCATION
+ENV_production_GCP_PROJECT_ID=PRODUCTION_PROJECT_ID
+ENV_production_GKE_CLUSTER=apps-prod
+ENV_production_GKE_LOCATION=PRODUCTION_LOCATION
+ENV_production_GCP_WIF_PROVIDER=PRODUCTION_PROVIDER_RESOURCE_NAME
+ENV_production_GCP_DEPLOYER_SA=gh-deployer-production@PRODUCTION_PROJECT_ID.iam.gserviceaccount.com
+```
+
+The setup that creates that project is [GKE §2.4](./gke-cluster-setup.md#24-production-in-its-own-project).
+
 ### Kubeconfig mode
 
 `DEPLOY_MODE=kubeconfig` replaces the Google login for an environment, for a cluster that isn't GKE. In that environment, set the variable `DEPLOY_MODE` to `kubeconfig`, and the secret `KUBECONFIG_B64` to `base64 < kubeconfig | tr -d '\n'` (a kubeconfig whose user can only act in that environment's namespace). The `GCP_*` and `GKE_*` variables are then unused there. Run the `check` operation to prove it.
