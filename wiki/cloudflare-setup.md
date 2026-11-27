@@ -265,12 +265,12 @@ The free plan includes one rate-limiting rule. Spend it on the production API, t
 | Field | Value |
 |---|---|
 | Name | `api-per-ip` |
-| If incoming requests match | **Hostname** equals the production host, and **URI Path** starts with `/api/` |
+| If incoming requests match | **URI Path** starts with `/api/` (on the free plan the expression fields are only **URI Path** and **Verified Bot**: there is no Hostname) |
 | Characteristics | **IP** (the only choice on the free plan) |
 | Requests, period | for example 100 requests per **10 seconds**, the only period the free plan has |
 | Action, duration | **Block** for 10 seconds, the free plan's only duration |
 
-The backend has its own per-client limit ([Security](./security.md#rate-limiting)); this one stops a flood before it reaches the tunnel. The rule limits only that one host and path: the frontend is not covered. See [Cloudflare's rate limiting rules](https://developers.cloudflare.com/waf/rate-limiting-rules/).
+The backend has its own per-client limit ([Security](./security.md#rate-limiting)); this one stops a flood before it reaches the tunnel. Because it cannot name a host, the rule applies to `/api` on every host of that zone, and the frontend's other paths are not covered. See [Cloudflare's rate limiting rules](https://developers.cloudflare.com/waf/rate-limiting-rules/).
 
 **Check:**
 
@@ -304,7 +304,7 @@ Cloudflare doesn't yet offer keyless login from GitHub Actions the way Google's 
 |---|---|---|---|
 | `ci-site-deploy` | account | Account: **Workers Scripts: Edit**, **Account Settings: Read**. Zone `<prod-domain>`: **Workers Routes: Edit**, **DNS: Edit**, **Zone: Read** | your site's deploys (section 10 and its pipeline) |
 | R2 backup credentials | account | **Object Read & Write** on the backup bucket only | the backup jobs (section 12) |
-| `tf-cloudflare` (later) | account | Account: **Cloudflare Tunnel: Edit**, **Access: Apps and Policies: Edit**, **Access: Service Tokens: Edit**, **Access: Organizations, Identity Providers, and Groups: Edit**, **Workers R2 Storage: Edit**, **Notifications: Edit**, **Account Settings: Read**. Each zone: **Zone: Read**, **Zone Settings: Edit**, **DNS: Edit**, **SSL and Certificates: Edit**, **DNSSEC: Edit**, **Zone WAF: Edit** | the infrastructure-as-code step ([section 16](#16-what-comes-next)) |
+| `tf-cloudflare` (later) | account | Account: **Cloudflare Tunnel: Edit**, **Access: Apps and Policies: Edit**, **Access: Service Tokens: Edit**, **Access: Organizations, Identity Providers, and Groups: Edit**, **Workers R2 Storage: Edit**, **Notifications: Edit**, **Account Settings: Read**. Each zone: **Zone: Read**, **Zone Settings: Edit**, **DNS: Edit**, **SSL and Certificates: Edit**, **Zone WAF: Edit** (the token form has no separate DNSSEC permission) | the infrastructure-as-code step ([section 16](#16-what-comes-next)) |
 
 The names are the ones in the token form's permission picker. If one differs in your dashboard, pick the closest and note it in the inventory.
 
@@ -339,9 +339,13 @@ The connector's manifests are files in [`deploy/cloudflared/`](../deploy/cloudfl
 
 1. Open **Zero Trust**. The first time, pick a **team name** and the **Free** plan. It may ask for a payment method even on the free plan; you won't be charged. Put the team name in `~/cloudflare-setup.env` as `TEAM_NAME`. Your team domain is `<team>.cloudflareaccess.com`.
 2. **Login method.** A new Zero Trust organisation starts with the **Cloudflare identity provider**, so you sign in with your Cloudflare account. One-time PIN is no longer added for you. To use One-time PIN or GitHub instead, add it under **Zero Trust → Integrations → Identity providers**.
-3. **The `owner` policy,** reusable by every Access application. Go to **Zero Trust → Access controls → Policies → Add a policy**: name `owner`, action **Allow**, include rule **Emails → your address**.
+3. **The `owner` policy,** reusable by every Access application. Go to **Zero Trust → Access controls → Policies → Add a policy**: name `owner`, action **Allow**, include rule **Emails → your address**. Record its ID (in the policy's URL), replacing the text in quotes:
 
-**Check:** the policy `owner` is listed under **Access controls → Policies**.
+```bash
+printf 'export OWNER_POLICY_ID="%s"\n' "paste-the-policy-id" >> ~/cloudflare-setup.env
+```
+
+**Check:** the policy `owner` is listed under **Access controls → Policies**, and the last line of `~/cloudflare-setup.env` holds its ID.
 
 ### 8.2 Create the tunnel
 
@@ -437,7 +441,22 @@ printf 'exit=%s\n' "$?"
 
 The count is 1 or more: the connector still reaches Cloudflare. The probe times out and `exit=` is non-zero: nothing in the cluster can reach the connector.
 
-**Rotating the token.** Create a new version with the `gcloud secrets versions add` command above, then restart the connector: `kubectl -n cloudflared rollout restart deployment/cloudflared`. The token reaches the Pod as an environment variable, so a running Pod does not see the new value until it restarts.
+**Rotating the token.** The operator refreshes the Secret only every hour (`refreshInterval: 1h`), and the token reaches the Pod as an environment variable, so a running Pod never sees a new value. Restarting before the Secret has synced starts new Pods with the old token, and the rollout stalls on `Unauthorized`. So: add the new version, force a sync, wait for it, then restart.
+
+```bash
+printf 'Paste the new tunnel token, then press Enter (nothing is shown): '
+read -rs TUNNEL_TOKEN
+printf '\n'
+printf '%s' "${TUNNEL_TOKEN}" | gcloud secrets versions add cloudflared-tunnel-token --data-file=-
+unset TUNNEL_TOKEN
+kubectl -n cloudflared annotate externalsecret tunnel-token force-sync="$(date +%s)" --overwrite
+kubectl -n cloudflared wait --for=condition=Ready externalsecret/tunnel-token --timeout=120s
+kubectl -n cloudflared get externalsecret tunnel-token
+kubectl -n cloudflared rollout restart deployment/cloudflared
+kubectl -n cloudflared rollout status deployment/cloudflared --timeout=180s
+```
+
+The annotate command prints `externalsecret.external-secrets.io/tunnel-token annotated`. The wait prints `externalsecret.external-secrets.io/tunnel-token condition met`, and the listing shows the status `SecretSynced` with `READY` `True`; the sync can take a few seconds, so if the listing still shows the old time, run it again before restarting. The rollout ends with `deployment "cloudflared" successfully rolled out`, and the tunnel shows **Healthy**.
 
 ### 8.4 A test hostname, behind Access first
 
@@ -462,7 +481,13 @@ kubectl -n edge-test rollout status deployment/hello --timeout=180s
 | Domain | `<lab-domain>` |
 | Policy | `owner` (Allow), the reusable policy of 8.1 |
 
-Save it, and put its ID in `~/cloudflare-setup.env` as `ACCESS_APP_LAB_ID` (the ID is in the application's URL). Access applications are deny by default: this one protects every host one label under the lab domain, dev, qa, previews and anything else, and any host nobody has thought about, because no route or DNS record can make a hostname public that this wildcard covers. Don't create the wildcard on the production domain: it would cover `www` and the site too.
+Save it, and record its ID (in the application's URL), replacing the text in quotes:
+
+```bash
+printf 'export ACCESS_APP_LAB_ID="%s"\n' "paste-the-application-id" >> ~/cloudflare-setup.env
+```
+
+Access applications are deny by default: this one protects every host one label under the lab domain, dev, qa, previews and anything else, and any host nobody has thought about, because no route or DNS record can make a hostname public that this wildcard covers. Don't create the wildcard on the production domain: it would cover `www` and the site too.
 
 **2. The route.** Open the tunnel (**Networking → Tunnels → your tunnel**), **Routes** tab, **Add route → Published application**:
 
@@ -552,7 +577,7 @@ The two replicas and the disruption budget keep the tunnel up while it rolls. Co
 
 Two failures are silent otherwise: the tunnel going down, and an Access service token expiring. Under **Manage Account → Notifications → Add**, create:
 - **Tunnel Health Alert**, for your tunnel, to your email;
-- **Expiring Access Service Token**, to your email (9.2 creates the token it watches).
+- **Expiring Access Service Token Alert**, to your email (9.2 creates the token it watches). Cloudflare may offer this one only with a paid Access plan; if it is missing from your list, keep a calendar reminder a week before the token expires instead.
 
 See [Cloudflare's tunnel notifications](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/monitor-tunnels/notifications/).
 
@@ -564,7 +589,13 @@ See [Cloudflare's tunnel notifications](https://developers.cloudflare.com/cloudf
 
 ### 9.1 Production stays behind Access until launch
 
-Dev and qa are covered by the lab wildcard (8.4). Production lives on the production domain, which has no wildcard, so give its host its own application **before** its route exists. **Zero Trust → Access controls → Applications → Create new application → Self-hosted and private → Add public hostname**: name `<service>-production`, subdomain `<SERVICE_NAME>`, domain `<prod-domain>`, policy `owner`. At launch, delete this application and only this one (9.5).
+Dev and qa are covered by the lab wildcard (8.4). Production lives on the production domain, which has no wildcard, so give its host its own application **before** its route exists. **Zero Trust → Access controls → Applications → Create new application → Self-hosted and private → Add public hostname**: name `<service>-production`, subdomain `<SERVICE_NAME>`, domain `<prod-domain>`, policy `owner`. At launch, delete this application and only this one (9.5). Record its ID, replacing the text in quotes:
+
+```bash
+printf 'export ACCESS_APP_PROD_ID="%s"\n' "paste-the-application-id" >> ~/cloudflare-setup.env
+```
+
+**Which tunnel carries production.** A tunnel belongs to one cluster. If production runs on its own cluster, in its own project, repeat 8.1 to 8.3 and 8.7 there: that project's Secret Manager (its own `cloudflared-tunnel-token` secret and grant), and a tunnel named after that cluster, with its own connector. Production's routes (9.4) go into that tunnel, and the dev and qa routes into the non-production cluster's tunnel. The Zero Trust organisation, the `owner` policy and the Access applications are account-wide and are not repeated. With a single cluster, one tunnel carries every environment.
 
 **Check:**
 
@@ -583,9 +614,19 @@ Answering with a protected hostname that has a route prints `302` and a `cloudfl
 
 Previews live on the lab domain, which is `PREVIEW_DOMAIN` (put it in `~/cloudflare-setup.env` and in the `preview` environment of GitHub, [Platform Setup](./platform-setup.md#variables-and-secrets)). Each preview has one hostname, one label under it, which the free Universal SSL certificate covers (2.2).
 
-1. **The service token.** Go to **Zero Trust → Access controls → Service credentials → Service Tokens → Create Service Token**, named `preview-smoke`, with a duration of one year and a renewal reminder (section 7's rule 2; the **Expiring Access Service Token** notification of 8.7 also warns you). Copy the **Client ID** and **Client Secret**; the secret is shown once. In GitHub, add them as the secrets `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` of the `preview` environment.
-2. **The Access application,** before the route, so no preview is ever public. **Create new application → Self-hosted and private → Add public hostname**, named `previews`, with subdomain `<SERVICE_NAME>-pr-*` and domain `<lab-domain>` (one wildcard inside the label: `*` stands for the pull request number). Add two policies: `owner` (**Allow**, as in 8.1) and `preview-smoke` (action **Service Auth**, include **Service Token → `preview-smoke`**). Service Auth matters: with **Allow**, Access sends the smoke test to a login page. This application is more specific than the lab wildcard, so Cloudflare applies it to the previews only, and the token cannot open dev or qa.
-3. **The route.** In the tunnel's **Routes**, add subdomain `*`, domain `<lab-domain>`, path empty, Service URL `http://<PREVIEW_GW_IP>:80` (GKE 12.5). A wildcard route is the catch-all of its host pattern, so keep it **last** in the list: routes match in order. If the dashboard doesn't create the DNS record, add a proxied `CNAME` `*` → `<TUNNEL_ID>.cfargotunnel.com`.
+1. **The service token.** Go to **Zero Trust → Access controls → Service credentials → Service Tokens → Create Service Token**, named `preview-smoke`, with a duration of one year and a renewal reminder (section 7's rule 2; the expiring-token notification of 8.7 also warns you, where your plan has it). Copy the **Client ID** and **Client Secret**; the secret is shown once. In GitHub, add them as the secrets `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` of the `preview` environment. Record the token's ID (shown in the token's row or URL), replacing the text in quotes:
+
+   ```bash
+   printf 'export PREVIEW_SMOKE_TOKEN_ID="%s"\n' "paste-the-token-id" >> ~/cloudflare-setup.env
+   ```
+
+2. **The Access application,** before the route, so no preview is ever public. **Create new application → Self-hosted and private → Add public hostname**, named `previews`, with subdomain `<SERVICE_NAME>-pr-*` and domain `<lab-domain>` (one wildcard inside the label: `*` stands for the pull request number). Add two policies: `owner` (**Allow**, as in 8.1) and `preview-smoke` (action **Service Auth**, include **Service Token → `preview-smoke`**). Service Auth matters: with **Allow**, Access sends the smoke test to a login page. This application is more specific than the lab wildcard, so Cloudflare applies it to the previews only, and the token cannot open dev or qa. Record its ID as `ACCESS_APP_PREVIEWS_ID`:
+
+   ```bash
+   printf 'export ACCESS_APP_PREVIEWS_ID="%s"\n' "paste-the-application-id" >> ~/cloudflare-setup.env
+   ```
+
+3. **The route.** In the tunnel's **Routes**, add subdomain `*`, domain `<lab-domain>`, path empty, Service URL `http://<PREVIEW_GW_IP>:80` (GKE 12.5). A wildcard route is the catch-all of its host pattern, so keep it **last** in the list: routes match in order, and a host added later (9.4) is appended after it and would be swallowed. If the dashboard doesn't create the DNS record, add a proxied `CNAME` `*` → `<TUNNEL_ID>.cfargotunnel.com`.
 
 **Check,** once a preview is deployed. The first request is anonymous, the second sends the token, and the third sends the token to a dev host, which must be refused:
 
@@ -659,10 +700,11 @@ gcloud container clusters describe "${CLUSTER}" --location="${ZONE}" --format='v
 The chart prints the routes: in `edge.mode: tunnel` its NOTES hold the route table, built from the one routes list (`edge.routes`, [Infrastructure, Edge](./infrastructure.md#the-routes-list)). Print it before the first deploy with a client-side dry run, using the environment's values and its host. Set the variables, then run the command for each environment:
 
 ```bash
+source ~/cloudflare-setup.env
 SERVICE_NAME="your-service-name"
 ENVIRONMENT="dev"
 EDGE_HOST="${SERVICE_NAME}-${ENVIRONMENT}.${LAB_DOMAIN}"
-helm install "${SERVICE_NAME}" charts/your-service-name --dry-run=client --namespace "${SERVICE_NAME}-${ENVIRONMENT}" -f "charts/your-service-name/values.${ENVIRONMENT}.yaml" --set edge.mode=tunnel --set "edge.hosts.root=${EDGE_HOST}" | sed -n '/^NOTES:/,$p'
+.tools/bin/helm install "${SERVICE_NAME}" charts/your-service-name --dry-run=client --namespace "${SERVICE_NAME}-${ENVIRONMENT}" -f "charts/your-service-name/values.${ENVIRONMENT}.yaml" --set edge.mode=tunnel --set "edge.hosts.root=${EDGE_HOST}" | sed -n '/^NOTES:/,$p'
 ```
 
 For production, set `ENVIRONMENT="production"` and `EDGE_HOST="${SERVICE_NAME}.${DOMAIN}"`. After a deploy, `helm get notes <release> -n <namespace>` prints the same table.
@@ -670,9 +712,9 @@ For production, set `ENVIRONMENT="production"` and `EDGE_HOST="${SERVICE_NAME}.$
 For the default values, the NOTES for dev read as follows (the ports are the chart's defaults, `config.BACKEND_PORT` and `config.FRONTEND_PORT`; always copy yours from NOTES):
 
 ```text
-your-service-name-dev.<lab-domain>   ^/api(/|$)          http://your-service-name-backend.your-service-name-dev.svc.cluster.local:8000
-your-service-name-dev.<lab-domain>   ^/docs(/|$)         http://your-service-name-backend.your-service-name-dev.svc.cluster.local:8000
 your-service-name-dev.<lab-domain>   ^/openapi\.json$    http://your-service-name-backend.your-service-name-dev.svc.cluster.local:8000
+your-service-name-dev.<lab-domain>   ^/docs(/|$)         http://your-service-name-backend.your-service-name-dev.svc.cluster.local:8000
+your-service-name-dev.<lab-domain>   ^/api(/|$)          http://your-service-name-backend.your-service-name-dev.svc.cluster.local:8000
 your-service-name-dev.<lab-domain>   (empty)             http://your-service-name-frontend.your-service-name-dev.svc.cluster.local:3000
 ```
 
@@ -686,11 +728,11 @@ your-service-name-dev.<lab-domain>   (empty)             http://your-service-nam
 
 The pipe inside the table cell is escaped for Markdown only: enter `^/api(/|$)`.
 
-**The route table for each environment.** One host per environment, four routes each, on one tunnel:
+**The route table for each environment.** One host per environment, four routes each, added to the tunnel of the cluster that runs that environment (with one cluster, the same tunnel for all three; with a separate production cluster, production's go into its own tunnel, 9.1):
 
 | Environment | Host | Routes, in this order |
 |---|---|---|
-| dev | `<SERVICE_NAME>-dev.<lab-domain>` | `^/api(/\|$)`, `^/docs(/\|$)`, `^/openapi\.json$` to the backend; empty to the frontend |
+| dev | `<SERVICE_NAME>-dev.<lab-domain>` | `^/openapi\.json$`, `^/docs(/\|$)`, `^/api(/\|$)` to the backend; empty to the frontend |
 | qa | `<SERVICE_NAME>-qa.<lab-domain>` | the same four, in the namespace `<SERVICE_NAME>-qa` |
 | production | `<SERVICE_NAME>.<prod-domain>` | the same four, in the namespace `<SERVICE_NAME>-production` |
 
@@ -705,6 +747,8 @@ The Service URL of each is `http://<release>-backend.<namespace>.svc.cluster.loc
 | Service URL | the third column, as is, `http://...` |
 
 Cloudflare creates the host's proxied DNS record with the first route. The path is not stripped: the Service receives the full request path. If the list shows the routes in another order than NOTES, delete the out-of-order ones and add them again in order, so the catch-all is last.
+
+**Order matters across hosts too.** The dashboard appends every new route at the end of the list. The previews' wildcard route of 9.2 (`*.<lab-domain>`) matches every host of the lab domain, so any host you add after it, with its routes, lands behind it and is swallowed: its traffic goes to the previews' Gateway. After adding each host, open the **Routes** list and check that the wildcard is still last. If it is not, delete the wildcard route and add it again (the dashboard has no reordering you can rely on), then re-check. The same holds for the catch-all of each host against that host's own routes.
 
 **Check** (the host is behind Access, so use a browser logged in as yourself): `https://<host>/api/v1/healthz` shows the backend's liveness answer, `https://<host>/` shows the app, and `https://<host>/apix` shows the frontend's not-found page, not the backend's: the anchoring works. From a shell, an anonymous request still ends at the login:
 
@@ -910,7 +954,7 @@ These are list prices from 2026; check Cloudflare's pricing pages.
 | Certificate error on a new host | the Universal certificate is not Active yet | wait for it (6.1), up to a day on a new zone |
 | The ExternalSecret `tunnel-token` is not Ready | the grant is missing, names another namespace, or the secret has no version | `kubectl -n cloudflared describe externalsecret tunnel-token`; check the grant and the version of `cloudflared-tunnel-token` (8.3) |
 | Tunnel Pods `CreateContainerConfigError` | the Secret `tunnel-token` does not exist yet | `kubectl -n cloudflared get secret tunnel-token`; fix the ExternalSecret, which creates it |
-| Pods Running but the tunnel is **Down**, with `Unauthorized` in the logs | wrong or rotated tunnel token | add a new secret version with the right token, then `kubectl -n cloudflared rollout restart deployment/cloudflared` (8.3) |
+| Pods Running but the tunnel is **Down**, with `Unauthorized` in the logs | wrong or rotated tunnel token | add a new secret version with the right token, force the sync (`kubectl -n cloudflared annotate externalsecret tunnel-token force-sync="$(date +%s)" --overwrite`), wait until the ExternalSecret is Ready, then restart the connector: the operator refreshes only hourly, so an immediate restart reads the old token (rotation in 8.3) |
 | Logs show connection timeouts on port 7844 | outbound traffic blocked | check Cloud NAT (GKE guide, section 6), and the egress rules of `deploy/cloudflared/networkpolicy.yaml` |
 | A host returns **502 Bad Gateway** | the tunnel can't reach the Service | check that the Service URL matches `http://<svc>.<namespace>.svc.cluster.local:<port>`, that the Pod is Ready, that the target namespace carries the label `tier=app-ns` (the connector's policy blocks any other), and that no NetworkPolicy in it blocks the `cloudflared` namespace |
 | `/apix` or `/x/api` reaches the backend | a route's path is unanchored | enter the path as NOTES prints it, `^/api(/\|$)`, not `/api` (9.4) |
@@ -923,6 +967,7 @@ These are list prices from 2026; check Cloudflare's pricing pages.
 | Wrangler `compatibility_date` error | the date is in the future in UTC | use yesterday's UTC date, as in section 10 |
 | Wrangler `403` / `Authentication error` | the token is missing a permission or the right zone | compare with 7.1; check the zone is selected under **Zone Resources** |
 | The r2.dev URL or a custom domain is on (section 12's privacy check) | the bucket has public access | **R2 → bucket → Settings:** disable the Public Development URL and remove any custom domain |
+| 9.2's second `curl` (the service token on the preview host) prints `302` | another Access application matches the preview host more specifically than `previews`, or `previews` lacks the Service Auth policy | under **Access controls → Applications** list every application whose hostname matches the host (the lab wildcard, `previews`, any per-host one); the `previews` application must carry the `preview-smoke` Service Auth policy and no other application may be more specific than it; delete or narrow the overlap, then repeat the check |
 | A preview's smoke test lands on a login page | the service token's policy is **Allow**, not **Service Auth** | change the `preview-smoke` policy's action to **Service Auth** (9.2) |
 | A preview returns 502 | the internal Gateway's address changed, the connector's egress policy to it is missing, or the preview namespace lacks the `tier: preview-app` label | rerun [GKE 12.5](./gke-cluster-setup.md#125-optional-pull-request-previews)'s last step and update the route (9.2) |
 

@@ -569,13 +569,15 @@ as cloudflared matches it and the in-cluster URL to point the tunnel at. cloudfl
 route's path as an unanchored regular expression, so NOTES prints it anchored: a `PathPrefix` `/api`
 becomes `^/api(/|$)`, an `Exact` `/openapi.json` becomes `^/openapi\.json$`, and the `PathPrefix` `/`
 is the catch-all, an empty path, printed last on its host, because the first matching route wins. The
+lines are sorted as the Gateway and Ingress modes match: exact paths first, then the longest prefix,
+whatever the order of `edge.routes`. The
 full table for the default values, release `svc` in namespace `app`, with no api host set (with
 `edge.hosts.api` set, the three `backend` lines repeat on that host):
 
 ```text
-your-service-name.your-domain.example   ^/api(/|$)        http://svc-your-service-name-backend.app.svc.cluster.local:8000
-your-service-name.your-domain.example   ^/docs(/|$)       http://svc-your-service-name-backend.app.svc.cluster.local:8000
 your-service-name.your-domain.example   ^/openapi\.json$  http://svc-your-service-name-backend.app.svc.cluster.local:8000
+your-service-name.your-domain.example   ^/docs(/|$)       http://svc-your-service-name-backend.app.svc.cluster.local:8000
+your-service-name.your-domain.example   ^/api(/|$)        http://svc-your-service-name-backend.app.svc.cluster.local:8000
 your-service-name.your-domain.example   (empty)           http://svc-your-service-name-frontend.app.svc.cluster.local:3000
 ```
 
