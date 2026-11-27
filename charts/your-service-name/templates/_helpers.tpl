@@ -264,6 +264,21 @@ limits:
       port: 53
 {{- end -}}
 
+{{/*
+   A route's path as cloudflared matches it. A published route becomes an ingress rule whose path is an
+   UNANCHORED regular expression, so a bare `/api` would also match `/apix` and `/x/api`. PathPrefix p
+   becomes `^p(/|$)`, Exact p becomes `^p$` (dots escaped), and the PathPrefix `/` is the catch-all:
+   the empty path, which must be the host's last rule. Called with (dict "path" "/api" "match" "PathPrefix").
+*/}}
+{{- define "chart.edgeTunnelPath" -}}
+{{- if and (eq .match "PathPrefix") (eq .path "/") -}}
+{{- else if eq .match "Exact" -}}
+{{- printf "^%s$" (regexQuoteMeta .path) -}}
+{{- else -}}
+{{- printf "^%s(/|$)" (regexQuoteMeta (trimSuffix "/" .path)) -}}
+{{- end -}}
+{{- end -}}
+
 {{/* The host roles, in render order, as a JSON array (read it back with fromJsonArray): root, plus api when it is set. */}}
 {{- define "chart.edgeRoles" -}}
 {{- $roles := list "root" -}}
