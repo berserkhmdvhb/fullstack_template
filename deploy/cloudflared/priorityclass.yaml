@@ -1,0 +1,10 @@
+# Cluster-scoped. On a cluster with spot nodes, cloudflared outranks the app Pods, so a reclaim or a
+# crowded node evicts them before the connector that carries every route.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: cloudflared
+value: 100000
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: The Cloudflare Tunnel connector, which every public route of the cluster depends on.

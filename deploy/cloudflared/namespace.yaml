@@ -1,0 +1,9 @@
+# The connector's namespace. The chart's NetworkPolicy, in edge.mode: tunnel, admits the namespace named
+# `cloudflared` (edge.namespaceSelector changes it), so the name must match.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudflared
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
