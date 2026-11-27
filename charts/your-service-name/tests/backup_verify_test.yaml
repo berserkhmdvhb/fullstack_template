@@ -155,3 +155,16 @@ tests:
       postgresql: {backup: {deadlineSeconds: 900}}
     asserts:
       - equal: {path: spec.jobTemplate.spec.activeDeadlineSeconds, value: 900}
+  - it: a fullname of 35 characters (a 52-character CronJob name) renders
+    template: pg-backup-verify-cronjob.yaml
+    set:
+      fullnameOverride: abcdefghijklmnopqrstuvwxyz012345678
+    asserts:
+      - notFailedTemplate: {}
+  - it: a fullname of 36 characters (a 53-character CronJob name) is refused
+    template: pg-backup-verify-cronjob.yaml
+    set:
+      fullnameOverride: abcdefghijklmnopqrstuvwxyz0123456789
+    asserts:
+      - failedTemplate:
+          errorPattern: 'is 53 characters, over the 52 a CronJob name may have'
