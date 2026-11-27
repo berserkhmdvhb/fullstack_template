@@ -359,7 +359,7 @@ printf 'export OWNER_POLICY_ID="%s"\n' "paste-the-policy-id" >> ~/cloudflare-set
 
 ### 8.3 Run the connector in the cluster
 
-The connector runs as 2 replicas spread over the nodes, so one node going down doesn't cut the tunnel. It uses the `restricted` Pod Security profile, a read-only filesystem, no Kubernetes API token, a disruption budget and a PriorityClass that keeps it ahead of the app Pods on spot nodes. Its image is pinned by digest in [`deployment.yaml`](../deploy/cloudflared/deployment.yaml).
+The connector runs as 2 replicas spread over the nodes, so one node going down doesn't cut the tunnel. The connector spreads its replicas across nodes and, on a regional cluster, across zones (best effort), so a production cluster in two zones keeps a connector in each zone. It uses the `restricted` Pod Security profile, a read-only filesystem, no Kubernetes API token, a disruption budget and a PriorityClass that keeps it ahead of the app Pods on spot nodes. Its image is pinned by digest in [`deployment.yaml`](../deploy/cloudflared/deployment.yaml).
 
 The token never becomes a hand-made Kubernetes Secret. It lives in **Secret Manager** as `cloudflared-tunnel-token`, and the External Secrets Operator (installed by the GKE guide) syncs it into the Secret `tunnel-token` through the namespace's own `secret-manager` SecretStore.
 
