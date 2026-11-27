@@ -113,6 +113,7 @@ Same-project clusters share one Workload Identity pool, and 14.2 grants Secret M
 | Where | Non-production project | Production project |
 |---|---|---|
 | 12.3, deployers and their checks | `dev qa` | `production` |
+| 12.6, the drift providers, readers and checks | `dev qa` | `production` |
 | 13.2, the bootstrap and its checks | `dev qa`, against the non-production cluster | `production`, against the production cluster |
 | 14.2, grants (and the database grants) | `dev qa` (and `dev qa` for the database namespaces) | `production` only |
 | 14.3, stores | the four `dev` and `qa` namespaces | the `production` namespace |
@@ -1084,7 +1085,7 @@ Both lines end with `yes no no no no`.
 
 #### 4. The GitHub environments and their variables
 
-Create the environments `drift-dev`, `drift-qa` and `drift-production` (**Settings → Environments → New environment**; the settings script doesn't, as with `preview`): **no required reviewers**, so the weekly run never waits, and deployment branches limited to `main`, the one ref the providers admit. Give each its own two variables; the cluster variables (`GCP_PROJECT_ID`, `GKE_CLUSTER`, `GKE_LOCATION`) come from the repository. With the GitHub CLI:
+Create the environments `drift-dev`, `drift-qa` and `drift-production` (**Settings → Environments → New environment**; the settings script doesn't, as with `preview`): **no required reviewers**, so the weekly run never waits, and deployment branches limited to `main`, the one ref the providers admit. Give each its own three variables: the two below and `EDGE_DOMAIN`, copied from the environment it checks (the drift render refuses the placeholder host). The cluster variables (`GCP_PROJECT_ID`, `GKE_CLUSTER`, `GKE_LOCATION`) come from the repository. With the GitHub CLI:
 
 ```bash
 for env in dev qa production; do
@@ -1094,9 +1095,25 @@ for env in dev qa production; do
   gh variable set DRIFT_WIF_PROVIDER --env "drift-${env}" -R "${GH_REPO}" \
     --body "projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/providers/github-oidc-drift-${env}"
   gh variable set DRIFT_SA --env "drift-${env}" -R "${GH_REPO}" --body "gh-drift-${env}@${PROJECT_ID}.iam.gserviceaccount.com"
+  edge_domain="$(gh variable get EDGE_DOMAIN --env "${env}" -R "${GH_REPO}" 2>/dev/null)"
+  if [[ -n "${edge_domain}" ]]; then
+    gh variable set EDGE_DOMAIN --env "drift-${env}" -R "${GH_REPO}" --body "${edge_domain}"
+  else
+    printf '%s has no EDGE_DOMAIN: set it, then set the same value on drift-%s\n' "${env}" "${env}"
+  fi
 done
 gh variable set DRIFT_ENABLED -R "${GH_REPO}" --body true
 ```
+
+If production has a project of its own (2.4), the repository's cluster variables name the non-production cluster, so `drift-production` would log in to the wrong one. Also set its own three, with the production project's values:
+
+```bash
+for pair in "GCP_PROJECT_ID=${PROJECT_ID}" "GKE_CLUSTER=${CLUSTER}" "GKE_LOCATION=${ZONE}"; do
+  gh variable set "${pair%%=*}" --env drift-production -R "${GH_REPO}" --body "${pair#*=}"
+done
+```
+
+Run it in the production project's session (`GKE_SETUP_ENV` set to its file), so `PROJECT_ID`, `CLUSTER` and `ZONE` are production's.
 
 The last command turns the check on. It is a repository variable: until it is set, the drift and report jobs never run, so a copy that never sets it never references a `drift-<env>` environment.
 

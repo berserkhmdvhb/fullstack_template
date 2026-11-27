@@ -598,7 +598,7 @@ Dev and qa are covered by the lab wildcard (8.4). Production lives on the produc
 printf 'export ACCESS_APP_PROD_ID="%s"\n' "paste-the-application-id" >> ~/cloudflare-setup.env
 ```
 
-**Which tunnel carries production.** A tunnel belongs to one cluster. If production runs on its own cluster, in its own project, repeat 8.2, 8.3 and 8.7 there: that project's Secret Manager (its own `cloudflared-tunnel-token` secret and grant), and a tunnel named after that cluster, with its own connector. Production's routes (9.4) go into that tunnel, and the dev and qa routes into the non-production cluster's tunnel. The Zero Trust organisation, the `owner` policy and the Access applications are account-wide and are not repeated. With a single cluster, one tunnel carries every environment.
+**Which tunnel carries production.** A tunnel belongs to one cluster. If production runs on its own cluster, in its own project, repeat 8.2, 8.3 and 8.7 there, with `GKE_SETUP_ENV` set to the production project's file ([GKE 2.4](./gke-cluster-setup.md#24-production-in-its-own-project)): that project's Secret Manager (its own `cloudflared-tunnel-token` secret and grant), and a tunnel named after that cluster, with its own connector. Production's routes (9.4) go into that tunnel, and the dev and qa routes into the non-production cluster's tunnel. The Zero Trust organisation, the `owner` policy and the Access applications are account-wide and are not repeated. With a single cluster, one tunnel carries every environment.
 
 **Check:**
 
@@ -664,7 +664,7 @@ The first prints `302` and a `cloudflareaccess.com` URL: anonymous visitors go t
 | `qa` | `<lab-domain>` | `<SERVICE_NAME>-qa.<lab-domain>` |
 | `production` | `<prod-domain>` | `<SERVICE_NAME>.<prod-domain>` |
 
-Set it once per environment (and in each `drift-<env>` environment, if you turned the live-drift check on, so its render matches what was deployed). Pass the repository explicitly:
+Set it once per environment. The `drift-<env>` environments of the optional live-drift check don't exist yet; [GKE 12.6](./gke-cluster-setup.md#126-optional-the-live-drift-identity) copies this value into them when you create them. Pass the repository explicitly:
 
 ```bash
 source ~/cloudflare-setup.env

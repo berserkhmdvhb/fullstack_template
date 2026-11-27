@@ -49,7 +49,7 @@ Steps 2 and 3 need step 1: the operator and the Tunnel run inside the cluster. S
 
 > The repository variables and environments are set by [scripts/github-settings.sh](../scripts/github-settings.sh); see [GitHub repository settings](./github-repository-settings.md).
 
-This is the single list. Every `vars.*` and `secrets.*` that a template workflow reads is here, and the GKE guide links to it rather than repeating it. "Environment" means a GitHub environment (`dev`, `qa`, `production`, `preview` if you turn the pull request previews on: it takes the same cluster variables, with its own deployer and provider, and `drift-<env>` if you turn the live-drift check on: two variables of its own); "repository" means a repository-wide variable.
+This is the single list. Every `vars.*` and `secrets.*` that a template workflow reads is here, and the GKE guide links to it rather than repeating it. "Environment" means a GitHub environment (`dev`, `qa`, `production`, `preview` if you turn the pull request previews on: it takes the same cluster variables, with its own deployer and provider, and `drift-<env>` if you turn the live-drift check on: three variables of its own, `EDGE_DOMAIN` among them); "repository" means a repository-wide variable.
 
 | Name | Kind | Scope | Purpose | Comes from |
 |---|---|---|---|---|
@@ -98,6 +98,8 @@ ENV_production_GKE_LOCATION=PRODUCTION_LOCATION
 ENV_production_GCP_WIF_PROVIDER=PRODUCTION_PROVIDER_RESOURCE_NAME
 ENV_production_GCP_DEPLOYER_SA=gh-deployer-production@PRODUCTION_PROJECT_ID.iam.gserviceaccount.com
 ```
+
+With the live-drift check on, `drift-production` also needs `GCP_PROJECT_ID`, `GKE_CLUSTER` and `GKE_LOCATION` set to the production project's values, since the repository's name the non-production cluster ([GKE §12.6](./gke-cluster-setup.md#126-optional-the-live-drift-identity), step 4 gives the command).
 
 The setup that creates that project is [GKE §2.4](./gke-cluster-setup.md#24-production-in-its-own-project).
 
