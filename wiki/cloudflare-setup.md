@@ -89,13 +89,15 @@ The chart supports both (`edge.mode: gateway`, the default, or `edge.mode: tunne
 | curl, openssl | your package manager | `curl --version`, `openssl version` |
 | jq | your package manager | `jq --version` |
 | dig | `sudo apt install dnsutils` (Debian/Ubuntu), `bind-utils` (Fedora) | `dig -v` |
-| gcloud, kubectl, with the GKE kubeconfig | from the GKE guide | `source ~/gke-setup.env && kubectl get nodes` |
+| gcloud, kubectl, with the GKE kubeconfig | from the GKE guide | `source "${GKE_SETUP_ENV}" && kubectl get nodes` |
 | helm | `scripts/tools.sh install helm4` | `helm version --short` |
 | gh, for 9.3 | <https://cli.github.com> | `gh --version` |
 | Docker with buildx, for the digest lookup of 8.6 | <https://docs.docker.com/engine/install/> | `docker buildx version` |
 | Node.js 26+, only for section 10 | <https://nodejs.org> or your version manager | `node --version` |
 | AWS CLI v2, only for section 12 | <https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html> | `aws --version` |
 
+
+The blocks that read the cluster's variables use `GKE_SETUP_ENV`, the variables file of the GKE guide. Set it in each terminal session first: `export GKE_SETUP_ENV="${HOME}/gke-setup.env"` (or the file you chose there).
 ### 2.2 The hostname plan
 
 Decide these now. The rest of the guide uses them.
@@ -350,7 +352,7 @@ printf 'export OWNER_POLICY_ID="%s"\n' "paste-the-policy-id" >> ~/cloudflare-set
 ### 8.2 Create the tunnel
 
 1. Go to **Networking → Tunnels → Create a tunnel → Cloudflared**.
-2. Name it **after the cluster** (the `CLUSTER` of `~/gke-setup.env`). One tunnel per cluster serves every environment and every zone of the account that runs on it. A production cluster in another project gets its own tunnel, named after that cluster.
+2. Name it **after the cluster** (the `CLUSTER` of the file `GKE_SETUP_ENV` names). One tunnel per cluster serves every environment and every zone of the account that runs on it. A production cluster in another project gets its own tunnel, named after that cluster.
 3. On the install screen, copy the **token**: the long string after `--token` in any of the install commands. Don't run those commands, and don't paste the token anywhere but the prompt of 8.3. The cluster runs the connector instead.
 4. Put the **tunnel ID** (on the tunnel's page) into `~/cloudflare-setup.env` as `TUNNEL_ID`.
 5. Don't add routes yet. Section 8.4 and section 9 add them, each after its Access application.
@@ -366,7 +368,7 @@ The token never becomes a hand-made Kubernetes Secret. It lives in **Secret Mana
 **The Secret Manager secret and its grant** come from your platform's infrastructure-as-code if you have it: a secret named `cloudflared-tunnel-token`, and a conditional Secret Accessor grant limited to names with the prefix `cloudflared-` for the principal of the `cloudflared` namespace's `external-secrets` service account. Without infrastructure-as-code, this is the gcloud equivalent, the same pattern as [GKE 14.2](./gke-cluster-setup.md):
 
 ```bash
-source ~/gke-setup.env
+source "${GKE_SETUP_ENV}"
 gcloud services enable secretmanager.googleapis.com
 gcloud secrets create cloudflared-tunnel-token --replication-policy=user-managed --locations="${REGION}"
 pool="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${PROJECT_ID}.svc.id.goog"
@@ -390,7 +392,7 @@ It prints `Created version [1] of the secret [cloudflared-tunnel-token].`
 **Apply the namespace, the store and the ExternalSecret,** then wait for the Secret:
 
 ```bash
-source ~/gke-setup.env
+source "${GKE_SETUP_ENV}"
 kubectl apply -f deploy/cloudflared/namespace.yaml
 kubectl apply -f deploy/cloudflared/priorityclass.yaml
 kubectl -n cloudflared apply -f deploy/external-secrets/secretstore-secret-manager.yaml
@@ -666,7 +668,7 @@ Set it once per environment (and in each `drift-<env>` environment, if you turne
 
 ```bash
 source ~/cloudflare-setup.env
-source ~/gke-setup.env
+source "${GKE_SETUP_ENV}"
 gh variable set EDGE_DOMAIN --env dev --body "${LAB_DOMAIN}" -R "${GH_REPO}"
 gh variable set EDGE_DOMAIN --env qa --body "${LAB_DOMAIN}" -R "${GH_REPO}"
 gh variable set EDGE_DOMAIN --env production --body "${DOMAIN}" -R "${GH_REPO}"
@@ -688,7 +690,7 @@ config:
 - `TRUSTED_PROXY_CIDRS` is the cluster's Pod range, the source of the connector's traffic. Trusting a range trusts every Pod in it ([Security, Client IP](./security.md#client-ip)). Print it:
 
 ```bash
-source ~/gke-setup.env
+source "${GKE_SETUP_ENV}"
 gcloud container clusters describe "${CLUSTER}" --location="${ZONE}" --format='value(clusterIpv4Cidr)'
 ```
 
