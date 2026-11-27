@@ -24,3 +24,7 @@ pmOnFail: ignore
 strictDepBuilds: true
 allowBuilds:
   fsevents: false
+
+# mermaid (through mermaid-isomorphic and rehype-mermaid) pins katex to a 0.16 release with a known advisory; this takes the fixed 0.18 line.
+overrides:
+  katex: '>=0.18.2 <0.19'
