@@ -1113,7 +1113,7 @@ for pair in "GCP_PROJECT_ID=${PROJECT_ID}" "GKE_CLUSTER=${CLUSTER}" "GKE_LOCATIO
 done
 ```
 
-Run it in the production project's session (`GKE_SETUP_ENV` set to its file), so `PROJECT_ID`, `CLUSTER` and `ZONE` are production's.
+Run it in the production project's session (`GKE_SETUP_ENV` set to its file), so `PROJECT_ID`, `CLUSTER` and `ZONE` are production's. The guide's clusters are zonal, so `GKE_LOCATION` is the zone; a production cluster created as a regional cluster (for example by infrastructure as code) sets `GKE_LOCATION` to its region instead.
 
 The last command turns the check on. It is a repository variable: until it is set, the drift and report jobs never run, so a copy that never sets it never references a `drift-<env>` environment.
 
