@@ -548,6 +548,8 @@ others `<service>-dev.<domain>` and `<service>-qa.<domain>`; a pull request prev
 `<service>-pr-<N>.<preview-zone>`. The reasons, and the apex option, are in
 [ADR-0042](./adr/0042-one-hostname-per-environment.md).
 
+The committed values keep their placeholder host. At deploy time the GitHub environment variable `EDGE_DOMAIN` composes the real one in that scheme (`<service>.<EDGE_DOMAIN>` in production, `<service>-<env>.<EDGE_DOMAIN>` otherwise), so no real domain is committed ([Cloudflare 9.3](./cloudflare-setup.md#93-edge_domain-and-the-apps-settings)). `edge.hosts.api` is not composed.
+
 Set `edge.hosts.api` (`<service>-api[-<env>].<domain>`) only for a backend-only host, when a client
 that is not a browser needs its own rules: a rate limit, an Access policy, a service token. It serves
 the `backend` routes, and joins the backend's `ALLOWED_HOSTS`, the Ingress TLS hosts and NOTES. Leave

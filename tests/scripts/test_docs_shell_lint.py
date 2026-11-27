@@ -67,3 +67,9 @@ def test_safe_blocks_pass(tmp_path: Path, body: str) -> None:
 def test_other_languages_are_not_checked(tmp_path: Path) -> None:
     assert run(doc(tmp_path, "# a comment, echo", lang="yaml")).returncode == 0
     assert run(doc(tmp_path, "# a comment, echo", lang="text")).returncode == 0
+
+
+def test_the_setup_guides_are_clean() -> None:
+    """With no argument: Cloudflare and Platform setup block; a guide in PENDING only reports."""
+    result = run()
+    assert result.returncode == 0, result.stdout
