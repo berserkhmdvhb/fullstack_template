@@ -15,8 +15,11 @@ FENCE = "`" * 3
 
 
 def run(*files: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # noqa: S603
-        [sys.executable, "-I", str(SCRIPT), *map(str, files)], capture_output=True, text=True, check=False
+    return subprocess.run(
+        [sys.executable, "-I", str(SCRIPT), *map(str, files)],
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
 
@@ -53,6 +56,7 @@ def test_a_rule_fires(tmp_path: Path, body: str, rule: str) -> None:
         'printf "%s\\n" "a # b" "${#}"',
         "kubectl apply -f - <<'EOF'\n# yaml comment, it's data\nkey: <value>\nEOF\nprintf ok",
         "printf 'a'\\\n  'b'",
+        'printf "%s\\n" "say \\"hi\\" # x" "a\\\\"',
     ],
 )
 def test_safe_blocks_pass(tmp_path: Path, body: str) -> None:
@@ -63,4 +67,3 @@ def test_safe_blocks_pass(tmp_path: Path, body: str) -> None:
 def test_other_languages_are_not_checked(tmp_path: Path) -> None:
     assert run(doc(tmp_path, "# a comment, echo", lang="yaml")).returncode == 0
     assert run(doc(tmp_path, "# a comment, echo", lang="text")).returncode == 0
-

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # your-service-name — adaptable service template (see wiki/getting-started.md)
-"""docs_shell_lint.py — the shell blocks of the docs must paste safely into zsh and bash.
+"""docs_shell_lint.py: the shell blocks of the setup guides must paste safely into zsh and bash.
 
 Checks every fenced ```bash, ```sh, ```zsh and ```shell block of the given Markdown files
 (default: the setup guides an adopter pastes from, GUIDES below):
@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,72 +35,82 @@ _BRACE = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*:")
 _PLACEHOLDER = re.compile(r"(?<![<\w])<[A-Za-z][\w.-]*>")
 
 
-def _scan(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
-    """The problems of one block: (line number, rule and message)."""
-    found: list[tuple[int, str]] = []
-    quote = ""  # "", "'" or '"'
-    ansi = False  # inside $'...', where a backslash escapes
-    opened = 0
-    terminator = ""
-    for n, line in lines:
-        if terminator:
-            if line.strip() == terminator:
-                terminator = ""
-            continue
-        code: list[str] = []  # the line with every quote's content blanked
-        dq: list[str] = []  # the line with the single quotes' content blanked
-        i = 0
-        while i < len(line):
-            c = line[i]
-            if quote == "'":
-                if c == "\\" and ansi:
-                    i += 1
-                elif c == "'":
-                    quote, ansi = "", False
-                    code.append(c)
-                    dq.append(c)
-                else:
-                    code.append("_")
-                    dq.append("_")
-            elif quote == '"':
-                if c == "\\":
-                    i += 1
-                    code.append("__")
-                    dq.append("__")
-                elif c == '"':
-                    quote = ""
-                    code.append(c)
-                    dq.append(c)
-                else:
-                    code.append("_")
-                    dq.append(c)
-            elif c == "\\":
+@dataclass
+class Quote:
+    """The open quote carried from line to line: "", "'" or '"'; ansi for $'...'."""
+
+    char: str = ""
+    ansi: bool = False
+    opened: int = 0
+
+
+def _mask(line: str, n: int, q: Quote) -> tuple[str, str, bool]:
+    """The line with every quote's content blanked, the line with only the single quotes' blanked,
+    and whether an unquoted comment starts on it (the rest of the line is dropped then)."""
+    code: list[str] = []
+    dq: list[str] = []
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if q.char == "'":
+            if c == "\\" and q.ansi:
+                i += 1
+            elif c == "'":
+                q.char, q.ansi = "", False
+            shown = c if not q.char else "_"
+            code.append(shown)
+            dq.append(shown)
+        elif q.char == '"':
+            if c == "\\":
                 i += 1
                 code.append("__")
                 dq.append("__")
-            elif c in "'\"":
-                quote, opened = c, n
-                ansi = c == "'" and i > 0 and line[i - 1] == "$"
-                code.append(c)
-                dq.append(c)
-            elif c == "#" and (i == 0 or line[i - 1].isspace()):
-                found.append((n, "comment: no comment in a code block (put the expected result in prose)"))
-                break
             else:
-                code.append(c)
+                q.char = "" if c == '"' else q.char
+                code.append(c if not q.char else "_")
                 dq.append(c)
+        elif c == "\\":
             i += 1
-        text, with_dq = "".join(code), "".join(dq)
-        if _ECHO.search(text):
+            code.append("__")
+            dq.append("__")
+        elif c in "'\"":
+            q.char, q.opened = c, n
+            q.ansi = c == "'" and i > 0 and line[i - 1] == "$"
+            code.append(c)
+            dq.append(c)
+        elif c == "#" and (i == 0 or line[i - 1].isspace()):
+            return "".join(code), "".join(dq), True
+        else:
+            code.append(c)
+            dq.append(c)
+        i += 1
+    return "".join(code), "".join(dq), False
+
+
+def _scan(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """The problems of one block: (line number, rule and message)."""
+    found: list[tuple[int, str]] = []
+    q = Quote()
+    terminator = ""
+    for n, line in lines:
+        if terminator:
+            terminator = "" if line.strip() == terminator else terminator
+            continue
+        code, dq, comment = _mask(line, n, q)
+        if comment:
+            found.append((n, "comment: no comment in a code block (put the result in prose)"))
+        if _ECHO.search(code):
             found.append((n, "echo: use printf"))
-        if _BRACE.search(with_dq):
-            found.append((n, "brace: write ${NAME} before a colon (zsh reads $NAME:e as a modifier)"))
-        if _PLACEHOLDER.search(text):
-            found.append((n, "placeholder: a bare <name> is a redirect; quote it or use a variable"))
-        if not quote and "<<" in text and (m := _HEREDOC.search(line)):
-            terminator = m[2]
-    if quote:
-        found.append((opened, f"quote: the {quote} opened here never closes in the block"))
+        if _BRACE.search(dq):
+            found.append((n, "brace: write ${NAME} before a colon (zsh: $NAME:e is a modifier)"))
+        if _PLACEHOLDER.search(code):
+            found.append(
+                (n, "placeholder: a bare <name> is a redirect; quote it or use a variable")
+            )
+        heredoc = _HEREDOC.search(line) if "<<" in code and not q.char else None
+        terminator = heredoc[2] if heredoc else ""
+    if q.char:
+        found.append((q.opened, f"quote: the {q.char} opened here never closes in the block"))
     return found
 
 
@@ -113,15 +124,13 @@ def lint(path: Path) -> list[str]:
         m = _FENCE.match(line)
         if not fence:
             if m:
-                fence, shell = m[1], m[2] in _SHELLS
-                block = []
-            continue
-        if m and m[1][0] == fence[0] and len(m[1]) >= len(fence) and not line.strip(" `~"):
+                fence, shell, block = m[1], m[2] in _SHELLS, []
+        elif m and m[1][0] == fence[0] and len(m[1]) >= len(fence) and not line.strip(" `~"):
             if shell:
                 out += [f"{path}:{k}: {msg}" for k, msg in _scan(block)]
             fence = ""
-            continue
-        block.append((n, line))
+        else:
+            block.append((n, line))
     return out
 
 
@@ -132,12 +141,12 @@ def main(argv: list[str]) -> int:
         problems = lint(f)
         pending = not argv and f.name in PENDING
         for p in problems:
-            print(f"{'pending ' if pending else ''}{p}")
+            sys.stdout.write(f"{'pending ' if pending else ''}{p}\n")
         blocking += 0 if pending else len(problems)
     if blocking:
-        print(f"docs-shell-lint: {blocking} problem(s) in the docs' shell blocks", file=sys.stderr)
+        sys.stderr.write(f"docs-shell-lint: {blocking} problem(s) in the docs' shell blocks\n")
         return 1
-    print(f"docs-shell-lint: {len(files)} file(s) checked, no blocking problem")
+    sys.stdout.write(f"docs-shell-lint: {len(files)} file(s) checked, no blocking problem\n")
     return 0
 
 
