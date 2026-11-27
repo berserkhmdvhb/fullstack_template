@@ -478,7 +478,7 @@ STUB
 @test "EDGE_DOMAIN unset or empty: the committed hosts apply, no hosts file" {
   run bash "$SCRIPT"
   [ "$status" -eq 0 ]
-  EDGE_DOMAIN= run bash "$SCRIPT"
+  EDGE_DOMAIN='' run bash "$SCRIPT"
   [ "$status" -eq 0 ]
   [ ! -e "$WORK_DIR/edge-hosts.json" ]
   run grep -q "edge-hosts" "$LOG"
