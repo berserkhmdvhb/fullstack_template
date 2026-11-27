@@ -20,6 +20,7 @@ make test-unit            # backend unit only
 make test-integration / test-e2e / test-contract / test-live
 make shellcheck           # lint every tracked *.sh + *.bats
 make docs-links           # every file link and #anchor in the docs, offline (pinned lychee)
+make docs-shell-lint      # the setup guides' shell blocks paste safely into zsh and bash (no comments, no echo)
 make pins-refresh         # after bumping a pin: lock mise.toml's tools (mise lock), write the other checksums, regenerate the hashed locks
 cd frontend && pnpm run lint && pnpm run typecheck && pnpm run test   # frontend gates
 ```

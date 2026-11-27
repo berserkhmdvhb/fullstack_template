@@ -175,6 +175,8 @@ jobs:
       # Blocking: every file link and #anchor in the tracked Markdown resolves (lychee.toml: offline, no cache).
       - name: Doc links (lychee, offline)
         run: make docs-links
+      - name: Setup guide shell blocks paste safely (zsh and bash)
+        run: make docs-shell-lint
       - name: Security runner tests
         run: |
           LIB_TS=0 bats infra/security/local/tests/
