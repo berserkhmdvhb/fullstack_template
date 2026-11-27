@@ -26,7 +26,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GUIDES = ("cloudflare-setup.md", "gke-cluster-setup.md", "platform-setup.md")
-PENDING = {"gke-cluster-setup.md"}
+PENDING: set[str] = set()
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})\s*([A-Za-z0-9_+-]*)")
 _SHELLS = {"bash", "sh", "zsh", "shell"}
 _HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
