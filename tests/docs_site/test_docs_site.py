@@ -93,10 +93,32 @@ def test_diagrams_render_at_build_time_with_no_client_renderer() -> None:
     assert not {"mermaid", "astro-mermaid"} & set(deps)
 
 
+def test_the_loader_lists_the_five_guides_in_order_and_none_is_copied() -> None:
+    """The setup guides load from wiki/ (one source), in guide order, under /setup/."""
+    guides = [
+        "platform-setup.md",
+        "gke-cluster-setup.md",
+        "cloudflare-setup.md",
+        "github-pages-setup.md",
+        "pr-agent-setup.md",
+    ]
+    assert sorted(p.name for p in (ROOT / "wiki").glob("*-setup.md")) == sorted(guides)
+    loaded = _loaded()
+    assert [Path(p).name for p in loaded if p.startswith("wiki/")] == guides
+    assert all(slug.startswith("setup/") for p, slug in loaded.items() if p.startswith("wiki/"))
+    config = (SITE / "astro.config.mjs").read_text(encoding="utf-8")
+    items = re.search(r"'Set up the platform'.*?items: \[([^\]]*)\]", config, re.DOTALL)
+    assert items
+    assert re.findall(r"'(setup/[^']+)'", items[1]) == [loaded[f"wiki/{g}"] for g in guides]
+    copies = [p for p in (SITE / "src/content/docs").rglob("*") if p.stem.endswith("-setup")]
+    assert copies == []
+
+
 def test_every_loaded_file_is_tracked_has_an_h1_and_is_in_the_sidebar() -> None:
     loaded = _loaded()
     assert set(loaded) == {
         "CONTRIBUTING.md",
+        "wiki/platform-setup.md",
         "wiki/cloudflare-setup.md",
         "wiki/gke-cluster-setup.md",
         "wiki/github-pages-setup.md",

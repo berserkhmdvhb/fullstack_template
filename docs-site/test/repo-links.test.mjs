@@ -5,7 +5,7 @@ import { test } from 'node:test';
 
 import { fromMarkdown } from 'mdast-util-from-markdown';
 
-import { ROOT, base, branch, pagesLocation, remarkRepoLinks, repoUrl, splitTitle } from '../src/lib/repo.mjs';
+import { LOADED, ROOT, base, branch, pagesLocation, remarkRepoLinks, repoUrl, splitTitle } from '../src/lib/repo.mjs';
 
 const PAGE = join(ROOT, 'docs-site/src/content/docs/design.md');
 const UP = '../../../../';
@@ -74,8 +74,32 @@ test('a link to a loaded file resolves to its page, with the anchor kept', () =>
   const root = base.replace(/\/$/, '');
   assert.deepEqual(links(tree), [
     `${root}/walkthroughs/contributing/`,
-    `${root}/walkthroughs/gke/#111-public-or-private`,
+    `${root}/setup/gke/#111-public-or-private`,
   ]);
+});
+
+test('a link between guides is a site link; a guide anchor keeps its GitHub slug', () => {
+  const guide = join(ROOT, 'wiki/platform-setup.md');
+  const { tree } = resolve('[g](./gke-cluster-setup.md#24-production-in-its-own-project) [c](./ci-cd.md#live-drift)', guide);
+  const root = base.replace(/\/$/, '');
+  assert.deepEqual(links(tree), [
+    `${root}/setup/gke/#24-production-in-its-own-project`,
+    `${repoUrl}/blob/${branch}/wiki/ci-cd.md#live-drift`,
+  ]);
+});
+
+test('the loader lists exactly CONTRIBUTING.md and the five setup guides', () => {
+  assert.deepEqual(
+    Object.entries(LOADED),
+    [
+      ['CONTRIBUTING.md', 'walkthroughs/contributing'],
+      ['wiki/platform-setup.md', 'setup/platform'],
+      ['wiki/gke-cluster-setup.md', 'setup/gke'],
+      ['wiki/cloudflare-setup.md', 'setup/cloudflare'],
+      ['wiki/github-pages-setup.md', 'setup/github-pages'],
+      ['wiki/pr-agent-setup.md', 'setup/pr-agent'],
+    ],
+  );
 });
 
 test('any other tracked file links to GitHub: blob/ for a file, tree/ for a directory', () => {

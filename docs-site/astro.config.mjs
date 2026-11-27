@@ -34,15 +34,10 @@ export default defineConfig({
       sidebar: [
         { label: 'Start here', items: ['getting-started'] },
         { label: 'Overview', items: ['architecture', 'pipeline', 'security', 'design', 'practices', 'releasing'] },
+        { label: 'Contribute', items: ['walkthroughs/contributing'] },
         {
-          label: 'Walkthroughs',
-          items: [
-            'walkthroughs/contributing',
-            'walkthroughs/gke',
-            'walkthroughs/cloudflare',
-            'walkthroughs/github-pages',
-            'walkthroughs/pr-agent',
-          ],
+          label: 'Set up the platform',
+          items: ['setup/platform', 'setup/gke', 'setup/cloudflare', 'setup/github-pages', 'setup/pr-agent'],
         },
         // The site is a reading path; the wiki is the complete reference, one click from every page.
         { label: 'The wiki: the full reference', link: `${repoUrl}/blob/${branch}/wiki/README.md` },
