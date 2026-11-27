@@ -23,16 +23,10 @@
 {{- if ge (add $deadline $grace) $staleAfter }}
 {{- fail (printf "%s: postgresql.backup.verifyDeadlineSeconds (%d) plus the %d s termination grace period must be below %d, the age after which the restore check drops a temporary database as left over: a longer run could lose its database to the next one." (include "chart.fullname" .) $deadline $grace $staleAfter) }}
 {{- end }}
-{{- /* A CronJob name may be at most 52 characters: the controller adds 11 for each Job it creates, and a
-       Job name is limited to 63. */}}
-{{- $cronName := printf "%s-pg-backup-verify" (include "chart.fullname" .) }}
-{{- if gt (len $cronName) 52 }}
-{{- fail (printf "the restore-check CronJob name %q is %d characters, over the 52 a CronJob name may have (the controller adds 11 to name each Job): shorten the release name or set fullnameOverride so that the chart's fullname is at most 35 characters." $cronName (len $cronName)) }}
-{{- end }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ $cronName }}
+  name: {{ include "chart.backupVerifyCronJobName" . }}
   namespace: {{ include "chart.dbNamespace" . }}
   labels:
 {{- include "chart.labels" . | nindent 4 }}

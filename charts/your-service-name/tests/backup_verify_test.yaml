@@ -155,17 +155,28 @@ tests:
       postgresql: {backup: {deadlineSeconds: 900}}
     asserts:
       - equal: {path: spec.jobTemplate.spec.activeDeadlineSeconds, value: 900}
-  - it: a fullname of 35 characters (a 52-character CronJob name) renders
-    template: pg-backup-verify-cronjob.yaml
+  - it: a short release name keeps the unchanged CronJob names
     set:
-      fullnameOverride: abcdefghijklmnopqrstuvwxyz012345678
+      fullnameOverride: short-name
     asserts:
-      - notFailedTemplate: {}
+      - equal: {path: metadata.name, value: short-name-pg-backup-verify}
+        template: pg-backup-verify-cronjob.yaml
+      - equal: {path: metadata.name, value: short-name-pg-backup}
+        template: pg-backup-cronjob.yaml
+        documentSelector: {path: kind, value: CronJob}
+  - it: a long release name gives CronJob names of at most 52 characters (the fullname cut to 35)
+    set:
+      fullnameOverride: abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz
+    asserts:
       - equal: {path: metadata.name, value: abcdefghijklmnopqrstuvwxyz012345678-pg-backup-verify}
-  - it: a fullname of 36 characters (a 53-character CronJob name) is refused
-    template: pg-backup-verify-cronjob.yaml
+        template: pg-backup-verify-cronjob.yaml
+      - equal: {path: metadata.name, value: abcdefghijklmnopqrstuvwxyz012345678-pg-backup}
+        template: pg-backup-cronjob.yaml
+        documentSelector: {path: kind, value: CronJob}
+  - it: a cut that ends in a hyphen drops it
     set:
-      fullnameOverride: abcdefghijklmnopqrstuvwxyz0123456789
+      fullnameOverride: abcdefghijklmnopqrstuvwxyz01234567-zzzzzzzz
     asserts:
-      - failedTemplate:
-          errorPattern: 'is 53 characters, over the 52 a CronJob name may have'
+      - equal: {path: metadata.name, value: abcdefghijklmnopqrstuvwxyz01234567-pg-backup}
+        template: pg-backup-cronjob.yaml
+        documentSelector: {path: kind, value: CronJob}
