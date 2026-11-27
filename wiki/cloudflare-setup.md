@@ -449,14 +449,15 @@ read -rs TUNNEL_TOKEN
 printf '\n'
 printf '%s' "${TUNNEL_TOKEN}" | gcloud secrets versions add cloudflared-tunnel-token --data-file=-
 unset TUNNEL_TOKEN
+OLD="$(kubectl -n cloudflared get externalsecret tunnel-token -o jsonpath='{.status.refreshTime}')"
 kubectl -n cloudflared annotate externalsecret tunnel-token force-sync="$(date +%s)" --overwrite
-kubectl -n cloudflared wait --for=condition=Ready externalsecret/tunnel-token --timeout=120s
-kubectl -n cloudflared get externalsecret tunnel-token
+for i in $(seq 1 30); do NEW="$(kubectl -n cloudflared get externalsecret tunnel-token -o jsonpath='{.status.refreshTime}')"; [ "${NEW}" != "${OLD}" ] && break; sleep 2; done
+printf 'before %s, after %s\n' "${OLD}" "${NEW}"
 kubectl -n cloudflared rollout restart deployment/cloudflared
-kubectl -n cloudflared rollout status deployment/cloudflared --timeout=180s
+kubectl -n cloudflared rollout status deployment/cloudflared --timeout=120s
 ```
 
-The annotate command prints `externalsecret.external-secrets.io/tunnel-token annotated`. The wait prints `externalsecret.external-secrets.io/tunnel-token condition met`, and the listing shows the status `SecretSynced` with `READY` `True`; the sync can take a few seconds, so if the listing still shows the old time, run it again before restarting. The rollout ends with `deployment "cloudflared" successfully rolled out`, and the tunnel shows **Healthy**.
+The annotate command prints `externalsecret.external-secrets.io/tunnel-token annotated`. The loop polls the ExternalSecret's `.status.refreshTime`, the time the operator last fetched the secret, for up to 60 seconds, and the `printf` shows two different timestamps, for example `before 2026-11-27T10:00:00Z, after 2026-11-27T10:03:12Z`: the new token is in the Secret. The rollout ends with `deployment "cloudflared" successfully rolled out`, and the tunnel shows **Healthy**. If the two timestamps are equal after 60 seconds, the sync did not happen: do not rely on the restart. Run `kubectl -n cloudflared describe externalsecret tunnel-token`, read the status message and events (a permission error means the grant of 8.3 is wrong), fix it, and repeat from the annotate line.
 
 ### 8.4 A test hostname, behind Access first
 
@@ -595,7 +596,7 @@ Dev and qa are covered by the lab wildcard (8.4). Production lives on the produc
 printf 'export ACCESS_APP_PROD_ID="%s"\n' "paste-the-application-id" >> ~/cloudflare-setup.env
 ```
 
-**Which tunnel carries production.** A tunnel belongs to one cluster. If production runs on its own cluster, in its own project, repeat 8.1 to 8.3 and 8.7 there: that project's Secret Manager (its own `cloudflared-tunnel-token` secret and grant), and a tunnel named after that cluster, with its own connector. Production's routes (9.4) go into that tunnel, and the dev and qa routes into the non-production cluster's tunnel. The Zero Trust organisation, the `owner` policy and the Access applications are account-wide and are not repeated. With a single cluster, one tunnel carries every environment.
+**Which tunnel carries production.** A tunnel belongs to one cluster. If production runs on its own cluster, in its own project, repeat 8.2, 8.3 and 8.7 there: that project's Secret Manager (its own `cloudflared-tunnel-token` secret and grant), and a tunnel named after that cluster, with its own connector. Production's routes (9.4) go into that tunnel, and the dev and qa routes into the non-production cluster's tunnel. The Zero Trust organisation, the `owner` policy and the Access applications are account-wide and are not repeated. With a single cluster, one tunnel carries every environment.
 
 **Check:**
 
@@ -954,7 +955,7 @@ These are list prices from 2026; check Cloudflare's pricing pages.
 | Certificate error on a new host | the Universal certificate is not Active yet | wait for it (6.1), up to a day on a new zone |
 | The ExternalSecret `tunnel-token` is not Ready | the grant is missing, names another namespace, or the secret has no version | `kubectl -n cloudflared describe externalsecret tunnel-token`; check the grant and the version of `cloudflared-tunnel-token` (8.3) |
 | Tunnel Pods `CreateContainerConfigError` | the Secret `tunnel-token` does not exist yet | `kubectl -n cloudflared get secret tunnel-token`; fix the ExternalSecret, which creates it |
-| Pods Running but the tunnel is **Down**, with `Unauthorized` in the logs | wrong or rotated tunnel token | add a new secret version with the right token, force the sync (`kubectl -n cloudflared annotate externalsecret tunnel-token force-sync="$(date +%s)" --overwrite`), wait until the ExternalSecret is Ready, then restart the connector: the operator refreshes only hourly, so an immediate restart reads the old token (rotation in 8.3) |
+| Pods Running but the tunnel is **Down**, with `Unauthorized` in the logs | wrong or rotated tunnel token | add a new secret version with the right token, force the sync, wait until the ExternalSecret's `.status.refreshTime` changes, then restart the connector: the operator refreshes only hourly, so an immediate restart reads the old token (the exact steps are in the rotation paragraph of 8.3) |
 | Logs show connection timeouts on port 7844 | outbound traffic blocked | check Cloud NAT (GKE guide, section 6), and the egress rules of `deploy/cloudflared/networkpolicy.yaml` |
 | A host returns **502 Bad Gateway** | the tunnel can't reach the Service | check that the Service URL matches `http://<svc>.<namespace>.svc.cluster.local:<port>`, that the Pod is Ready, that the target namespace carries the label `tier=app-ns` (the connector's policy blocks any other), and that no NetworkPolicy in it blocks the `cloudflared` namespace |
 | `/apix` or `/x/api` reaches the backend | a route's path is unanchored | enter the path as NOTES prints it, `^/api(/\|$)`, not `/api` (9.4) |
