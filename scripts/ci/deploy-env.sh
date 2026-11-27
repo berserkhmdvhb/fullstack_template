@@ -30,6 +30,11 @@
 # PREVIEW_DOMAIN the smoke test also runs through the public URL https://<release>.<PREVIEW_DOMAIN>,
 # with the Cloudflare Access service token (CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET, both required
 # then) as headers from a file, never on a command line; the URL goes to GITHUB_OUTPUT as `url`.
+# Dev, qa and production: with EDGE_DOMAIN (a GitHub environment variable; the zone of that environment's
+# hostname) the one host is composed here, <SERVICE_NAME>.<EDGE_DOMAIN> for production and
+# <SERVICE_NAME>-<DEPLOY_ENV>.<EDGE_DOMAIN> for dev and qa, so the committed values keep their placeholder
+# domain and no real domain is committed (the placeholder guard then has nothing to refuse). Unset, the
+# committed hosts apply and the guard refuses a placeholder one.
 # PREVIEW_PR is refused with dev, qa and production; the test-only kind seam takes it too (the same
 # release and namespace names, the kind values instead of values.preview.yaml).
 set -Eeuo pipefail
@@ -79,6 +84,14 @@ if [[ -n "$PREVIEW_PR" ]]; then
       fail "PREVIEW_DOMAIN needs CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET (the Access service token)"
     PUBLIC_URL="https://${RELEASE}.${domain}"
   fi
+fi
+if [[ -z "$PREVIEW_PR" && -n "${EDGE_DOMAIN:-}" && "$DEPLOY_ENV" != kind ]]; then
+  [[ "$EDGE_DOMAIN" =~ ^([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)*[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]] ||
+    fail "EDGE_DOMAIN must be a lower-case DNS name"
+  host="${SERVICE_NAME}-${DEPLOY_ENV}.${EDGE_DOMAIN}"
+  [[ "$DEPLOY_ENV" != production ]] || host="${SERVICE_NAME}.${EDGE_DOMAIN}"
+  jq -n --arg h "$host" '{edge: {hosts: {root: $h}}}' > "$WORK_DIR/edge-hosts.json"
+  env_values+=(-f "$WORK_DIR/edge-hosts.json")
 fi
 # The backend Service. The port-forwarded checks send its name as Host, as the frontend does
 # in-cluster: the backend refuses a Host that is not in the ALLOWED_HOSTS the chart renders.

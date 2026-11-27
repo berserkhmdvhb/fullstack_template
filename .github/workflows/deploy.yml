@@ -143,6 +143,7 @@ jobs:
       - name: Deploy, verify and smoke test
         env:
           MATRIX_CMD: ${{ runner.temp }}/pyyaml/bin/python ${{ github.workspace }}/.github/scripts/container_matrix.py
+          EDGE_DOMAIN: ${{ vars.EDGE_DOMAIN }}
         run: bash scripts/ci/deploy-env.sh
       - name: Upload the smoke report
         if: always()
@@ -203,6 +204,7 @@ jobs:
       - name: Deploy, verify and smoke test
         env:
           MATRIX_CMD: ${{ runner.temp }}/pyyaml/bin/python ${{ github.workspace }}/.github/scripts/container_matrix.py
+          EDGE_DOMAIN: ${{ vars.EDGE_DOMAIN }}
         run: bash scripts/ci/deploy-env.sh
       - name: Upload the smoke report
         if: always()
@@ -263,6 +265,7 @@ jobs:
       - name: Deploy, verify and smoke test
         env:
           MATRIX_CMD: ${{ runner.temp }}/pyyaml/bin/python ${{ github.workspace }}/.github/scripts/container_matrix.py
+          EDGE_DOMAIN: ${{ vars.EDGE_DOMAIN }}
         run: bash scripts/ci/deploy-env.sh
       - name: Upload the smoke report
         if: always()

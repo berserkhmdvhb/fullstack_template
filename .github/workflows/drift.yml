@@ -150,6 +150,7 @@ jobs:
           DEPLOYED_SHA: ${{ fromJSON(needs.collect.outputs.deployments)[matrix.environment].sha }}
           DIGESTS: ${{ toJSON(fromJSON(needs.collect.outputs.deployments)[matrix.environment].digests) }}
           SERVICE_NAME: ${{ vars.SERVICE_NAME || 'your-service-name' }}
+          EDGE_DOMAIN: ${{ vars.EDGE_DOMAIN }}
           PYTHON: ${{ runner.temp }}/pyyaml/bin/python
           OUT: ${{ runner.temp }}/render.yaml
         run: bash scripts/ci/drift-render.sh
