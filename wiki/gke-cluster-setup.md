@@ -7,7 +7,7 @@ Each section starts with a tag (**Do now**, **Planned change**, or **Managed as 
 | | |
 |---|---|
 | Time | 60 to 90 minutes, about 15 of it waiting for Google Cloud |
-| Cost | about $40 to $120 a month while the cluster runs (see [Costs](#15-costs-pausing-and-teardown)) |
+| Cost | about $40 to $120 a month with the first two nodes, rising to about $270 on demand with all three environments (about $110 with non-production on spot) (see [Costs](#15-costs-pausing-and-teardown)) |
 | You need | a Google Cloud account with a billing account (the project is created in 3.2), a GitHub account and a Linux or macOS terminal |
 | Matches | the GitHub Actions workflows in `.github/workflows/`. Written 2026-11-20; checked against Google's docs on 2026-11-25. Cloud CLIs change, so each step checks your own tools before it relies on them. |
 
@@ -48,11 +48,11 @@ Each section starts with a tag (**Do now**, **Planned change**, or **Managed as 
         ▼
  One service account per environment    (no key file exists, ever)
    gh-deployer-dev / -qa / -production  (each only for its own GitHub environment)
-        ├──► GKE cluster "apps-dev"     reach the control plane through the DNS-based endpoint;
+        ├──► GKE cluster "apps"     reach the control plane through the DNS-based endpoint;
         │                                deploy rights are Kubernetes RBAC, one Role per app namespace
         └──► Artifact Registry "apps"   optional: push images, only if you don't use GHCR
 
- GKE cluster "apps-dev" (Standard, one zone)
+ GKE cluster "apps" (Standard, one zone)
    • private nodes: no public IP addresses; outbound traffic goes through Cloud NAT
    • Dataplane V2: NetworkPolicies are enforced
    • Workload Identity: Pods get cloud permissions without keys
@@ -93,10 +93,10 @@ If you installed the CLI some months ago, update it with `gcloud components upda
 | Decision | Default in this guide | Notes |
 |---|---|---|
 | Region and zone | `europe-west1` / `europe-west1-b` | Pick one close to you. Every resource below uses the same region. |
-| Cluster name | `apps-dev` | It hosts the template's dev environment, and later your other services. |
+| Cluster name | `apps` | It hosts the template's environments, and later your other services. A neutral name, because one cluster can carry several environments; the split of 2.4 uses `apps-dev` and `apps-prod`. |
 | GitHub repository | `<you>/fullstack-template` | Created in [step 11](#11-the-github-repository). |
 | Repository visibility | **public** (recommended) | See [11.1](#111-public-or-private). It changes which GitHub security features you get for free. |
-| One cluster for every environment | yes: `dev`, `qa` and `production` are namespaces of `apps-dev` | The cheapest setup: one zonal cluster, whose management fee the free tier covers. The trade-offs: one blast radius; a zonal control plane is briefly unavailable while it upgrades (workloads keep running); a zone outage stops all three environments. For a production cluster of its own, in the same project, repeat 6 to 9 for it and set `GKE_CLUSTER` and `GKE_LOCATION` on the `production` environment ([13.1](#131-variables-and-secrets)); a second cluster pays the management fee, about $73 a month. A cluster in the same project shares its Workload Identity pool, so read [14.2](#142-one-identity-per-namespace-limited-to-its-environment) first, and prefer the next row. |
+| One cluster for every environment | yes: `dev`, `qa` and `production` are namespaces of `apps` | The cheapest setup: one zonal cluster, whose management fee the free tier covers. The trade-offs: one blast radius; a zonal control plane is briefly unavailable while it upgrades (workloads keep running); a zone outage stops all three environments. For a production cluster of its own, in the same project, repeat 6 to 9 for it and set `GKE_CLUSTER` and `GKE_LOCATION` on the `production` environment ([13.1](#131-variables-and-secrets)); a second cluster pays the management fee, about $73 a month. A cluster in the same project shares its Workload Identity pool, so read [14.2](#142-one-identity-per-namespace-limited-to-its-environment) first, and prefer the next row. |
 | Production in its own project | no | The strongest split: its own Workload Identity pool, Secret Manager, deployers and tunnel, so nothing in the non-production project can reach production's secrets. See [2.4](#24-production-in-its-own-project). |
 | Spot nodes | off | Spot costs about 60 to 70 % less, but Google can reclaim a node at any time. That's fine for dev, but not for production. |
 
@@ -104,37 +104,51 @@ If you installed the CLI some months ago, update it with `gcloud components upda
 
 > **Do now,** only if you choose it in 2.3.
 
-Same-project clusters share one Workload Identity pool, and 14.2 grants Secret Manager access per namespace name. A `production` namespace anywhere in the project, even in the dev cluster, would therefore read production's secrets. A project of its own has a pool of its own, so that cannot happen.
+Same-project clusters share one Workload Identity pool, and 14.2 grants Secret Manager access per namespace name. A `production` namespace anywhere in the project, even in another cluster, would therefore read production's secrets. A project of its own has a pool of its own, so that cannot happen. The two projects are built with the same guide, one after the other:
 
-- **Repeat the sections that build the platform, in the new project:** 3 to 10 (a new `PROJECT_ID`, so a second variables file and a second kubeconfig), 12 and 14. Its cluster, network, node identity, Workload Identity pool and provider, deployers (`gh-deployer-production` only), External Secrets Operator, per-namespace grants and secrets are all new, and nothing is shared with the first project. The namespaces and the deployer RBAC are applied with the bootstrap of [13.2](#132-the-namespaces-and-the-deployer-rbac-come-from-the-bootstrap), against the production cluster.
-- **Point the `production` GitHub environment at it.** Set `GCP_PROJECT_ID`, `GKE_CLUSTER`, `GKE_LOCATION`, `GCP_WIF_PROVIDER` and `GCP_DEPLOYER_SA` on the `production` environment ([13.1](#131-variables-and-secrets)); the workflows already read them per environment, so an environment value overrides the repository's.
-- **Let production pull the same images.** Production promotes the signed digest that dev and qa already ran, so its nodes must be able to read the registry the images live in. With GHCR and public images nothing is needed. With a private registry or Artifact Registry in the non-production project, grant the production project's node service account (`gke-nodes@<production project>`) the reader role on that registry, and keep the images immutable.
+1. **Build the non-production project as written,** with the cluster named `apps-dev` (set `CLUSTER`, `SUBNET` and `KUBECONFIG` to match in 3) and only `dev` and `qa` in every loop.
+2. **Start a new terminal session for the production project** with its own variables file, so the first project's file is not overwritten: `export GKE_SETUP_ENV="${HOME}/gke-setup-production.env"`. Then repeat 3 to 10, 12 and 14 with that file. In 3, use a new `PROJECT_ID` (and the same billing account), `CLUSTER="apps-prod"`, `SUBNET="apps-prod-subnet"` and `KUBECONFIG="${HOME}/.kube/gke-apps-prod.yaml"`; the GitHub values stay. Its cluster, network, node identity, Workload Identity pool and provider, deployer, External Secrets Operator, grants and secrets are all new. The node service account is `gke-nodes@PRODUCTION_PROJECT_ID.iam.gserviceaccount.com`, with the production project's ID spelled out.
+3. **Edit the environment lists** of the loops that name environments, so each project holds only its own:
+
+| Where | Non-production project | Production project |
+|---|---|---|
+| 12.3, deployers and their checks | `dev qa` | `production` |
+| 13.2, the bootstrap and its checks | `dev qa`, against the non-production cluster | `production`, against the production cluster |
+| 14.2, grants (and the database grants) | `dev qa` (and `dev qa` for the database namespaces) | `production` only |
+| 14.3, stores | the four `dev` and `qa` namespaces | the `production` namespace |
+| 14.4, secrets | the `dev` and `qa` ones | production's `stats-pass`; its `db-user` and `db-password` later |
+
+- **Point the `production` GitHub environment at it.** Set `GCP_PROJECT_ID`, `GKE_CLUSTER`, `GKE_LOCATION`, `GCP_WIF_PROVIDER` and `GCP_DEPLOYER_SA` on the `production` environment ([13.1](#131-variables-and-secrets)); the workflows already read them per environment, so an environment value overrides the repository's. The non-production project's values stay the repository's.
+- **Let production pull the same images.** Production promotes the signed digest that dev and qa already ran, so its nodes must be able to read the registry the images live in. With GHCR and public images nothing is needed. With a private registry or Artifact Registry in the non-production project, grant the production project's node service account (its full email, above) the reader role on that registry, and keep the images immutable.
 - **A tunnel per cluster.** A Cloudflare Tunnel belongs to one cluster: [Cloudflare, which tunnel carries production](./cloudflare-setup.md#91-production-stays-behind-access-until-launch) says what to repeat there.
 
 ## 3. Set your variables once
 
 > **Do now.**
 
-Every later step reads these. Create the file once, then load it in each new terminal.
+Every later step reads these. Create the file once, then load it in each new terminal (`export GKE_SETUP_ENV=...` first, then `source`).
+
+Every block of this guide reads and writes one variables file, named by `GKE_SETUP_ENV`. **Set it at the start of every terminal session, before any `source`**; the default is the path below. (For the production project of [2.4](#24-production-in-its-own-project), use another file.)
 
 ```bash
-cat > ~/gke-setup.env <<'EOF'
+export GKE_SETUP_ENV="${HOME}/gke-setup.env"
+cat > "${GKE_SETUP_ENV}" <<'EOF'
 export PROJECT_ID="your-project-id"
 export BILLING_ACCOUNT_ID="your-billing-account-id"
 export REGION="europe-west1"
 export ZONE="europe-west1-b"
-export CLUSTER="apps-dev"
+export CLUSTER="apps"
 export NETWORK="apps-vpc"
-export SUBNET="apps-dev-subnet"
+export SUBNET="apps-subnet"
 export AR_REPO="apps"
 export GH_OWNER="your-github-user"
 export GH_REPO_NAME="fullstack-template"
 export GH_REPO="${GH_OWNER}/${GH_REPO_NAME}"
-export KUBECONFIG="${HOME}/.kube/gke-apps-dev.yaml"
+export KUBECONFIG="${HOME}/.kube/gke-apps.yaml"
 EOF
 ```
 
-Now open `~/gke-setup.env` in an editor and replace the three `your-` placeholders:
+Now open the file `GKE_SETUP_ENV` names in an editor and replace the three `your-` placeholders:
 - `PROJECT_ID`: 6 to 30 lowercase letters, digits and hyphens, unique across all of Google Cloud, and impossible to change later. If you already have a project, `gcloud projects list` shows its ID, and 3.2 is skipped.
 - `BILLING_ACCOUNT_ID`: filled in at 3.2, once you can list your billing accounts.
 - `GH_OWNER`: your GitHub user name, or your organisation. Everything in 11 to 14 acts on `GH_REPO`, so a placeholder left here fails far from its cause.
@@ -144,13 +158,13 @@ Now open `~/gke-setup.env` in an editor and replace the three `your-` placeholde
 **Check:** after the edit, this prints nothing except `BILLING_ACCOUNT_ID` until 3.2:
 
 ```bash
-grep -n 'your-' ~/gke-setup.env
+grep -n 'your-' "${GKE_SETUP_ENV}"
 ```
 
 ### 3.1 Sign in
 
 ```bash
-source ~/gke-setup.env
+source "${GKE_SETUP_ENV}"
 gcloud auth login
 ```
 
@@ -167,7 +181,7 @@ gcloud billing accounts list
 Put the ID of an open account in `BILLING_ACCOUNT_ID`, load the file again, then create the project and link it:
 
 ```bash
-source ~/gke-setup.env
+source "${GKE_SETUP_ENV}"
 gcloud projects create "${PROJECT_ID}" --name="apps"
 gcloud billing projects link "${PROJECT_ID}" --billing-account="${BILLING_ACCOUNT_ID}"
 ```
@@ -179,7 +193,7 @@ If the create command says the ID is taken, choose another in the file and run i
 ```bash
 gcloud config set project "${PROJECT_ID}"
 export PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
-printf 'export PROJECT_NUMBER="%s"\n' "${PROJECT_NUMBER}" >> ~/gke-setup.env
+printf 'export PROJECT_NUMBER="%s"\n' "${PROJECT_NUMBER}" >> "${GKE_SETUP_ENV}"
 ```
 
 The line is saved with `export`, so child processes see it after every `source`. Run the `printf` once.
@@ -187,7 +201,7 @@ The line is saved with `export`, so child processes see it after every `source`.
 **Check:**
 
 ```bash
-source ~/gke-setup.env
+source "${GKE_SETUP_ENV}"
 gcloud config get-value project
 printf '%s\n' "${PROJECT_NUMBER}"
 gcloud auth list --filter=status:ACTIVE --format='value(account)'
@@ -290,9 +304,9 @@ The first prints `True  pods;services` (the separator can vary); the second prin
 By default, GKE nodes use the Compute Engine default service account, which usually holds **Editor** on the whole project. Replace it with one that can only write logs and metrics and pull images.
 
 ```bash
-gcloud iam service-accounts create gke-nodes --display-name="GKE nodes (apps-dev)"
+gcloud iam service-accounts create gke-nodes --display-name="GKE nodes (apps)"
 export NODE_SA="gke-nodes@${PROJECT_ID}.iam.gserviceaccount.com"
-printf 'export NODE_SA="%s"\n' "${NODE_SA}" >> ~/gke-setup.env
+printf 'export NODE_SA="%s"\n' "${NODE_SA}" >> "${GKE_SETUP_ENV}"
 ```
 
 A new service account can take a few seconds to become visible. If a grant below says the account does not exist, wait half a minute and run it again.
@@ -341,7 +355,7 @@ It prints the node role, or the four classic roles. Nothing else: no editor, no 
 |---|---|
 | the cluster name; the location type (zonal or regional); the network, subnet and secondary ranges; VPC-native networking (alias IPs); Dataplane V2 | the autoscaling limits, labels and cost allocation (in place); the machine type, the disk and spot (by adding a node pool with the new settings and removing the old one); the release channel and the maintenance window |
 
-**Sizing.** The template's own resource requests come to about 6 GiB of memory for each environment. A node has less memory for Pods than its machine type says (Google and the system Pods keep a share), so the two `e2-standard-2` nodes (8 GiB each) of 8.2 hold one environment, not three. For one shared cluster that hosts the template's dev, qa and production, or several projects, add about 6 GiB per environment, plus about 2 GiB of system Pods for the cluster, and raise `--machine-type` (for example `e2-standard-4`) and `--max-nodes` in 8.2 before you create it. Spot nodes cut the cost of the non-production part. Production stays on regular nodes.
+**Sizing.** The template's own resource requests come to about 6 GiB of memory for each environment. A node has less memory for Pods than its machine type says (Google and the system Pods keep a share), so one `e2-standard-2` node (8 GiB) hosts well under one environment. The default layout puts `dev`, `qa` and `production` on this cluster: about 18 GiB for the three, plus about 2 GiB of system Pods, so about 4 to 5 such nodes once all three are deployed. 8.2 therefore starts with two nodes and lets the autoscaler grow the pool to `--max-nodes=6` as the environments deploy; the cost grows with it (section 15). Each further project or environment adds about 6 GiB, so raise `--max-nodes` (or `--machine-type`) for it first. Spot nodes cut the cost of the non-production part; production stays on regular nodes, so if you run production on this cluster, leave `--spot` off or give production a node pool of its own.
 
 ### 8.1 Check that your gcloud knows every flag
 
@@ -363,7 +377,7 @@ This takes about 8 to 12 minutes.
 ```bash
 gcloud container clusters create "${CLUSTER}" \
   --location="${ZONE}" \
-  --release-channel=regular \
+  --release-channel=stable \
   --network="${NETWORK}" --subnetwork="${SUBNET}" \
   --enable-ip-alias \
   --cluster-secondary-range-name=pods --services-secondary-range-name=services \
@@ -374,13 +388,13 @@ gcloud container clusters create "${CLUSTER}" \
   --gateway-api=standard \
   --service-account="${NODE_SA}" \
   --machine-type=e2-standard-2 --disk-type=pd-balanced --disk-size=50 \
-  --num-nodes=2 --enable-autoscaling --min-nodes=1 --max-nodes=3 \
+  --num-nodes=2 --enable-autoscaling --min-nodes=1 --max-nodes=6 \
   --shielded-secure-boot --shielded-integrity-monitoring \
   --logging=SYSTEM,WORKLOAD --monitoring=SYSTEM --enable-managed-prometheus \
   --maintenance-window-start=2026-11-21T00:00:00Z \
   --maintenance-window-end=2026-11-21T08:00:00Z \
   --maintenance-window-recurrence='FREQ=WEEKLY;BYDAY=SA,SU' \
-  --labels=env=dev,app=platform
+  --labels=app=platform
 ```
 
 For dev on spot nodes, add `--spot` to the command (spot is fixed per node pool).
@@ -389,7 +403,7 @@ What the flags are for:
 
 | Flag | Why |
 |---|---|
-| `--release-channel=regular` | Google patches and upgrades the cluster for you, at a tested pace. |
+| `--release-channel=stable` | Google patches and upgrades the cluster for you, at the most conservative pace: the right channel for a cluster that carries production. `regular` is GKE's default and gets versions sooner; use it only for a cluster that never carries production. |
 | `--enable-private-nodes` | The nodes get no public IP address. |
 | `--enable-dns-access` | The DNS-based control-plane endpoint. CI reaches the cluster through it with IAM only, with no IP allowlist. Needed now, not later. |
 | `--enable-dataplane-v2` | NetworkPolicies are enforced, and the chart relies on them. |
@@ -415,7 +429,7 @@ gcloud container clusters describe "${CLUSTER}" --location="${ZONE}" --format="y
 
 Expected:
 - `status: RUNNING`;
-- `channel: REGULAR`;
+- `channel: STABLE`;
 - `workloadPool: <project>.svc.id.goog`;
 - `datapathProvider: ADVANCED_DATAPATH`;
 - the gateway channel `CHANNEL_STANDARD`;
@@ -428,7 +442,7 @@ Expected:
 > **Do now.**
 
 ```bash
-source ~/gke-setup.env
+source "${GKE_SETUP_ENV}"
 gcloud container clusters get-credentials "${CLUSTER}" --location="${ZONE}" --dns-endpoint
 ```
 
@@ -542,7 +556,7 @@ The template's default registry is GHCR (`ghcr.io`), which needs no setup here. 
 ```bash
 gcloud artifacts repositories create "${AR_REPO}" --repository-format=docker \
   --location="${REGION}" --immutable-tags \
-  --description="Container images for apps-dev"
+  --description="Container images for apps"
 
 gcloud artifacts repositories add-iam-policy-binding "${AR_REPO}" --location="${REGION}" \
   --member="serviceAccount:${NODE_SA}" --role="roles/artifactregistry.reader"
@@ -603,7 +617,7 @@ Sources: [Managing environments for deployment](https://docs.github.com/en/actio
 
 1. Create the repository `$GH_REPO`, public or private per 11.1, **empty**: no README, no licence, no `.gitignore`. Then the first push of the code is a plain push. If the repository already has GitHub's initial commit, the first push needs one force-push, `git push --force origin main`, done once and **before any ruleset exists**.
 
-   **If the repository already exists with history** (you created it earlier, or it is a copy of the template with commits of its own), skip the create step, and check that `GH_REPO` in `~/gke-setup.env` names it. Never force-push over history you want to keep: bring the template's changes in through a branch and a pull request. Two things to know before you run [`scripts/github-settings.sh`](../scripts/github-settings.sh): `gh` must be logged in as an admin of the repository, and its `main` ruleset (no bypass, squash-only merges) makes every later push a pull request. The release App and the release-please starting commit it needs are described in [GitHub repository settings](./github-repository-settings.md).
+   **If the repository already exists with history** (you created it earlier, or it is a copy of the template with commits of its own), skip the create step, and check that `GH_REPO` in the variables file names it. Never force-push over history you want to keep: bring the template's changes in through a branch and a pull request. Two things to know before you run [`scripts/github-settings.sh`](../scripts/github-settings.sh): `gh` must be logged in as an admin of the repository, and its `main` ruleset (no bypass, squash-only merges) makes every later push a pull request. `--apply` refuses to run without `RELEASE_APP_ID`, so create and install the release App first ([The release GitHub App](./github-repository-settings.md#the-release-github-app)). Land the commit that sets `bootstrap-sha` on `main` before you set `RELEASE_APP_ID`, as that page says.
 2. Under **Settings → Actions → General:**
    - **Actions permissions:**
      - allow GitHub-made actions and actions by Marketplace verified creators, or only selected actions;
@@ -637,7 +651,7 @@ The workflow then acts as the deployer service account of its own GitHub environ
 ```bash
 export GH_OWNER_ID="$(curl -fsSL "https://api.github.com/users/${GH_OWNER}" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-printf 'export GH_OWNER_ID="%s"\n' "${GH_OWNER_ID}" >> ~/gke-setup.env
+printf 'export GH_OWNER_ID="%s"\n' "${GH_OWNER_ID}" >> "${GKE_SETUP_ENV}"
 printf '%s\n' "${GH_OWNER_ID}"
 GH_REPO_ID="$(gh api "repos/${GH_REPO}" --jq .id 2>/dev/null \
   || curl -fsS "https://api.github.com/repos/${GH_REPO}" 2>/dev/null \
@@ -652,7 +666,7 @@ The repository must exist (11.2). Its ID does not change when it is renamed or m
 **Check:** both IDs print a number. Only then save the repository ID:
 
 ```bash
-printf 'export GH_REPO_ID="%s"\n' "${GH_REPO_ID}" >> ~/gke-setup.env
+printf 'export GH_REPO_ID="%s"\n' "${GH_REPO_ID}" >> "${GKE_SETUP_ENV}"
 ```
 
 The owner endpoint works for user accounts and organisations alike.
@@ -711,7 +725,7 @@ else
     --permissions=container.clusters.get,container.clusters.connect --stage=GA
   export DEPLOYER_CLUSTER_ROLE="projects/${PROJECT_ID}/roles/gkeDnsConnect"
 fi
-printf 'export DEPLOYER_CLUSTER_ROLE="%s"\n' "${DEPLOYER_CLUSTER_ROLE}" >> ~/gke-setup.env
+printf 'export DEPLOYER_CLUSTER_ROLE="%s"\n' "${DEPLOYER_CLUSTER_ROLE}" >> "${GKE_SETUP_ENV}"
 printf '%s\n' "${DEPLOYER_CLUSTER_ROLE}"
 ```
 
@@ -719,20 +733,31 @@ The `else` branch creates a role with exactly the two permissions a deployer nee
 
 **Check:** the last line prints `roles/container.clusterViewer` or `projects/<PROJECT_ID>/roles/gkeDnsConnect`.
 
-**The subject prefix.** The member of each binding below is the subject Google sees, and GitHub builds it from the repository's OIDC subject settings. A repository can use the default (`repo:<owner>/<repo>`) or immutable identifiers (the owner and repository IDs instead of the names), and a copy of the template may differ from the upstream one. Read it from the repository instead of assuming it:
+**The subject prefix.** The member of each binding below is the subject Google sees, and GitHub builds it from the repository's OIDC subject settings. GitHub's immutable format puts the IDs in the repository segment: `repo:OWNER@OWNER-ID/REPO@REPO-ID`. It is automatic for a repository created, renamed or transferred after 2026-07-15, and a repository can opt in before. An older repository still uses `repo:OWNER/REPO`. A customised `include_claim_keys` list does not remove the IDs from that segment. Read the prefix from the repository instead of assuming it ([REST API: OIDC](https://docs.github.com/en/rest/actions/oidc); [GitHub's announcement](https://github.blog/changelog/2026-04-23-immutable-subject-claims-for-github-actions-oidc-tokens)):
 
 ```bash
-SUB_PREFIX="$(gh api "repos/${GH_REPO}/actions/oidc/customization/sub" \
-  | jq -r --arg repo "${GH_REPO}" --arg oid "${GH_OWNER_ID}" --arg rid "${GH_REPO_ID}" \
-      '(if .use_default then ["repo"] else .include_claim_keys end)
-       | map(select(. != "context"))
-       | map({repo: ("repo:" + $repo), repository_owner_id: ("repository_owner_id:" + $oid), repository_id: ("repository_id:" + $rid)}[.] // error("claim key not handled: " + .))
-       | join(":")')"
-printf 'export SUB_PREFIX="%s"\n' "${SUB_PREFIX}" >> ~/gke-setup.env
+SUB_SETTINGS="$(gh api "repos/${GH_REPO}/actions/oidc/customization/sub")"
+SUB_PREFIX="$(printf '%s' "${SUB_SETTINGS}" | jq -r \
+  --arg repo "${GH_REPO}" --arg owner "${GH_OWNER}" --arg name "${GH_REPO_NAME}" \
+  --arg oid "${GH_OWNER_ID}" --arg rid "${GH_REPO_ID}" \
+  '(if .use_immutable_subject then "repo:" + $owner + "@" + $oid + "/" + $name + "@" + $rid else "repo:" + $repo end) as $repo_part
+   | if (.sub_claim_prefix // "") != "" then .sub_claim_prefix
+     elif .use_default then $repo_part
+     else (.include_claim_keys
+           | map(select(. != "context"))
+           | map({repo: $repo_part, repository_owner_id: ("repository_owner_id:" + $oid), repository_id: ("repository_id:" + $rid)}[.] // error("claim key not handled: " + .))
+           | join(":"))
+     end')"
 printf '%s\n' "${SUB_PREFIX}"
 ```
 
-With the default setting it prints `repo:` followed by `owner/repo`; with immutable identifiers it prints `repository_owner_id:` and the ID, then `repository_id:` and the ID, each pair joined by a colon. If the command stops with `claim key not handled`, the repository includes a claim this guide does not build: write the prefix by hand in the order of `include_claim_keys`, as `name:value` pairs joined by colons. The member of a binding is the prefix, then `:environment:` and the environment name. If the setting changes later, redo the bindings.
+**Check:** it prints one line that starts with `repo:`: `repo:OWNER@OWNER-ID/REPO@REPO-ID` for the immutable format (the owner and repository IDs of 12.1 inside it), or `repo:OWNER/REPO` for an older repository. A prefix the repository sets itself is printed as it is. If the command stops with `claim key not handled`, the repository includes a claim this guide does not build: write the prefix by hand in the order of `include_claim_keys`, as `name:value` pairs joined by colons. **Never go on with an empty line:** the binding would name `subject/:environment:dev` and match nothing. Only then save it:
+
+```bash
+[ -n "${SUB_PREFIX}" ] && printf 'export SUB_PREFIX="%s"\n' "${SUB_PREFIX}" >> "${GKE_SETUP_ENV}" || printf 'SUB_PREFIX is empty: do not continue\n'
+```
+
+The member of a binding is the prefix, then `:environment:` and the environment name. If the repository is renamed or transferred, or its setting changes, read the prefix again and redo the bindings.
 
 Then create the accounts and grant. Only the job of one environment, in this one repository, may act as that environment's account (the `workloadIdentityUser` binding); the second binding lets the account reach the cluster's DNS-based endpoint, which is not the right to deploy:
 
@@ -831,7 +856,7 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" --condition=None \
   --member="serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" --role="${DEPLOYER_CLUSTER_ROLE}"
 ```
 
-The member uses `SUB_PREFIX` of 12.3 (load `~/gke-setup.env` first). The same wait for IAM applies.
+The member uses `SUB_PREFIX` of 12.3 (set `GKE_SETUP_ENV` and load the file first). The same wait for IAM applies.
 
 **Check:** as in 12.3, `kubectl auth can-i create deployments --namespace default --as="gh-deployer-preview@$PROJECT_ID.iam.gserviceaccount.com"` prints `no`.
 
@@ -914,7 +939,7 @@ The selector is `tier: preview-app`, not `app-ns`: the preview namespaces carry 
 ```bash
 kubectl -n gateway-system wait --for=condition=Programmed gateway/preview-internal --timeout=600s
 export PREVIEW_GW_IP="$(kubectl -n gateway-system get gateway preview-internal -o jsonpath='{.status.addresses[0].value}')"
-printf 'export PREVIEW_GW_IP="%s"\n' "${PREVIEW_GW_IP}" >> ~/gke-setup.env
+printf 'export PREVIEW_GW_IP="%s"\n' "${PREVIEW_GW_IP}" >> "${GKE_SETUP_ENV}"
 printf '%s\n' "${PREVIEW_GW_IP}"
 ```
 
@@ -1100,7 +1125,7 @@ For the cluster, set these in GitHub, **per environment** (**Settings → Enviro
 None of them is secret. To print the values from your terminal:
 
 ```bash
-source ~/gke-setup.env
+source "${GKE_SETUP_ENV}"
 printf '%s\n' "GCP_PROJECT_ID=${PROJECT_ID}" "GKE_CLUSTER=${CLUSTER}" "GKE_LOCATION=${ZONE}" \
  "GCP_WIF_PROVIDER=projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/providers/github-oidc"
 for env in dev qa production; do printf 'GCP_DEPLOYER_SA (%s)=gh-deployer-%s@%s.iam.gserviceaccount.com\n' "${env}" "${env}" "${PROJECT_ID}"; done
@@ -1123,23 +1148,35 @@ for env in dev qa production; do
 done
 ```
 
-Then, as a cluster admin, render and apply each environment:
+Then, as a cluster admin, render each environment. The command only renders:
 
 ```bash
 SERVICE_NAME="your-service-name"
 for env in dev qa production; do
-  scripts/k8s-bootstrap.sh "${env}" --release "${SERVICE_NAME}" --values ~/platform-config/bootstrap-${env}.yaml > ~/platform-config/rendered-${env}.yaml
-  kubectl apply -f ~/platform-config/rendered-${env}.yaml
+  scripts/k8s-bootstrap.sh "${env}" --release "${SERVICE_NAME}" --values "${HOME}/platform-config/bootstrap-${env}.yaml" > "${HOME}/platform-config/rendered-${env}.yaml"
 done
 ```
 
-Set `SERVICE_NAME` to the repository variable of 13.1. The command only renders; `kubectl apply` is what changes the cluster. A server-side dry run (`kubectl apply --dry-run=server`) of the file answers `NotFound` while its namespaces do not exist, because the Roles are checked inside them. To dry-run first, create the namespaces, then dry-run and apply (the apply adds the labels):
+Set `SERVICE_NAME` to the repository variable of 13.1. A server-side dry run of the file answers `NotFound` while its namespaces do not exist, because the Roles are checked inside them. **The one exception to "don't create the namespaces by hand":** to dry-run before the real apply, create them first (the apply then adds the labels):
 
 ```bash
 for ns in "${SERVICE_NAME}-dev" "${SERVICE_NAME}-dev-db" "${SERVICE_NAME}-qa" "${SERVICE_NAME}-qa-db" "${SERVICE_NAME}-production"; do
   kubectl create namespace "${ns}"
 done
 ```
+
+Then dry-run, and apply:
+
+```bash
+for env in dev qa production; do
+  kubectl apply --dry-run=server -f "${HOME}/platform-config/rendered-${env}.yaml"
+done
+for env in dev qa production; do
+  kubectl apply -f "${HOME}/platform-config/rendered-${env}.yaml"
+done
+```
+
+The dry run prints each object with `(server dry run)`. If you skipped the namespaces, skip the dry run too and apply.
 
 Each deployer can then deploy only in its own environment's namespaces:
 
@@ -1243,9 +1280,9 @@ The first prints `external-secrets-` and the version in `tools/pins.tsv`. The se
 Turn on the Secret Manager API, then grant each namespace's `external-secrets` service account Secret Accessor under a condition on the secret names. The app namespaces read `<service>-<env>-*`; the database namespaces (dev and qa) read only `<service>-<env>-db-password`. The bindings are on the project, so each one has its own condition title.
 
 ```bash
-source ~/gke-setup.env
+source "${GKE_SETUP_ENV}"
 export SERVICE_NAME="your-service-name"
-printf 'export SERVICE_NAME="%s"\n' "${SERVICE_NAME}" >> ~/gke-setup.env
+printf 'export SERVICE_NAME="%s"\n' "${SERVICE_NAME}" >> "${GKE_SETUP_ENV}"
 gcloud services enable secretmanager.googleapis.com
 
 pool="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${PROJECT_ID}.svc.id.goog"
@@ -1303,7 +1340,7 @@ The first command shows `secret-manager` in the five namespaces, STATUS `Valid`,
 
 One secret per key and environment, named `<service>-<env>-<key>`: `db-user`, `db-password` and `stats-pass`. No value is typed, shown or put on a command line: the passwords are generated (`openssl rand -hex 24`: 48 hexadecimal characters, safe inside a database URL) and reach `gcloud` on its standard input (`--data-file=-`), so they are never in the shell history or on the screen. The in-cluster PostgreSQL of dev and qa is created with the user `postgresql.auth.user` of the chart's `values.yaml` (`app` unless you changed it) and the password `db-password`, so `db-user` must be that user name: the loop takes it from the chart (the user name is not secret).
 
-**Production's `db-user` and `db-password` come with the managed database** ([Database](./database.md)) and can wait: create them the same way, with the database's user and password, once it exists. Until then only production's `stats-pass` is created, and the two production secrets of the database show `SecretSyncedError` after the first deploy (14.6).
+**Production's `db-user` and `db-password` come with the managed database** ([Database](./database.md)) and can wait: create them the same way, with the database's user and password, once it exists. Until then only production's `stats-pass` is created, and production's `<service>-secret` ExternalSecret shows `SecretSyncedError` after the first deploy (14.6).
 
 ```bash
 new_secret() {
@@ -1425,8 +1462,8 @@ These are list prices from 2026 and change over time. The [GKE pricing](https://
 | Item | Approximate cost |
 |---|---|
 | Cluster management fee | $0 for one zonal cluster: GKE's free tier credit covers it |
-| 2 × e2-standard-2 nodes | about $95 on demand, about $30 to $40 on spot |
-| 2 × 50 GB balanced disks | about $10 |
+| e2-standard-2 nodes | about $48 each on demand, about $15 to $20 on spot: 2 nodes at the start, about 4 to 5 with all three environments deployed (autoscaled, up to 6) |
+| 50 GB balanced disk per node | about $5 each |
 | Cloud NAT | about $1 a month, plus about $0.045 per GB processed |
 | Artifact Registry | cents, for a few GB of images |
 | Load balancer, only if you choose the Gateway option over the Cloudflare Tunnel | about $18 to $20 |
@@ -1447,7 +1484,7 @@ Resume: two nodes, then the autoscaler back on with the limits of 8.2.
 ```bash
 gcloud container clusters resize "${CLUSTER}" --location="${ZONE}" --node-pool=default-pool --num-nodes=2 --quiet
 gcloud container node-pools update default-pool --cluster="${CLUSTER}" --location="${ZONE}" \
-  --enable-autoscaling --min-nodes=1 --max-nodes=3
+  --enable-autoscaling --min-nodes=1 --max-nodes=6
 ```
 
 **Check:** a few minutes after the pause, `kubectl get nodes` prints `No resources found`; after the resume, 2 nodes are `Ready`.
@@ -1499,7 +1536,7 @@ Remove the project-level role bindings too (the Secret Accessor bindings of 14.2
 | 2 | Seven APIs enabled | step 5 check | `7` |
 | 3 | Subnet has Private Google Access and secondary ranges | step 6 check | `True`, `pods`, `services` |
 | 4 | Node SA has only the node roles | step 7 check | no editor or owner |
-| 5 | Cluster settings | step 8 check | RUNNING, REGULAR, ADVANCED_DATAPATH, gke-nodes |
+| 5 | Cluster settings | step 8 check | RUNNING, STABLE, ADVANCED_DATAPATH, gke-nodes |
 | 6 | Nodes are private | `kubectl get nodes -o wide` | EXTERNAL-IP `<none>` |
 | 7 | Gateway classes present | `kubectl get gatewayclass` | `gke-l7-*` |
 | 8 | NAT and NetworkPolicy | step 9.3 | probe A ok, probe B blocked |
@@ -1527,11 +1564,11 @@ When rows 1 to 13 pass (leaving out optional row 9 if you skipped section 10), y
 | `ImagePullBackOff` for private `ghcr.io` images | no pull secret in the namespace | [13.4](#134-an-image-pull-secret-for-private-ghcr-images) |
 | `ImagePullBackOff` for `…pkg.dev` images | the node SA can't read the registry, or the path is wrong | recheck the reader binding in step 10, and the `REGION-docker.pkg.dev/PROJECT/apps/...` path |
 | Actions: `The given credential is rejected by the attribute condition` | wrong owner ID, repository ID or repository name (`GH_REPO`, which is case-sensitive), or the job runs from a workflow file or ref the condition doesn't allow (for example a branch other than `main`, or another workflow) | compare with `providers describe`, and fix with `providers update-oidc --attribute-condition=…` |
-| Actions: `Permission 'iam.serviceAccounts.getAccessToken' denied` | the `workloadIdentityUser` binding is missing, names a different repository or environment, or uses a subject prefix other than the repository's (the default `repo:<owner>/<repo>`, or immutable IDs), or it was created minutes ago and has not propagated | recheck step 12.3: the member is `SUB_PREFIX` read from `actions/oidc/customization/sub`, then `:environment:<env>`, exactly. If the binding is right, wait up to 7 minutes after changing a binding before rerunning |
+| Actions: `Permission 'iam.serviceAccounts.getAccessToken' denied` | the `workloadIdentityUser` binding is missing, names a different repository or environment, or uses a subject prefix other than the repository's (the immutable `repo:<owner>@<owner-ID>/<repo>@<repo-ID>`, or the older `repo:<owner>/<repo>`), or it was created minutes ago and has not propagated | recheck step 12.3: the member is `SUB_PREFIX` read from `actions/oidc/customization/sub` (`repo:<owner>@<owner-ID>/<repo>@<repo-ID>` for the immutable format), then `:environment:<env>`, exactly. If the binding is right, wait up to 7 minutes after changing a binding before rerunning |
 | Actions: `Unable to get ACTIONS_ID_TOKEN_REQUEST_URL` | the workflow lacks `id-token: write` | the workflows already declare it; if you changed one, restore `id-token: write` on that job |
 | Actions: "must be pinned to a full-length commit SHA" | the repo setting from 11.2 is doing its job | use the SHA form, as every workflow here does |
 | `Maintenance policy would go longer than 32d without 48h maintenance availability` | the maintenance window is too short | widen it, as in [8.2](#82-create-it) |
-| `kubectl` hangs or times out | wrong kubeconfig, or the cluster is resized to 0 | `source ~/gke-setup.env`, then check `kubectl config current-context` and the node count |
+| `kubectl` hangs or times out | wrong kubeconfig, or the cluster is resized to 0 | `export GKE_SETUP_ENV` as in 3 and `source "${GKE_SETUP_ENV}"`, then check `kubectl config current-context` and the node count |
 
 ## 18. What comes next
 

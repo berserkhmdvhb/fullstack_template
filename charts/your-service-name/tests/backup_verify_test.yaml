@@ -161,6 +161,7 @@ tests:
       fullnameOverride: abcdefghijklmnopqrstuvwxyz012345678
     asserts:
       - notFailedTemplate: {}
+      - equal: {path: metadata.name, value: abcdefghijklmnopqrstuvwxyz012345678-pg-backup-verify}
   - it: a fullname of 36 characters (a 53-character CronJob name) is refused
     template: pg-backup-verify-cronjob.yaml
     set:
