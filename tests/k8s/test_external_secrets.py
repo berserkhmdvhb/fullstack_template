@@ -437,15 +437,15 @@ def _refused(kube: Kube, name: str, what: str) -> None:
     assert refused, f"no 403 from OpenBao for {what} in the operator's log"
 
 
-def _secret_diagnostics(setup: Setup, kube: Kube, name: str) -> str:
-    """Why a Secret differs, without a value: its keys and value lengths, its resourceVersion and
-    the ExternalSecret's refreshTime and conditions."""
+def _secret_diagnostics(setup: Setup, kube: Kube, name: str, want: dict[str, str]) -> str:
+    """Why a Secret differs, without a value: its key names, whether it matches, its resourceVersion
+    and the ExternalSecret's refreshTime and conditions."""
     secret = kube.get("secret", name)
     data = setup.secret_data(kube, name)
     es = kube.get("externalsecret", name).get("status", {})
     return (
         f"exists={bool(secret)} resourceVersion={secret.get('metadata', {}).get('resourceVersion')}"
-        f" keys={sorted(data)} lengths={ {k: len(v) for k, v in data.items()} }"
+        f" keys={sorted(data)} matches={data == want}"
         f" refreshTime={es.get('refreshTime')} conditions={es.get('conditions')}"
     )
 
@@ -464,12 +464,13 @@ def _wait_secret_data(setup: Setup, kube: Kube, name: str, want: dict[str, str])
     end = time.time() + 120
     while not matches():
         if time.time() > end:
-            pytest.fail(f"{name} differs from OpenBao: {_secret_diagnostics(setup, kube, name)}")
+            pytest.fail(
+                f"{name} differs from OpenBao: {_secret_diagnostics(setup, kube, name, want)}"
+            )
         time.sleep(1)
     if polls > 1:
-        print(
-            f"{name} matched OpenBao only at poll {polls}: {_secret_diagnostics(setup, kube, name)}"
-        )
+        why = _secret_diagnostics(setup, kube, name, want)
+        print(f"{name} matched OpenBao only at poll {polls}: {why}")
 
 
 def test_a_store_of_another_environment_cannot_read_the_path(setup: Setup) -> None:

@@ -808,10 +808,24 @@ def mise_lock(platforms: list[str]) -> bool:
     return subprocess.run(cmd, check=False).returncode == 0  # noqa: S603
 
 
+def missing_input(label: str, paths: dict[str, Path]) -> bool:
+    """True (a problem) when a default input file is missing; a missing file that its env override
+    names is skipped, so a test can point the check at nothing. False when every file is there."""
+    absent = [env for env, path in paths.items() if not path.is_file()]
+    if not absent:
+        return False
+    if any(env in os.environ for env in absent):
+        out(f"ok {label}: skipped (override points at a missing file)")
+        return False
+    out(f"ERROR {label}: missing {', '.join(str(paths[env]) for env in absent)}")
+    return True
+
+
 def run_mise(*, check: bool) -> bool:
     """Check mise.lock against mise.toml; refreshing runs `mise lock` first. True on a problem."""
-    if not (MISE_TOML.is_file() and MISE_LOCK.is_file()):
-        return False
+    paths = {"MISE_TOML": MISE_TOML, "MISE_LOCK": MISE_LOCK}
+    if any(not p.is_file() for p in paths.values()):
+        return missing_input("mise.lock", paths)
     config = MISE_TOML.read_text()
     found = mise_problems(config, MISE_LOCK.read_text())
     if found and check:
@@ -874,8 +888,9 @@ def pnpm_image_problems(
 
 def run_pnpm_image(*, check: bool) -> bool:
     """Check (and on a refresh, write) Dockerfile.frontend's pnpm. True on a problem."""
-    if not (PNPM_DOCKERFILE.is_file() and MISE_TOML.is_file() and MISE_LOCK.is_file()):
-        return False
+    paths = {"PNPM_DOCKERFILE": PNPM_DOCKERFILE, "MISE_TOML": MISE_TOML, "MISE_LOCK": MISE_LOCK}
+    if any(not p.is_file() for p in paths.values()):
+        return missing_input("Dockerfile.frontend pnpm", paths)
     text = PNPM_DOCKERFILE.read_text()
     try:
         vendor, drift, new = pnpm_image_problems(text, MISE_TOML.read_text(), MISE_LOCK.read_text())
