@@ -4,7 +4,6 @@ runner stands in for kubectl."""
 
 from __future__ import annotations
 
-import hashlib
 import subprocess
 from typing import Any
 
@@ -33,18 +32,18 @@ def _kube() -> Kube:
     return kube
 
 
-def _run(runner: _Runner, digests: list[str]) -> str:
-    def command(digest: str) -> list[str]:
-        digests.append(digest)
-        return ["exec", digest]
+def _run(runner: _Runner, sizes: list[str]) -> str:
+    def command(size: str) -> list[str]:
+        sizes.append(size)
+        return ["exec", size]
 
     return exec_stdin(_kube(), "a site", "payload\n", command, runner)
 
 
-def test_the_digest_passed_is_the_payloads_sha256() -> None:
-    digests: list[str] = []
-    assert _run(_Runner(0), digests) == "out"
-    assert digests == [hashlib.sha256(b"payload\n").hexdigest()]
+def test_the_size_passed_is_the_payloads_byte_count() -> None:
+    sizes: list[str] = []
+    assert _run(_Runner(0), sizes) == "out"
+    assert sizes == ["8"]  # "payload\n": the trailing newline counts
 
 
 def test_a_lost_stdin_is_retried_with_a_note_that_holds_no_data(
@@ -76,7 +75,7 @@ def test_another_failure_is_not_retried() -> None:
     assert len(runner.sent) == 1
 
 
-def test_the_bytes_hashed_are_the_bytes_run_both_sends(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_size_is_in_bytes_and_is_what_run_both_sends(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: dict[str, Any] = {}
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -84,12 +83,13 @@ def test_the_bytes_hashed_are_the_bytes_run_both_sends(monkeypatch: pytest.Monke
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr("subprocess.run", fake_run)
-    digests: list[str] = []
+    sizes: list[str] = []
 
-    def command(digest: str) -> list[str]:
-        digests.append(digest)
+    def command(size: str) -> list[str]:
+        sizes.append(size)
         return ["exec"]
 
     exec_stdin(_kube(), "a site", "caf\u00e9\n", command, _kube_module._run_both)
     assert sent["encoding"] == "utf-8"
-    assert digests == [hashlib.sha256(sent["input"].encode(sent["encoding"])).hexdigest()]
+    assert sizes == [str(len(sent["input"].encode(sent["encoding"])))]
+    assert sizes == ["6"]  # five characters, six bytes

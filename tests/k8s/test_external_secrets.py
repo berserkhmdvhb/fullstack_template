@@ -235,18 +235,18 @@ class Setup:
         target = ["exec", "-i" if stdin is not None else "-q", f"deployment/{OPENBAO}", "--"]
         if stdin is None:
             return self.bao(*target, "sh", "-c", BAO + script, "sh", *args)
-        # The container checks the input's digest (the first argument) before the script uses it.
+        # The container checks the input's byte count (the first argument) before using it.
         return exec_stdin(
             self.bao,
             "bao_sh",
             stdin,
-            lambda digest: [
+            lambda size: [
                 *target,
                 "sh",
                 "-c",
                 SH_STDIN_CHECK + BAO + script,
                 "sh",
-                digest,
+                size,
                 *args,
             ],
         )

@@ -4,7 +4,6 @@ for the server (tools/kind-nodes.tsv). Not a test module (pytest collects test_*
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -158,16 +157,19 @@ class Kube:
 
 # kubectl exec streams over WebSockets since 1.31, and the API server can process a close before the
 # stdin it already received (kubernetes/kubernetes#112834): the process in the container then reads
-# fewer bytes than were sent (an empty policy, an empty value). A container-side check exits
-# STDIN_LOST when its digest of the input differs from the one passed as an argument, before the
-# input is used; exec_stdin retries then.
+# fewer bytes than were sent (an empty policy, an empty value). Loss or truncation is the failure
+# mode (the stream's TCP and TLS cover corruption), so a container-side check exits STDIN_LOST when
+# the byte count it read differs from the one passed as an argument, before the input is used;
+# exec_stdin retries then.
 STDIN_LOST = 75
 STDIN_ATTEMPTS = 3
-# The check for a container with sh and sha256sum: the digest is the first argument, and stdin is
-# the verified input afterwards (a temp file keeps trailing newlines; unlinked once it is stdin).
+# The check for a container with sh and wc: the byte count is the first argument, and stdin is the
+# checked input afterwards (a temp file keeps trailing newlines; unlinked once it is stdin). $((n))
+# drops the padding some wc print.
 SH_STDIN_CHECK = (
     'f=$(mktemp) || exit 1; cat >"$f" || { rm -f "$f"; exit 75; }; '
-    '[ "$(sha256sum <"$f" | cut -d" " -f1)" = "$1" ] || { rm -f "$f"; exit 75; }; '
+    'n=$(wc -c <"$f") || { rm -f "$f"; exit 75; }; '
+    '[ "$((n))" = "$1" ] || { rm -f "$f"; exit 75; }; '
     'shift; exec <"$f"; rm -f "$f"; '
 )
 
@@ -179,12 +181,12 @@ def exec_stdin(
     command: Callable[[str], list[str]],
     run: Callable[..., subprocess.CompletedProcess[str]] = _run_both,
 ) -> str:
-    """``kube`` runs the kubectl arguments ``command(digest)`` with ``payload`` on stdin, where
-    ``digest`` is the payload's SHA-256 (hex) for the container-side check to compare. Exit
+    """``kube`` runs the kubectl arguments ``command(size)`` with ``payload`` on stdin, where
+    ``size`` is the payload's byte count (UTF-8, as _run_both sends it) for the container-side
+    check to compare. Exit
     STDIN_LOST retries (3 attempts, a note naming ``site`` and never the data); any other
     failure fails as _run does."""
-    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    cmd = [*kube.base, *command(digest)]
+    cmd = [*kube.base, *command(str(len(payload.encode("utf-8"))))]
     for attempt in range(1, STDIN_ATTEMPTS + 1):
         done = run(cmd, payload)
         if done.returncode == 0:
