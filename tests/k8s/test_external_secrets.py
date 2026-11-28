@@ -443,13 +443,13 @@ def _status(kube: Kube, kind: str, name: str) -> dict[str, Any]:
     return json.loads(out) if out else {}
 
 
-def _secret_diagnostics(kube: Kube, name: str) -> str:
+def _sync_diagnostics(kube: Kube, name: str) -> str:
     """Why a Secret differs, read without its data: kubectl prints only its resourceVersion and
     key names, plus the ExternalSecret's refreshTime, syncedResourceVersion and conditions."""
     version = kube(
         "get", "secret", name, "--ignore-not-found", "-o", "jsonpath={.metadata.resourceVersion}"
     )
-    keys = kube(
+    fields = kube(
         "get",
         "secret",
         name,
@@ -459,7 +459,7 @@ def _secret_diagnostics(kube: Kube, name: str) -> str:
     )
     es = _status(kube, "externalsecret", name)
     return (
-        f"exists={bool(version)} resourceVersion={version or None} keys={sorted(keys.split())}"
+        f"exists={bool(version)} resourceVersion={version or None} fields={sorted(fields.split())}"
         f" refreshTime={es.get('refreshTime')}"
         f" syncedResourceVersion={es.get('syncedResourceVersion')}"
         f" conditions={es.get('conditions')}"
@@ -480,7 +480,7 @@ def _wait_secret_data(setup: Setup, kube: Kube, name: str, want: dict[str, str])
         if setup.secret_data(kube, name) == want:  # a boolean: nothing is printed
             return True
         if not first:
-            first = _secret_diagnostics(kube, name)
+            first = _sync_diagnostics(kube, name)
         return False
 
     end = time.time() + 120
@@ -488,7 +488,7 @@ def _wait_secret_data(setup: Setup, kube: Kube, name: str, want: dict[str, str])
         if time.time() > end:
             pytest.fail(
                 f"{name} differs from OpenBao after 120s; at the first poll: {first};"
-                f" now: {_secret_diagnostics(kube, name)}"
+                f" now: {_sync_diagnostics(kube, name)}"
             )
         time.sleep(1)
     if polls > 1:
@@ -508,7 +508,7 @@ def test_a_store_of_another_environment_cannot_read_the_path(setup: Setup) -> No
         120,
     )
     _wait_secret_data(setup, setup.other, "fst-own", {"value": setup.other_value})
-    leaked = setup.other_value in _secret_diagnostics(setup.other, "fst-own")
+    leaked = setup.other_value in _sync_diagnostics(setup.other, "fst-own")
     assert not leaked, "the diagnostics hold the Secret's value"
     _refused(setup.other, "fst-theirs", "another environment's store, this environment's path")
 
