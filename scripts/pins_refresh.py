@@ -27,8 +27,8 @@ Three pin sources are covered:
 SOURCES is the one place that says where each tool's checksum comes from. With --base REF only rows
 that differ from REF are checked (a pull request); without it every row is (main, schedule).
 Env: PINS, SECURITY_CONFIG, REQS, CRD_SOURCES, MISE_TOML, MISE_LOCK, PNPM_DOCKERFILE (paths, used by
-the tests; the mise and pnpm checks are skipped when their file is missing), GITHUB_TOKEN (read-only,
-API only).
+the tests; the mise and pnpm checks are skipped when their file is missing), GITHUB_TOKEN
+(read-only, API only).
 """
 
 from __future__ import annotations

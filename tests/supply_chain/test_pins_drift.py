@@ -337,10 +337,9 @@ def test_wrapper_check_with_no_rows_needs_no_network(tmp_path: Path) -> None:
         MISE_LOCK=str(tmp_path / "none.lock"),
         PNPM_DOCKERFILE=str(tmp_path / "none.Dockerfile"),
         # every fetch (urllib honours these) is refused, so a network use fails the run
-        **{
-            name: "http://127.0.0.1:9"
-            for name in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
-        },
+        **dict.fromkeys(
+            ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"), "http://127.0.0.1:9"
+        ),
         NO_PROXY="",
         no_proxy="",
     )
