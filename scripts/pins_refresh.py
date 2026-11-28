@@ -26,7 +26,8 @@ Three pin sources are covered:
 
 SOURCES is the one place that says where each tool's checksum comes from. With --base REF only rows
 that differ from REF are checked (a pull request); without it every row is (main, schedule).
-Env: PINS, SECURITY_CONFIG, REQS, CRD_SOURCES (paths, used by the tests), GITHUB_TOKEN (read-only,
+Env: PINS, SECURITY_CONFIG, REQS, CRD_SOURCES, MISE_TOML, MISE_LOCK, PNPM_DOCKERFILE (paths, used by
+the tests; the mise and pnpm checks are skipped when their file is missing), GITHUB_TOKEN (read-only,
 API only).
 """
 
@@ -53,8 +54,8 @@ from typing import IO, NoReturn
 
 ROOT = Path(__file__).resolve().parent.parent
 HEX64 = re.compile(r"[0-9a-f]{64}")
-MISE_TOML = ROOT / "mise.toml"
-MISE_LOCK = ROOT / "mise.lock"
+MISE_TOML = Path(os.environ.get("MISE_TOML", str(ROOT / "mise.toml")))
+MISE_LOCK = Path(os.environ.get("MISE_LOCK", str(ROOT / "mise.lock")))
 # The documented regeneration command (tools/pins.tsv header), plus --quiet.
 # The pinned uv (tools/pins.tsv, installed by scripts/tools.sh) when present, like tools.sh itself.
 UV = str(ROOT / ".tools" / "bin" / "uv") if (ROOT / ".tools" / "bin" / "uv").is_file() else "uv"
@@ -809,6 +810,8 @@ def mise_lock(platforms: list[str]) -> bool:
 
 def run_mise(*, check: bool) -> bool:
     """Check mise.lock against mise.toml; refreshing runs `mise lock` first. True on a problem."""
+    if not (MISE_TOML.is_file() and MISE_LOCK.is_file()):
+        return False
     config = MISE_TOML.read_text()
     found = mise_problems(config, MISE_LOCK.read_text())
     if found and check:
@@ -834,7 +837,7 @@ def run_mise(*, check: bool) -> bool:
     return bool(found)
 
 
-PNPM_DOCKERFILE = ROOT / "Dockerfile.frontend"
+PNPM_DOCKERFILE = Path(os.environ.get("PNPM_DOCKERFILE", str(ROOT / "Dockerfile.frontend")))
 PNPM_KEY = "aqua:pnpm/pnpm"
 
 
@@ -871,6 +874,8 @@ def pnpm_image_problems(
 
 def run_pnpm_image(*, check: bool) -> bool:
     """Check (and on a refresh, write) Dockerfile.frontend's pnpm. True on a problem."""
+    if not (PNPM_DOCKERFILE.is_file() and MISE_TOML.is_file() and MISE_LOCK.is_file()):
+        return False
     text = PNPM_DOCKERFILE.read_text()
     try:
         vendor, drift, new = pnpm_image_problems(text, MISE_TOML.read_text(), MISE_LOCK.read_text())

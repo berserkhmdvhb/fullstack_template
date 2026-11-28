@@ -333,8 +333,18 @@ def test_wrapper_check_with_no_rows_needs_no_network(tmp_path: Path) -> None:
         SECURITY_CONFIG=str(tmp_path / "none.yaml"),
         REQS=str(tmp_path / "reqs"),
         CRD_SOURCES=str(tmp_path / "none.tsv"),
+        MISE_TOML=str(tmp_path / "none.toml"),
+        MISE_LOCK=str(tmp_path / "none.lock"),
+        PNPM_DOCKERFILE=str(tmp_path / "none.Dockerfile"),
+        # every fetch (urllib honours these) is refused, so a network use fails the run
+        **{
+            name: "http://127.0.0.1:9"
+            for name in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
+        },
+        NO_PROXY="",
+        no_proxy="",
     )
-    assert run.returncode == 0, run.stderr
+    assert run.returncode == 0, run.stdout + run.stderr
 
 
 # --- the CI wiring ---
