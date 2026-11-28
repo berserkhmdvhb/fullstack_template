@@ -4,6 +4,7 @@ for the server (tools/kind-nodes.tsv). Not a test module (pytest collects test_*
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -11,7 +12,7 @@ import shutil
 import ssl
 import subprocess
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -151,6 +152,48 @@ class Kube:
     def get(self, *args: str) -> dict[str, Any]:
         out = self("get", *args, "--ignore-not-found", "-o", "json")
         return json.loads(out) if out else {}
+
+
+# kubectl exec streams over WebSockets since 1.31, and the API server can process a close before the
+# stdin it already received (kubernetes/kubernetes#112834): the process in the container then reads
+# fewer bytes than were sent (an empty policy, an empty value). A container-side check exits
+# STDIN_LOST when its digest of the input differs from the one passed as an argument, before the
+# input is used; exec_stdin retries then.
+STDIN_LOST = 75
+STDIN_ATTEMPTS = 3
+# The check for a container with sh and sha256sum: the digest is the first argument, and stdin is
+# the verified input afterwards (a temp file keeps trailing newlines; unlinked once it is stdin).
+SH_STDIN_CHECK = (
+    'f=$(mktemp) && cat >"$f" && { [ "$(sha256sum <"$f" | cut -d" " -f1)" = "$1" ]'
+    ' || { rm -f "$f"; exit 75; }; }; shift; exec <"$f"; rm -f "$f"; '
+)
+
+
+def exec_stdin(
+    kube: Kube,
+    site: str,
+    payload: str,
+    command: Callable[[str], list[str]],
+    run: Callable[..., subprocess.CompletedProcess[str]] = _run_both,
+) -> str:
+    """``kube`` runs the kubectl arguments ``command(digest)`` with ``payload`` on stdin, where
+    ``digest`` is the payload's SHA-256 (hex) for the container-side check to compare. Exit
+    STDIN_LOST retries (3 attempts, a note naming ``site`` and never the data); any other
+    failure fails as _run does."""
+    digest = hashlib.sha256(payload.encode()).hexdigest()
+    cmd = [*kube.base, *command(digest)]
+    for attempt in range(1, STDIN_ATTEMPTS + 1):
+        done = run(cmd, payload)
+        if done.returncode == 0:
+            return done.stdout
+        if done.returncode != STDIN_LOST:
+            pytest.fail(
+                f"{' '.join(cmd[:6])} ... failed ({done.returncode}): {done.stderr.strip()}"
+            )
+        print(f"{site}: stdin lost in kubectl exec (attempt {attempt} of {STDIN_ATTEMPTS})")
+    pytest.fail(
+        f"{site}: stdin lost in kubectl exec {STDIN_ATTEMPTS} times (kubernetes/kubernetes#112834)"
+    )
 
 
 def docker(*args: str, stdin: str | None = None, check: bool = True) -> str:

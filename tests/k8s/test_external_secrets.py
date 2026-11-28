@@ -39,7 +39,17 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.k8s._kube import CONTEXT, KUBECONFIG, ROOT, Kube, _run, _tool, helm_as_deployer
+from tests.k8s._kube import (
+    CONTEXT,
+    KUBECONFIG,
+    ROOT,
+    SH_STDIN_CHECK,
+    Kube,
+    _run,
+    _tool,
+    exec_stdin,
+    helm_as_deployer,
+)
 from tests.k8s._kube import NAMESPACE as MAIN_NAMESPACE
 from tests.k8s._kube import RELEASE as MAIN_RELEASE
 from tests.supply_chain._pins import pin
@@ -222,8 +232,24 @@ class Setup:
 
     def bao_sh(self, script: str, *args: str, stdin: str | None = None) -> str:
         """A shell script in OpenBao's container, as root token holder (its environment only)."""
-        cmd = ["exec", "-i" if stdin is not None else "-q", f"deployment/{OPENBAO}", "--"]
-        return self.bao(*cmd, "sh", "-c", BAO + script, "sh", *args, stdin=stdin)
+        target = ["exec", "-i" if stdin is not None else "-q", f"deployment/{OPENBAO}", "--"]
+        if stdin is None:
+            return self.bao(*target, "sh", "-c", BAO + script, "sh", *args)
+        # The container checks the input's digest (the first argument) before the script uses it.
+        return exec_stdin(
+            self.bao,
+            "bao_sh",
+            stdin,
+            lambda digest: [
+                *target,
+                "sh",
+                "-c",
+                SH_STDIN_CHECK + BAO + script,
+                "sh",
+                digest,
+                *args,
+            ],
+        )
 
     def install_openbao(self) -> None:
         token = secrets.token_urlsafe(32)

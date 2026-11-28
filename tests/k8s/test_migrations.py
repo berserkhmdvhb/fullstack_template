@@ -78,6 +78,16 @@ LOCK_WINDOW = (1.5, 6.0)  # 2 s lock timeout
 CA_IN_POD = "/tmp/test-ca.pem"  # noqa: S108 - in the backend Pod's own /tmp (emptyDir)
 OTHER_CA_IN_POD = "/tmp/test-other-ca.pem"  # noqa: S108 - the same
 
+# The backend container has Python and maybe no shell: it compares stdin's SHA-256 with argv[1]
+# (exit 75 if it differs, before the script runs) and gives the script the verified stdin.
+STDIN_CHECK = (
+    "import hashlib, io, sys\n"
+    "payload = sys.stdin.buffer.read()\n"
+    "if hashlib.sha256(payload).hexdigest() != sys.argv.pop(1):\n"
+    "    sys.exit(75)\n"
+    "sys.stdin = io.TextIOWrapper(io.BytesIO(payload), encoding='utf-8')\n"
+)
+
 # Runs in a backend Pod with its Python and its env (the ConfigMap and the Secret, as the app):
 # one connection through the product's own connect arguments, one statement, one JSON line.
 PROBE = r"""
@@ -306,7 +316,15 @@ class Cluster:
         name = pods[0]["metadata"]["name"]
         container = pods[0]["spec"]["containers"][0]["name"]
         cmd = ["exec", "-i", name, "-c", container, "--", "/app/.venv/bin/python", "-I", "-c"]
-        return self.app(*cmd, script, *args, stdin=stdin).strip()
+        if stdin is None:
+            return self.app(*cmd, script, *args).strip()
+        # The container checks stdin's digest (argv[1]) before the script reads it.
+        return _kube.exec_stdin(
+            self.app,
+            "in_backend",
+            stdin,
+            lambda digest: [*cmd, STDIN_CHECK + script, digest, *args],
+        ).strip()
 
     def probe(self, sql: str, **args: object) -> dict[str, Any]:
         out = self.in_backend(PROBE, json.dumps({"sql": sql, **args}))
@@ -819,9 +837,13 @@ def test_each_tls_mode_behaves_as_documented_against_the_in_cluster_database(
         _pki(work)
         for name, mode in (("server.crt", "644"), ("server.key", "600")):
             write = f'umask 077; cat > "$PGDATA/{name}" && chmod {mode} "$PGDATA/{name}"'
-            cluster.db(
-                "exec", "-i", DB_POD, "--", "sh", "-c", write, stdin=(work / name).read_text()
-            )
+            shell = ["exec", "-i", DB_POD, "--", "sh", "-c", _kube.SH_STDIN_CHECK + write, "sh"]
+            payload = (work / name).read_text()
+
+            def command(digest: str, shell: list[str] = shell) -> list[str]:
+                return [*shell, digest]
+
+            _kube.exec_stdin(cluster.db, "TLS files", payload, command)
         for name in ("ca.pem", "other-ca.pem"):
             save = f"import sys; open('/tmp/test-{name}', 'w').write(sys.stdin.read())"
             cluster.in_backend(save, stdin=(work / name).read_text())
