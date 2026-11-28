@@ -176,7 +176,7 @@
 {{- range $role, $host := .Values.edge.hosts }}
 {{- $name := lower (trimSuffix "." $host) }}{{- /* the schema allows lower case only and no trailing dot; both are normalised here anyway */}}
 {{- if or (eq $name $placeholderDomain) (hasSuffix (printf ".%s" $placeholderDomain) $name) }}
-{{- $found = append $found (printf "edge.hosts.%s is %q, which still holds the placeholder domain %s (set your real hostnames; infra/adapt/adopt.sh stamps them)" $role $host $placeholderDomain) }}
+{{- $found = append $found (printf "edge.hosts.%s is %q, which still holds the placeholder domain %s (set your real hostnames: the deploy composes the host from the environment variable EDGE_DOMAIN, wiki/cloudflare-setup.md, or infra/adapt/adopt.sh stamps them)" $role $host $placeholderDomain) }}
 {{- end }}
 {{- end }}
 {{- /* The placeholder digest (values.production.yaml) on any image that renders. */}}

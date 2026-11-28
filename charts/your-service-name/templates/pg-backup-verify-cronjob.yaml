@@ -26,7 +26,7 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ include "chart.fullname" . }}-pg-backup-verify
+  name: {{ include "chart.backupVerifyCronJobName" . }}
   namespace: {{ include "chart.dbNamespace" . }}
   labels:
 {{- include "chart.labels" . | nindent 4 }}

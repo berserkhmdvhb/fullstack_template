@@ -462,6 +462,45 @@ STUB
   [ ! -s "$LOG" ]
 }
 
+# ---- EDGE_DOMAIN: the one host of dev, qa and production, composed at deploy time ---------------
+@test "EDGE_DOMAIN: dev and qa get <service>-<env>.<domain>, production <service>.<domain>, after the committed values" {
+  for e in dev qa production; do
+    : > "$LOG"
+    DEPLOY_ENV="$e" EDGE_DOMAIN=lab.example.org run bash "$SCRIPT"
+    [ "$status" -eq 0 ]
+    want="svc-$e.lab.example.org"; [ "$e" != production ] || want=svc.lab.example.org
+    [ "$(jq -c .edge.hosts "$WORK_DIR/edge-hosts.json")" = "{\"root\":\"$want\"}" ]
+    grep "helm upgrade --install svc charts/x" "$LOG" |
+      grep -qF -- "-f charts/x/values.$e.yaml -f $WORK_DIR/edge-hosts.json -f $WORK_DIR/image-values.json --set guards.rejectPlaceholders=true --namespace svc-$e"
+  done
+}
+
+@test "EDGE_DOMAIN unset or empty: the committed hosts apply, no hosts file" {
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  EDGE_DOMAIN='' run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ ! -e "$WORK_DIR/edge-hosts.json" ]
+  run grep -q "edge-hosts" "$LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "EDGE_DOMAIN must be a lower-case DNS name, refused before any call" {
+  for d in "Example.org" "a..b" "x/y" "-a.org" "a.org,edge.mode=x" "a b"; do
+    EDGE_DOMAIN="$d" run bash "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"EDGE_DOMAIN must be a lower-case DNS name"* ]]
+  done
+  [ ! -s "$LOG" ]
+}
+
+@test "EDGE_DOMAIN does not touch a preview: its hosts stay under PREVIEW_DOMAIN" {
+  DEPLOY_ENV=preview PREVIEW_PR=7 EDGE_DOMAIN=lab.example.org run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ "$(jq -c .edge.hosts "$WORK_DIR/preview-hosts.json")" = '{"root":"svc-pr-7.invalid"}' ]
+  [ ! -e "$WORK_DIR/edge-hosts.json" ]
+}
+
 @test "kind with PREVIEW_PR: the preview's release and namespace, the kind values (the test-only seam)" {
   DEPLOY_ENV=kind DEPLOY_ENV_KIND_TEST=1 KIND_VALUES="/k/a.yaml" PREVIEW_PR=3 run bash "$SCRIPT"
   [ "$status" -eq 0 ]

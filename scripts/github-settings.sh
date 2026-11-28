@@ -53,7 +53,7 @@ RESOLVED_ID=""
 # step with wiki/platform-setup.md by tests/supply_chain/test_required_checks.py. The opt-in `preview`
 # environment is not one of ENVS: its owner creates it by hand (wiki/ci-cd.md, Pull request previews).
 REPO_VARS=" GCP_PROJECT_ID GKE_CLUSTER GKE_LOCATION DEPLOY_ENABLED DEPLOY_ENVS SERVICE_NAME HELM_TIMEOUT HISTORY_KEEP CODE_SECURITY SCORECARD_ENABLED BUILD_ARM64 CLOUDFLARE_ACCOUNT_ID PREVIEWS_ENABLED PREVIEW_TTL_DAYS RELEASE_APP_ID PR_AGENT_ENABLED DRIFT_ENABLED "
-ENV_VARS=" GCP_WIF_PROVIDER GCP_DEPLOYER_SA DEPLOY_MODE DEPLOY_URL GCP_PROJECT_ID GKE_CLUSTER GKE_LOCATION "
+ENV_VARS=" GCP_WIF_PROVIDER GCP_DEPLOYER_SA DEPLOY_MODE DEPLOY_URL EDGE_DOMAIN GCP_PROJECT_ID GKE_CLUSTER GKE_LOCATION "
 # Script inputs that are never sent as variables. REVIEWER_USER_ID: the numeric id of the production reviewer;
 # ACTIONS_APP_ID: the app that must produce the required check (default 15368, GitHub Actions).
 CONTROL_VARS=" REVIEWER_USER_ID ACTIONS_APP_ID "

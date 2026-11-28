@@ -32,6 +32,15 @@ LimitRange and ResourceQuota bound each namespace.
 - CPU limit equal to request (Guaranteed QoS): rejected, it throttles for no gain on shared nodes.
 - Memory limit above the request: rejected, it overcommits the node's memory.
 
+## Scanners
+
+Kubescape's C-0270 ("Ensure CPU limits are set") contradicts this decision, so
+[`infra/security/local/kubescape-exceptions.json`](../../infra/security/local/kubescape-exceptions.json) disables that
+one control (C-0271, the memory limits, stays). `scan-k8s.sh` leaves the results the exception disabled out of the SARIF
+it uploads and counts them in its log; Kubescape's JSON report keeps them. Code scanning closes the open C-0270 alerts
+on the next scan of the branch, as no longer found. An adopter who sets CPU limits removes the file's policy, or points
+`KUBESCAPE_EXCEPTIONS` at another file (empty: none).
+
 ## Links
 
 - [`charts/your-service-name/values.yaml`](../../charts/your-service-name/values.yaml) (`resources`)

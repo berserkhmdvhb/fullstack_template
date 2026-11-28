@@ -3,7 +3,7 @@
     export-requirements check-requirements-sync \
     ruff-format ruff-format-check ruff-lint ruff-lint-fix ruff-imports-fix mypy-check \
     openapi-gen openapi-drift-check env-docs env-docs-check \
-    shellcheck docs-links image-checks frontend-deployment-id tools tools-dry-run pins-refresh \
+    shellcheck docs-links docs-shell-lint image-checks frontend-deployment-id tools tools-dry-run pins-refresh \
     check-all check-all-dry precommit chart-unittest kubeconform rules-test crd-schemas crd-schemas-check \
     test test-unit test-integration test-e2e test-contract test-live test-file test-file-function test-fast \
     test-coverage test-coverage-xml test-cov-html test-coverage-rep test-coverage-file \
@@ -79,6 +79,7 @@ help::
 	@echo "  mypy-check               Run MyPy static type checker"
 	@echo "  shellcheck               Lint all tracked shell scripts (*.sh + *.bats) with ShellCheck"
 	@echo "  docs-links               Check every file link and #anchor in the docs, offline (pinned lychee, lychee.toml)"
+	@echo "  docs-shell-lint          Check the setup guides paste safely into zsh and bash (no comments, no echo, braced vars)"
 	@echo "  image-checks             Build the images (throwaway tags) and run the CI structure checks (IDS=...)"
 	@echo "  frontend-deployment-id   Build the frontend image and check the page carries the deployment id"
 	@echo "  check-all                Run dev tool drift check + format + lint + mypy + env-docs (rewrites files)"
@@ -306,6 +307,11 @@ docs-links:
 	  mapfile -t DOCS < <(git ls-files "*.md"); \
 	  if (( $${#DOCS[@]} == 0 )); then echo "no tracked Markdown to check" >&2; exit 1; fi; \
 	  .tools/bin/lychee --config lychee.toml -- "$${DOCS[@]}"'
+
+# The setup guides' shell blocks paste safely into zsh and bash: no comments, no echo, braced ${VAR}: (the
+# rules and the guides are in scripts/ci/docs_shell_lint.py; the repo job in ci.yml runs this target).
+docs-shell-lint:
+	$(PYTHON) -I scripts/ci/docs_shell_lint.py
 
 # Pinned, checksum-verified dev toolchain in ./.tools (see mise.toml, tools/pins.tsv, scripts/tools.sh).
 # Put it first on PATH so every target uses the pinned tools when they are installed; helm finds

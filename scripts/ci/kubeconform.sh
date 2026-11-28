@@ -7,7 +7,8 @@
 # object on (the WAF, the GKE Gateway policies, the ExternalSecret, the Namespaces, the RBAC, the
 # external database stub, the Grafana dashboards), with the Cloud SQL Auth Proxy, and the bootstrap
 # (scripts/k8s-bootstrap.sh <env>, and once with its GMP ClusterRules); then the External Secrets
-# stores the docs apply (deploy/external-secrets/secretstore-*.yaml).
+# stores the docs apply (deploy/external-secrets/secretstore-*.yaml) and the Cloudflare Tunnel connector's
+# manifests (deploy/cloudflared/*.yaml).
 #
 # kubeconform -strict reads local schemas only, never the network: the Kubernetes kinds from
 # .tools/k8s-schemas (generated once from the pinned OpenAPI spec, tools/pins.tsv row k8s-openapi,
@@ -128,8 +129,8 @@ printf 'monitoring: {flavour: gmp, runbookUrl: "git.svc.test/ops/runbook.md"}\n'
   > "$WORK/chart-gmp.yaml"
 check "production bootstrap with the gmp ClusterRules" "$ROOT/scripts/k8s-bootstrap.sh" production \
   --values "$WORK/bootstrap-gmp.yaml" --chart-values "$WORK/chart-gmp.yaml"
-for f in "$ROOT"/deploy/external-secrets/secretstore-*.yaml; do
-  check "store ${f#"$ROOT"/}" cat "$f"
+for f in "$ROOT"/deploy/external-secrets/secretstore-*.yaml "$ROOT"/deploy/cloudflared/*.yaml; do
+  check "manifest ${f#"$ROOT"/}" cat "$f"
 done
 
 if (( ${#failed[@]} )); then

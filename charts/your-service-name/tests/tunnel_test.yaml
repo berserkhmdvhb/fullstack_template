@@ -23,11 +23,11 @@ tests:
     template: NOTES.txt
     asserts:
       - matchRegexRaw:
-          pattern: 'your-service-name.your-domain.example/api\s+PathPrefix\s+-> http://svc-your-service-name-backend.app.svc.cluster.local:8000'
+          pattern: 'your-service-name\.your-domain\.example\s+\^/api\(/\|\$\)\s+http://svc-your-service-name-backend.app.svc.cluster.local:8000'
       - matchRegexRaw:
-          pattern: 'your-service-name.your-domain.example/\s+PathPrefix\s+-> http://svc-your-service-name-frontend.app.svc.cluster.local:3000'
+          pattern: 'your-service-name\.your-domain\.example\s+\(empty\)\s+http://svc-your-service-name-frontend.app.svc.cluster.local:3000'
       - matchRegexRaw:
-          pattern: 'your-service-name.your-domain.example/openapi.json\s+Exact\s+-> http://svc-your-service-name-backend.app.svc.cluster.local:8000'
+          pattern: 'your-service-name\.your-domain\.example\s+\^/openapi\\\.json\$\s+http://svc-your-service-name-backend.app.svc.cluster.local:8000'
       - notMatchRegexRaw:
           pattern: 'svc-api\.example\.org'
       - matchSnapshotRaw: {}
@@ -39,11 +39,11 @@ tests:
         hosts: {api: svc-api.example.org}
     asserts:
       - matchRegexRaw:
-          pattern: 'svc-api.example.org/api\s+PathPrefix\s+-> http://svc-your-service-name-backend.app.svc.cluster.local:8000'
+          pattern: 'svc-api\.example\.org\s+\^/api\(/\|\$\)\s+http://svc-your-service-name-backend.app.svc.cluster.local:8000'
       - matchRegexRaw:
-          pattern: 'svc-api.example.org/openapi.json\s+Exact'
+          pattern: 'svc-api\.example\.org\s+\^/openapi\\\.json\$\s'
       - notMatchRegexRaw:
-          pattern: 'svc-api.example.org/\s+PathPrefix\s+-> http://svc-your-service-name-frontend'
+          pattern: 'svc-api\.example\.org\s+\(empty\)'
       - matchSnapshotRaw: {}
 
   - it: a custom route shows up in the route table, and the WAF switch moves it
@@ -58,4 +58,34 @@ tests:
           - {path: /, match: PathPrefix, service: frontend}
     asserts:
       - matchRegexRaw:
-          pattern: 'svc-api.example.org/healthz\s+Exact\s+-> http://svc-your-service-name-waf.app.svc.cluster.local:8080'
+          pattern: 'svc-api\.example\.org\s+\^/healthz\$\s+http://svc-your-service-name-waf.app.svc.cluster.local:8080'
+
+  - it: the paths are the anchored regexes cloudflared matches, the catch-all last on each host
+    template: NOTES.txt
+    set:
+      edge:
+        hosts: {api: svc-api.example.org}
+        routes:
+          - {path: /, match: PathPrefix, service: frontend}
+          - {path: /api/v1, match: PathPrefix, service: backend}
+          - {path: /openapi.json, match: Exact, service: backend}
+    asserts:
+      - matchRegexRaw:
+          pattern: '(?s)your-service-name\.your-domain\.example\s+\^/openapi\\\.json\$\s.*\^/api/v1\(/\|\$\)\s.*\(empty\)\s+http://svc-your-service-name-frontend'
+      - notMatchRegexRaw:
+          pattern: '(?s)\(empty\)\s+http://svc-your-service-name-frontend[^\n]*\n\s*your-service-name\.your-domain\.example\s+\^'
+      - matchRegexRaw:
+          pattern: 'first match wins'
+
+  - it: overlapping prefixes print the longest first, the exact path before them, as the Gateway matches
+    template: NOTES.txt
+    set:
+      edge:
+        routes:
+          - {path: /api, match: PathPrefix, service: backend}
+          - {path: /, match: PathPrefix, service: frontend}
+          - {path: /api/admin, match: PathPrefix, service: frontend}
+          - {path: /api/v1/health, match: Exact, service: backend}
+    asserts:
+      - matchRegexRaw:
+          pattern: '(?s)\^/api/v1/health\$\s.*\^/api/admin\(/\|\$\)\s.*\^/api\(/\|\$\)\s.*\(empty\)\s'

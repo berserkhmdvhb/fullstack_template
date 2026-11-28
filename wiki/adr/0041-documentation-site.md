@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. Refined on 2026-11-27: the five setup guides (the platform start page and the GKE, Cloudflare, GitHub Pages and PR-Agent guides) are rendered in the site under `/setup/`, in a "Set up the platform" sidebar group. `wiki/` stays their single source; the loader is `LOADED` in [`docs-site/src/lib/repo.mjs`](../../docs-site/src/lib/repo.mjs), read by [`docs-site/src/content.config.mjs`](../../docs-site/src/content.config.mjs).
 
 ## Date
 
@@ -23,7 +23,7 @@ copy of the wiki that drifts from it.
 [`docs-site/`](../../docs-site/README.md) is an Astro + Starlight site (MIT), with Pagefind search built in (static,
 offline, no service). It is **curated**: new pages for the architecture, the pipeline, the design and the practices,
 each linking into the wiki rather than restating it. The detailed walkthroughs are the exception: the contributing
-guide and the Cloudflare, GKE, GitHub Pages and PR-Agent setup guides are **loaded from their files** by a
+guide and the platform, GKE, Cloudflare, GitHub Pages and PR-Agent setup guides are **loaded from their files** by a
 content-collection loader, never copied, and render as Markdown (not MDX), so their angle brackets stay text and they
 still read the same on GitHub.
 

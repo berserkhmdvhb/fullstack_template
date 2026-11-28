@@ -333,8 +333,44 @@ def test_wrapper_check_with_no_rows_needs_no_network(tmp_path: Path) -> None:
         SECURITY_CONFIG=str(tmp_path / "none.yaml"),
         REQS=str(tmp_path / "reqs"),
         CRD_SOURCES=str(tmp_path / "none.tsv"),
+        MISE_TOML=str(tmp_path / "none.toml"),
+        MISE_LOCK=str(tmp_path / "none.lock"),
+        PNPM_DOCKERFILE=str(tmp_path / "none.Dockerfile"),
+        # every fetch (urllib honours these) is refused, so a network use fails the run
+        **dict.fromkeys(
+            ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"), "http://127.0.0.1:9"
+        ),
+        NO_PROXY="",
+        no_proxy="",
     )
-    assert run.returncode == 0, run.stderr
+    assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_a_missing_default_input_is_a_problem_not_a_skip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for var in ("MISE_TOML", "MISE_LOCK", "PNPM_DOCKERFILE"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(pr, "MISE_TOML", tmp_path / "gone.toml")
+    assert PNPM_CHECK(check=True) is True
+    assert pr.run_mise(check=True) is True
+    out = capsys.readouterr().out
+    assert "ERROR mise.lock: missing" in out
+    assert "ERROR Dockerfile.frontend pnpm: missing" in out
+
+
+def test_an_override_at_a_missing_file_skips_and_a_present_one_is_used(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("MISE_TOML", "set")
+    monkeypatch.setattr(pr, "MISE_TOML", tmp_path / "gone.toml")
+    assert pr.run_mise(check=True) is False
+    assert "skipped (override points at a missing file)" in capsys.readouterr().out
+    _mise_files(tmp_path, MISE_TOML.read_text(), MISE_LOCK.read_text())
+    monkeypatch.setattr(pr, "MISE_TOML", tmp_path / "mise.toml")
+    monkeypatch.setattr(pr, "MISE_LOCK", tmp_path / "mise.lock")
+    assert pr.run_mise(check=True) is False
+    assert "ok mise.lock\n" in capsys.readouterr().out
 
 
 # --- the CI wiring ---

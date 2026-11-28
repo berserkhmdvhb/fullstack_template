@@ -38,11 +38,12 @@ export const { site, base } = pagesLocation(repository, process.env.SITE_URL);
 
 // The repository files the site renders as its own pages (loaded, never copied): path -> page slug.
 export const LOADED = {
-  'CONTRIBUTING.md': 'walkthroughs/contributing',
-  'wiki/cloudflare-setup.md': 'walkthroughs/cloudflare',
-  'wiki/gke-cluster-setup.md': 'walkthroughs/gke',
-  'wiki/github-pages-setup.md': 'walkthroughs/github-pages',
-  'wiki/pr-agent-setup.md': 'walkthroughs/pr-agent',
+  'CONTRIBUTING.md': 'contribute/contributing',
+  'wiki/platform-setup.md': 'setup/platform',
+  'wiki/gke-cluster-setup.md': 'setup/gke',
+  'wiki/cloudflare-setup.md': 'setup/cloudflare',
+  'wiki/github-pages-setup.md': 'setup/github-pages',
+  'wiki/pr-agent-setup.md': 'setup/pr-agent',
 };
 
 // Tracked files, plus new ones not yet added that Git does not ignore (so a page being written resolves).

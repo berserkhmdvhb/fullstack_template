@@ -273,3 +273,16 @@ def test_one_guard_refusal_lists_one_placeholder_per_line_and_the_count_matches(
     items = [ln for ln in block.splitlines() if ln.startswith("  - ")]
     assert len(items) == int(header[1]) == 7, block  # noqa: PLR2004 (the committed placeholders)
     assert all(ln.startswith("  - ") for ln in block.splitlines()[1:]), block
+
+
+@pytest.mark.parametrize("env", ["dev", "qa", "production"])
+def test_a_host_composed_at_deploy_time_passes_the_placeholder_guard(
+    helm: str, env: str, tmp_path: Path
+) -> None:
+    """scripts/ci/deploy-env.sh passes the EDGE_DOMAIN host as one more values file after the
+    committed ones: the committed placeholder stays, and the guard has nothing left to refuse."""
+    hosts = tmp_path / "edge-hosts.yaml"
+    hosts.write_text("edge:\n  hosts:\n    root: svc-env.lab.example.org\n", encoding="utf-8")
+    args = ("-f", str(CHART / f"values.{env}.yaml"), "-f", str(hosts))
+    result = _template(helm, *args, "--set", "guards.rejectPlaceholders=true", "--set", GATEWAY)
+    assert "still holds the placeholder domain" not in result.stderr, result.stderr

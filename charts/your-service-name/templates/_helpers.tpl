@@ -264,6 +264,21 @@ limits:
       port: 53
 {{- end -}}
 
+{{/*
+   A route's path as cloudflared matches it. A published route becomes an ingress rule whose path is an
+   UNANCHORED regular expression, so a bare `/api` would also match `/apix` and `/x/api`. PathPrefix p
+   becomes `^p(/|$)`, Exact p becomes `^p$` (dots escaped), and the PathPrefix `/` is the catch-all:
+   the empty path, which must be the host's last rule. Called with (dict "path" "/api" "match" "PathPrefix").
+*/}}
+{{- define "chart.edgeTunnelPath" -}}
+{{- if and (eq .match "PathPrefix") (eq .path "/") -}}
+{{- else if eq .match "Exact" -}}
+{{- printf "^%s$" (regexQuoteMeta .path) -}}
+{{- else -}}
+{{- printf "^%s(/|$)" (regexQuoteMeta (trimSuffix "/" .path)) -}}
+{{- end -}}
+{{- end -}}
+
 {{/* The host roles, in render order, as a JSON array (read it back with fromJsonArray): root, plus api when it is set. */}}
 {{- define "chart.edgeRoles" -}}
 {{- $roles := list "root" -}}
@@ -514,6 +529,19 @@ key: password
 {{- printf "%s-migrate-r" (include "chart.fullname" . | trunc 44 | trimSuffix "-") -}}
 {{- end -}}
 
+{{/*
+   The backup CronJobs' names: "<fullname>-pg-backup" and "<fullname>-pg-backup-verify". A CronJob name
+   may have 52 characters (the controller adds 11 to name each Job), so the release fullname is cut to
+   35 and a trailing "-" is dropped, as the migration Job's name does; a short name is unchanged. Used by
+   the CronJobs and by the alerts that select them, so they cannot disagree.
+*/}}
+{{- define "chart.backupCronJobName" -}}
+{{- printf "%s-pg-backup" (include "chart.fullname" . | trunc 35 | trimSuffix "-") -}}
+{{- end -}}
+{{- define "chart.backupVerifyCronJobName" -}}
+{{- printf "%s-verify" (include "chart.backupCronJobName" .) -}}
+{{- end -}}
+
 {{/* Where a database CA from database.tls.caSecret is mounted (read-only), and its file. */}}
 {{- define "chart.dbCaDir" -}}/etc/db-ca{{- end -}}
 {{- define "chart.dbCaPath" -}}{{ include "chart.dbCaDir" . }}/ca.pem{{- end -}}
@@ -697,7 +725,7 @@ key: password
       # trailing timestamp with [0-9]+ so this does NOT also fire on the weekly
       # "<name>-pg-backup-verify-<timestamp>" Jobs: BackupVerifyFailed covers those.
       expr: |
-        kube_job_failed{{ "{" }}{{ $kns }}="{{ include "chart.dbNamespace" . }}", job_name=~"{{ include "chart.fullname" . }}-pg-backup-[0-9]+"} == 1
+        kube_job_failed{{ "{" }}{{ $kns }}="{{ include "chart.dbNamespace" . }}", job_name=~"{{ include "chart.backupCronJobName" . }}-[0-9]+"} == 1
       for: 1h
       labels:
         severity: warning
@@ -707,7 +735,7 @@ key: password
         runbook_url: "{{ $.Values.monitoring.runbookUrl }}#backupjobfailed"
     - alert: BackupVerifyFailed
       expr: |
-        kube_job_failed{{ "{" }}{{ $kns }}="{{ include "chart.dbNamespace" . }}", job_name=~"{{ include "chart.fullname" . }}-pg-backup-verify-[0-9]+"} == 1
+        kube_job_failed{{ "{" }}{{ $kns }}="{{ include "chart.dbNamespace" . }}", job_name=~"{{ include "chart.backupVerifyCronJobName" . }}-[0-9]+"} == 1
       for: 1h
       labels:
         severity: warning
@@ -723,7 +751,7 @@ key: password
 {{- range $c := list
       (dict "alert" "BackupTooOld" "suffix" "" "hours" $.Values.monitoring.alerts.backupMaxAgeHours "what" "backup")
       (dict "alert" "BackupVerifyTooOld" "suffix" "-verify" "hours" $.Values.monitoring.alerts.backupVerifyMaxAgeHours "what" "restore check") }}
-{{- $sel := printf "{%s=%q, cronjob=%q}" $kns (include "chart.dbNamespace" $) (printf "%s-pg-backup%s" (include "chart.fullname" $) $c.suffix) }}
+{{- $sel := printf "{%s=%q, cronjob=%q}" $kns (include "chart.dbNamespace" $) (printf "%s%s" (include "chart.backupCronJobName" $) $c.suffix) }}
     - alert: {{ $c.alert }}
       expr: |
         time() - kube_cronjob_status_last_successful_time{{ $sel }} > {{ $c.hours }} * 3600
@@ -737,7 +765,7 @@ key: password
         severity: warning
       annotations:
         summary: "No successful PostgreSQL {{ $c.what }} for {{ "{{" }} $value | humanizeDuration {{ "}}" }}"
-        description: "CronJob {{ include "chart.fullname" $ }}-pg-backup{{ $c.suffix }} has not completed a {{ $c.what }} in the last {{ $c.hours }} hours."
+        description: "CronJob {{ include "chart.backupCronJobName" $ }}{{ $c.suffix }} has not completed a {{ $c.what }} in the last {{ $c.hours }} hours."
         runbook_url: "{{ $.Values.monitoring.runbookUrl }}#{{ lower $c.alert }}"
 {{- end }}
 {{- end }}

@@ -7,7 +7,7 @@
 # `<--output base>.sarif` / `.json`, and exits ${KUBESCAPE_EXIT:-0}. A stub
 # tools-install.sh drives the "tool absent AND its checksum install fails" case.
 # So the scan logic — the offline `scan framework nsa,mitre` invocation, the
-# SARIF merge, and the advisory (exit-0-on-finding) contract — is tested without
+# SARIF merge, the exceptions file, and the advisory (exit-0-on-finding) contract — is tested without
 # the Kubescape binary. Each case runs in its own shell, so no state bleeds.
 # -----------------------------------------------------------------------------
 
@@ -33,7 +33,8 @@ for a in "$@"; do
   if [ "$prev" = "--output" ]; then base="$a"; fi
   prev="$a"
 done
-[ -n "$base" ] && printf '%s' '{"version":"2.1.0","runs":[{"results":[]}]}' > "${base}.sarif"
+if [ -n "$base" ] && [ -n "${KUBESCAPE_SARIF_FIXTURE:-}" ]; then cp "$KUBESCAPE_SARIF_FIXTURE" "${base}.sarif"
+elif [ -n "$base" ]; then printf '%s' '{"version":"2.1.0","runs":[{"results":[]}]}' > "${base}.sarif"; fi
 [ -n "$base" ] && printf '%s' '{"risk_score":0,"results":[]}' > "${base}.json"
 exit "${KUBESCAPE_EXIT:-0}"
 EOF
@@ -137,4 +138,92 @@ _repo() {
     echo "-v present with KUBESCAPE_VERBOSE unset: verbose must be opt-in" >&2
     return 1
   fi
+}
+
+# ---- the ADR-0012 exceptions file ------------------------------------------
+
+@test "the exceptions file is passed by default: --exceptions <next to the script>" {
+  SEC_OUTPUT_DIR="$BATS_TEST_TMPDIR/out"
+  _stub_kubescape 0
+  root="$(_repo)"
+  run bash "$SCRIPT" "$SEC_OUTPUT_DIR" "$root"
+  [ "$status" -eq 0 ]
+  grep -qF -- "--exceptions $(dirname "$SCRIPT")/kubescape-exceptions.json" "$KUBESCAPE_ARGV"
+  # the banner previews the same invocation as the run
+  [[ "$output" == *"--exceptions $(dirname "$SCRIPT")/kubescape-exceptions.json"* ]]
+}
+
+@test "KUBESCAPE_EXCEPTIONS points the scan at another file" {
+  SEC_OUTPUT_DIR="$BATS_TEST_TMPDIR/out"
+  _stub_kubescape 0
+  root="$(_repo)"
+  printf '[]' > "$BATS_TEST_TMPDIR/mine.json"
+  KUBESCAPE_EXCEPTIONS="$BATS_TEST_TMPDIR/mine.json" run bash "$SCRIPT" "$SEC_OUTPUT_DIR" "$root"
+  [ "$status" -eq 0 ]
+  grep -qF -- "--exceptions $BATS_TEST_TMPDIR/mine.json" "$KUBESCAPE_ARGV"
+}
+
+@test "an empty KUBESCAPE_EXCEPTIONS means no exceptions file: no --exceptions flag" {
+  SEC_OUTPUT_DIR="$BATS_TEST_TMPDIR/out"
+  _stub_kubescape 0
+  root="$(_repo)"
+  KUBESCAPE_EXCEPTIONS="" run bash "$SCRIPT" "$SEC_OUTPUT_DIR" "$root"
+  [ "$status" -eq 0 ]
+  if grep -qF -- "--exceptions" "$KUBESCAPE_ARGV"; then
+    echo "--exceptions present with an empty KUBESCAPE_EXCEPTIONS" >&2
+    return 1
+  fi
+}
+
+@test "a set exceptions path that is missing is a tool error, not a clean result" {
+  SEC_OUTPUT_DIR="$BATS_TEST_TMPDIR/out"
+  _stub_kubescape 0
+  root="$(_repo)"
+  KUBESCAPE_EXCEPTIONS="$BATS_TEST_TMPDIR/absent.json" run bash "$SCRIPT" "$SEC_OUTPUT_DIR" "$root"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"absent.json"* ]]
+  [[ "$output" != *"k8s-scan clean"* ]]
+  [ ! -s "$KUBESCAPE_ARGV" ]                                  # kubescape never ran without them
+  [ ! -e "$SEC_OUTPUT_DIR/k8s/report.json" ]
+}
+
+@test "policy guard: the committed exceptions are one disable policy for C-0270 only" {
+  file="$(dirname "$SCRIPT")/kubescape-exceptions.json"
+  jq -e 'type == "array" and length == 1' "$file"
+  jq -e '.[0].name == "adr-0012-cpu-requests-no-cpu-limits"' "$file"
+  jq -e '.[0].actions == ["disable"]' "$file"
+  jq -e '.[0].posturePolicies | length == 1 and .[0].controlID == "C-0270"' "$file"
+}
+
+@test "results kubescape excepted (accepted suppression) are dropped from the SARIF, counted, and kept in the scan's own report" {
+  SEC_OUTPUT_DIR="$BATS_TEST_TMPDIR/out"
+  _stub_kubescape 0
+  root="$(_repo)"
+  cat > "$BATS_TEST_TMPDIR/fixture.sarif" <<'EOF'
+{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"kubescape","rules":[{"id":"C-0270"},{"id":"C-0271"}]}},
+ "results":[
+  {"ruleId":"C-0270","message":{"text":"excepted"},"suppressions":[{"kind":"external","status":"accepted"}]},
+  {"ruleId":"C-0271","message":{"text":"plain"}},
+  {"ruleId":"C-0271","message":{"text":"under review"},"suppressions":[{"kind":"external","status":"underReview"}]}]}]}
+EOF
+  KUBESCAPE_SARIF_FIXTURE="$BATS_TEST_TMPDIR/fixture.sarif" run bash "$SCRIPT" "$SEC_OUTPUT_DIR" "$root"
+  [ "$status" -eq 0 ]
+  merged="$SEC_OUTPUT_DIR/k8s/k8s.sarif"
+  jq -e '.version == "2.1.0" and (.runs | length) == 1' "$merged"
+  jq -e '[.runs[].results[].message.text] == ["plain", "under review"]' "$merged"
+  jq -e '.runs[0].tool.driver.rules | length == 2' "$merged"            # the rest of the run is intact
+  [[ "$output" == *"1 result(s) excepted by kubescape-exceptions.json"* ]]
+  [ "$(jq -r '.excepted_results' "$SEC_OUTPUT_DIR/k8s/report.json")" = "1" ]
+  # the scan's own SARIF, beside the merged one, is left as kubescape wrote it
+  [ "$(jq '.runs[0].results | length' "$SEC_OUTPUT_DIR/k8s/kubescape.sarif")" -eq 3 ]
+}
+
+@test "with no excepted result the SARIF is merged as before and nothing is logged or added to the report" {
+  SEC_OUTPUT_DIR="$BATS_TEST_TMPDIR/out"
+  _stub_kubescape 0
+  root="$(_repo)"
+  run bash "$SCRIPT" "$SEC_OUTPUT_DIR" "$root"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"excepted by"* ]]
+  jq -e 'has("excepted_results") | not' "$SEC_OUTPUT_DIR/k8s/report.json"
 }

@@ -12,12 +12,27 @@ Verify the rollout:
 
 {{- if eq .Values.edge.mode "tunnel" }}
 
-Edge mode "tunnel": no Ingress or HTTPRoute is rendered. Point the tunnel at these routes
-(hostname + path -> in-cluster URL; see the edge docs in wiki/infrastructure.md).
+Edge mode "tunnel": no Ingress or HTTPRoute is rendered. Add one published route per line below to
+the tunnel (hostname, path, service URL; see the edge docs in wiki/infrastructure.md).
+The path is the regular expression cloudflared matches (anchored here: it is unanchored otherwise);
+(empty) is the catch-all. Routes match in order and the first match wins: the lines are sorted as the
+Gateway and Ingress modes match (exact paths first, then the longest prefix, the catch-all last), so keep
+each host's lines in this order, and create the host's Access application first.
 Cloudflare terminates TLS for the public hostnames; the hop from cloudflared to the Service is http:
 {{- range $role := include "chart.edgeRoles" . | fromJsonArray }}
-{{- range include "chart.edgeRoutes" (dict "ctx" $ "role" $role) | fromJsonArray }}
-  {{ printf "%s%s" (index $.Values.edge.hosts $role) .path | printf "%-56s" }} {{ printf "%-10s" .match }} -> http://{{ .name }}.{{ $.Release.Namespace }}.svc.cluster.local:{{ .port }}
+{{- $routes := include "chart.edgeRoutes" (dict "ctx" $ "role" $role) | fromJsonArray }}
+{{- /* Gateway and Ingress order Exact first, then the longest prefix, the catch-all last; the first match
+     wins here, so print each host's routes in that order whatever the order of edge.routes. */}}
+{{- $keys := list }}
+{{- range $i, $r := $routes }}
+{{- $class := 1 }}
+{{- if eq (include "chart.edgeTunnelPath" $r) "" }}{{ $class = 2 }}{{ else if eq $r.match "Exact" }}{{ $class = 0 }}{{ end }}
+{{- $keys = append $keys (printf "%d%04d%03d" $class (sub 9999 (len $r.path)) $i) }}
+{{- end }}
+{{- range $k := sortAlpha $keys }}
+{{- $r := index $routes (atoi (trunc -3 $k)) }}
+{{- $path := include "chart.edgeTunnelPath" $r }}
+  {{ printf "%-44s" (index $.Values.edge.hosts $role) }} {{ printf "%-24s" (default "(empty)" $path) }} http://{{ $r.name }}.{{ $.Release.Namespace }}.svc.cluster.local:{{ $r.port }}
 {{- end }}
 {{- end }}
 {{- else if eq .Values.edge.mode "gateway" }}

@@ -534,3 +534,35 @@ applied_state() {
   [ "$status" -eq 3 ]
   [[ "$output" == *"GitHub Pages (POST /repos/o/r/pages)"* ]]
 }
+
+@test "production in its own project: the five cluster values are planned on production only, beside the repository ones" {
+  cat >> "$VARS" <<'ENVF'
+GCP_PROJECT_ID=np-project
+GKE_CLUSTER=apps-dev
+GKE_LOCATION=europe-west1
+ENV_production_GCP_PROJECT_ID=prod-project
+ENV_production_GKE_CLUSTER=apps-prod
+ENV_production_GKE_LOCATION=europe-west3
+ENV_production_GCP_WIF_PROVIDER=prod-provider
+ENV_dev_GCP_WIF_PROVIDER=np-provider
+ENVF
+  run "$SCRIPT" --repo o/r --vars-file "$VARS"
+  [ "$status" -eq 0 ]
+  for pair in GCP_PROJECT_ID=np-project GKE_CLUSTER=apps-dev GKE_LOCATION=europe-west1; do
+    [[ "$output" == *"DRY-RUN POST /repos/o/r/actions/variables"$'\n''{"name":"'"${pair%%=*}"'","value":"'"${pair#*=}"'"}'* ]]
+  done
+  for pair in GCP_PROJECT_ID=prod-project GKE_CLUSTER=apps-prod GKE_LOCATION=europe-west3 GCP_WIF_PROVIDER=prod-provider GCP_DEPLOYER_SA=prod-sa; do
+    [[ "$output" == *"DRY-RUN POST /repos/o/r/environments/production/variables"$'\n''{"name":"'"${pair%%=*}"'","value":"'"${pair#*=}"'"}'* ]]
+  done
+  # dev and qa get none of the production values, and qa gets no cluster variable at all
+  [[ "$output" != *"environments/dev/variables"$'\n''{"name":"GKE_CLUSTER"'* ]]
+  [[ "$output" != *"environments/qa/variables"* ]]
+  [[ "$output" != *"prod-project"*"environments/dev/variables"* ]]
+}
+
+@test "an unknown ENV_production_ name is refused" {
+  echo 'ENV_production_GKE_CLUSTR=apps-prod' >> "$VARS"
+  run "$SCRIPT" --repo o/r --vars-file "$VARS"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown environment variable ENV_production_GKE_CLUSTR"* ]]
+}

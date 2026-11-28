@@ -39,7 +39,17 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.k8s._kube import CONTEXT, KUBECONFIG, ROOT, Kube, _run, _tool, helm_as_deployer
+from tests.k8s._kube import (
+    CONTEXT,
+    KUBECONFIG,
+    ROOT,
+    SH_STDIN_CHECK,
+    Kube,
+    _run,
+    _tool,
+    exec_stdin,
+    helm_as_deployer,
+)
 from tests.k8s._kube import NAMESPACE as MAIN_NAMESPACE
 from tests.k8s._kube import RELEASE as MAIN_RELEASE
 from tests.supply_chain._pins import pin
@@ -222,8 +232,24 @@ class Setup:
 
     def bao_sh(self, script: str, *args: str, stdin: str | None = None) -> str:
         """A shell script in OpenBao's container, as root token holder (its environment only)."""
-        cmd = ["exec", "-i" if stdin is not None else "-q", f"deployment/{OPENBAO}", "--"]
-        return self.bao(*cmd, "sh", "-c", BAO + script, "sh", *args, stdin=stdin)
+        target = ["exec", "-i" if stdin is not None else "-q", f"deployment/{OPENBAO}", "--"]
+        if stdin is None:
+            return self.bao(*target, "sh", "-c", BAO + script, "sh", *args)
+        # The container checks the input's byte count (the first argument) before using it.
+        return exec_stdin(
+            self.bao,
+            "bao_sh",
+            stdin,
+            lambda size: [
+                *target,
+                "sh",
+                "-c",
+                SH_STDIN_CHECK + BAO + script,
+                "sh",
+                size,
+                *args,
+            ],
+        )
 
     def install_openbao(self) -> None:
         token = secrets.token_urlsafe(32)
@@ -422,7 +448,7 @@ def _refused(kube: Kube, name: str, what: str) -> None:
         lambda: _ready(kube.get("externalsecret", name))[0] == "False",
         120,
     )
-    status, reason = _ready(kube.get("externalsecret", name))
+    status, reason = _ready({"status": _status(kube, "externalsecret", name)})
     print(f"{what}: Ready={status} ({reason})")
     assert reason == "SecretSyncedError", reason
     made = bool(kube.get("secret", name))  # a boolean: a failed assert never prints the Secret
@@ -437,6 +463,64 @@ def _refused(kube: Kube, name: str, what: str) -> None:
     assert refused, f"no 403 from OpenBao for {what} in the operator's log"
 
 
+def _status(kube: Kube, kind: str, name: str) -> dict[str, Any]:
+    """The object's ``.status`` and nothing else (kubectl's own filter), ``{}`` if it has none."""
+    out = kube("get", kind, name, "--ignore-not-found", "-o", "jsonpath={.status}")
+    return json.loads(out) if out else {}
+
+
+def _sync_diagnostics(kube: Kube, name: str) -> str:
+    """Why a Secret differs, read without its data: kubectl prints only its resourceVersion and
+    key names, plus the ExternalSecret's refreshTime, syncedResourceVersion and conditions."""
+    version = kube(
+        "get", "secret", name, "--ignore-not-found", "-o", "jsonpath={.metadata.resourceVersion}"
+    )
+    fields = kube(
+        "get",
+        "secret",
+        name,
+        "--ignore-not-found",
+        "-o",
+        "go-template={{range $k, $v := .data}}{{$k}} {{end}}",
+    )
+    es = _status(kube, "externalsecret", name)
+    return (
+        f"exists={bool(version)} resourceVersion={version or None} fields={sorted(fields.split())}"
+        f" refreshTime={es.get('refreshTime')}"
+        f" syncedResourceVersion={es.get('syncedResourceVersion')}"
+        f" conditions={es.get('conditions')}"
+    )
+
+
+def _wait_secret_data(setup: Setup, kube: Kube, name: str, want: dict[str, str]) -> None:
+    """The Secret's data becomes ``want`` within 120s. The ExternalSecret's Ready is no proof of the
+    Secret's content at that instant (one CI run read a Secret that differed from OpenBao just after
+    Ready), so poll the content itself; a Secret that never matches fails with the diagnostics,
+    taken at the first mismatch too, when they still show the difference."""
+    polls = 0
+    first = ""
+
+    def matches() -> bool:
+        nonlocal polls, first
+        polls += 1
+        if setup.secret_data(kube, name) == want:  # a boolean: nothing is printed
+            return True
+        if not first:
+            first = _sync_diagnostics(kube, name)
+        return False
+
+    end = time.time() + 120
+    while not matches():
+        if time.time() > end:
+            pytest.fail(
+                f"{name} differs from OpenBao after 120s; at the first poll: {first};"
+                f" now: {_sync_diagnostics(kube, name)}"
+            )
+        time.sleep(1)
+    if polls > 1:
+        print(f"{name} matched OpenBao only at poll {polls}; at the first poll: {first}")
+
+
 def test_a_store_of_another_environment_cannot_read_the_path(setup: Setup) -> None:
     """OTHER's store reads its own path, and is refused this environment's."""
     keys = VALUES["secrets"]["externalSecret"]["keys"]
@@ -449,8 +533,9 @@ def test_a_store_of_another_environment_cannot_read_the_path(setup: Setup) -> No
         lambda: _ready(setup.other.get("externalsecret", "fst-own"))[0] == "True",
         120,
     )
-    same = setup.secret_data(setup.other, "fst-own") == {"value": setup.other_value}
-    assert same, "the other environment's own secret differs from OpenBao"
+    _wait_secret_data(setup, setup.other, "fst-own", {"value": setup.other_value})
+    leaked = setup.other_value in _sync_diagnostics(setup.other, "fst-own")
+    assert not leaked, "the diagnostics hold the Secret's value"
     _refused(setup.other, "fst-theirs", "another environment's store, this environment's path")
 
 
@@ -479,8 +564,8 @@ def test_an_external_secret_naming_a_cluster_store_is_never_synced(setup: Setup)
     )
     setup.other("apply", "-f", "-", stdin=via)
     time.sleep(SKIP_WAIT)  # a skipped ExternalSecret gets no status at all: wait, then look
-    es = setup.other.get("externalsecret", "fst-via-cluster")
-    print(f"an ExternalSecret naming a ClusterSecretStore: status {es.get('status', {})}")
-    assert _ready(es)[0] != "True", es.get("status")
+    status = _status(setup.other, "externalsecret", "fst-via-cluster")
+    print(f"an ExternalSecret naming a ClusterSecretStore: status {status}")
+    assert _ready({"status": status})[0] != "True", status
     made = bool(setup.other.get("secret", "fst-via-cluster"))
     assert not made, "an ExternalSecret naming a ClusterSecretStore made its Secret"

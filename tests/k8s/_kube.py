@@ -11,7 +11,7 @@ import shutil
 import ssl
 import subprocess
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -51,7 +51,9 @@ def _run_both(cmd: list[str], stdin: str | None = None) -> subprocess.CompletedP
     # KUBECONFIG is always fst's file, and helm's own context variables are dropped.
     env = {k: v for k, v in os.environ.items() if not k.startswith("HELM_KUBE")}
     env["KUBECONFIG"] = str(KUBECONFIG)
-    return subprocess.run(cmd, input=stdin, capture_output=True, text=True, env=env, check=False)
+    return subprocess.run(
+        cmd, input=stdin, capture_output=True, text=True, encoding="utf-8", env=env, check=False
+    )
 
 
 def _run(cmd: list[str], stdin: str | None = None, *, check: bool = True) -> str:
@@ -151,6 +153,51 @@ class Kube:
     def get(self, *args: str) -> dict[str, Any]:
         out = self("get", *args, "--ignore-not-found", "-o", "json")
         return json.loads(out) if out else {}
+
+
+# kubectl exec streams over WebSockets since 1.31, and the API server can process a close before the
+# stdin it already received (kubernetes/kubernetes#112834): the process in the container then reads
+# fewer bytes than were sent (an empty policy, an empty value). Loss or truncation is the failure
+# mode (the stream's TCP and TLS cover corruption), so a container-side check exits STDIN_LOST when
+# the byte count it read differs from the one passed as an argument, before the input is used;
+# exec_stdin retries then.
+STDIN_LOST = 75
+STDIN_ATTEMPTS = 3
+# The check for a container with sh and wc: the byte count is the first argument, and stdin is the
+# checked input afterwards (a temp file keeps trailing newlines; unlinked once it is stdin). $((n))
+# drops the padding some wc print.
+SH_STDIN_CHECK = (
+    'f=$(mktemp) || exit 1; cat >"$f" || { rm -f "$f"; exit 75; }; '
+    'n=$(wc -c <"$f") || { rm -f "$f"; exit 75; }; '
+    '[ "$((n))" = "$1" ] || { rm -f "$f"; exit 75; }; '
+    'shift; exec <"$f"; rm -f "$f"; '
+)
+
+
+def exec_stdin(
+    kube: Kube,
+    site: str,
+    payload: str,
+    command: Callable[[str], list[str]],
+    run: Callable[..., subprocess.CompletedProcess[str]] = _run_both,
+) -> str:
+    """``kube`` runs the kubectl arguments ``command(size)`` with ``payload`` on stdin, where
+    ``size`` is the payload's byte count (UTF-8, as _run_both sends it) for the container-side
+    check to compare. Exit STDIN_LOST retries (3 attempts, a note naming ``site`` and never the
+    data); any other failure fails as _run does."""
+    cmd = [*kube.base, *command(str(len(payload.encode("utf-8"))))]
+    for attempt in range(1, STDIN_ATTEMPTS + 1):
+        done = run(cmd, payload)
+        if done.returncode == 0:
+            return done.stdout
+        if done.returncode != STDIN_LOST:
+            pytest.fail(
+                f"{' '.join(cmd[:6])} ... failed ({done.returncode}): {done.stderr.strip()}"
+            )
+        print(f"{site}: stdin lost in kubectl exec (attempt {attempt} of {STDIN_ATTEMPTS})")
+    pytest.fail(
+        f"{site}: stdin lost in kubectl exec {STDIN_ATTEMPTS} times (kubernetes/kubernetes#112834)"
+    )
 
 
 def docker(*args: str, stdin: str | None = None, check: bool = True) -> str:
@@ -392,5 +439,7 @@ def deploy_env(  # noqa: PLR0913 - the script's inputs, each optional but the fi
     if render:
         env["DEPLOY_RENDER_ONLY"] = str(render)
     cmd = ["bash", str(DEPLOY_ENV)]
-    done = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+    done = subprocess.run(
+        cmd, capture_output=True, text=True, encoding="utf-8", env=env, check=False
+    )
     return done.returncode, done.stdout + done.stderr

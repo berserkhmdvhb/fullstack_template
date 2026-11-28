@@ -1,7 +1,7 @@
 # Documentation site
 
 The curated reading path in front of the wiki: the architecture, the CI/CD pipeline, the design and the practices
-adopted, plus the walkthroughs. Astro + Starlight, with Pagefind search built in (static, offline, no service).
+adopted, plus the contributing guide and the platform setup guides. Astro + Starlight, with Pagefind search built in (static, offline, no service).
 Why it exists and why Starlight: [ADR-0041](../wiki/adr/0041-documentation-site.md).
 
 ## What lives where
@@ -10,7 +10,7 @@ Why it exists and why Starlight: [ADR-0041](../wiki/adr/0041-documentation-site.
 |---|---|
 | [`wiki/`](../wiki/README.md) | The complete technical reference. A site page links into it rather than restating it. |
 | `docs-site/src/content/docs/` | The site's own pages, written for the site. |
-| [`CONTRIBUTING.md`](../CONTRIBUTING.md), [`wiki/cloudflare-setup.md`](../wiki/cloudflare-setup.md), [`wiki/gke-cluster-setup.md`](../wiki/gke-cluster-setup.md), [`wiki/github-pages-setup.md`](../wiki/github-pages-setup.md), [`wiki/pr-agent-setup.md`](../wiki/pr-agent-setup.md) | The walkthroughs. The site **loads** them from these files (`LOADED` in [`src/lib/repo.mjs`](src/lib/repo.mjs)); edit them there, never copy them. |
+| [`CONTRIBUTING.md`](../CONTRIBUTING.md), [`wiki/platform-setup.md`](../wiki/platform-setup.md), [`wiki/cloudflare-setup.md`](../wiki/cloudflare-setup.md), [`wiki/gke-cluster-setup.md`](../wiki/gke-cluster-setup.md), [`wiki/github-pages-setup.md`](../wiki/github-pages-setup.md), [`wiki/pr-agent-setup.md`](../wiki/pr-agent-setup.md) | The walkthroughs. The site **loads** them from these files (`LOADED` in [`src/lib/repo.mjs`](src/lib/repo.mjs)); edit them there, never copy them. |
 | [`site.json`](site.json) | The one repository value (owner/name and branch) every repository link and the Pages address come from. `infra/adapt` stamps it; CI passes the real repository in `SITE_REPOSITORY`, and the deploy passes the published Pages URL in `SITE_URL`. |
 
 ## Local preview

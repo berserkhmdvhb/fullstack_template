@@ -20,11 +20,13 @@ Deploy jobs exchange the GitHub OIDC token for short-lived Google credentials th
 The provider's condition pins the numeric `repository_owner_id` and `repository_id` and the running workflow file
 (`job_workflow_ref`: `deploy.yml` or `deploy-ops.yml` on `main` or a `v*` tag; previews have a second provider for
 `preview.yml`). There is one deployer service account per environment, bound to the subject
-`repo:<owner>/<repo>:environment:<env>`, with namespace-scoped RBAC only
+`repo:<owner>/<repo>:environment:<env>` (but see the 2026-11-27 note below), with namespace-scoped RBAC only
 ([ADR-0011](./0011-namespace-bootstrap-scoped-deployer.md)). Jobs reach the cluster over GKE's DNS-based control-plane
 endpoint with IAM (`use_dns_based_endpoint: true`), so no IP allowlist is needed. The hardening lint fails any job
 that uses a secret or an OIDC token without declaring its `environment:`, except the keyless signing jobs and the
 Scorecard job, which need an OIDC token but no cloud credential. A kubeconfig mode remains for other clusters.
+
+*Note, 2026-11-27:* GitHub now issues the immutable subject `repo:<owner>@<owner-ID>/<repo>@<repo-ID>:environment:<env>` to repositories created, renamed or transferred after 2026-07-15. The decision is unchanged, only the subject's spelling: the deployer bindings use the prefix read from the repository ([GKE §12.3](../gke-cluster-setup.md#123-one-deployer-service-account-per-environment)).
 
 ## Consequences
 

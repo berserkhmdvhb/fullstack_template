@@ -973,7 +973,7 @@ shows `SecretSyncedError`, and the operator's log has OpenBao's `403`, as the ki
    secrets:
 
    ```bash
-   source ~/gke-setup.env   # PROJECT_ID, PROJECT_NUMBER, SERVICE_NAME
+   source "${GKE_SETUP_ENV}"   # PROJECT_ID, PROJECT_NUMBER, SERVICE_NAME
    env=dev
    pool="projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$PROJECT_ID.svc.id.goog"
    revoke() {   # revoke <namespace> <secret-name prefix>: the binding of 14.2, condition and all

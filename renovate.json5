@@ -163,7 +163,7 @@
       // `repository:tag@sha256:...` written inline (config.yaml's DAST image, or an inline ref in a values file).
       "customType": "regex",
       "description": "Inline image digests in values files and config.yaml",
-      "managerFilePatterns": ["/(^|/)values[^/]*\\.ya?ml$/", "/^infra/security/config\\.yaml$/"],
+      "managerFilePatterns": ["/(^|/)values[^/]*\\.ya?ml$/", "/^infra/security/config\\.yaml$/", "/^deploy/cloudflared/deployment\\.yaml$/"],
       "matchStrings": [
         "(?<depName>[a-z0-9][\\w.-]*(?:/[\\w.-]+)+):(?<currentValue>[\\w][\\w.-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],

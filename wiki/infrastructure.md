@@ -548,6 +548,8 @@ others `<service>-dev.<domain>` and `<service>-qa.<domain>`; a pull request prev
 `<service>-pr-<N>.<preview-zone>`. The reasons, and the apex option, are in
 [ADR-0042](./adr/0042-one-hostname-per-environment.md).
 
+The committed values keep their placeholder host. At deploy time the GitHub environment variable `EDGE_DOMAIN` composes the real one in that scheme (`<service>.<EDGE_DOMAIN>` in production, `<service>-<env>.<EDGE_DOMAIN>` otherwise), so no real domain is committed ([Cloudflare 9.3](./cloudflare-setup.md#93-edge_domain-and-the-apps-settings)). `edge.hosts.api` is not composed.
+
 Set `edge.hosts.api` (`<service>-api[-<env>].<domain>`) only for a backend-only host, when a client
 that is not a browser needs its own rules: a rate limit, an Access policy, a service token. It serves
 the `backend` routes, and joins the backend's `ALLOWED_HOSTS`, the Ingress TLS hosts and NOTES. Leave
@@ -562,19 +564,24 @@ Service, or the WAF Service when `waf.enabled`. Gateway mode renders it into the
 the Ingress rules.
 
 In tunnel mode the same list is the tunnel's route table. `helm install` prints it in NOTES (print it
-again with `helm get notes <release> -n <namespace>`), one line per hostname and path, with the
-in-cluster URL to point the tunnel at. The full table for the default values, release `svc` in
-namespace `app`, with no api host set (with `edge.hosts.api` set, the three `backend` lines repeat
-on that host):
+again with `helm get notes <release> -n <namespace>`), one line per hostname and route, with the path
+as cloudflared matches it and the in-cluster URL to point the tunnel at. cloudflared reads a published
+route's path as an unanchored regular expression, so NOTES prints it anchored: a `PathPrefix` `/api`
+becomes `^/api(/|$)`, an `Exact` `/openapi.json` becomes `^/openapi\.json$`, and the `PathPrefix` `/`
+is the catch-all, an empty path, printed last on its host, because the first matching route wins. The
+lines are sorted as the Gateway and Ingress modes match: exact paths first, then the longest prefix,
+whatever the order of `edge.routes`. The
+full table for the default values, release `svc` in namespace `app`, with no api host set (with
+`edge.hosts.api` set, the three `backend` lines repeat on that host):
 
 ```text
-your-service-name.your-domain.example/api                PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
-your-service-name.your-domain.example/docs               PathPrefix -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
-your-service-name.your-domain.example/openapi.json       Exact      -> http://svc-your-service-name-backend.app.svc.cluster.local:8000
-your-service-name.your-domain.example/                   PathPrefix -> http://svc-your-service-name-frontend.app.svc.cluster.local:3000
+your-service-name.your-domain.example   ^/openapi\.json$  http://svc-your-service-name-backend.app.svc.cluster.local:8000
+your-service-name.your-domain.example   ^/docs(/|$)       http://svc-your-service-name-backend.app.svc.cluster.local:8000
+your-service-name.your-domain.example   ^/api(/|$)        http://svc-your-service-name-backend.app.svc.cluster.local:8000
+your-service-name.your-domain.example   (empty)           http://svc-your-service-name-frontend.app.svc.cluster.local:3000
 ```
 
-Configure the tunnel from that table: [Cloudflare setup](./cloudflare-setup.md#84-route-a-test-hostname-through-the-tunnel).
+Configure the tunnel from that table: [Cloudflare setup](./cloudflare-setup.md#94-route-the-service-through-the-tunnel).
 
 ### NetworkPolicy per mode
 

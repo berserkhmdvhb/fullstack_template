@@ -26,8 +26,9 @@ Three pin sources are covered:
 
 SOURCES is the one place that says where each tool's checksum comes from. With --base REF only rows
 that differ from REF are checked (a pull request); without it every row is (main, schedule).
-Env: PINS, SECURITY_CONFIG, REQS, CRD_SOURCES (paths, used by the tests), GITHUB_TOKEN (read-only,
-API only).
+Env: PINS, SECURITY_CONFIG, REQS, CRD_SOURCES, MISE_TOML, MISE_LOCK, PNPM_DOCKERFILE (paths, used by
+the tests; the mise and pnpm checks are skipped when their file is missing), GITHUB_TOKEN
+(read-only, API only).
 """
 
 from __future__ import annotations
@@ -53,8 +54,8 @@ from typing import IO, NoReturn
 
 ROOT = Path(__file__).resolve().parent.parent
 HEX64 = re.compile(r"[0-9a-f]{64}")
-MISE_TOML = ROOT / "mise.toml"
-MISE_LOCK = ROOT / "mise.lock"
+MISE_TOML = Path(os.environ.get("MISE_TOML", str(ROOT / "mise.toml")))
+MISE_LOCK = Path(os.environ.get("MISE_LOCK", str(ROOT / "mise.lock")))
 # The documented regeneration command (tools/pins.tsv header), plus --quiet.
 # The pinned uv (tools/pins.tsv, installed by scripts/tools.sh) when present, like tools.sh itself.
 UV = str(ROOT / ".tools" / "bin" / "uv") if (ROOT / ".tools" / "bin" / "uv").is_file() else "uv"
@@ -807,8 +808,24 @@ def mise_lock(platforms: list[str]) -> bool:
     return subprocess.run(cmd, check=False).returncode == 0  # noqa: S603
 
 
+def missing_input(label: str, paths: dict[str, Path]) -> bool:
+    """True (a problem) when a default input file is missing; a missing file that its env override
+    names is skipped, so a test can point the check at nothing. False when every file is there."""
+    absent = [env for env, path in paths.items() if not path.is_file()]
+    if not absent:
+        return False
+    if any(env in os.environ for env in absent):
+        out(f"ok {label}: skipped (override points at a missing file)")
+        return False
+    out(f"ERROR {label}: missing {', '.join(str(paths[env]) for env in absent)}")
+    return True
+
+
 def run_mise(*, check: bool) -> bool:
     """Check mise.lock against mise.toml; refreshing runs `mise lock` first. True on a problem."""
+    paths = {"MISE_TOML": MISE_TOML, "MISE_LOCK": MISE_LOCK}
+    if any(not p.is_file() for p in paths.values()):
+        return missing_input("mise.lock", paths)
     config = MISE_TOML.read_text()
     found = mise_problems(config, MISE_LOCK.read_text())
     if found and check:
@@ -834,7 +851,7 @@ def run_mise(*, check: bool) -> bool:
     return bool(found)
 
 
-PNPM_DOCKERFILE = ROOT / "Dockerfile.frontend"
+PNPM_DOCKERFILE = Path(os.environ.get("PNPM_DOCKERFILE", str(ROOT / "Dockerfile.frontend")))
 PNPM_KEY = "aqua:pnpm/pnpm"
 
 
@@ -871,6 +888,9 @@ def pnpm_image_problems(
 
 def run_pnpm_image(*, check: bool) -> bool:
     """Check (and on a refresh, write) Dockerfile.frontend's pnpm. True on a problem."""
+    paths = {"PNPM_DOCKERFILE": PNPM_DOCKERFILE, "MISE_TOML": MISE_TOML, "MISE_LOCK": MISE_LOCK}
+    if any(not p.is_file() for p in paths.values()):
+        return missing_input("Dockerfile.frontend pnpm", paths)
     text = PNPM_DOCKERFILE.read_text()
     try:
         vendor, drift, new = pnpm_image_problems(text, MISE_TOML.read_text(), MISE_LOCK.read_text())
