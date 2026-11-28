@@ -345,7 +345,7 @@ The template used to run on GitLab CI (`ci/*.yml`). Every old job key is mapped 
 | `osv_scan` | `security.yml` / `advisory`, leg `osv` | advisory -> advisory | |
 | `malware_heuristic_scan` | `security.yml` / `advisory`, leg `guarddog` | advisory -> advisory | |
 | `iac_scan` | `security.yml` / `advisory`, leg `checkov` | advisory -> advisory | |
-| `k8s_scan` | `security.yml` / `advisory`, leg `kubescape` | advisory -> advisory | |
+| `k8s_scan` | `security.yml` / `advisory`, leg `kubescape` | advisory -> advisory | its CPU-limit control (C-0270) is excepted, and the excepted results stay out of the uploaded SARIF: [ADR-0012](./adr/0012-cpu-requests-no-cpu-limits.md#scanners) |
 | `sbom_consolidated` | `reusable-build.yml` / `sbom` | blocking -> blocking | by digest, never on pull requests |
 | `grype_scan` | `reusable-build.yml` / `grype` | blocking on protected refs -> blocking | threshold from `config.yaml`; `main` and `v*` only, never on pull requests |
 | `grant_license_scan` | `release.yml` / `grant` | advisory -> advisory | |

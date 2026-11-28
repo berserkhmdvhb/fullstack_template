@@ -1,0 +1,20 @@
+[
+  {
+    "name": "adr-0012-cpu-requests-no-cpu-limits",
+    "policyType": "postureExceptionPolicy",
+    "actions": ["disable"],
+    "resources": [
+      {
+        "designatorType": "Attributes",
+        "attributes": {
+          "kind": ".*"
+        }
+      }
+    ],
+    "posturePolicies": [
+      {
+        "controlID": "C-0270"
+      }
+    ]
+  }
+]

@@ -78,6 +78,12 @@ if [[ "${KUBESCAPE_VERBOSE:-0}" == "1" ]]; then ks_verbose=(-v); else ks_verbose
 # workload and only add parse noise (e.g. frontend/node_modules tsconfig files).
 # Mirrors the node_modules/.git exclusion already used by the has_k8s detection above.
 KUBESCAPE_EXCLUDE=(--exclude-path node_modules --exclude-path .git)
+# ADR-0012 (wiki/adr/0012-cpu-requests-no-cpu-limits.md) sets no CPU limit by default, so the
+# exceptions file disables Kubescape's CPU-limit control (C-0270) and nothing else. Overridable
+# (KUBESCAPE_EXCEPTIONS=<file>, e.g. for an adopter who sets CPU limits); set but empty means none.
+# An array, so the flag is separate argv words when on and nothing when off, in the banner and the run.
+KUBESCAPE_EXCEPTIONS="${KUBESCAPE_EXCEPTIONS-${SCRIPT_DIR}/kubescape-exceptions.json}"
+if [[ -n "$KUBESCAPE_EXCEPTIONS" ]]; then ks_exceptions=(--exceptions "$KUBESCAPE_EXCEPTIONS"); else ks_exceptions=(); fi
 TOOLS_INSTALLER="${TOOLS_INSTALLER:-${SEC_DIR}/tools-install.sh}"
 
 lib_banner "scan-k8s" "Kubernetes workload/posture scan (Kubescape)"
@@ -142,6 +148,10 @@ fi
 # non-zero — capture it as the verdict, still write both reports, via an `if` so
 # `set -e`/ERR does not abort first.
 mkdir -p "$OUT_DIR"
+# A named exceptions file that is missing is a tool error: never scan without the exceptions.
+if [[ -n "$KUBESCAPE_EXCEPTIONS" && ! -f "$KUBESCAPE_EXCEPTIONS" ]]; then
+  die "kubescape exceptions file not found: ${KUBESCAPE_EXCEPTIONS} (fix KUBESCAPE_EXCEPTIONS, or set it empty for none)"
+fi
 # Kubescape v4 writes one file per --format, appending the extension to the single
 # --output base (e.g. `--format sarif,json --output base` -> base.sarif + base.json),
 # and takes the scan path positionally — it dropped the `--input <dir>` flag the old
@@ -152,9 +162,9 @@ base="${OUT_DIR}/kubescape"
 sarif="${base}.sarif"          # v4 appends .sarif / .json to the --output base
 report="${OUT_DIR}/report.json"
 _show_run "$KUBESCAPE_BIN" scan framework "$KUBESCAPE_FRAMEWORKS" "$ROOT" \
-  "${ks_verbose[@]}" "${KUBESCAPE_EXCLUDE[@]}" --format sarif,json --output "$base"
+  "${ks_verbose[@]}" "${KUBESCAPE_EXCLUDE[@]}" "${ks_exceptions[@]}" --format sarif,json --output "$base"
 if run "$KUBESCAPE_BIN" scan framework "$KUBESCAPE_FRAMEWORKS" "$ROOT" \
-      "${ks_verbose[@]}" "${KUBESCAPE_EXCLUDE[@]}" --format sarif,json --output "$base"; then
+      "${ks_verbose[@]}" "${KUBESCAPE_EXCLUDE[@]}" "${ks_exceptions[@]}" --format sarif,json --output "$base"; then
   ks_rc=0
 else
   ks_rc=$?
@@ -163,8 +173,18 @@ fi
 # ---------- Merge SARIF into one SARIF report (grype/osv pattern) --------
 # Overwrite the empty Merged SARIF (written up-front, so it also exists on the
 # SKIPPED paths) with the scan's SARIF when the scan produced one.
+# A result an exception disabled stays in Kubescape's own SARIF and JSON, marked with an accepted
+# suppression. Code scanning is not documented to honour result suppressions, so the merged SARIF
+# drops those results (the JSON report keeps them, the audit trail) and the count is logged.
+excepted=0
 if [ -s "$sarif" ]; then
-  jq -s '{version:"2.1.0", runs: map(.runs[])}' "$sarif" > "$merged_sarif"
+  accepted='any(.suppressions[]?; .status == "accepted")'
+  excepted="$(jq "[.runs[].results[]? | select(${accepted})] | length" "$sarif")"
+  jq -s "{version:\"2.1.0\", runs: (map(.runs[]) | map(if .results then .results |= map(select((${accepted}) | not)) else . end))}" \
+    "$sarif" > "$merged_sarif"
+  if [ "$excepted" -gt 0 ]; then
+    warn "kubescape: ${excepted} result(s) excepted by $(basename "$KUBESCAPE_EXCEPTIONS") (kept in the JSON report, not in the SARIF)"
+  fi
 fi
 
 # ---------- Verdict (advisory) -----------------------------------------------
@@ -176,8 +196,9 @@ else
   success "k8s-scan clean (exit 0)"
 fi
 jq -n --arg tool "Kubescape" --arg frameworks "$KUBESCAPE_FRAMEWORKS" \
-      --arg status "$status" --argjson rc "$ks_rc" \
-  '{tool:$tool, framework:$frameworks, exit_code:$rc, status:$status}' > "$report"
+      --arg status "$status" --argjson rc "$ks_rc" --argjson excepted "$excepted" \
+  '{tool:$tool, framework:$frameworks, exit_code:$rc, status:$status}
+   + (if $excepted > 0 then {excepted_results:$excepted} else {} end)' > "$report"
 success "k8s reports written: ${report}, ${merged_sarif}"
 
 # Advisory: a misconfiguration is a red, never a gate. Always exit 0.

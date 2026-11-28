@@ -117,7 +117,7 @@ Values loaded from `.env.local` are **never sourced** (parsed, not executed).
 | `malware-heuristic` | Proactive typosquat scan (GuardDog, direct deps) — *report-only* |
 | `base-images` | Verify the distroless bases' signatures (cosign; not part of `all`) — a gate in the `images` job |
 | `iac`        | IaC misconfiguration scan (Checkov) — *report-only* |
-| `k8s`        | K8s workload/posture scan (Kubescape, NSA+MITRE) — *report-only* |
+| `k8s`        | K8s workload/posture scan (Kubescape, NSA+MITRE) — *report-only*; its CPU-limit control is excepted ([ADR-0012](../../../wiki/adr/0012-cpu-requests-no-cpu-limits.md#scanners); `KUBESCAPE_EXCEPTIONS` overrides the file) |
 | `dast`       | Dynamic app scan (OWASP ZAP baseline) — *report-only* |
 | `license`    | Scan for license compliance (grant) — *report-only* |
 | `vex`        | Generate / emit VEX (OpenVEX) |
