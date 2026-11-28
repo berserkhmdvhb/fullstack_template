@@ -56,6 +56,16 @@ def test_the_connector_is_restricted_and_has_no_api_token() -> None:
     assert deployment["spec"]["replicas"] >= MIN_REPLICAS
 
 
+def test_the_resources_follow_the_cpu_and_memory_rule() -> None:
+    """A CPU request and no CPU limit; a memory limit equal to the memory request (ADR-0012)."""
+    pod = load("deployment.yaml")["spec"]["template"]["spec"]
+    for container in pod["containers"] + pod.get("initContainers", []):
+        resources = container["resources"]
+        assert resources["requests"]["cpu"], container["name"]
+        assert "cpu" not in resources.get("limits", {}), container["name"]
+        assert resources["limits"]["memory"] == resources["requests"]["memory"], container["name"]
+
+
 def test_the_token_comes_from_the_secret_the_external_secret_writes() -> None:
     external = load("externalsecret.yaml")
     ref = load("deployment.yaml")["spec"]["template"]["spec"]["containers"][0]["env"][0]
