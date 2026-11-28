@@ -437,6 +437,41 @@ def _refused(kube: Kube, name: str, what: str) -> None:
     assert refused, f"no 403 from OpenBao for {what} in the operator's log"
 
 
+def _secret_diagnostics(setup: Setup, kube: Kube, name: str) -> str:
+    """Why a Secret differs, without a value: its keys and value lengths, its resourceVersion and
+    the ExternalSecret's refreshTime and conditions."""
+    secret = kube.get("secret", name)
+    data = setup.secret_data(kube, name)
+    es = kube.get("externalsecret", name).get("status", {})
+    return (
+        f"exists={bool(secret)} resourceVersion={secret.get('metadata', {}).get('resourceVersion')}"
+        f" keys={sorted(data)} lengths={ {k: len(v) for k, v in data.items()} }"
+        f" refreshTime={es.get('refreshTime')} conditions={es.get('conditions')}"
+    )
+
+
+def _wait_secret_data(setup: Setup, kube: Kube, name: str, want: dict[str, str]) -> None:
+    """The Secret's data becomes ``want`` within 120s. The ExternalSecret's Ready is no proof of the
+    Secret's content at that instant (one CI run read a Secret that differed from OpenBao just after
+    Ready), so poll the content itself; a Secret that never matches fails with the diagnostics."""
+    polls = 0
+
+    def matches() -> bool:
+        nonlocal polls
+        polls += 1
+        return setup.secret_data(kube, name) == want  # a boolean: nothing is printed
+
+    end = time.time() + 120
+    while not matches():
+        if time.time() > end:
+            pytest.fail(f"{name} differs from OpenBao: {_secret_diagnostics(setup, kube, name)}")
+        time.sleep(1)
+    if polls > 1:
+        print(
+            f"{name} matched OpenBao only at poll {polls}: {_secret_diagnostics(setup, kube, name)}"
+        )
+
+
 def test_a_store_of_another_environment_cannot_read_the_path(setup: Setup) -> None:
     """OTHER's store reads its own path, and is refused this environment's."""
     keys = VALUES["secrets"]["externalSecret"]["keys"]
@@ -449,8 +484,7 @@ def test_a_store_of_another_environment_cannot_read_the_path(setup: Setup) -> No
         lambda: _ready(setup.other.get("externalsecret", "fst-own"))[0] == "True",
         120,
     )
-    same = setup.secret_data(setup.other, "fst-own") == {"value": setup.other_value}
-    assert same, "the other environment's own secret differs from OpenBao"
+    _wait_secret_data(setup, setup.other, "fst-own", {"value": setup.other_value})
     _refused(setup.other, "fst-theirs", "another environment's store, this environment's path")
 
 
