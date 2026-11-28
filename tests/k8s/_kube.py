@@ -183,9 +183,8 @@ def exec_stdin(
 ) -> str:
     """``kube`` runs the kubectl arguments ``command(size)`` with ``payload`` on stdin, where
     ``size`` is the payload's byte count (UTF-8, as _run_both sends it) for the container-side
-    check to compare. Exit
-    STDIN_LOST retries (3 attempts, a note naming ``site`` and never the data); any other
-    failure fails as _run does."""
+    check to compare. Exit STDIN_LOST retries (3 attempts, a note naming ``site`` and never the
+    data); any other failure fails as _run does."""
     cmd = [*kube.base, *command(str(len(payload.encode("utf-8"))))]
     for attempt in range(1, STDIN_ATTEMPTS + 1):
         done = run(cmd, payload)

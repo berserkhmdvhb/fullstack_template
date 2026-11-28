@@ -1,16 +1,19 @@
 """The kind harness verifies that data piped through ``kubectl exec -i`` arrived intact and retries
 when it did not (kubernetes/kubernetes#112834), tests/k8s/_kube.py exec_stdin. Offline: a fake
-runner stands in for kubectl."""
+runner stands in for kubectl, and the in-pod check runs under /bin/sh."""
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from tests.k8s import _kube as _kube_module
-from tests.k8s._kube import STDIN_ATTEMPTS, STDIN_LOST, Kube, exec_stdin
+from tests.k8s._kube import SH_STDIN_CHECK, STDIN_ATTEMPTS, STDIN_LOST, Kube, exec_stdin
 
 
 class _Runner:
@@ -93,3 +96,56 @@ def test_the_size_is_in_bytes_and_is_what_run_both_sends(monkeypatch: pytest.Mon
     assert sent["encoding"] == "utf-8"
     assert sizes == [str(len(sent["input"].encode(sent["encoding"])))]
     assert sizes == ["6"]  # five characters, six bytes
+
+
+# The in-pod check itself, as the helper sends it: sh -c '<SH_STDIN_CHECK> <command>' sh <count> ...
+SH = shutil.which("sh")
+needs_sh = pytest.mark.skipif(SH is None, reason="no sh")
+DATA = "caf\u00e9\npolicy\n".encode()  # multi-byte character and a trailing newline
+
+
+def _in_pod(
+    tmp_path: Path, count: int | str, data: bytes = DATA, stubs: dict[str, str] | None = None
+) -> tuple[int, bytes | None]:
+    """Run the check with a stand-in command (``cat >$OUT``): its exit code, and the bytes the
+    command received (None if it never ran). ``stubs`` put a script of that name first on PATH."""
+    assert SH is not None
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, body in (stubs or {}).items():
+        (bin_dir / name).write_text(body)
+        (bin_dir / name).chmod(0o755)
+    out = tmp_path / "out"
+    env = {**os.environ, "OUT": str(out), "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    cmd = [SH, "-c", SH_STDIN_CHECK + 'cat >"$OUT"', "sh", str(count)]
+    done = subprocess.run(cmd, input=data, capture_output=True, env=env, check=False)
+    return done.returncode, out.read_bytes() if out.exists() else None
+
+
+@needs_sh
+def test_the_right_count_reaches_the_command_byte_for_byte(tmp_path: Path) -> None:
+    assert _in_pod(tmp_path, len(DATA)) == (0, DATA)
+
+
+@needs_sh
+@pytest.mark.parametrize(
+    ("data", "count"),
+    [(DATA[:-1], len(DATA)), (b"", len(DATA)), (DATA + b"x", len(DATA))],
+    ids=["short", "empty", "one extra byte"],
+)
+def test_a_wrong_count_exits_lost_and_the_command_never_runs(
+    tmp_path: Path, data: bytes, count: int
+) -> None:
+    assert _in_pod(tmp_path, count, data) == (STDIN_LOST, None)
+
+
+@needs_sh
+def test_a_padded_wc_count_still_matches(tmp_path: Path) -> None:
+    real = shutil.which("wc")
+    pad = f'#!/bin/sh\nn=$({real} "$@")\nprintf "%8s\\n" "$n"\n'
+    assert _in_pod(tmp_path, len(DATA), stubs={"wc": pad}) == (0, DATA)
+
+
+@needs_sh
+def test_a_failing_mktemp_exits_one_and_the_command_never_runs(tmp_path: Path) -> None:
+    assert _in_pod(tmp_path, len(DATA), stubs={"mktemp": "#!/bin/sh\nexit 1\n"}) == (1, None)
