@@ -52,7 +52,9 @@ def _run_both(cmd: list[str], stdin: str | None = None) -> subprocess.CompletedP
     # KUBECONFIG is always fst's file, and helm's own context variables are dropped.
     env = {k: v for k, v in os.environ.items() if not k.startswith("HELM_KUBE")}
     env["KUBECONFIG"] = str(KUBECONFIG)
-    return subprocess.run(cmd, input=stdin, capture_output=True, text=True, env=env, check=False)
+    return subprocess.run(
+        cmd, input=stdin, capture_output=True, text=True, encoding="utf-8", env=env, check=False
+    )
 
 
 def _run(cmd: list[str], stdin: str | None = None, *, check: bool = True) -> str:
@@ -164,8 +166,9 @@ STDIN_ATTEMPTS = 3
 # The check for a container with sh and sha256sum: the digest is the first argument, and stdin is
 # the verified input afterwards (a temp file keeps trailing newlines; unlinked once it is stdin).
 SH_STDIN_CHECK = (
-    'f=$(mktemp) && cat >"$f" && { [ "$(sha256sum <"$f" | cut -d" " -f1)" = "$1" ]'
-    ' || { rm -f "$f"; exit 75; }; }; shift; exec <"$f"; rm -f "$f"; '
+    'f=$(mktemp) || exit 1; cat >"$f" || { rm -f "$f"; exit 75; }; '
+    '[ "$(sha256sum <"$f" | cut -d" " -f1)" = "$1" ] || { rm -f "$f"; exit 75; }; '
+    'shift; exec <"$f"; rm -f "$f"; '
 )
 
 
@@ -180,7 +183,7 @@ def exec_stdin(
     ``digest`` is the payload's SHA-256 (hex) for the container-side check to compare. Exit
     STDIN_LOST retries (3 attempts, a note naming ``site`` and never the data); any other
     failure fails as _run does."""
-    digest = hashlib.sha256(payload.encode()).hexdigest()
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     cmd = [*kube.base, *command(digest)]
     for attempt in range(1, STDIN_ATTEMPTS + 1):
         done = run(cmd, payload)
@@ -435,5 +438,7 @@ def deploy_env(  # noqa: PLR0913 - the script's inputs, each optional but the fi
     if render:
         env["DEPLOY_RENDER_ONLY"] = str(render)
     cmd = ["bash", str(DEPLOY_ENV)]
-    done = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+    done = subprocess.run(
+        cmd, capture_output=True, text=True, encoding="utf-8", env=env, check=False
+    )
     return done.returncode, done.stdout + done.stderr

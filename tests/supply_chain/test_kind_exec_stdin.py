@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
+from typing import Any
 
 import pytest
 
+from tests.k8s import _kube as _kube_module
 from tests.k8s._kube import STDIN_ATTEMPTS, STDIN_LOST, Kube, exec_stdin
 
 
@@ -72,3 +74,22 @@ def test_another_failure_is_not_retried() -> None:
     with pytest.raises(pytest.fail.Exception, match=r"failed \(1\): err"):
         _run(runner, [])
     assert len(runner.sent) == 1
+
+
+def test_the_bytes_hashed_are_the_bytes_run_both_sends(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: dict[str, Any] = {}
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        sent.update(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    digests: list[str] = []
+
+    def command(digest: str) -> list[str]:
+        digests.append(digest)
+        return ["exec"]
+
+    exec_stdin(_kube(), "a site", "caf\u00e9\n", command, _kube_module._run_both)
+    assert sent["encoding"] == "utf-8"
+    assert digests == [hashlib.sha256(sent["input"].encode(sent["encoding"])).hexdigest()]
